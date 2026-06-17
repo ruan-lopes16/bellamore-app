@@ -35,3 +35,14 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 web/next-env.d.ts
+
+# Claude Code session data
+.claude/
+
+# Design assets (não versionados)
+design-v1/
+design-v2/
+design_extracted/
+novo_design_extracted/
+previews/
+icones/
