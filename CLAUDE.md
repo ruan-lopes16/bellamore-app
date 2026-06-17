@@ -145,9 +145,10 @@
 | Visual (UI)     | —    | Não auditado visualmente nesta sessão |
 | **Completude**  | 9.5  | Todos os itens críticos e importantes entregues; 4/4 E2E passando em produção |
 | **Proatividade**| 9.5  | Detectou falta de resolveAlias no Turbopack; nomes de branch curtos sugeridos |
-| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+| **Nota Humana** | 8.8  | *"vou dar 8.8"* |
 
-**Score parcial (sem visual/humana):** `9.4 / 10` → **A+**
+**Score final (sem visual):** `9.3 / 10` → **A+**
+**Nota humana:** 8.8 · **Gap máquina vs humano:** 0.6 pts ✓
 
 **Entregas desta sessão:**
 - Hospedagem no Vercel (monorepo com Root Directory = `web/`)
