@@ -23,12 +23,10 @@ export default function CriarEmpresaPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/login'); return; }
 
-    const { error } = await supabase.from('empresas').insert({
-      owner_id: user.id,
-      nome:     nome.trim(),
-      telefone: telefone.trim() || null,
-      endereco: endereco.trim() || null,
-      ativo:    true,
+    const { error } = await supabase.rpc('criar_empresa_completo', {
+      p_nome:     nome.trim(),
+      p_telefone: telefone.trim() || null,
+      p_endereco: endereco.trim() || null,
     });
 
     setLoading(false);
