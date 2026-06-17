@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+/* ── Design tokens Bellamore ───────────────────────────────── */
+@theme {
+  /* Superfícies — modo claro */
+  --color-bg:           #F4F0EA;
+  --color-bg2:          #ECE5DC;
+  --color-surface:      #FFFFFF;
+  --color-surface2:     #FBF8F4;
+  --color-border:       #E6DFD6;
+  --color-border-soft:  #F0EAE2;
+
+  /* Tinta */
+  --color-ink:    #221A30;
+  --color-ink2:   #544A63;
+  --color-ink3:   #857A95;
+  --color-ink4:   #B3A9C1;
+
+  /* Aliases de compatibilidade (componentes antigos) */
+  --color-text:    #221A30;
+  --color-text-2:  #544A63;
+  --color-text-3:  #857A95;
+  --color-text-4:  #B3A9C1;
+
+  /* Marca — plum */
+  --color-primary:       #2C1750;
+  --color-primary-700:   #4A2A86;
+  --color-primary-soft:  #EDE6F8;
+  --color-primary-dark:  #1E0E3D;
+
+  /* Acento padrão — Orquídea */
+  --color-accent:      #8B5CF0;
+  --color-accent-soft: #F1EBFE;
+
+  /* Semânticas */
+  --color-green:       #157A5B;
+  --color-green-soft:  #E6F6EF;
+  --color-rose:        #C9527F;
+  --color-rose-soft:   #FBECF2;
+  --color-amber:       #A65A1B;
+  --color-amber-soft:  #FAEFE0;
+  --color-gold:        #A8842F;
+
+  /* Aliases compat */
+  --color-red:          #C9527F;
+  --color-red-soft:     #FBECF2;
+
+  /* Fontes */
+  --font-serif: var(--font-cormorant), "Georgia", serif;
+  --font-sans:  var(--font-jakarta), system-ui, sans-serif;
+
+  /* Border-radius como utilitários */
+  --radius-sm:   12px;
+  --radius-md:   16px;
+  --radius-lg:   20px;
+  --radius-xl:   26px;
+  --radius-pill: 9999px;
+}
+
+/* ── Modo escuro ───────────────────────────────────────────── */
+.dark {
+  --color-bg:          #130E1F;
+  --color-bg2:         #1C1630;
+  --color-surface:     #231C38;
+  --color-surface2:    #2C2445;
+  --color-border:      rgba(255,255,255,0.08);
+  --color-border-soft: rgba(255,255,255,0.04);
+
+  --color-ink:    #F0EAF8;
+  --color-ink2:   #C8BADA;
+  --color-ink3:   #8A7EA0;
+  --color-ink4:   #584F6A;
+
+  --color-text:    #F0EAF8;
+  --color-text-2:  #C8BADA;
+  --color-text-3:  #8A7EA0;
+  --color-text-4:  #584F6A;
+
+  --color-primary:       #9B7CF8;
+  --color-primary-700:   #B89CFF;
+  --color-primary-soft:  rgba(155,124,248,0.16);
+
+  --color-accent:      #8B5CF0;
+  --color-accent-soft: rgba(139,92,240,0.16);
+
+  --color-rose:       #E8729A;
+  --color-rose-soft:  rgba(232,114,154,0.15);
+  --color-green:      #34C992;
+  --color-green-soft: rgba(52,201,146,0.15);
+  --color-amber:      #F0933A;
+  --color-amber-soft: rgba(240,147,58,0.15);
+
+  --color-red:       #E8729A;
+  --color-red-soft:  rgba(232,114,154,0.15);
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
+html, body {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 300ms ease, color 300ms ease;
+}
+
+/* Scrollbar discreta */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+
+/* ── Skeleton shimmer ──────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.sk {
+  background: linear-gradient(90deg, var(--color-bg2) 25%, var(--color-surface2) 50%, var(--color-bg2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 0.5rem;
+}
+
+/* ── Animações Bellamore ───────────────────────────────────── */
+@keyframes bm-fade    { from { opacity:0 } to { opacity:1 } }
+@keyframes bm-sheet   { from { transform:translateY(100%) } to { transform:translateY(0) } }
+@keyframes bm-toast   { from { opacity:0; transform:translateY(18px) } to { opacity:1; transform:translateY(0) } }
+@keyframes bm-screen  { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:translateY(0) } }
+@keyframes bm-pop     { 0% { transform:scale(.5); opacity:0 } 60% { transform:scale(1.1) } 100% { transform:scale(1); opacity:1 } }
+@keyframes bm-stagger { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
+@keyframes bm-grow    { from { transform:scaleY(0) } to { transform:scaleY(1) } }
+@keyframes bm-draw    { to { stroke-dashoffset:0 } }
+
+.bm-page { animation: bm-screen 340ms cubic-bezier(.2,.85,.3,1) both; }
+
+/* Stagger: aplicar no elemento INTERNO do card (fill-mode both quebraria
+   o scale de press se aplicado no elemento pressável). Delay via
+   --bm-i (índice) definido inline. */
+.bm-stagger {
+  animation: bm-stagger .45s cubic-bezier(.2,.85,.3,1) both;
+  animation-delay: calc(var(--bm-i, 0) * var(--bm-step, 60ms));
+}
+.bm-pop  { animation: bm-pop .32s cubic-bezier(.2,.9,.3,1); }
+.bm-grow {
+  transform-origin: bottom;
+  animation: bm-grow .7s cubic-bezier(.2,.9,.3,1) both;
+  animation-delay: calc(var(--bm-i, 0) * 70ms);
+}
+
+/* ── Utilitários de press / toque ──────────────────────────── */
+.press { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.press:active { transform: scale(0.97); transition: transform 140ms cubic-bezier(.2,.8,.3,1); }
+
+/* ── Acessibilidade de movimento ───────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .bm-stagger, .bm-pop, .bm-grow, .bm-page { animation: none !important; }
+  .bm-tilt { transform: none !important; }
+}

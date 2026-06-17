@@ -1,0 +1,44 @@
+/* Bellamore — animações base (importar em app/globals.css) */
+
+:root {
+  --ease-spring: cubic-bezier(.2, .9, .3, 1);
+  --ease-enter:  cubic-bezier(.2, .85, .3, 1);
+  --ease-press:  cubic-bezier(.2, .8, .3, 1);
+}
+
+@keyframes bm-fade    { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bm-screen  { from { opacity: 0; transform: translateY(6px); }  to { opacity: 1; transform: translateY(0); } }
+@keyframes bm-stagger { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bm-grow    { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes bm-pop     { 0% { transform: scale(.5); opacity: 0; } 60% { transform: scale(1.1); } 100% { transform: scale(1); opacity: 1; } }
+@keyframes bm-draw    { to { stroke-dashoffset: 0; } }
+@keyframes bm-sheet   { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes bm-toast   { from { transform: translateY(18px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* Entrada de tela/painel */
+.bm-screen  { animation: bm-screen .34s var(--ease-enter); }
+
+/* Entrada em cascata — defina animation-delay inline: {i * 60}ms */
+.bm-stagger { animation: bm-stagger .45s var(--ease-enter) both; }
+
+/* Barra de gráfico crescendo — delay inline {i * 70}ms */
+.bm-grow    { transform-origin: bottom; animation: bm-grow .7s var(--ease-spring) both; }
+
+/* Pop (ícone de tab ativa, badges novos) */
+.bm-pop     { animation: bm-pop .32s var(--ease-spring); }
+
+/* Feedback de toque — adicionar a qualquer clicável */
+.bm-press   { transition: transform .14s var(--ease-press); -webkit-tap-highlight-color: transparent; }
+.bm-press:active { transform: scale(.97); }
+
+/* Sheets e toasts */
+.bm-sheet   { animation: bm-sheet .34s var(--ease-spring); }
+.bm-toast   { animation: bm-toast .3s var(--ease-spring); }
+
+/* Acessibilidade: desligar tudo com reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .bm-screen, .bm-stagger, .bm-grow, .bm-pop, .bm-sheet, .bm-toast {
+    animation: bm-fade .15s ease both;
+  }
+  .bm-press, .bm-press:active { transition: none; transform: none; }
+}
