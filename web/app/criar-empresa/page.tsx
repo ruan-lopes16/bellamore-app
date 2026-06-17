@@ -23,37 +23,15 @@ export default function CriarEmpresaPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/login'); return; }
 
-    // Garante que public.users existe (pode não existir após limpeza do banco)
-    await supabase.from('users').upsert({
-      id:    user.id,
-      nome:  user.user_metadata?.nome ?? user.email?.split('@')[0] ?? 'Usuário',
-      email: user.email ?? '',
-    }, { onConflict: 'id' });
-
-    // Cria a empresa
-    const { data: empresa, error } = await supabase.from('empresas').insert({
-      owner_id: user.id,
-      nome:     nome.trim(),
-      telefone: telefone.trim() || null,
-      endereco: endereco.trim() || null,
-      ativo:    true,
-    }).select('id').single();
-
-    if (error || !empresa) {
-      setLoading(false);
-      setErro(error?.message ?? 'Erro ao criar empresa');
-      return;
-    }
-
-    // Adiciona o dono como membro gestor (necessário para o layout encontrar a empresa)
-    await supabase.from('empresa_membros').insert({
-      empresa_id: empresa.id,
-      user_id:    user.id,
-      role:       'gestor',
-      ativo:      true,
+    const { error } = await supabase.rpc('criar_empresa_completo', {
+      p_nome:     nome.trim(),
+      p_telefone: telefone.trim() || null,
+      p_endereco: endereco.trim() || null,
     });
 
     setLoading(false);
+    if (error) { setErro(error.message); return; }
+
     router.push('/dashboard');
     router.refresh();
   }
