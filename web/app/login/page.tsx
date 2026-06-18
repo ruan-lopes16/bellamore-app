@@ -106,10 +106,6 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="text-center text-sm text-text-3 mt-5">
-          Não tem conta?{' '}
-          <a href="/cadastro" className="text-accent font-semibold hover:underline">Cadastre-se</a>
-        </p>
       </div>
     </div>
   );

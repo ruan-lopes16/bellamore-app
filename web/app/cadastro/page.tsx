@@ -22,7 +22,6 @@ export default function CadastroPage() {
 
   const [nome,         setNome]         = useState('');
   const [email,        setEmail]        = useState('');
-  const [codigo,       setCodigo]       = useState('');
   const [senha,        setSenha]        = useState('');
   const [confirmar,    setConfirmar]    = useState('');
   const [verSenha,     setVerSenha]     = useState(false);
@@ -40,21 +39,6 @@ export default function CadastroPage() {
     }
 
     setLoading(true);
-
-    // Verifica código de convite no servidor (INVITE_CODE nunca exposto ao cliente)
-    const res = await fetch('/api/verificar-convite', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ codigo }),
-    });
-    const { valido } = await res.json();
-
-    if (!valido) {
-      setErro('Código de acesso inválido. Solicite ao administrador.');
-      setLoading(false);
-      return;
-    }
-
     const { error } = await supabase.auth.signUp({
       email,
       password: senha,
@@ -63,9 +47,16 @@ export default function CadastroPage() {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-
     setLoading(false);
-    if (error) { setErro(error.message); return; }
+
+    if (error) {
+      setErro(
+        error.message.includes('not allowed') || error.message.includes('disabled')
+          ? 'Cadastros estão desativados. Entre em contato com o administrador.'
+          : error.message
+      );
+      return;
+    }
 
     router.push(`/verificar-email?email=${encodeURIComponent(email)}`);
   }
@@ -81,20 +72,11 @@ export default function CadastroPage() {
             <span className="text-white text-xl font-bold font-serif">✦</span>
           </div>
           <h1 className="font-serif text-3xl text-text leading-tight">Criar conta</h1>
-          <p className="text-text-3 text-sm mt-1">Você precisa de um código de acesso</p>
+          <p className="text-text-3 text-sm mt-1">Acesso mediante convite do administrador</p>
         </div>
 
         <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
           <form onSubmit={cadastrar} className="flex flex-col gap-4">
-
-            <div>
-              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Código de acesso *</label>
-              <input
-                type="text" value={codigo} onChange={e => setCodigo(e.target.value)}
-                placeholder="Solicite ao administrador" required
-                className={inputClass}
-              />
-            </div>
 
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Nome completo</label>
@@ -155,7 +137,7 @@ export default function CadastroPage() {
               type="submit" disabled={loading}
               className="h-11 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60 mt-1"
             >
-              {loading ? 'Verificando...' : 'Criar conta'}
+              {loading ? 'Criando conta...' : 'Criar conta'}
             </button>
           </form>
         </div>
