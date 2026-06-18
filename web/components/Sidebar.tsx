@@ -44,7 +44,7 @@ const MOBILE_NAV = [
   { href: '/mais',       label: 'Mais',       icon: MoreHorizontal  },
 ];
 
-export default function Sidebar({ empresaNome, empresaLogo }: { empresaNome: string; empresaLogo: string | null }) {
+export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: { empresaNome: string; empresaLogo: string | null; empresaSegmento: string }) {
   const pathname        = usePathname();
   const router          = useRouter();
   const [alertCount,     setAlertCount]     = useState(0);
@@ -111,7 +111,7 @@ export default function Sidebar({ empresaNome, empresaLogo }: { empresaNome: str
               </div>
             )}
             <div className="min-w-0">
-              <p className="text-xs font-semibold truncate" style={{ color: 'var(--color-ink3)', letterSpacing: '0.05em' }}>Studio</p>
+              <p className="text-xs font-semibold truncate" style={{ color: 'var(--color-ink3)', letterSpacing: '0.05em' }}>{empresaSegmento}</p>
               <p className="text-sm font-bold truncate" style={{ color: 'var(--color-ink)', lineHeight: 1.2 }}>{empresaNome}</p>
             </div>
           </div>

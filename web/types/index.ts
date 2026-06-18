@@ -24,6 +24,7 @@ export interface Empresa {
   id: string;
   owner_id: string;
   nome: string;
+  segmento?: string;
   cnpj?: string;
   endereco?: string;
   telefone?: string;

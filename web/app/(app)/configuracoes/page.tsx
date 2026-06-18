@@ -1,36 +1,13 @@
 'use client';
 
-/**
- * @file configuracoes/page.tsx
- * Página de configurações do salão e perfil do usuário.
- *
- * ## Abas
- * - Empresa  : nome, CNPJ, telefone, endereço, logo, horários de funcionamento
- * - Meu perfil : nome e telefone do usuário logado
- *
- * ## Campos salvos
- * - empresas: nome, cnpj, telefone, endereco, logo_url, horario_funcionamento (JSONB)
- * - users: nome, telefone
- *
- * ## Logo
- * - Upload para Supabase Storage bucket "logos"
- * - URL pública salva em empresas.logo_url
- * - Prévia em tempo real antes de salvar
- *
- * ## Horários
- * - JSONB: { seg: { aberto: boolean, inicio: "HH:MM", fim: "HH:MM" }, ... }
- * - Toggle liga/desliga o dia; inputs só ativos quando aberto = true
- */
-
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 
 const supabase = createClient();
-
-// ── Tipos ─────────────────────────────────────────────────────
 
 type DiaSemana = 'seg' | 'ter' | 'qua' | 'qui' | 'sex' | 'sab' | 'dom';
 type HorarioDia = { aberto: boolean; inicio: string; fim: string };
@@ -56,16 +33,9 @@ const HORARIO_DEFAULT: Horarios = {
   dom: { aberto: false, inicio: '08:00', fim: '12:00' },
 };
 
-// ── Helpers ───────────────────────────────────────────────────
-
 const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5";
 
-/**
- * Máscara de telefone progressiva — aplica conforme o usuário digita.
- * Suporta celular (11 dígitos): (XX) XXXXX-XXXX
- * e fixo (10 dígitos): (XX) XXXX-XXXX
- */
 function maskPhone(raw: string): string {
   const d = raw.replace(/\D/g, '').slice(0, 11);
   if (d.length === 0) return '';
@@ -75,10 +45,6 @@ function maskPhone(raw: string): string {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
-/**
- * Máscara de CNPJ progressiva — aplica conforme o usuário digita.
- * Formato: XX.XXX.XXX/XXXX-XX
- */
 function maskCnpj(raw: string): string {
   const d = raw.replace(/\D/g, '').slice(0, 14);
   if (d.length === 0)  return '';
@@ -90,10 +56,7 @@ function maskCnpj(raw: string): string {
 }
 
 function SectionCard({ title, icon: Icon, children, hue = 270 }: {
-  title: string;
-  icon: React.ElementType;
-  children: React.ReactNode;
-  hue?: number;
+  title: string; icon: React.ElementType; children: React.ReactNode; hue?: number;
 }) {
   return (
     <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -108,12 +71,11 @@ function SectionCard({ title, icon: Icon, children, hue = 270 }: {
   );
 }
 
-// ── Página ────────────────────────────────────────────────────
-
 export default function ConfiguracoesPage() {
+  const router = useRouter();
 
-  const [aba, setAba] = useState<'empresa' | 'perfil'>('empresa');
-  const [loading, setLoading] = useState(true);
+  const [aba,      setAba]      = useState<'empresa' | 'perfil'>('empresa');
+  const [loading,  setLoading]  = useState(true);
   const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
@@ -129,20 +91,23 @@ export default function ConfiguracoesPage() {
     document.documentElement.classList.toggle('dark', next);
   }
 
-  // IDs
   const [empresaId, setEmpresaId] = useState('');
   const [userId,    setUserId]    = useState('');
   const [isOwner,   setIsOwner]   = useState(false);
 
   // Campos empresa
-  const [nome,     setNome]     = useState('');
-  const [cnpj,     setCnpj]     = useState('');
-  const [telefone, setTelefone] = useState('');
-  const [endereco, setEndereco] = useState('');
-  const [cep,      setCep]      = useState('');
-  const [logoUrl,  setLogoUrl]  = useState('');
-  const [logoPreview, setLogoPreview] = useState('');
-  const [horarios, setHorarios] = useState<Horarios>(HORARIO_DEFAULT);
+  const [nome,      setNome]      = useState('');
+  const [segmento,  setSegmento]  = useState('Estúdio');
+  const [cnpj,      setCnpj]      = useState('');
+  const [telefone,  setTelefone]  = useState('');
+  const [cep,       setCep]       = useState('');
+  const [rua,       setRua]       = useState('');
+  const [numero,    setNumero]    = useState('');
+  const [bairro,    setBairro]    = useState('');
+  const [localidade,setLocalidade]= useState('');
+  const [logoUrl,   setLogoUrl]   = useState('');
+  const [logoPreview,setLogoPreview] = useState('');
+  const [horarios,  setHorarios]  = useState<Horarios>(HORARIO_DEFAULT);
 
   const [buscandoCep,  setBuscandoCep]  = useState(false);
   const [buscandoCnpj, setBuscandoCnpj] = useState(false);
@@ -152,11 +117,9 @@ export default function ConfiguracoesPage() {
   const [perfilTelefone, setPerfilTelefone] = useState('');
   const [perfilEmail,    setPerfilEmail]    = useState('');
 
-  // Upload logo
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadando,  setUploadando]  = useState(false);
+  const [uploadando, setUploadando] = useState(false);
 
-  // Feedback
   const [salvando, setSalvando] = useState(false);
   const [toast,    setToast]    = useState('');
   const [erro,     setErro]     = useState('');
@@ -166,7 +129,6 @@ export default function ConfiguracoesPage() {
     setTimeout(() => setToast(''), 3500);
   }
 
-  // ── Carregar dados
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -175,7 +137,6 @@ export default function ConfiguracoesPage() {
       setUserId(user.id);
       setPerfilEmail(user.email ?? '');
 
-      // Empresa
       const { data: membro } = await supabase
         .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
@@ -184,22 +145,40 @@ export default function ConfiguracoesPage() {
       setEmpresaId(membro.empresa_id);
 
       const [{ data: empresa }, { data: perfil }] = await Promise.all([
-        supabase.from('empresas').select('nome, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id')
+        supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id')
           .eq('id', membro.empresa_id).single(),
         supabase.from('users').select('nome, telefone').eq('id', user.id).single(),
       ]);
 
       if (empresa) {
         setNome(empresa.nome ?? '');
+        setSegmento(empresa.segmento ?? 'Estúdio');
         setCnpj(maskCnpj(empresa.cnpj ?? ''));
         setTelefone(maskPhone(empresa.telefone ?? ''));
-        setEndereco(empresa.endereco ?? '');
         setLogoUrl(empresa.logo_url ?? '');
         setLogoPreview(empresa.logo_url ?? '');
         setIsOwner(empresa.owner_id === user.id);
         if (empresa.horario_funcionamento) {
-          // Merge com default para garantir todos os dias presentes
           setHorarios({ ...HORARIO_DEFAULT, ...(empresa.horario_funcionamento as Horarios) });
+        }
+
+        // Faz parse do endereço salvo em partes separadas
+        const endRaw = (empresa.endereco ?? '').trim();
+        if (endRaw) {
+          const parts = endRaw.split(',').map((s: string) => s.trim()).filter(Boolean);
+          if (parts.length >= 3) {
+            setRua(parts[0]);
+            // Se a segunda parte começa com dígito, é o número
+            if (/^\d/.test(parts[1])) {
+              setNumero(parts[1]);
+              setBairro(parts.slice(2, -1).join(', '));
+            } else {
+              setBairro(parts.slice(1, -1).join(', '));
+            }
+            setLocalidade(parts[parts.length - 1]);
+          } else {
+            setRua(endRaw);
+          }
         }
       }
 
@@ -212,22 +191,23 @@ export default function ConfiguracoesPage() {
     })();
   }, []);
 
-  // ── Busca de CEP (ViaCEP)
   async function buscarCEP(valor: string) {
     const d = valor.replace(/\D/g, '');
     if (d.length !== 8) return;
     setBuscandoCep(true);
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${d}/json/`);
+      const res  = await fetch(`https://viacep.com.br/ws/${d}/json/`);
       const data = await res.json();
       if (!data.erro) {
-        setEndereco(`${data.logradouro}, ${data.bairro}, ${data.localidade} - ${data.uf}`);
+        setRua(data.logradouro || '');
+        setBairro(data.bairro || '');
+        setLocalidade(`${data.localidade} - ${data.uf}`);
+        setNumero(''); // limpa para o usuário preencher
       }
-    } catch { /* mantém o campo como está */ }
+    } catch {}
     finally { setBuscandoCep(false); }
   }
 
-  // ── Busca de CNPJ (BrasilAPI — mesma base da ReceitaWS, CORS liberado)
   async function buscarCNPJ(valor: string) {
     const d = valor.replace(/\D/g, '');
     if (d.length !== 14) return;
@@ -246,64 +226,70 @@ export default function ConfiguracoesPage() {
         setCep(cepFormatado);
       }
       if (data.logradouro) {
-        setEndereco(`${data.logradouro}, ${data.numero ?? 'S/N'}, ${data.bairro}, ${data.municipio} - ${data.uf}`);
+        setRua(data.logradouro);
+        setNumero(data.numero ?? '');
+        setBairro(data.bairro ?? '');
+        setLocalidade(`${data.municipio} - ${data.uf}`);
       }
-    } catch { /* mantém os campos como estão */ }
+    } catch {}
     finally { setBuscandoCnpj(false); }
   }
 
-  // ── Upload de logo
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Prévia local imediata
+    // Prévia imediata
     const objectUrl = URL.createObjectURL(file);
     setLogoPreview(objectUrl);
-
     setUploadando(true);
+
     const ext  = file.name.split('.').pop();
     const path = `empresa_${empresaId}.${ext}`;
 
-    const { error } = await supabase.storage
-      .from('logos')
-      .upload(path, file, { upsert: true });
+    const { error } = await supabase.storage.from('logos').upload(path, file, { upsert: true });
 
     if (error) {
       setErro(`Erro no upload: ${error.message}`);
-      setLogoPreview(logoUrl); // volta para original
+      setLogoPreview(logoUrl);
       setUploadando(false);
       return;
     }
 
-    const { data: { publicUrl } } = supabase.storage
-      .from('logos').getPublicUrl(path);
-
+    const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(path);
     setLogoUrl(publicUrl);
+
+    // Salva logo_url imediatamente para refletir na sidebar sem precisar salvar o formulário
+    await supabase.from('empresas').update({ logo_url: publicUrl }).eq('id', empresaId);
+    router.refresh(); // atualiza o Server Component (AppLayout / Sidebar)
+
     setUploadando(false);
+    showToast('Logo atualizada!');
   }
 
-  // ── Salvar empresa
   async function salvarEmpresa(e: React.FormEvent) {
     e.preventDefault();
     if (!isOwner) { setErro('Somente o dono da empresa pode editar as configurações.'); return; }
     setSalvando(true); setErro('');
 
+    const enderecoFinal = [rua, numero, bairro, localidade].filter(Boolean).join(', ');
+
     const { error } = await supabase.from('empresas').update({
-      nome:     nome.trim(),
-      cnpj:     cnpj.trim()     || null,
-      telefone: telefone.trim() || null,
-      endereco: endereco.trim() || null,
-      logo_url: logoUrl         || null,
+      nome:                  nome.trim(),
+      segmento:              segmento        || 'Estúdio',
+      cnpj:                  cnpj.trim()     || null,
+      telefone:              telefone.trim() || null,
+      endereco:              enderecoFinal   || null,
+      logo_url:              logoUrl         || null,
       horario_funcionamento: horarios,
     }).eq('id', empresaId);
 
     setSalvando(false);
     if (error) { setErro(error.message); return; }
     showToast('Configurações salvas!');
+    setTimeout(() => window.location.reload(), 1000);
   }
 
-  // ── Salvar perfil
   async function salvarPerfil(e: React.FormEvent) {
     e.preventDefault();
     setSalvando(true); setErro('');
@@ -318,15 +304,10 @@ export default function ConfiguracoesPage() {
     showToast('Perfil atualizado!');
   }
 
-  // ── Horários helpers
   function setHorarioDia(dia: DiaSemana, campo: keyof HorarioDia, valor: boolean | string) {
-    setHorarios(prev => ({
-      ...prev,
-      [dia]: { ...prev[dia], [campo]: valor },
-    }));
+    setHorarios(prev => ({ ...prev, [dia]: { ...prev[dia], [campo]: valor } }));
   }
 
-  // ── Render ────────────────────────────────────────────────────
   if (loading) {
     return (
       <div>
@@ -345,14 +326,12 @@ export default function ConfiguracoesPage() {
 
   return (
     <div>
-      {/* Toast */}
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-green text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm">
           <Check size={16} strokeWidth={2.5}/> {toast}
         </div>
       )}
 
-      {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Administração</p>
@@ -362,16 +341,14 @@ export default function ConfiguracoesPage() {
           className="press mt-1 w-10 h-10 rounded-2xl flex items-center justify-center transition"
           style={{ background: darkMode ? 'var(--color-primary-soft)' : 'var(--color-bg2)', border: '1px solid var(--color-border)' }}>
           {darkMode
-            ? <Sun size={18} style={{ color: 'var(--color-primary)' }} strokeWidth={2}/>
-            : <Moon size={18} style={{ color: 'var(--color-ink3)' }} strokeWidth={2}/>
-          }
+            ? <Sun  size={18} style={{ color: 'var(--color-primary)' }} strokeWidth={2}/>
+            : <Moon size={18} style={{ color: 'var(--color-ink3)'   }} strokeWidth={2}/>}
         </button>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-0 border-b border-border mb-8">
         {([
-          { key: 'empresa', label: 'Empresa' },
+          { key: 'empresa', label: 'Empresa'    },
           { key: 'perfil',  label: 'Meu perfil' },
         ] as const).map(({ key, label }) => (
           <button key={key} onClick={() => { setAba(key); setErro(''); }}
@@ -382,7 +359,7 @@ export default function ConfiguracoesPage() {
         ))}
       </div>
 
-      {/* ══════════ TAB: EMPRESA ══════════ */}
+      {/* ══ TAB: EMPRESA ══ */}
       {aba === 'empresa' && (
         <form onSubmit={salvarEmpresa} className="max-w-2xl flex flex-col gap-6">
 
@@ -393,12 +370,59 @@ export default function ConfiguracoesPage() {
             </div>
           )}
 
+          {/* Logo — primeiro para reflexo imediato */}
+          <SectionCard title="Logo" icon={Upload} hue={220}>
+            <div className="flex items-center gap-5">
+              <div
+                onClick={() => isOwner && fileInputRef.current?.click()}
+                className={`w-20 h-20 rounded-2xl border-2 border-dashed flex items-center justify-center overflow-hidden flex-shrink-0 transition ${
+                  isOwner ? 'border-border hover:border-accent cursor-pointer' : 'border-border cursor-not-allowed opacity-60'
+                }`}>
+                {logoPreview ? (
+                  <Image src={logoPreview} alt="Logo" width={80} height={80} className="w-full h-full object-cover" unoptimized/>
+                ) : (
+                  <Upload size={20} className="text-text-4"/>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-text font-semibold">
+                  {uploadando ? 'Enviando...' : logoPreview ? 'Logo carregada' : 'Nenhuma logo'}
+                </p>
+                <p className="text-xs text-text-4">PNG, JPG até 2 MB. Ao fazer upload, a logo já aparece na sidebar.</p>
+                {isOwner && (
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadando}
+                    className="w-fit h-8 px-3 rounded-xl border border-border text-xs font-semibold text-text-2 hover:bg-bg transition disabled:opacity-50 flex items-center gap-1.5">
+                    {uploadando && <Loader2 size={12} className="animate-spin"/>}
+                    {uploadando ? 'Enviando...' : 'Escolher arquivo'}
+                  </button>
+                )}
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload}/>
+            </div>
+          </SectionCard>
+
           {/* Dados gerais */}
           <SectionCard title="Dados da empresa" icon={Building2} hue={270}>
-            <div>
-              <label className={labelCls}>Nome do salão *</label>
-              <input value={nome} onChange={e => setNome(e.target.value)} required
-                placeholder="Ex: Studio Bella" className={inputCls} disabled={!isOwner}/>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Nome do salão *</label>
+                <input value={nome} onChange={e => setNome(e.target.value)} required
+                  placeholder="Ex: Studio Bella" className={inputCls} disabled={!isOwner}/>
+              </div>
+              <div>
+                <label className={labelCls}>Segmento</label>
+                <select
+                  value={segmento}
+                  onChange={e => setSegmento(e.target.value)}
+                  disabled={!isOwner}
+                  className={`${inputCls} cursor-pointer`}
+                  style={{ appearance: 'auto' }}
+                >
+                  {['Estúdio', 'Clínica', 'Salão', 'Barbearia', 'Spa', 'Ateliê', 'Outro'].map(op => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -406,104 +430,61 @@ export default function ConfiguracoesPage() {
                 <div className="relative">
                   <input
                     value={cnpj}
-                    onChange={e => {
-                      const masked = maskCnpj(e.target.value);
-                      setCnpj(masked);
-                      buscarCNPJ(masked);
-                    }}
-                    placeholder="00.000.000/0001-00"
-                    inputMode="numeric"
-                    maxLength={18}
-                    className={inputCls}
-                    disabled={!isOwner}
-                  />
-                  {buscandoCnpj && (
-                    <Loader2 size={14} className="absolute right-3 top-3 text-text-4 animate-spin" />
-                  )}
+                    onChange={e => { const m = maskCnpj(e.target.value); setCnpj(m); buscarCNPJ(m); }}
+                    placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18}
+                    className={inputCls} disabled={!isOwner}/>
+                  {buscandoCnpj && <Loader2 size={14} className="absolute right-3 top-3 text-text-4 animate-spin"/>}
                 </div>
               </div>
               <div>
                 <label className={labelCls}>Telefone</label>
-                <input
-                  value={telefone}
-                  onChange={e => setTelefone(maskPhone(e.target.value))}
-                  placeholder="(11) 99999-9999"
-                  inputMode="numeric"
-                  maxLength={15}
-                  className={inputCls}
-                  disabled={!isOwner}
-                />
+                <input value={telefone} onChange={e => setTelefone(maskPhone(e.target.value))}
+                  placeholder="(11) 99999-9999" inputMode="numeric" maxLength={15}
+                  className={inputCls} disabled={!isOwner}/>
               </div>
             </div>
+
+            {/* CEP + Número na mesma linha */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>CEP</label>
+                <div className="relative">
+                  <input
+                    value={cep}
+                    onChange={e => {
+                      const masked = e.target.value.replace(/\D/g, '').replace(/^(\d{5})(\d{0,3})$/, '$1-$2').replace(/-$/, '');
+                      setCep(masked);
+                      buscarCEP(masked);
+                    }}
+                    placeholder="00000-000" inputMode="numeric" maxLength={9}
+                    className={inputCls} disabled={!isOwner}/>
+                  {buscandoCep && <Loader2 size={14} className="absolute right-3 top-3 text-text-4 animate-spin"/>}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Número</label>
+                <input value={numero} onChange={e => setNumero(e.target.value)}
+                  placeholder="123" className={inputCls} disabled={!isOwner}/>
+              </div>
+            </div>
+
             <div>
-              <label className={labelCls}>CEP</label>
-              <div className="relative">
-                <input
-                  value={cep}
-                  onChange={e => {
-                    const masked = e.target.value.replace(/\D/g, '').replace(/^(\d{5})(\d{0,3})$/, '$1-$2').replace(/-$/, '');
-                    setCep(masked);
-                    buscarCEP(masked);
-                  }}
-                  placeholder="00000-000"
-                  inputMode="numeric"
-                  maxLength={9}
-                  className={inputCls}
-                  disabled={!isOwner}
-                />
-                {buscandoCep && (
-                  <Loader2 size={14} className="absolute right-3 top-3 text-text-4 animate-spin" />
-                )}
-              </div>
+              <label className={labelCls}>Logradouro</label>
+              <input value={rua} onChange={e => setRua(e.target.value)}
+                placeholder="Preenchido pelo CEP" className={inputCls} disabled={!isOwner}/>
             </div>
-            <div>
-              <label className={labelCls}>Endereço</label>
-              <input value={endereco} onChange={e => setEndereco(e.target.value)}
-                placeholder="Preenchido automaticamente pelo CEP" className={inputCls} disabled={!isOwner}/>
-            </div>
-          </SectionCard>
 
-          {/* Logo */}
-          <SectionCard title="Logo" icon={Upload} hue={220}>
-            <div className="flex items-center gap-5">
-              {/* Prévia */}
-              <div
-                onClick={() => isOwner && fileInputRef.current?.click()}
-                className={`w-20 h-20 rounded-2xl border-2 border-dashed flex items-center justify-center overflow-hidden flex-shrink-0 transition ${
-                  isOwner
-                    ? 'border-border hover:border-accent cursor-pointer'
-                    : 'border-border cursor-not-allowed opacity-60'
-                }`}>
-                {logoPreview ? (
-                  <Image src={logoPreview} alt="Logo" width={80} height={80} className="w-full h-full object-cover"/>
-                ) : (
-                  <Upload size={20} className="text-text-4"/>
-                )}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Bairro</label>
+                <input value={bairro} onChange={e => setBairro(e.target.value)}
+                  placeholder="Preenchido pelo CEP" className={inputCls} disabled={!isOwner}/>
               </div>
-
-              {/* Info */}
-              <div className="flex flex-col gap-2">
-                <p className="text-sm text-text font-semibold">
-                  {logoPreview ? 'Logo carregada' : 'Nenhuma logo'}
-                </p>
-                <p className="text-xs text-text-4">PNG, JPG até 2 MB. Clique na imagem para trocar.</p>
-                {isOwner && (
-                  <button type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadando}
-                    className="w-fit h-8 px-3 rounded-xl border border-border text-xs font-semibold text-text-2 hover:bg-bg transition disabled:opacity-50">
-                    {uploadando ? 'Enviando...' : 'Escolher arquivo'}
-                  </button>
-                )}
+              <div>
+                <label className={labelCls}>Cidade / Estado</label>
+                <input value={localidade} onChange={e => setLocalidade(e.target.value)}
+                  placeholder="Preenchido pelo CEP" className={inputCls} disabled={!isOwner}/>
               </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleLogoUpload}
-              />
             </div>
           </SectionCard>
 
@@ -514,42 +495,22 @@ export default function ConfiguracoesPage() {
                 const h = horarios[key];
                 return (
                   <div key={key} className="flex items-center gap-4">
-                    {/* Toggle */}
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={() => isOwner && setHorarioDia(key, 'aberto', !h.aberto)}
                       disabled={!isOwner}
-                      className={`relative w-10 h-5 rounded-full transition flex-shrink-0 ${
-                        h.aberto ? 'bg-primary' : 'bg-border'
-                      } ${!isOwner ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
-                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                        h.aberto ? 'left-[22px]' : 'left-0.5'
-                      }`}/>
+                      className={`relative w-10 h-5 rounded-full transition flex-shrink-0 ${h.aberto ? 'bg-primary' : 'bg-border'} ${!isOwner ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${h.aberto ? 'left-[22px]' : 'left-0.5'}`}/>
                     </button>
-
-                    {/* Nome do dia */}
-                    <span className={`text-sm w-32 flex-shrink-0 ${h.aberto ? 'text-text font-semibold' : 'text-text-4'}`}>
-                      {label}
-                    </span>
-
-                    {/* Horários */}
+                    <span className={`text-sm w-32 flex-shrink-0 ${h.aberto ? 'text-text font-semibold' : 'text-text-4'}`}>{label}</span>
                     {h.aberto ? (
                       <div className="flex items-center gap-2 flex-1">
-                        <input
-                          type="time"
-                          value={h.inicio}
-                          onChange={e => setHorarioDia(key, 'inicio', e.target.value)}
+                        <input type="time" value={h.inicio} onChange={e => setHorarioDia(key, 'inicio', e.target.value)}
                           disabled={!isOwner}
-                          className="h-9 px-2.5 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent transition disabled:opacity-60 disabled:cursor-not-allowed"
-                        />
+                          className="h-9 px-2.5 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent transition disabled:opacity-60 disabled:cursor-not-allowed"/>
                         <span className="text-text-4 text-sm">até</span>
-                        <input
-                          type="time"
-                          value={h.fim}
-                          onChange={e => setHorarioDia(key, 'fim', e.target.value)}
+                        <input type="time" value={h.fim} onChange={e => setHorarioDia(key, 'fim', e.target.value)}
                           disabled={!isOwner}
-                          className="h-9 px-2.5 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent transition disabled:opacity-60 disabled:cursor-not-allowed"
-                        />
+                          className="h-9 px-2.5 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent transition disabled:opacity-60 disabled:cursor-not-allowed"/>
                       </div>
                     ) : (
                       <span className="text-sm text-text-4 italic">Fechado</span>
@@ -560,7 +521,6 @@ export default function ConfiguracoesPage() {
             </div>
           </SectionCard>
 
-          {/* Erro */}
           {erro && (
             <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
               <AlertCircle size={14} className="text-red flex-shrink-0"/>
@@ -568,7 +528,6 @@ export default function ConfiguracoesPage() {
             </div>
           )}
 
-          {/* Salvar */}
           {isOwner && (
             <div className="pb-6">
               <button type="submit" disabled={salvando || uploadando}
@@ -581,7 +540,7 @@ export default function ConfiguracoesPage() {
         </form>
       )}
 
-      {/* ══════════ TAB: MEU PERFIL ══════════ */}
+      {/* ══ TAB: MEU PERFIL ══ */}
       {aba === 'perfil' && (
         <form onSubmit={salvarPerfil} className="max-w-2xl flex flex-col gap-6">
           <SectionCard title="Meu perfil" icon={User} hue={330}>
@@ -592,25 +551,17 @@ export default function ConfiguracoesPage() {
             </div>
             <div>
               <label className={labelCls}>Telefone</label>
-              <input
-                value={perfilTelefone}
-                onChange={e => setPerfilTelefone(maskPhone(e.target.value))}
-                placeholder="(11) 99999-9999"
-                inputMode="numeric"
-                maxLength={15}
-                className={inputCls}
-              />
+              <input value={perfilTelefone} onChange={e => setPerfilTelefone(maskPhone(e.target.value))}
+                placeholder="(11) 99999-9999" inputMode="numeric" maxLength={15} className={inputCls}/>
             </div>
             <div>
               <label className={labelCls}>E-mail</label>
               <input value={perfilEmail} disabled
-                className={`${inputCls} opacity-50 cursor-not-allowed`}
-                placeholder="E-mail não disponível"/>
+                className={`${inputCls} opacity-50 cursor-not-allowed`} placeholder="E-mail não disponível"/>
               <p className="text-xs text-text-4 mt-1">O e-mail é gerenciado pela autenticação e não pode ser alterado aqui.</p>
             </div>
           </SectionCard>
 
-          {/* Erro */}
           {erro && (
             <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
               <AlertCircle size={14} className="text-red flex-shrink-0"/>
