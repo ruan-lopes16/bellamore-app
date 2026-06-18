@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function NotificacoesLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         <div className="mb-6"><Sk className="h-3 w-28 mb-2"/><Sk className="h-9 w-40"/></div>
         <div className="flex flex-col gap-3 mb-8">
@@ -17,6 +16,6 @@ export default function NotificacoesLoading() {
           ))}
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

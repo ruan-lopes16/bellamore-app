@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function EquipeLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -49,6 +48,6 @@ export default function EquipeLoading() {
           ))}
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

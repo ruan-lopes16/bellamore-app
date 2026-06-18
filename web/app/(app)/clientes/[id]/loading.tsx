@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function ClienteDetalheLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         {/* Voltar + header */}
         <div className="flex items-center gap-3 mb-6">
@@ -60,6 +59,6 @@ export default function ClienteDetalheLoading() {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

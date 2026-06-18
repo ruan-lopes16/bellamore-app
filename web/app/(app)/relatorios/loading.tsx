@@ -1,10 +1,9 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 /** Skeleton de carregamento da tela de Relatórios */
 export default function RelatoriosLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
@@ -64,6 +63,6 @@ export default function RelatoriosLoading() {
           ))}
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

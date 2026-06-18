@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function ComissoesLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -33,6 +32,6 @@ export default function ComissoesLoading() {
           ))}
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }
