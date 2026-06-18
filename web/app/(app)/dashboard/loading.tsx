@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function DashboardLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         {/* Header */}
         <div className="mb-8">
@@ -71,6 +70,6 @@ export default function DashboardLoading() {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function ComandaLoading() {
   return (
-    <AppLayout>
+    <div>
       <div className="flex gap-0 -m-8 overflow-hidden" style={{ height: '100vh' }}>
         {/* Painel esquerdo */}
         <div className="w-72 flex-shrink-0 border-r border-border bg-bg p-3 flex flex-col gap-2">
@@ -19,6 +18,6 @@ export default function ComandaLoading() {
           <Sk className="h-4 w-64" />
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

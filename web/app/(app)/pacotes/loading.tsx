@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function PacotesLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         <div className="flex items-center justify-between mb-6">
           <div><Sk className="h-3 w-24 mb-2"/><Sk className="h-9 w-28"/></div>
@@ -24,6 +23,6 @@ export default function PacotesLoading() {
           {[1,2,3].map(i => <Sk key={i} className="h-52 rounded-2xl"/>)}
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

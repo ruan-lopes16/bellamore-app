@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function VendasLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         <div className="flex items-center justify-between mb-6">
           <div><Sk className="h-3 w-28 mb-2"/><Sk className="h-9 w-24"/></div>
@@ -23,6 +22,6 @@ export default function VendasLoading() {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }

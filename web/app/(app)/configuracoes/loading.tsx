@@ -1,9 +1,8 @@
-import AppLayout from '@/components/AppLayout';
-import { Sk } from '@/components/Skeleton';
+﻿import { Sk } from '@/components/Skeleton';
 
 export default function ConfiguracoesLoading() {
   return (
-    <AppLayout>
+    <div>
       <div>
         <div className="mb-6"><Sk className="h-3 w-32 mb-2"/><Sk className="h-9 w-40"/></div>
         <div className="flex gap-1 border-b border-border mb-8">
@@ -15,6 +14,6 @@ export default function ConfiguracoesLoading() {
           <Sk className="h-64 rounded-2xl"/>
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 }
