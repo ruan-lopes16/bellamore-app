@@ -25,7 +25,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
-import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun } from 'lucide-react';
+import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 
 const supabase = createClient();
@@ -139,9 +139,13 @@ export default function ConfiguracoesPage() {
   const [cnpj,     setCnpj]     = useState('');
   const [telefone, setTelefone] = useState('');
   const [endereco, setEndereco] = useState('');
+  const [cep,      setCep]      = useState('');
   const [logoUrl,  setLogoUrl]  = useState('');
   const [logoPreview, setLogoPreview] = useState('');
   const [horarios, setHorarios] = useState<Horarios>(HORARIO_DEFAULT);
+
+  const [buscandoCep,  setBuscandoCep]  = useState(false);
+  const [buscandoCnpj, setBuscandoCnpj] = useState(false);
 
   // Campos perfil
   const [perfilNome,     setPerfilNome]     = useState('');
@@ -207,6 +211,46 @@ export default function ConfiguracoesPage() {
       setLoading(false);
     })();
   }, []);
+
+  // ── Busca de CEP (ViaCEP)
+  async function buscarCEP(valor: string) {
+    const d = valor.replace(/\D/g, '');
+    if (d.length !== 8) return;
+    setBuscandoCep(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${d}/json/`);
+      const data = await res.json();
+      if (!data.erro) {
+        setEndereco(`${data.logradouro}, ${data.bairro}, ${data.localidade} - ${data.uf}`);
+      }
+    } catch { /* mantém o campo como está */ }
+    finally { setBuscandoCep(false); }
+  }
+
+  // ── Busca de CNPJ (BrasilAPI — mesma base da ReceitaWS, CORS liberado)
+  async function buscarCNPJ(valor: string) {
+    const d = valor.replace(/\D/g, '');
+    if (d.length !== 14) return;
+    setBuscandoCnpj(true);
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${d}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const nomeFantasia = data.nome_fantasia || data.razao_social;
+      if (nomeFantasia && !nome) setNome(nomeFantasia);
+      if (data.ddd_telefone_1 && !telefone) {
+        setTelefone(maskPhone((data.ddd_telefone_1 + (data.telefone_1 ?? '')).replace(/\D/g, '')));
+      }
+      if (data.cep) {
+        const cepFormatado = data.cep.replace(/\D/g, '').replace(/^(\d{5})(\d{3})$/, '$1-$2');
+        setCep(cepFormatado);
+      }
+      if (data.logradouro) {
+        setEndereco(`${data.logradouro}, ${data.numero ?? 'S/N'}, ${data.bairro}, ${data.municipio} - ${data.uf}`);
+      }
+    } catch { /* mantém os campos como estão */ }
+    finally { setBuscandoCnpj(false); }
+  }
 
   // ── Upload de logo
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -359,15 +403,24 @@ export default function ConfiguracoesPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>CNPJ</label>
-                <input
-                  value={cnpj}
-                  onChange={e => setCnpj(maskCnpj(e.target.value))}
-                  placeholder="00.000.000/0001-00"
-                  inputMode="numeric"
-                  maxLength={18}
-                  className={inputCls}
-                  disabled={!isOwner}
-                />
+                <div className="relative">
+                  <input
+                    value={cnpj}
+                    onChange={e => {
+                      const masked = maskCnpj(e.target.value);
+                      setCnpj(masked);
+                      buscarCNPJ(masked);
+                    }}
+                    placeholder="00.000.000/0001-00"
+                    inputMode="numeric"
+                    maxLength={18}
+                    className={inputCls}
+                    disabled={!isOwner}
+                  />
+                  {buscandoCnpj && (
+                    <Loader2 size={14} className="absolute right-3 top-3 text-text-4 animate-spin" />
+                  )}
+                </div>
               </div>
               <div>
                 <label className={labelCls}>Telefone</label>
@@ -383,9 +436,30 @@ export default function ConfiguracoesPage() {
               </div>
             </div>
             <div>
+              <label className={labelCls}>CEP</label>
+              <div className="relative">
+                <input
+                  value={cep}
+                  onChange={e => {
+                    const masked = e.target.value.replace(/\D/g, '').replace(/^(\d{5})(\d{0,3})$/, '$1-$2').replace(/-$/, '');
+                    setCep(masked);
+                    buscarCEP(masked);
+                  }}
+                  placeholder="00000-000"
+                  inputMode="numeric"
+                  maxLength={9}
+                  className={inputCls}
+                  disabled={!isOwner}
+                />
+                {buscandoCep && (
+                  <Loader2 size={14} className="absolute right-3 top-3 text-text-4 animate-spin" />
+                )}
+              </div>
+            </div>
+            <div>
               <label className={labelCls}>Endereço</label>
               <input value={endereco} onChange={e => setEndereco(e.target.value)}
-                placeholder="Rua, número, bairro, cidade" className={inputCls} disabled={!isOwner}/>
+                placeholder="Preenchido automaticamente pelo CEP" className={inputCls} disabled={!isOwner}/>
             </div>
           </SectionCard>
 

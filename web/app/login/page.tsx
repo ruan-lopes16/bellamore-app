@@ -31,10 +31,26 @@ export default function LoginPage() {
     setErro('');
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
-    setLoading(false);
-    if (error) { setErro('E-mail ou senha incorretos.'); return; }
+    if (error) {
+      setLoading(false);
+      setErro('E-mail ou senha incorretos.');
+      return;
+    }
+    // Mantém loading=true — overlay fica visível durante a navegação
     router.push('/dashboard');
     router.refresh();
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-bg gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center"
+          style={{ boxShadow: '0 4px 20px rgba(44,23,80,0.25)' }}>
+          <span className="text-white text-xl font-bold font-serif">✦</span>
+        </div>
+        <p className="text-sm text-text-3 font-medium">Entrando...</p>
+      </div>
+    );
   }
 
   return (
