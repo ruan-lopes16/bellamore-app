@@ -97,6 +97,7 @@ export default function ConfiguracoesPage() {
 
   // Campos empresa
   const [nome,      setNome]      = useState('');
+  const [segmento,  setSegmento]  = useState('Estúdio');
   const [cnpj,      setCnpj]      = useState('');
   const [telefone,  setTelefone]  = useState('');
   const [cep,       setCep]       = useState('');
@@ -144,13 +145,14 @@ export default function ConfiguracoesPage() {
       setEmpresaId(membro.empresa_id);
 
       const [{ data: empresa }, { data: perfil }] = await Promise.all([
-        supabase.from('empresas').select('nome, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id')
+        supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id')
           .eq('id', membro.empresa_id).single(),
         supabase.from('users').select('nome, telefone').eq('id', user.id).single(),
       ]);
 
       if (empresa) {
         setNome(empresa.nome ?? '');
+        setSegmento(empresa.segmento ?? 'Estúdio');
         setCnpj(maskCnpj(empresa.cnpj ?? ''));
         setTelefone(maskPhone(empresa.telefone ?? ''));
         setLogoUrl(empresa.logo_url ?? '');
@@ -274,6 +276,7 @@ export default function ConfiguracoesPage() {
 
     const { error } = await supabase.from('empresas').update({
       nome:                  nome.trim(),
+      segmento:              segmento        || 'Estúdio',
       cnpj:                  cnpj.trim()     || null,
       telefone:              telefone.trim() || null,
       endereco:              enderecoFinal   || null,
@@ -283,8 +286,8 @@ export default function ConfiguracoesPage() {
 
     setSalvando(false);
     if (error) { setErro(error.message); return; }
-    router.refresh(); // atualiza nome na sidebar se mudou
     showToast('Configurações salvas!');
+    setTimeout(() => window.location.reload(), 1000);
   }
 
   async function salvarPerfil(e: React.FormEvent) {
@@ -400,10 +403,26 @@ export default function ConfiguracoesPage() {
 
           {/* Dados gerais */}
           <SectionCard title="Dados da empresa" icon={Building2} hue={270}>
-            <div>
-              <label className={labelCls}>Nome do salão *</label>
-              <input value={nome} onChange={e => setNome(e.target.value)} required
-                placeholder="Ex: Studio Bella" className={inputCls} disabled={!isOwner}/>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Nome do salão *</label>
+                <input value={nome} onChange={e => setNome(e.target.value)} required
+                  placeholder="Ex: Studio Bella" className={inputCls} disabled={!isOwner}/>
+              </div>
+              <div>
+                <label className={labelCls}>Segmento</label>
+                <select
+                  value={segmento}
+                  onChange={e => setSegmento(e.target.value)}
+                  disabled={!isOwner}
+                  className={`${inputCls} cursor-pointer`}
+                  style={{ appearance: 'auto' }}
+                >
+                  {['Estúdio', 'Clínica', 'Salão', 'Barbearia', 'Spa', 'Ateliê', 'Outro'].map(op => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
