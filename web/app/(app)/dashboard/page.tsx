@@ -87,7 +87,7 @@ export default async function DashboardPage() {
       .select('id,status,valor,data_hora_inicio,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
       .eq('empresa_id', empresaId).gte('data_hora_inicio', inicioHoje).lte('data_hora_inicio', fimHoje)
       .order('data_hora_inicio'),
-    supabase.from('agendamentos').select('profissional_id,valor')
+    supabase.from('agendamentos').select('profissional_id,valor,data_hora_inicio')
       .eq('empresa_id', empresaId).eq('status', 'concluido')
       .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
     supabase.from('agendamentos').select('valor')
@@ -101,7 +101,7 @@ export default async function DashboardPage() {
     supabase.from('despesas').select('valor')
       .eq('empresa_id', empresaId).eq('status', 'pago')
       .gte('data_pagamento', inicioMesAnt.slice(0,10)).lte('data_pagamento', fimMesAnt.slice(0,10)),
-    supabase.from('vendas').select('valor_final')
+    supabase.from('vendas').select('valor_final,created_at')
       .eq('empresa_id', empresaId).gte('created_at', inicioMes).lte('created_at', fimMes),
     supabase.from('vendas').select('valor_final')
       .eq('empresa_id', empresaId).gte('created_at', inicioMesAnt).lte('created_at', fimMesAnt),
@@ -148,6 +148,24 @@ export default async function DashboardPage() {
   const pctBruto = pct(bruto, brutoAnt);
   const pctLucro = pct(lucro, brutoAnt - gastosAnt);
 
+  // Receita diária acumulada para o sparkline
+  const todayDay = hoje.getDate();
+  const dailyMap: Record<number, number> = {};
+  (agsMes.data ?? []).forEach(a => {
+    const d = new Date(a.data_hora_inicio).getDate();
+    dailyMap[d] = (dailyMap[d] ?? 0) + Number(a.valor);
+  });
+  (vendasMes.data ?? []).forEach(v => {
+    const d = new Date(v.created_at).getDate();
+    dailyMap[d] = (dailyMap[d] ?? 0) + Number(v.valor_final);
+  });
+  const sparkData: number[] = [];
+  let acc = 0;
+  for (let d = 1; d <= todayDay; d++) {
+    acc += dailyMap[d] ?? 0;
+    sparkData.push(acc);
+  }
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
 
@@ -193,7 +211,7 @@ export default async function DashboardPage() {
         </div>
 
         <div className="absolute pointer-events-none" style={{ right: 24, bottom: 14, zIndex: 0 }}>
-          <SparkBars />
+          <SparkBars data={sparkData} />
         </div>
       </div>
       </Tilt>
