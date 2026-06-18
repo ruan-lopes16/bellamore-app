@@ -23,31 +23,49 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const { request } = e;
-
-  // Ignora requests que não são GET ou não são do mesmo origin
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== location.origin) return;
-
-  // API e dados Supabase: somente rede, sem cache
   if (url.pathname.startsWith('/api/') || url.hostname.includes('supabase')) return;
 
   e.respondWith(
     fetch(request)
       .then(response => {
-        // Cacheia respostas bem-sucedidas de assets estáticos
-        if (response.ok && (
-          url.pathname.startsWith('/_next/static/') ||
-          url.pathname === '/favicon.svg'
-        )) {
+        if (response.ok && url.pathname.startsWith('/_next/static/')) {
           const clone = response.clone();
           caches.open(CACHE).then(c => c.put(request, clone));
         }
         return response;
       })
       .catch(() =>
-        // Offline: tenta cache, senão mostra página offline
         caches.match(request).then(cached => cached ?? caches.match('/offline')),
       ),
+  );
+});
+
+// ── Push notifications ──────────────────────────────────────────
+
+self.addEventListener('push', e => {
+  const data = e.data?.json() ?? {};
+  e.waitUntil(
+    self.registration.showNotification(data.title ?? 'Bellamore', {
+      body:    data.body  ?? '',
+      icon:    '/icon',
+      badge:   '/icon',
+      vibrate: [200, 100, 200],
+      data:    { url: data.url ?? '/dashboard' },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = e.notification.data?.url ?? '/dashboard';
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      const existing = list.find(c => c.url.includes(url));
+      if (existing) return existing.focus();
+      return clients.openWindow(url);
+    }),
   );
 });
