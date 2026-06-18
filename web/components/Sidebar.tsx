@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 
 const supabase = createClient();
 
@@ -43,7 +44,7 @@ const MOBILE_NAV = [
   { href: '/mais',       label: 'Mais',       icon: MoreHorizontal  },
 ];
 
-export default function Sidebar({ empresaNome }: { empresaNome: string }) {
+export default function Sidebar({ empresaNome, empresaLogo }: { empresaNome: string; empresaLogo: string | null }) {
   const pathname        = usePathname();
   const router          = useRouter();
   const [alertCount,     setAlertCount]     = useState(0);
@@ -99,10 +100,16 @@ export default function Sidebar({ empresaNome }: { empresaNome: string }) {
         {/* Logo / empresa */}
         <div className="px-5 py-5" style={{ borderBottom: '1px solid var(--color-border)' }}>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'var(--color-primary)', boxShadow: '0 2px 8px rgba(44,23,80,0.3)' }}>
-              <span className="text-white text-sm font-bold" style={{ fontFamily: 'var(--font-serif)' }}>✦</span>
-            </div>
+            {empresaLogo ? (
+              <Image src={empresaLogo} alt={empresaNome} width={36} height={36}
+                className="w-9 h-9 rounded-xl object-cover flex-shrink-0"
+                style={{ boxShadow: '0 2px 8px rgba(44,23,80,0.2)' }} />
+            ) : (
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: 'var(--color-primary)', boxShadow: '0 2px 8px rgba(44,23,80,0.3)' }}>
+                <span className="text-white text-sm font-bold" style={{ fontFamily: 'var(--font-serif)' }}>✦</span>
+              </div>
+            )}
             <div className="min-w-0">
               <p className="text-xs font-semibold truncate" style={{ color: 'var(--color-ink3)', letterSpacing: '0.05em' }}>Studio</p>
               <p className="text-sm font-bold truncate" style={{ color: 'var(--color-ink)', lineHeight: 1.2 }}>{empresaNome}</p>

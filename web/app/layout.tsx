@@ -20,8 +20,9 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'App Estética',
+  title: 'Bellamore',
   description: 'Gestão de salões e estúdios de estética',
+  icons: { icon: '/favicon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
