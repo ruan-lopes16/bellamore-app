@@ -173,17 +173,17 @@ export default async function DashboardPage() {
 
         <div className="relative" style={{ zIndex: 1 }}>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.48)', textTransform: 'uppercase', letterSpacing: '0.13em', marginBottom: 8 }}>
-            Receita · {mesLabel}
+            Receita - {format(hoje, 'MMMM yyyy', { locale: ptBR }).toUpperCase()}
           </p>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 38, fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
-            <span style={{ fontSize: 15, fontWeight: 500, opacity: 0.55, marginRight: 2, verticalAlign: 'super' }}>R$</span>
+            <span style={{ fontSize: 16, fontWeight: 500, opacity: 0.6, marginRight: 4 }}>R$</span>
             <CountUp value={bruto} />
           </p>
           <div className="flex items-center gap-3 mt-3">
             {pctBruto !== null && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: pctBruto >= 0 ? 'rgba(52,201,146,0.20)' : 'rgba(232,114,154,0.20)', borderRadius: 999, padding: '4px 10px', fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 700, color: pctBruto >= 0 ? '#A8F0D4' : '#F4B8CE' }}>
-                <TrendingUp size={11} />
-                +{Math.abs(pctBruto).toFixed(0)}%
+                {pctBruto >= 0 ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
+                {pctBruto >= 0 ? '+' : '-'}{Math.abs(pctBruto).toFixed(0)}%
               </span>
             )}
             <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, color: 'rgba(255,255,255,0.38)' }}>
