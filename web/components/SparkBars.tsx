@@ -3,58 +3,84 @@
 import { useEffect, useState } from 'react';
 
 export function SparkBars({
-  width = 180,
-  height = 100,
-  duration = 1200,
+  data = [],
+  width = 200,
+  height = 80,
 }: {
+  data?: number[];
   width?: number;
   height?: number;
-  duration?: number;
 }) {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     const start = performance.now();
     function tick(now: number) {
-      const t = Math.min((now - start) / duration, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setProgress(eased);
+      const t = Math.min((now - start) / 1400, 1);
+      setProgress(1 - Math.pow(1 - t, 3));
       if (t < 1) requestAnimationFrame(tick);
     }
     requestAnimationFrame(tick);
-  }, [duration]);
+  }, []);
 
-  const x0 = 8;
-  const y0 = height - 8;
-  const x3 = width - 10;
-  const y3Target = 14;
+  const padL = 8, padR = 10, padT = 12, padB = 6;
+  const plotW = width - padL - padR;
+  const plotH = height - padT - padB;
+  const baseline = padT + plotH;
 
-  const cp1x = width * 0.55;
-  const cp1yTarget = height - 10;
-  const cp2x = width * 0.78;
-  const cp2yTarget = height * 0.22;
+  const maxVal = Math.max(...data, 1);
+  const allZero = data.every(v => v === 0);
+  const n = data.length;
 
-  const cp1y = y0 + (cp1yTarget - y0) * progress;
-  const cp2y = y0 + (cp2yTarget - y0) * progress;
-  const y3 = y0 + (y3Target - y0) * progress;
+  // Monta pontos: sempre começa na origem (0, baseline)
+  const pts: { x: number; y: number }[] = [{ x: padL, y: baseline }];
 
-  const d = `M ${x0} ${y0} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x3} ${y3}`;
-  const areaD = d + ` L ${x3} ${y0} L ${x0} ${y0} Z`;
+  if (!allZero && n > 0) {
+    data.forEach((v, i) => {
+      const x = padL + ((i + 1) / n) * plotW;
+      // Interpola de baseline para o valor real conforme o progresso
+      const targetY = baseline - (v / maxVal) * plotH;
+      const y = baseline + (targetY - baseline) * progress;
+      pts.push({ x, y });
+    });
+  } else {
+    // Linha flat no fundo quando não há dados
+    pts.push({ x: padL + plotW, y: baseline });
+  }
+
+  const pathD   = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const last    = pts[pts.length - 1];
+  const areaD   = `${pathD} L${last.x.toFixed(1)},${baseline} L${padL},${baseline} Z`;
+  const showDot = progress > 0.05 && !allZero;
 
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', overflow: 'visible' }}>
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      style={{ display: 'block', overflow: 'visible' }}
+    >
       <defs>
-        <linearGradient id="sf" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(180,160,240,0.2)" />
-          <stop offset="100%" stopColor="rgba(180,160,240,0)" />
+        <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor="rgba(180,160,240,0.22)" />
+          <stop offset="100%" stopColor="rgba(180,160,240,0)"    />
         </linearGradient>
       </defs>
-      <path d={areaD} fill="url(#sf)" />
-      <path d={d} fill="none" stroke="rgba(200,185,255,0.45)" strokeWidth={1.6} strokeLinecap="round" />
-      {progress > 0.05 && (
+
+      <path d={areaD} fill="url(#sg)" />
+      <path
+        d={pathD}
+        fill="none"
+        stroke="rgba(210,190,255,0.55)"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+
+      {showDot && (
         <>
-          <circle cx={x3} cy={y3} r={6} fill="rgba(180,160,240,0.2)" />
-          <circle cx={x3} cy={y3} r={3.5} fill="#fff" />
+          <circle cx={last.x} cy={last.y} r={6}   fill="rgba(180,160,240,0.25)" />
+          <circle cx={last.x} cy={last.y} r={3.5}  fill="#fff" />
         </>
       )}
     </svg>
