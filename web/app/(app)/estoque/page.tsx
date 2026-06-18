@@ -759,7 +759,7 @@ export default function EstoquePage() {
           {[
             { label: 'Materiais / Insumos', value: String(produtos.filter(p => p.tipo === 'material').length), sub: 'para atendimentos', icon: Package2, hue: 270 },
             { label: 'Para venda (PDV)', value: String(produtos.filter(p => p.tipo === 'venda').length), sub: 'para revenda', icon: DollarSign, hue: 145 },
-            { label: 'Precisam reposição', value: String(alertas.length), sub: alertas.length > 0 ? alertas.slice(0,2).map(p=>p.nome.split(' ')[0]).join(', ') : 'tudo OK', icon: AlertTriangle, hue: alertas.length > 0 ? 38 : 180 },
+            { label: 'Precisam de reposição', value: String(alertas.length), sub: alertas.length > 0 ? 'estoque baixo' : 'tudo OK', icon: AlertTriangle, hue: alertas.length > 0 ? 55 : 145 },
             { label: 'Valor total em estoque', value: fmtBRL(valorTotal), sub: 'custo de aquisição', icon: DollarSign, hue: 220 },
           ].map(({ label, value, sub, icon: Icon, hue }, idx) => (
             <div key={label} className="bm-stagger"
