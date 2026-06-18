@@ -20,14 +20,15 @@ export default function CadastroPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [nome,          setNome]          = useState('');
-  const [email,         setEmail]         = useState('');
-  const [senha,         setSenha]         = useState('');
-  const [confirmar,     setConfirmar]     = useState('');
-  const [verSenha,      setVerSenha]      = useState(false);
-  const [verConfirmar,  setVerConfirmar]  = useState(false);
-  const [erro,          setErro]          = useState('');
-  const [loading,       setLoading]       = useState(false);
+  const [nome,         setNome]         = useState('');
+  const [email,        setEmail]        = useState('');
+  const [codigo,       setCodigo]       = useState('');
+  const [senha,        setSenha]        = useState('');
+  const [confirmar,    setConfirmar]    = useState('');
+  const [verSenha,     setVerSenha]     = useState(false);
+  const [verConfirmar, setVerConfirmar] = useState(false);
+  const [erro,         setErro]         = useState('');
+  const [loading,      setLoading]      = useState(false);
 
   async function cadastrar(e: React.FormEvent) {
     e.preventDefault();
@@ -39,6 +40,21 @@ export default function CadastroPage() {
     }
 
     setLoading(true);
+
+    // Verifica código de convite no servidor (INVITE_CODE nunca exposto ao cliente)
+    const res = await fetch('/api/verificar-convite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo }),
+    });
+    const { valido } = await res.json();
+
+    if (!valido) {
+      setErro('Código de acesso inválido. Solicite ao administrador.');
+      setLoading(false);
+      return;
+    }
+
     const { error } = await supabase.auth.signUp({
       email,
       password: senha,
@@ -54,7 +70,7 @@ export default function CadastroPage() {
     router.push(`/verificar-email?email=${encodeURIComponent(email)}`);
   }
 
-  const inputClass = "w-full h-11 px-3.5 pr-11 rounded-xl border border-border bg-bg text-text text-sm font-medium placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
+  const inputClass = "w-full h-11 px-3.5 rounded-xl border border-border bg-bg text-text text-sm font-medium placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-4">
@@ -65,33 +81,39 @@ export default function CadastroPage() {
             <span className="text-white text-xl font-bold font-serif">✦</span>
           </div>
           <h1 className="font-serif text-3xl text-text leading-tight">Criar conta</h1>
-          <p className="text-text-3 text-sm mt-1">Comece a gerenciar seu estúdio</p>
+          <p className="text-text-3 text-sm mt-1">Você precisa de um código de acesso</p>
         </div>
 
         <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
           <form onSubmit={cadastrar} className="flex flex-col gap-4">
 
-            {/* Nome */}
+            <div>
+              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Código de acesso *</label>
+              <input
+                type="text" value={codigo} onChange={e => setCodigo(e.target.value)}
+                placeholder="Solicite ao administrador" required
+                className={inputClass}
+              />
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Nome completo</label>
               <input
                 type="text" value={nome} onChange={e => setNome(e.target.value)}
                 placeholder="Seu nome" required
-                className="w-full h-11 px-3.5 rounded-xl border border-border bg-bg text-text text-sm font-medium placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
+                className={inputClass}
               />
             </div>
 
-            {/* Email */}
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">E-mail</label>
               <input
                 type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="seu@email.com" required
-                className="w-full h-11 px-3.5 rounded-xl border border-border bg-bg text-text text-sm font-medium placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
+                className={inputClass}
               />
             </div>
 
-            {/* Senha */}
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Senha</label>
               <div className="relative">
@@ -99,7 +121,7 @@ export default function CadastroPage() {
                   type={verSenha ? 'text' : 'password'}
                   value={senha} onChange={e => setSenha(e.target.value)}
                   placeholder="mínimo 6 caracteres" required minLength={6}
-                  className={inputClass}
+                  className={`${inputClass} pr-11`}
                 />
                 <button type="button" onClick={() => setVerSenha(v => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3 hover:text-text-2 transition">
@@ -108,7 +130,6 @@ export default function CadastroPage() {
               </div>
             </div>
 
-            {/* Confirmar senha */}
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Confirmar senha</label>
               <div className="relative">
@@ -116,7 +137,7 @@ export default function CadastroPage() {
                   type={verConfirmar ? 'text' : 'password'}
                   value={confirmar} onChange={e => setConfirmar(e.target.value)}
                   placeholder="repita a senha" required minLength={6}
-                  className={`${inputClass} ${confirmar && senha !== confirmar ? 'border-red focus:border-red focus:ring-red/20' : ''}`}
+                  className={`${inputClass} pr-11 ${confirmar && senha !== confirmar ? 'border-red focus:border-red focus:ring-red/20' : ''}`}
                 />
                 <button type="button" onClick={() => setVerConfirmar(v => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3 hover:text-text-2 transition">
@@ -134,7 +155,7 @@ export default function CadastroPage() {
               type="submit" disabled={loading}
               className="h-11 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60 mt-1"
             >
-              {loading ? 'Criando conta...' : 'Criar conta'}
+              {loading ? 'Verificando...' : 'Criar conta'}
             </button>
           </form>
         </div>
