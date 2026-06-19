@@ -10,6 +10,7 @@ import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { ptBR } from 'date-fns/locale';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 const supabase = createClient();
 
@@ -237,8 +238,9 @@ export default function ClientePerfilPage() {
   const [histCarregado, setHistCarregado] = useState(false);
 
   // ── Modal novo agendamento ──────────────────────────────────
-  const [empresaId,  setEmpresaId]  = useState<string | null>(null);
-  const [modalAg,    setModalAg]    = useState(false);
+  const [empresaId,       setEmpresaId]       = useState<string | null>(null);
+  const [modalAg,         setModalAg]         = useState(false);
+  const [confirmArquivar, setConfirmArquivar] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -344,8 +346,12 @@ export default function ClientePerfilPage() {
   }
 
   async function desativar() {
-    if (!confirm(`Deseja arquivar "${cliente?.nome}"?`)) return;
+    setConfirmArquivar(true);
+  }
+
+  async function confirmarArquivar() {
     await supabase.from('clientes').update({ ativo: false }).eq('id', id);
+    setConfirmArquivar(false);
     router.push('/clientes');
   }
 
@@ -1006,6 +1012,16 @@ export default function ClientePerfilPage() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmArquivar}
+        title="Arquivar cliente"
+        message={`"${cliente?.nome}" será arquivado e não aparecerá nas listas. O histórico é mantido.`}
+        confirmLabel="Arquivar"
+        variant="danger"
+        onConfirm={confirmarArquivar}
+        onCancel={() => setConfirmArquivar(false)}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
@@ -316,8 +317,9 @@ export default function EquipePage() {
   const [profs,     setProfs]     = useState<Profissional[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [empresaId, setEmpresaId] = useState<string | null>(null);
-  const [modal,     setModal]     = useState(false);
-  const [editandoInfo, setEditandoInfo] = useState<Profissional | null>(null);
+  const [modal,          setModal]          = useState(false);
+  const [editandoInfo,   setEditandoInfo]   = useState<Profissional | null>(null);
+  const [confirmDesativar, setConfirmDesativar] = useState<Profissional | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -370,11 +372,18 @@ export default function EquipePage() {
 
   async function toggleAtivo(prof: Profissional) {
     if (prof.ativo) {
-      const ok = confirm(`Desativar "${prof.user.nome}"? Ela não aparecerá em novos agendamentos.`);
-      if (!ok) return;
+      setConfirmDesativar(prof);
+      return;
     }
-    await supabase.from('empresa_membros').update({ ativo: !prof.ativo }).eq('id', prof.id);
-    setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, ativo: !p.ativo } : p));
+    await supabase.from('empresa_membros').update({ ativo: true }).eq('id', prof.id);
+    setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, ativo: true } : p));
+  }
+
+  async function confirmarDesativar() {
+    if (!confirmDesativar) return;
+    await supabase.from('empresa_membros').update({ ativo: false }).eq('id', confirmDesativar.id);
+    setProfs(prev => prev.map(p => p.id === confirmDesativar.id ? { ...p, ativo: false } : p));
+    setConfirmDesativar(null);
   }
 
 function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number }) {
@@ -500,6 +509,16 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
           onClose={() => setEditandoInfo(null)}
           onSalvo={dados => salvarInfo(editandoInfo, dados)}/>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDesativar}
+        title="Desativar profissional"
+        message={`"${confirmDesativar?.user.nome}" não aparecerá em novos agendamentos. Esta ação pode ser desfeita reativando o perfil.`}
+        confirmLabel="Desativar"
+        variant="warning"
+        onConfirm={confirmarDesativar}
+        onCancel={() => setConfirmDesativar(null)}
+      />
 
     </div>
   );
