@@ -505,7 +505,7 @@ export default function ComandaPage() {
                 <path d="M20 6L9 17l-5-5" style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'bm-draw .55s .3s ease forwards' }}/>
               </svg>
             </div>
-            <h2 className="font-serif text-3xl text-text text-center">Comanda fechada!</h2>
+            <h2 className="text-3xl text-text text-center" style={{ fontFamily: 'var(--font-serif)' }}>Comanda fechada!</h2>
             <p className="text-text-2 text-sm text-center">
               {sucesso.nome} · {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.valor)}
             </p>
@@ -523,7 +523,7 @@ export default function ComandaPage() {
             <div className="w-16 h-16 rounded-2xl bg-bg flex items-center justify-center mb-4">
               <Receipt size={28} className="text-text-4"/>
             </div>
-            <h2 className="font-serif text-2xl text-text mb-2">Nenhuma comanda aberta</h2>
+            <h2 className="text-2xl text-text mb-2" style={{ fontFamily: 'var(--font-serif)' }}>Nenhuma comanda aberta</h2>
             <p className="text-sm text-text-3 max-w-xs">
               Selecione um cliente na lista ao lado para abrir a comanda do atendimento.
             </p>
@@ -679,7 +679,7 @@ export default function ComandaPage() {
                   )}
                   <div className="flex items-center justify-between px-4 py-4">
                     <span className="text-base font-bold text-text">Total</span>
-                    <span className="font-serif text-2xl text-text">{fmtBRL(total)}</span>
+                    <span className="text-2xl text-text" style={{ fontFamily: 'var(--font-serif)' }}>{fmtBRL(total)}</span>
                   </div>
                 </section>
 
