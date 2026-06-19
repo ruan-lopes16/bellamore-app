@@ -334,10 +334,10 @@ export default function VendasPage() {
 
       {/* ══════════ TAB: PDV ══════════ */}
       {aba === 'pdv' && (
-        <div className="flex gap-6" style={{ height: 'calc(100vh - 220px)' }}>
+        <div className="flex flex-col md:flex-row gap-6 md:h-[calc(100vh-220px)]">
 
           {/* ── Coluna esquerda: produtos ── */}
-          <div className="w-[300px] flex-shrink-0 flex flex-col gap-3">
+          <div className="w-full md:w-[300px] md:flex-shrink-0 flex flex-col gap-3 max-h-[50vh] md:max-h-none overflow-y-auto md:overflow-visible">
             {/* Busca */}
             <div className="relative">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-4 pointer-events-none"/>
@@ -456,7 +456,7 @@ export default function VendasPage() {
 
             {/* Cliente + Desconto */}
             <div className="bg-surface border border-border rounded-2xl p-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Cliente (opcional)</label>
                   <SearchSelect

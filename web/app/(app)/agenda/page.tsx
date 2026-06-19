@@ -609,7 +609,7 @@ function NovoAgModal({
   }));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-16 py-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-3 md:px-16 py-8">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         {/* Header */}
@@ -834,14 +834,14 @@ function TimelineView({
     <div className="flex gap-4 items-start">
 
       {/* ── Grid de timeline ── */}
-      <div className="flex-1 border border-border rounded-2xl overflow-hidden bg-surface min-w-0">
+      <div className="flex-1 border border-border rounded-2xl overflow-x-auto bg-surface min-w-0">
 
         {/* Cabeçalho com nomes dos profissionais */}
         <div className="flex border-b border-border bg-bg">
           <div className="w-12 flex-shrink-0 border-r border-border" />
           {profissionais.map(prof => (
             <div key={prof.id}
-              className="flex-1 min-w-[130px] border-r border-border last:border-r-0 px-2 py-2 text-center">
+              className="flex-1 min-w-[80px] md:min-w-[130px] border-r border-border last:border-r-0 px-2 py-2 text-center">
               <p className="text-xs font-bold text-text-2 truncate">
                 {prof.nome.split(' ')[0]}
               </p>
@@ -880,7 +880,7 @@ function TimelineView({
 
               return (
                 <div key={prof.id}
-                  className="flex-1 min-w-[130px] border-r border-border last:border-r-0 relative"
+                  className="flex-1 min-w-[80px] md:min-w-[130px] border-r border-border last:border-r-0 relative"
                   style={{ height: TL_TOTAL_H }}>
 
                   {/* Linhas de hora */}

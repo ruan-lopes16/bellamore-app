@@ -119,7 +119,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-16 py-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-3 md:px-16 py-8">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
@@ -150,7 +150,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
               required
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Data</label>
               <input type="date" value={data} onChange={e => setData(e.target.value)} required className={inputCls}/>
@@ -160,7 +160,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
               <input type="time" value={hora} onChange={e => setHora(e.target.value)} required className={inputCls}/>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Duração (min)</label>
               <input type="number" value={duracao} onChange={e => setDuracao(Number(e.target.value))} min={15} step={15} required className={inputCls}/>
@@ -498,10 +498,10 @@ export default function ClientePerfilPage() {
         );
       })()}
 
-      <div className="flex gap-6 items-start">
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
 
         {/* ── Coluna esquerda ── */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 w-full">
 
           {/* Abas */}
           <div className="flex gap-1 bg-surface border border-border rounded-xl p-1 mb-5 w-fit">
@@ -539,7 +539,7 @@ export default function ClientePerfilPage() {
                         onChange={e => setRascunhoInfo(r => ({ ...r, nome: e.target.value }))}
                         placeholder="Nome completo" className={inputClass}/>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className={labelClass}>Telefone</label>
                         <input value={rascunhoInfo.telefone} type="tel"
@@ -571,7 +571,7 @@ export default function ClientePerfilPage() {
                             onChange={e => setRascunhoInfo(r => ({ ...r, logradouro: e.target.value }))}
                             placeholder="Rua, avenida, estrada..." className={inputClass}/>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className={labelClass}>Número</label>
                             <input value={rascunhoInfo.numero}
@@ -611,7 +611,7 @@ export default function ClientePerfilPage() {
                 ) : (
                   <>
                     <DisplayRow label="Nome completo" value={cliente.nome}/>
-                    <div className="grid grid-cols-2 gap-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       <DisplayRow label="Telefone" value={cliente.telefone} placeholder="Não informado"/>
                       <DisplayRow label="Data de nascimento"
                         value={cliente.data_nascimento
@@ -626,7 +626,7 @@ export default function ClientePerfilPage() {
                         <MapPin size={12} strokeWidth={2}/> Endereço
                       </p>
                       {temEndereco ? (
-                        <div className="grid grid-cols-2 gap-5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                           <DisplayRow label="Logradouro" value={enderecoAtual.logradouro}/>
                           <DisplayRow label="Número" value={enderecoAtual.numero} placeholder="—"/>
                           <DisplayRow label="Bairro" value={enderecoAtual.bairro}/>
@@ -913,7 +913,7 @@ export default function ClientePerfilPage() {
         </div>{/* fim col esquerda */}
 
         {/* ── Coluna direita ── */}
-        <div className="w-72 flex-shrink-0 flex flex-col gap-4">
+        <div className="w-full lg:w-72 lg:flex-shrink-0 flex flex-col gap-4">
 
           {/* Ações rápidas */}
           <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm">
