@@ -676,7 +676,7 @@ export default function RelatoriosPage() {
       </div>
 
       {/* ── KPIs ── */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
         <KpiCard icon={DollarSign} label="Faturamento bruto"    value={fmtBRL(bruto)}
           sub={brutoVendas > 0 ? `inc. ${fmtBRL(brutoVendas)} em vendas` : undefined}
           cor="#7C3AED" loading={loading} />
@@ -729,7 +729,7 @@ export default function RelatoriosPage() {
 
           {/* Resumo + Despesas por categoria */}
           {!loading && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Resumo financeiro */}
               <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
                 <h2 className="font-semibold text-text mb-4">Resumo financeiro</h2>
@@ -802,7 +802,7 @@ export default function RelatoriosPage() {
           {!loading && (
             <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
               <h2 className="font-semibold text-text mb-4">Funil de atendimentos</h2>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {([
                   { label: 'Total marcados', v: ags.length,          cor: '#6B7280', bg: '#F9FAFB' },
                   { label: 'Concluídos',     v: concluidos.length,   cor: '#16A34A', bg: '#F0FDF4' },
@@ -933,7 +933,7 @@ export default function RelatoriosPage() {
         <div className="flex flex-col gap-4">
           {/* Painel de retenção */}
           {!loading && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
                 <p className="text-2xl font-bold text-violet-600">{clientesUnicos}</p>
                 <p className="text-xs text-text-3 mt-1">Clientes únicos</p>

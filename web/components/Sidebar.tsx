@@ -6,7 +6,7 @@ import {
   LayoutDashboard, CalendarDays, Users, DollarSign,
   Scissors, UserCog, Package, Gift, BarChart2,
   Bell, Settings, LogOut, Receipt, ShoppingCart, MoreHorizontal,
-  Banknote,
+  Banknote, X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useState, useEffect } from 'react';
@@ -44,11 +44,26 @@ const MOBILE_NAV = [
   { href: '/mais',       label: 'Mais',       icon: MoreHorizontal  },
 ];
 
+// Itens do drawer "Mais" (mobile)
+const MAIS_NAV = [
+  { href: '/comanda',      label: 'Comanda',      icon: Receipt      },
+  { href: '/vendas',       label: 'Vendas',        icon: ShoppingCart },
+  { href: '/servicos',     label: 'Serviços',      icon: Scissors     },
+  { href: '/pacotes',      label: 'Pacotes',       icon: Gift         },
+  { href: '/equipe',       label: 'Equipe',        icon: UserCog      },
+  { href: '/comissoes',    label: 'Comissões',     icon: Banknote     },
+  { href: '/estoque',      label: 'Estoque',       icon: Package      },
+  { href: '/relatorios',   label: 'Relatórios',    icon: BarChart2    },
+  { href: '/notificacoes', label: 'Notificações',  icon: Bell         },
+  { href: '/configuracoes',label: 'Configurações', icon: Settings     },
+];
+
 export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: { empresaNome: string; empresaLogo: string | null; empresaSegmento: string }) {
   const pathname        = usePathname();
   const router          = useRouter();
   const [alertCount,     setAlertCount]     = useState(0);
   const [comissoesCount, setComissoesCount] = useState(0);
+  const [maisAberto,     setMaisAberto]     = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -191,11 +206,16 @@ export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: {
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}>
         {MOBILE_NAV.map(({ href, label, icon: Icon }) => {
-          const active = href === '/mais'
-            ? ['/servicos','/equipe','/estoque','/pacotes','/relatorios','/configuracoes','/notificacoes','/mais'].some(p => pathname.startsWith(p))
+          const isMais = href === '/mais';
+          const active = isMais
+            ? MAIS_NAV.some(({ href: h }) => pathname.startsWith(h))
             : isActive(href);
+          const handleClick = isMais
+            ? (e: React.MouseEvent) => { e.preventDefault(); setMaisAberto(true); }
+            : undefined;
           return (
-            <Link key={href} href={href === '/mais' ? '/configuracoes' : href}
+            <Link key={href} href={isMais ? '#' : href}
+              onClick={handleClick}
               className="flex-1 flex flex-col items-center justify-center py-2 gap-1 transition-all duration-150 press"
             >
               <div className={`flex items-center justify-center${active ? ' bm-pop' : ''}`}
@@ -223,6 +243,52 @@ export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: {
           );
         })}
       </nav>
+
+      {/* ── Drawer "Mais" mobile ─────────────────────────────── */}
+      {maisAberto && (
+        <>
+          <div className="md:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+            onClick={() => setMaisAberto(false)} />
+          <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl overflow-hidden"
+            style={{ background: 'var(--color-surface)', boxShadow: '0 -4px 24px rgba(44,23,80,0.12)', paddingBottom: 'env(safe-area-inset-bottom)', animation: 'bm-sheet .28s cubic-bezier(.2,.85,.3,1) both' }}>
+            {/* Handle + header */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-3" style={{ borderBottom: '1px solid var(--color-border-soft)' }}>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Menu</p>
+              <button onClick={() => setMaisAberto(false)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center"
+                style={{ background: 'var(--color-bg)' }}>
+                <X size={15} style={{ color: 'var(--color-ink3)' }} strokeWidth={2.5}/>
+              </button>
+            </div>
+            {/* Grid de itens */}
+            <div className="grid grid-cols-4 gap-1 p-3">
+              {MAIS_NAV.map(({ href, label, icon: Icon }) => {
+                const active = pathname.startsWith(href);
+                return (
+                  <Link key={href} href={href} onClick={() => setMaisAberto(false)}
+                    className="flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl transition-colors press"
+                    style={{ background: active ? 'var(--color-primary-soft)' : 'transparent' }}>
+                    <Icon size={20} strokeWidth={active ? 2.5 : 1.9}
+                      style={{ color: active ? 'var(--color-primary)' : 'var(--color-ink3)' }} />
+                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: active ? 700 : 500, color: active ? 'var(--color-primary)' : 'var(--color-ink3)', textAlign: 'center', lineHeight: 1.2 }}>
+                      {label}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+            {/* Sair */}
+            <div className="px-4 pb-4 pt-1" style={{ borderTop: '1px solid var(--color-border-soft)' }}>
+              <button onClick={() => { setMaisAberto(false); sair(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl press transition-colors"
+                style={{ background: 'var(--color-rose-soft)', color: 'var(--color-rose)' }}>
+                <LogOut size={16} strokeWidth={2}/>
+                <span style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600 }}>Sair</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

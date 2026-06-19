@@ -562,7 +562,7 @@ export default function FinanceiroPage() {
       ) : (
         <div className="flex flex-col gap-3 mb-6">
           {/* Linha 1: Bruto | Comissões | Líquido */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
               { label: 'Faturamento Bruto',    value: receita,   d: dReceita,   cor: 'text-green',   invertDelta: false },
               { label: 'Comissões',            value: comissoes, d: dComissoes, cor: 'text-amber',   invertDelta: true  },
@@ -586,7 +586,7 @@ export default function FinanceiroPage() {
             ))}
           </div>
           {/* Linha 2: Gastos | Lucro Real */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {[
               { label: 'Gastos Operacionais', value: gastos, d: dGastos, cor: 'text-red',   invertDelta: true  },
               { label: 'Lucro Real',          value: lucro,  d: null,    cor: lucro >= 0 ? 'text-primary' : 'text-red', invertDelta: false },
@@ -612,7 +612,7 @@ export default function FinanceiroPage() {
       )}
 
       {loading ? (
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Skeleton: evolução */}
           <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
             <Sk className="h-5 w-36 mb-5"/>
@@ -665,7 +665,7 @@ export default function FinanceiroPage() {
           </div>
         </div>
       ) : (
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
         {/* Evolução mensal */}
         <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">

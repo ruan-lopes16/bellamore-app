@@ -407,10 +407,10 @@ export default function ComandaPage() {
   const hoje = new Date();
 
   return (
-    <div className="flex gap-0 -m-8 overflow-hidden" style={{ height: '100vh' }}>
+    <div className="flex gap-0 -m-4 md:-m-8 overflow-hidden" style={{ height: '100dvh' }}>
 
       {/* ════ PAINEL ESQUERDO — clientes do dia ════ */}
-      <div className="w-72 flex-shrink-0 border-r border-border flex flex-col bg-bg">
+      <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} w-full md:w-72 flex-shrink-0 border-r border-border flex-col bg-bg`}>
         {/* Header */}
         <div className="px-4 py-4 border-b border-border">
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Atendimentos</p>
@@ -486,7 +486,7 @@ export default function ComandaPage() {
       </div>
 
       {/* ════ PAINEL DIREITO — comanda ════ */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-surface relative">
+      <div className={`${!clienteSel ? 'hidden md:flex' : 'flex'} flex-1 flex-col overflow-hidden bg-surface relative`}>
         {/* Toast de feedback */}
         {toast && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-green text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 pointer-events-none">
@@ -546,8 +546,9 @@ export default function ComandaPage() {
                 </div>
               </div>
               <button onClick={() => setClienteSel(null)}
-                className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
-                <X size={16}/>
+                className="flex items-center gap-1.5 px-3 h-8 rounded-xl hover:bg-bg text-text-3 transition text-xs font-semibold">
+                <X size={14}/>
+                <span className="hidden sm:inline">Fechar</span>
               </button>
             </div>
 

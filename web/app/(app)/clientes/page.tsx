@@ -189,11 +189,11 @@ export default function ClientesPage() {
 
       {/* Stats */}
       {loading ? (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           {[1,2,3].map(i => <div key={i} className="rounded-2xl p-4" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}><Sk className="h-6 w-16 mb-2"/><Sk className="h-3 w-24"/></div>)}
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Total de clientes', value: clientes.length, color: 'var(--color-primary)', bg: 'var(--color-primary-soft)', icon: Users },
             { label: 'Novos este mês',    value: novosEsteMes,    color: 'var(--color-green)',   bg: 'var(--color-green-soft)',   icon: CalendarPlus },

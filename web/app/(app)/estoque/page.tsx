@@ -755,7 +755,7 @@ export default function EstoquePage() {
           ))}
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {[
             { label: 'Materiais / Insumos',   value: String(produtos.filter(p => p.tipo === 'material').length), sub: 'para atendimentos', icon: Package2,     color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
             { label: 'Para venda (PDV)',       value: String(produtos.filter(p => p.tipo === 'venda').length),    sub: 'para revenda',    icon: DollarSign,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
@@ -911,9 +911,9 @@ export default function EstoquePage() {
           )}
         </div>
       ) : (
-        <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+        <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
           {/* Cabeçalho */}
-          <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg text-xs font-semibold text-text-3 uppercase tracking-wide">
+          <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg text-xs font-semibold text-text-3 uppercase tracking-wide min-w-[560px]">
             <div className="col-span-4">Produto</div>
             <div className="col-span-2">Status</div>
             <div className="col-span-2">Estoque</div>
@@ -928,7 +928,7 @@ export default function EstoquePage() {
             const cat    = CAT_MAP[p.categoria] ?? CAT_MAP['outros'];
             return (
               <div key={p.id}
-                className={`bm-stagger grid grid-cols-12 items-center px-5 py-3.5 ${
+                className={`bm-stagger grid grid-cols-12 items-center px-5 py-3.5 min-w-[560px] ${
                   idx < filtrados.length - 1 ? 'border-b border-border' : ''
                 }`}
                 style={{ '--bm-i': idx, '--bm-step': '40ms' } as React.CSSProperties}>
@@ -1024,7 +1024,7 @@ export default function EstoquePage() {
 
           {/* KPIs do mês */}
           {loadingMov ? (
-            <div className="grid grid-cols-3 gap-4 mb-5">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
               {[1,2,3].map(i => (
                 <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3">
                   <Sk className="w-9 h-9 rounded-xl flex-shrink-0"/>
@@ -1033,16 +1033,16 @@ export default function EstoquePage() {
               ))}
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
               {[
-                { label: 'Saídas no mês',  value: movimentos.filter(m => m.tipo === 'saida').length,   sub: `${totalSaidas.toFixed(1)} unid. total`,  icon: ArrowDown, hue: 0   },
-                { label: 'Entradas no mês', value: movimentos.filter(m => m.tipo === 'entrada').length, sub: `${totalEntradas.toFixed(1)} unid. total`, icon: ArrowUp,   hue: 145 },
-                { label: 'Total registros', value: movimentos.length,                                    sub: 'entradas + saídas',                       icon: List,      hue: 270 },
-              ].map(({ label, value, sub, icon: Icon, hue }, idx) => (
+                { label: 'Saídas no mês',   value: movimentos.filter(m => m.tipo === 'saida').length,   sub: `${totalSaidas.toFixed(1)} unid. total`,  icon: ArrowDown, color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)'    },
+                { label: 'Entradas no mês', value: movimentos.filter(m => m.tipo === 'entrada').length, sub: `${totalEntradas.toFixed(1)} unid. total`, icon: ArrowUp,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
+                { label: 'Total registros', value: movimentos.length,                                    sub: 'entradas + saídas',                       icon: List,      color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
+              ].map(({ label, value, sub, icon: Icon, color, bg }, idx) => (
                 <div key={label} className="bm-stagger"
                   style={{ '--bm-i': idx, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties}>
-                  <div style={{ width: 36, height: 36, borderRadius: 12, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon size={16} color="white" strokeWidth={2}/>
+                  <div style={{ width: 36, height: 36, borderRadius: 12, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon size={16} style={{ color }} strokeWidth={2}/>
                   </div>
                   <div>
                     <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}>{value}</p>
