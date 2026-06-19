@@ -239,17 +239,25 @@ export default function ConfiguracoesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Prévia imediata
+    if (file.size > 2 * 1024 * 1024) {
+      setErro('Arquivo muito grande. Máximo 2 MB.');
+      return;
+    }
+
+    // Prévia imediata via blob URL (sempre correto, sem cache)
     const objectUrl = URL.createObjectURL(file);
     setLogoPreview(objectUrl);
     setUploadando(true);
+    setErro('');
 
-    const ext  = file.name.split('.').pop();
-    const path = `empresa_${empresaId}.${ext}`;
+    // Nome único com timestamp → evita CDN cache do Supabase Storage
+    const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const path = `empresa_${empresaId}_${Date.now()}.${ext}`;
 
-    const { error } = await supabase.storage.from('logos').upload(path, file, { upsert: true });
+    const { error } = await supabase.storage.from('logos').upload(path, file);
 
     if (error) {
+      showToast('Erro ao enviar logo. Tente novamente.');
       setErro(`Erro no upload: ${error.message}`);
       setLogoPreview(logoUrl);
       setUploadando(false);
@@ -258,13 +266,12 @@ export default function ConfiguracoesPage() {
 
     const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(path);
     setLogoUrl(publicUrl);
+    setLogoPreview(objectUrl); // mantém blob URL na prévia até o usuário salvar
 
-    // Salva logo_url imediatamente para refletir na sidebar sem precisar salvar o formulário
     await supabase.from('empresas').update({ logo_url: publicUrl }).eq('id', empresaId);
-    router.refresh(); // atualiza o Server Component (AppLayout / Sidebar)
 
     setUploadando(false);
-    showToast('Logo atualizada!');
+    showToast('Logo atualizada! Clique em Salvar para confirmar.');
   }
 
   async function salvarEmpresa(e: React.FormEvent) {
