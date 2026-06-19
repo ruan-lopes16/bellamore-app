@@ -112,8 +112,7 @@ function avatarGradient(nome: string) {
   const h = avatarHue(nome);
   return `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`;
 }
-let uidCount = 0;
-function uid() { return `tmp_${++uidCount}`; }
+function uid() { return crypto.randomUUID(); }
 
 // ── Componente principal ──────────────────────────────────────
 

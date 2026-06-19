@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient as createAdmin } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/server';
 
-const adminClient = createClient(
+const adminClient = createAdmin(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { autoRefreshToken: false, persistSession: false } }
@@ -14,6 +15,20 @@ export async function POST(req: NextRequest) {
     if (!empresaId || !nome) {
       return NextResponse.json({ error: 'Nome e empresa são obrigatórios.' }, { status: 400 });
     }
+
+    // Verifica que o usuário logado é membro ativo dessa empresa
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { data: membroReq } = await supabase
+      .from('empresa_membros')
+      .select('empresa_id')
+      .eq('user_id', user.id)
+      .eq('empresa_id', empresaId)
+      .eq('ativo', true)
+      .single();
+    if (!membroReq) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const emailFinal = email?.trim().toLowerCase() || `prof.${crypto.randomUUID()}@interno.app`;
 
@@ -28,15 +43,17 @@ export async function POST(req: NextRequest) {
     });
 
     if (authError) {
-      // Se o erro é "já existe" — busca o usuário pelo email no auth
       if (authError.message.toLowerCase().includes('already')) {
-        // Busca via listUsers (filtra por email)
-        const { data: list } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
-        const found = list?.users.find(u => u.email === emailFinal);
-        if (!found) {
+        // Busca na tabela pública (mais eficiente que listUsers com paginação)
+        const { data: existing } = await adminClient
+          .from('users')
+          .select('id')
+          .eq('email', emailFinal)
+          .single();
+        if (!existing) {
           return NextResponse.json({ error: 'Usuário já existe, mas não foi possível localizá-lo.' }, { status: 400 });
         }
-        userId = found.id;
+        userId = existing.id;
       } else {
         return NextResponse.json({ error: authError.message }, { status: 400 });
       }
@@ -83,6 +100,30 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'userId e nome são obrigatórios.' }, { status: 400 });
     }
 
+    // Verifica que o usuário logado pertence à mesma empresa que o alvo
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { data: requesterMembros } = await supabase
+      .from('empresa_membros')
+      .select('empresa_id')
+      .eq('user_id', user.id)
+      .eq('ativo', true);
+
+    const empresaIds = (requesterMembros ?? []).map((m: any) => m.empresa_id);
+    if (empresaIds.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const { data: alvoMembro } = await supabase
+      .from('empresa_membros')
+      .select('empresa_id')
+      .eq('user_id', userId)
+      .in('empresa_id', empresaIds)
+      .limit(1)
+      .single();
+
+    if (!alvoMembro) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
     const { error } = await adminClient.from('users').update({
       nome:     nome.trim(),
       telefone: telefone?.trim() || null,
@@ -91,7 +132,6 @@ export async function PATCH(req: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    // Atualiza metadados do auth também
     await adminClient.auth.admin.updateUserById(userId, {
       user_metadata: { nome: nome.trim() },
     });

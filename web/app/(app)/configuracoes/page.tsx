@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2 } from 'lucide-react';
+import { validaCNPJ } from '@/lib/masks';
 import Image from 'next/image';
 
 const supabase = createClient();
@@ -239,6 +240,11 @@ export default function ConfiguracoesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED.includes(file.type)) {
+      setErro('Formato inválido. Use JPEG, PNG ou WEBP.');
+      return;
+    }
     if (file.size > 2 * 1024 * 1024) {
       setErro('Arquivo muito grande. Máximo 2 MB.');
       return;
@@ -277,6 +283,7 @@ export default function ConfiguracoesPage() {
   async function salvarEmpresa(e: React.FormEvent) {
     e.preventDefault();
     if (!isOwner) { setErro('Somente o dono da empresa pode editar as configurações.'); return; }
+    if (cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
     setSalvando(true); setErro('');
 
     const enderecoFinal = [rua, numero, bairro, localidade].filter(Boolean).join(', ');

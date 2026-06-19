@@ -92,3 +92,28 @@ export function maskCEP(v: string) {
   if (d.length <= 5) return d;
   return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
+
+/**
+ * Valida CNPJ pelo algoritmo de módulo 11.
+ * Rejeita sequências iguais (00.000.000/0000-00, etc.).
+ *
+ * @example
+ * validaCNPJ('11.222.333/0001-81') // → true
+ * validaCNPJ('00.000.000/0000-00') // → false
+ */
+export function validaCNPJ(v: string): boolean {
+  const d = digits(v);
+  if (d.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(d)) return false;
+
+  const calc = (len: number) => {
+    let sum = 0, pos = len - 7;
+    for (let i = len; i >= 1; i--) {
+      sum += parseInt(d[len - i]) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    const r = sum % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return calc(12) === parseInt(d[12]) && calc(13) === parseInt(d[13]);
+}
