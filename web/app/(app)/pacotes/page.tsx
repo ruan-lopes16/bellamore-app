@@ -663,7 +663,7 @@ export default function PacotesPage() {
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {loading ? [1,2,3].map(i => (
           <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3">
             <Sk className="w-9 h-9 rounded-xl flex-shrink-0"/><div className="flex flex-col gap-2 flex-1"><Sk className="h-5 w-12"/><Sk className="h-3 w-24"/></div>
@@ -704,7 +704,7 @@ export default function PacotesPage() {
       {/* ══════════ TAB: CATÁLOGO ══════════ */}
       {aba === 'catalogo' && (
         loading ? (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1,2,3].map(i => <Sk key={i} className="h-48 rounded-2xl"/>)}
           </div>
         ) : pacotes.length === 0 ? (
@@ -717,7 +717,7 @@ export default function PacotesPage() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {pacotes.map((p, idx) => {
               const totalSessoes = p.servicos.reduce((s, i) => s + i.quantidade, 0);
               return (
@@ -801,7 +801,7 @@ export default function PacotesPage() {
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[1,2,3,4].map(i => <Sk key={i} className="h-52 rounded-2xl"/>)}
             </div>
           ) : vendidosFiltrados.length === 0 ? (
@@ -812,7 +812,7 @@ export default function PacotesPage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {vendidosFiltrados.map((v, idx) => {
                 const pct       = v.total_sessoes > 0 ? (v.usadas / v.total_sessoes) * 100 : 0;
                 const statusCfg = STATUS_CFG[v.status] ?? STATUS_CFG.cancelado;
@@ -901,7 +901,7 @@ export default function PacotesPage() {
       {aba === 'relatorio' && (
         loading ? (
           <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[1,2,3,4].map(i => <Sk key={i} className="h-20 rounded-2xl"/>)}
             </div>
             <Sk className="h-48 rounded-2xl"/>
@@ -914,7 +914,7 @@ export default function PacotesPage() {
         ) : (
           <div className="flex flex-col gap-6">
             {/* KPIs */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[
                 { label: 'Total de sessões',     value: String(relatorio.totalSessoes),  sub: 'incluindo todos os pacotes' },
                 { label: 'Sessões realizadas',   value: String(relatorio.sessoesUsadas), sub: `${relatorio.aproveitamento}% de aproveitamento` },

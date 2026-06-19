@@ -440,11 +440,11 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
 
       {/* Stats */}
       {loading ? (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
           {[1,2,3].map(i => <div key={i} className="rounded-2xl p-4" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}><Sk className="h-7 w-12 mb-2"/><Sk className="h-3 w-16"/></div>)}
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Total',    value: profs.length, color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
             { label: 'Ativas',   value: ativos,       color: 'var(--color-green)',   bg: 'var(--color-green-soft)' },
@@ -466,7 +466,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
 
       {/* Lista */}
       {loading ? (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[1,2,3,4].map(i => (
             <div key={i} className="rounded-2xl p-5" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
               <div className="flex items-center gap-3 mb-4"><Sk className="w-12 h-12 rounded-xl flex-shrink-0"/><div className="flex-1 flex flex-col gap-2"><Sk className="h-4 w-28"/><Sk className="h-3 w-20"/></div></div>
@@ -488,7 +488,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: 'var(--color-ink4)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }} className="capitalize">
             {mes} · {ativos} {ativos === 1 ? 'profissional ativa' : 'profissionais ativas'}
           </p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {profs.map((p, i) => (
               <div key={p.id} className="bm-stagger"
                 style={{ '--bm-i': i, '--bm-step': '60ms' } as React.CSSProperties}>

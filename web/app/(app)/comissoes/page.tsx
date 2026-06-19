@@ -221,7 +221,7 @@ export default function ComissoesPage() {
       </div>
 
       {/* Resumo cards */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         {[
           { label: 'Total', val: resumo.total, cor: 'var(--color-primary)' },
           { label: 'Pendente', val: resumo.pendente, cor: 'var(--color-amber)' },
@@ -363,7 +363,7 @@ export default function ComissoesPage() {
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
             onClick={() => !salvando && setPagando(null)}>
-            <div className="bg-surface rounded-2xl p-6 w-96 shadow-xl" onClick={e => e.stopPropagation()}
+            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm md:w-96 shadow-xl mx-4" onClick={e => e.stopPropagation()}
               style={{ animation: 'bm-pop .3s cubic-bezier(.2,.85,.3,1)' }}>
               <div className="flex items-center justify-between mb-4">
                 <div>

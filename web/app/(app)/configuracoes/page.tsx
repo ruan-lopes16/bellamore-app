@@ -418,7 +418,7 @@ export default function ConfiguracoesPage() {
 
           {/* Dados gerais */}
           <SectionCard title="Dados da empresa" icon={Building2} hue={270}>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Nome do salão *</label>
                 <input value={nome} onChange={e => setNome(e.target.value)} required
@@ -439,7 +439,7 @@ export default function ConfiguracoesPage() {
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>CNPJ</label>
                 <div className="relative">
@@ -460,7 +460,7 @@ export default function ConfiguracoesPage() {
             </div>
 
             {/* CEP + Número na mesma linha */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>CEP</label>
                 <div className="relative">
@@ -489,7 +489,7 @@ export default function ConfiguracoesPage() {
                 className={inputCls} disabled={!isOwner}/>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Bairro</label>
                 <input value={bairro} onChange={e => setBairro(e.target.value)}

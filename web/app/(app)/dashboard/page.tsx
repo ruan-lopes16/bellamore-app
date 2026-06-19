@@ -167,7 +167,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+    <div className="max-w-5xl mx-auto w-full">
 
       {/* ── Header ── */}
       <div className="mb-7">
@@ -217,7 +217,7 @@ export default async function DashboardPage() {
       </Tilt>
 
       {/* ── KPIs do mês ── */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
         {[
           { label: 'Fat. Bruto',    value: fmt(bruto),   color: 'var(--color-green)',   delta: pctBruto, icon: TrendingUp  },
           { label: 'Fat. Líquido',  value: fmt(liquido), color: 'var(--color-primary)', delta: null,     icon: Wallet      },
@@ -241,7 +241,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── KPIs do dia ── */}
-      <div className="grid grid-cols-3 gap-3 mb-7">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-7">
         {[
           { label: 'Agenda hoje',    value: String(agsHoje.length), sub: `${agsConcluidos.length} concluído(s)`, icon: CalendarDays,  color: 'var(--color-accent)'   },
           { label: 'Faturamento hoje', value: fmt(fatHoje),         sub: 'Serviços + vendas',                   icon: ShoppingBag,   color: 'var(--color-primary)' },
@@ -264,7 +264,7 @@ export default async function DashboardPage() {
         <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 12 }}>
           Ações rápidas
         </p>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { href: '/agenda',    label: 'Agendar',  icon: CalendarPlus,    fg: 'var(--color-accent)', bg: 'var(--color-accent-soft)' },
             { href: '/comanda',   label: 'Comanda',  icon: Receipt,         fg: 'var(--color-rose)',   bg: 'var(--color-rose-soft)'   },

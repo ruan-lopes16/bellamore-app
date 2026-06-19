@@ -1062,7 +1062,7 @@ export default function RelatoriosPage() {
 
           {/* Resumo geral */}
           {!loading && comissoesPorProf.length > 0 && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
                 <p className="font-serif text-2xl text-amber-600">
                   {fmtBRL(comissoesPorProf.reduce((s, p) => s + p.totalPendente, 0))}

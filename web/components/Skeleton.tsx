@@ -53,8 +53,11 @@ export function Sk({ className = '', style }: { className?: string; style?: CSSP
  * @param cols - número de colunas (default: 3)
  */
 export function SkStatGrid({ cols = 3 }: { cols?: number }) {
+  const colClass = cols === 4 ? 'grid-cols-2 md:grid-cols-4'
+    : cols === 2 ? 'grid-cols-1 sm:grid-cols-2'
+    : 'grid-cols-2 md:grid-cols-3';
   return (
-    <div className={`grid grid-cols-${cols} gap-4 mb-6`}>
+    <div className={`grid ${colClass} gap-4 mb-6`}>
       {Array.from({ length: cols }).map((_, i) => (
         <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm">
           <Sk className="h-7 w-14 mb-2" />
@@ -74,8 +77,11 @@ export function SkCardGrid({ count = 3, cols = 2, height = 'h-52' }: {
   cols?: number;
   height?: string;
 }) {
+  const colClass = cols === 3 ? 'grid-cols-1 sm:grid-cols-3'
+    : cols === 1 ? 'grid-cols-1'
+    : 'grid-cols-1 sm:grid-cols-2';
   return (
-    <div className={`grid grid-cols-${cols} gap-4`}>
+    <div className={`grid ${colClass} gap-4`}>
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className={`bg-surface border border-border rounded-2xl ${height}`} />
       ))}
@@ -97,10 +103,10 @@ export function SkTableRows({ count = 5 }: { count?: number }) {
           className={`flex items-center gap-3 px-5 py-3.5 ${i < count - 1 ? 'border-b border-border' : ''}`}
         >
           <Sk className="w-8 h-8 rounded-lg flex-shrink-0" />
-          <div className="flex-1 flex gap-8">
-            <Sk className="h-4 w-36" />
-            <Sk className="h-4 w-24" />
-            <Sk className="h-4 w-32" />
+          <div className="flex-1 flex gap-3 overflow-hidden">
+            <Sk className="h-4 w-28 flex-shrink-0" />
+            <Sk className="h-4 w-20 hidden sm:block flex-shrink-0" />
+            <Sk className="h-4 w-24 hidden sm:block flex-shrink-0" />
           </div>
           <Sk className="h-4 w-16" />
         </div>
@@ -188,7 +194,7 @@ export function SkTabs() {
  */
 export function SkKPIs() {
   return (
-    <div className="grid grid-cols-3 gap-4 mb-6">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
       {[1, 2, 3].map(i => (
         <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
           <Sk className="h-3 w-16 mb-3" />
