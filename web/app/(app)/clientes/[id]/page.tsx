@@ -6,10 +6,11 @@ import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin,
 import { createClient } from '@/lib/supabase/client';
 import type { Cliente } from '@/types';
 import { format, differenceInYears, addMinutes, parseISO } from 'date-fns';
-import { maskPhone } from '@/lib/masks';
+import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { ptBR } from 'date-fns/locale';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 const supabase = createClient();
 
@@ -237,8 +238,9 @@ export default function ClientePerfilPage() {
   const [histCarregado, setHistCarregado] = useState(false);
 
   // ── Modal novo agendamento ──────────────────────────────────
-  const [empresaId,  setEmpresaId]  = useState<string | null>(null);
-  const [modalAg,    setModalAg]    = useState(false);
+  const [empresaId,       setEmpresaId]       = useState<string | null>(null);
+  const [modalAg,         setModalAg]         = useState(false);
+  const [confirmArquivar, setConfirmArquivar] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -344,8 +346,12 @@ export default function ClientePerfilPage() {
   }
 
   async function desativar() {
-    if (!confirm(`Deseja arquivar "${cliente?.nome}"?`)) return;
+    setConfirmArquivar(true);
+  }
+
+  async function confirmarArquivar() {
     await supabase.from('clientes').update({ ativo: false }).eq('id', id);
+    setConfirmArquivar(false);
     router.push('/clientes');
   }
 
@@ -461,7 +467,7 @@ export default function ClientePerfilPage() {
                 <Calendar size={14} strokeWidth={2.5}/>Agendar
               </button>
               {cliente.telefone && (
-                <a href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="press"
+                <a href={`https://wa.me/${toWhatsApp(cliente.telefone)}`} target="_blank" rel="noopener noreferrer" className="press"
                   style={{ flex: 1, height: 38, borderRadius: 12, background: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid rgba(255,255,255,0.1)', textDecoration: 'none' }}>
                   <MessageCircle size={14} strokeWidth={2.5}/>WhatsApp
                 </a>
@@ -1006,6 +1012,16 @@ export default function ClientePerfilPage() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmArquivar}
+        title="Arquivar cliente"
+        message={`"${cliente?.nome}" será arquivado e não aparecerá nas listas. O histórico é mantido.`}
+        confirmLabel="Arquivar"
+        variant="danger"
+        onConfirm={confirmarArquivar}
+        onCancel={() => setConfirmArquivar(false)}
+      />
     </div>
   );
 }
