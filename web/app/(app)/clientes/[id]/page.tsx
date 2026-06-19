@@ -836,7 +836,8 @@ export default function ClientePerfilPage() {
                         className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
                         Cancelar
                       </button>
-                      <button disabled={salvandoAn}
+                      <button disabled={salvandoAn || !rascunho.declaracao_aceita}
+                        title={!rascunho.declaracao_aceita ? 'Cliente precisa aceitar a declaração antes de salvar' : undefined}
                         onClick={async () => {
                           setSalvandoAn(true);
                           const dados = { ...rascunho, salvo_em: new Date().toISOString() };

@@ -104,11 +104,15 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro(''); setSalvando(true);
+    const valorN = parseFloat(valor.replace(',', '.'));
+    if (isNaN(valorN) || valorN <= 0) {
+      setErro('Informe um valor maior que zero.'); setSalvando(false); return;
+    }
     const { error } = await supabase.from('despesas').insert({
       empresa_id:      empresaId,
       descricao:       descricao.trim(),
       categoria:       categoria || null,
-      valor:           parseFloat(valor.replace(',', '.')) || 0,
+      valor:           valorN,
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimento || null,
@@ -209,11 +213,13 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
 }) {
   const [data,    setData]    = useState(format(new Date(), 'yyyy-MM-dd'));
   const [salvando,setSalvando]= useState(false);
+  const [erro,    setErro]    = useState('');
 
   async function confirmar() {
-    setSalvando(true);
-    await supabase.from('despesas').update({ status: 'pago', data_pagamento: data }).eq('id', despesa.id);
+    setSalvando(true); setErro('');
+    const { error } = await supabase.from('despesas').update({ status: 'pago', data_pagamento: data }).eq('id', despesa.id);
     setSalvando(false);
+    if (error) { setErro(error.message); return; }
     onSalvo();
   }
 
@@ -232,6 +238,7 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
           <input value={data} onChange={e => setData(e.target.value)}
             type="date" className={inputClass}/>
         </div>
+        {erro && <p className="text-red text-sm mb-2">{erro}</p>}
         <div className="flex gap-3">
           <button onClick={onClose}
             className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
@@ -356,9 +363,11 @@ export default function FinanceiroPage() {
     ((membros.data ?? []) as { user_id: string; percentual_comissao: number }[])
       .forEach(m => { comMap[m.user_id] = m.percentual_comissao ?? 0; });
 
-    type AgRow = { profissional_id: string; valor: number };
+    type AgRow = { profissional_id: string | null; valor: number };
     const calcCom = (ags: AgRow[]) =>
-      ags.reduce((s, a) => s + Number(a.valor) * (comMap[a.profissional_id] ?? 0) / 100, 0);
+      ags
+        .filter(a => a.profissional_id != null)
+        .reduce((s, a) => s + Number(a.valor) * (comMap[a.profissional_id!] ?? 0) / 100, 0);
 
     type ValRow = { valor: number };
     type VendaRow = { valor_final: number };
