@@ -101,9 +101,9 @@ export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: {
         <div className="px-5 py-5" style={{ borderBottom: '1px solid var(--color-border)' }}>
           <div className="flex items-center gap-3">
             {empresaLogo ? (
-              <Image src={empresaLogo} alt={empresaNome} width={36} height={36}
-                className="w-9 h-9 rounded-xl object-cover flex-shrink-0"
-                style={{ boxShadow: '0 2px 8px rgba(44,23,80,0.2)' }} />
+              <Image src={empresaLogo} alt={empresaNome} width={36} height={36} unoptimized
+                className="w-9 h-9 rounded-xl object-contain flex-shrink-0"
+                style={{ boxShadow: '0 2px 8px rgba(44,23,80,0.2)', background: '#fff' }} />
             ) : (
               <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ background: 'var(--color-primary)', boxShadow: '0 2px 8px rgba(44,23,80,0.3)' }}>

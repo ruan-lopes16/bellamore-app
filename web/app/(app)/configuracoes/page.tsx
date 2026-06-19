@@ -377,9 +377,10 @@ export default function ConfiguracoesPage() {
                 onClick={() => isOwner && fileInputRef.current?.click()}
                 className={`w-20 h-20 rounded-2xl border-2 border-dashed flex items-center justify-center overflow-hidden flex-shrink-0 transition ${
                   isOwner ? 'border-border hover:border-accent cursor-pointer' : 'border-border cursor-not-allowed opacity-60'
-                }`}>
+                }`}
+                style={{ background: logoPreview ? '#fff' : undefined }}>
                 {logoPreview ? (
-                  <Image src={logoPreview} alt="Logo" width={80} height={80} className="w-full h-full object-cover" unoptimized/>
+                  <Image src={logoPreview} alt="Logo" width={80} height={80} className="w-full h-full object-contain" unoptimized/>
                 ) : (
                   <Upload size={20} className="text-text-4"/>
                 )}
