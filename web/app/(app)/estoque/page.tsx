@@ -160,7 +160,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo }: {
 
     if (ed) {
       const { data, error } = await supabase.from('produtos')
-        .update(payload).eq('id', ed.id).select().single();
+        .update(payload).eq('id', ed.id).eq('empresa_id', empresaId).select().single();
       setSalvando(false);
       if (error) { setErro(error.message); return; }
       onSalvo(data as Produto);

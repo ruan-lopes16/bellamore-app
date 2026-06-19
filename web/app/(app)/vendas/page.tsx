@@ -238,6 +238,7 @@ export default function VendasPage() {
   // ── Finalizar venda
   async function finalizar() {
     if (cart.length === 0)     { setErro('Carrinho vazio'); return; }
+    if (descontoN > subtotal)  { setErro('Desconto não pode ser maior que o subtotal'); return; }
     if (splits.length === 0)   { setErro('Selecione um método de pagamento'); return; }
     if (restante > 0.01)       { setErro(`Faltam ${fmtBRL(restante)} para cobrir o total`); return; }
 

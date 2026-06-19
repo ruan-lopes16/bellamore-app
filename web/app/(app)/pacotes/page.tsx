@@ -130,7 +130,7 @@ function PacoteModal({
       // Atualizar dados do pacote
       const { error: e1 } = await supabase.from('pacotes').update({
         nome: nome.trim(), preco: precoN, validade_dias: validadeN,
-      }).eq('id', pacote.id);
+      }).eq('id', pacote.id).eq('empresa_id', empresaId);
       if (e1) { setErro(e1.message); setSalvando(false); return; }
       pacoteId = pacote.id;
     } else {
@@ -595,7 +595,8 @@ export default function PacotesPage() {
 
   // ── Toggle ativo/inativo de pacote
   async function toggleAtivo(p: Pacote) {
-    await supabase.from('pacotes').update({ ativo: !p.ativo }).eq('id', p.id);
+    if (!empresaId) return;
+    await supabase.from('pacotes').update({ ativo: !p.ativo }).eq('id', p.id).eq('empresa_id', empresaId);
     if (empresaId) carregar(empresaId);
   }
 
