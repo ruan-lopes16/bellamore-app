@@ -103,6 +103,12 @@ html, body {
   transition: background-color 300ms ease, color 300ms ease;
 }
 
+/* Garante que Cormorant Garamond carregue via next/font — a classe Tailwind
+   font-serif não resolve a CSS var corretamente em todos os contextos */
+.font-serif {
+  font-family: var(--font-cormorant), Georgia, serif;
+}
+
 /* Scrollbar discreta */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

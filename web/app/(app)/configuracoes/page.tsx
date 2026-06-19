@@ -486,19 +486,19 @@ export default function ConfiguracoesPage() {
             <div>
               <label className={labelCls}>Logradouro</label>
               <input value={rua} onChange={e => setRua(e.target.value)}
-                placeholder="Preenchido pelo CEP" className={inputCls} disabled={!isOwner}/>
+                className={inputCls} disabled={!isOwner}/>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Bairro</label>
                 <input value={bairro} onChange={e => setBairro(e.target.value)}
-                  placeholder="Preenchido pelo CEP" className={inputCls} disabled={!isOwner}/>
+                  className={inputCls} disabled={!isOwner}/>
               </div>
               <div>
                 <label className={labelCls}>Cidade / Estado</label>
                 <input value={localidade} onChange={e => setLocalidade(e.target.value)}
-                  placeholder="Preenchido pelo CEP" className={inputCls} disabled={!isOwner}/>
+                  className={inputCls} disabled={!isOwner}/>
               </div>
             </div>
           </SectionCard>

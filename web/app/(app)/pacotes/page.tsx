@@ -669,14 +669,14 @@ export default function PacotesPage() {
             <Sk className="w-9 h-9 rounded-xl flex-shrink-0"/><div className="flex flex-col gap-2 flex-1"><Sk className="h-5 w-12"/><Sk className="h-3 w-24"/></div>
           </div>
         )) : [
-          { icon: Gift,  label: 'Pacotes ativos',    v: totalAtivos,   hue: 270 },
-          { icon: Users, label: 'Vendas realizadas', v: totalVendidos, hue: 330 },
-          { icon: Check, label: 'Em andamento',      v: totalAtivos2,  hue: 145 },
-        ].map(({ icon: Icon, label, v, hue }, idx) => (
+          { icon: Gift,  label: 'Pacotes ativos',    v: totalAtivos,   color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
+          { icon: Users, label: 'Vendas realizadas', v: totalVendidos, color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
+          { icon: Check, label: 'Em andamento',      v: totalAtivos2,  color: 'var(--color-accent)',  bg: 'var(--color-accent-soft)'  },
+        ].map(({ icon: Icon, label, v, color, bg }, idx) => (
           <div key={label} className="bm-stagger"
             style={{ '--bm-i': idx, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties}>
-            <div style={{ width: 36, height: 36, borderRadius: 12, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Icon size={16} color="white" strokeWidth={2}/>
+            <div style={{ width: 36, height: 36, borderRadius: 12, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon size={16} style={{ color }} strokeWidth={2}/>
             </div>
             <div>
               <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}>{v}</p>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Clock, Edit3, X, Trash2, Package2 } from 'lucide-react';
+import { Plus, Clock, Edit3, X, Trash2, Package2, Layers, Zap, EyeOff } from 'lucide-react';
 import {
   IconCilios, IconSobrancelhas, IconDepilacao, IconUnhas,
   IconPele, IconDermaplaning, IconMaquiagem, IconOutros,
@@ -511,14 +511,14 @@ export default function ServicosPage() {
       ) : (
         <div className="grid grid-cols-3 gap-4 mb-6">
           {[
-            { label: 'Total',    value: total,          color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
-            { label: 'Ativos',   value: ativos,         color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
-            { label: 'Inativos', value: total - ativos, color: 'var(--color-ink3)',    bg: 'var(--color-bg2)'          },
-          ].map(({ label, value, color, bg }, i) => (
+            { label: 'Total',    value: total,          color: 'var(--color-primary)', bg: 'var(--color-primary-soft)', icon: Layers  },
+            { label: 'Ativos',   value: ativos,         color: 'var(--color-green)',   bg: 'var(--color-green-soft)',   icon: Zap     },
+            { label: 'Inativos', value: total - ativos, color: 'var(--color-ink3)',    bg: 'var(--color-bg2)',          icon: EyeOff  },
+          ].map(({ label, value, color, bg, icon: Icon }, i) => (
             <div key={label} className="bm-stagger rounded-2xl p-4 flex items-center gap-3"
               style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
               <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
-                <IconOutros size={18} style={{ color }} strokeWidth={1.8}/>
+                <Icon size={18} style={{ color }} strokeWidth={1.8}/>
               </div>
               <div>
                 <p style={{ fontFamily: 'var(--font-sans)', fontSize: 22, fontWeight: 700, lineHeight: 1, color }}>{value}</p>

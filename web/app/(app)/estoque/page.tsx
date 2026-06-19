@@ -27,7 +27,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Plus, Package2, AlertTriangle, DollarSign,
+  Plus, Package2, AlertTriangle, DollarSign, Wallet,
   Search, Edit3, X, ArrowUp, ArrowDown, RefreshCw,
   ChevronLeft, ChevronRight, List, CalendarDays, Check,
 } from 'lucide-react';
@@ -757,15 +757,15 @@ export default function EstoquePage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
           {[
-            { label: 'Materiais / Insumos', value: String(produtos.filter(p => p.tipo === 'material').length), sub: 'para atendimentos', icon: Package2, hue: 270 },
-            { label: 'Para venda (PDV)', value: String(produtos.filter(p => p.tipo === 'venda').length), sub: 'para revenda', icon: DollarSign, hue: 145 },
-            { label: 'Precisam de reposição', value: String(alertas.length), sub: alertas.length > 0 ? 'estoque baixo' : 'tudo OK', icon: AlertTriangle, hue: alertas.length > 0 ? 55 : 145 },
-            { label: 'Valor total em estoque', value: fmtBRL(valorTotal), sub: 'custo de aquisição', icon: DollarSign, hue: 220 },
-          ].map(({ label, value, sub, icon: Icon, hue }, idx) => (
+            { label: 'Materiais / Insumos',   value: String(produtos.filter(p => p.tipo === 'material').length), sub: 'para atendimentos', icon: Package2,     color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
+            { label: 'Para venda (PDV)',       value: String(produtos.filter(p => p.tipo === 'venda').length),    sub: 'para revenda',    icon: DollarSign,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
+            { label: 'Precisam de reposição',  value: String(alertas.length), sub: alertas.length > 0 ? 'estoque baixo' : 'tudo OK', icon: AlertTriangle, color: alertas.length > 0 ? 'var(--color-amber)' : 'var(--color-green)', bg: alertas.length > 0 ? 'var(--color-amber-soft)' : 'var(--color-green-soft)' },
+            { label: 'Valor total em estoque', value: fmtBRL(valorTotal),     sub: 'custo de aquisição',  icon: Wallet,       color: 'var(--color-accent)',  bg: 'var(--color-accent-soft)'  },
+          ].map(({ label, value, sub, icon: Icon, color, bg }, idx) => (
             <div key={label} className="bm-stagger"
               style={{ '--bm-i': idx, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties}>
-              <div style={{ width: 36, height: 36, borderRadius: 12, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon size={16} color="white" strokeWidth={2}/>
+              <div style={{ width: 36, height: 36, borderRadius: 12, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={16} style={{ color }} strokeWidth={2}/>
               </div>
               <div style={{ minWidth: 0 }}>
                 <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}>{value}</p>
