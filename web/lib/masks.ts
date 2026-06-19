@@ -66,6 +66,21 @@ export function maskCPF(v: string) {
 }
 
 /**
+ * Gera o número para link wa.me (sem +, sem espaços, com DDI 55).
+ * Evita duplicar o DDI caso o número já esteja salvo com ele.
+ *
+ * @example
+ * toWhatsApp('(34) 99178-0000') // → '5534991780000'
+ * toWhatsApp('+55 34 99178-0000') // → '5534991780000'
+ */
+export function toWhatsApp(phone: string): string {
+  const d = digits(phone);
+  // Número já contém DDI: começa com 55 e tem 12+ dígitos (55 + DDD + 9 dígitos)
+  if (d.startsWith('55') && d.length >= 12) return d;
+  return `55${d}`;
+}
+
+/**
  * Máscara de CEP brasileiro.
  * Formato: XXXXX-XXX
  *

@@ -6,7 +6,7 @@ import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin,
 import { createClient } from '@/lib/supabase/client';
 import type { Cliente } from '@/types';
 import { format, differenceInYears, addMinutes, parseISO } from 'date-fns';
-import { maskPhone } from '@/lib/masks';
+import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { ptBR } from 'date-fns/locale';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -461,7 +461,7 @@ export default function ClientePerfilPage() {
                 <Calendar size={14} strokeWidth={2.5}/>Agendar
               </button>
               {cliente.telefone && (
-                <a href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="press"
+                <a href={`https://wa.me/${toWhatsApp(cliente.telefone)}`} target="_blank" rel="noopener noreferrer" className="press"
                   style={{ flex: 1, height: 38, borderRadius: 12, background: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid rgba(255,255,255,0.1)', textDecoration: 'none' }}>
                   <MessageCircle size={14} strokeWidth={2.5}/>WhatsApp
                 </a>
