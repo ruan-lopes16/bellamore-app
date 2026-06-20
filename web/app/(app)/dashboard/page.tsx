@@ -174,7 +174,7 @@ export default async function DashboardPage() {
         <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 600, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>
           {mesLabel}
         </p>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 30, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
+        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
           Dashboard
         </h1>
       </div>
@@ -193,7 +193,7 @@ export default async function DashboardPage() {
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.48)', textTransform: 'uppercase', letterSpacing: '0.13em', marginBottom: 8 }}>
             Receita - {format(hoje, 'MMMM yyyy', { locale: ptBR }).toUpperCase()}
           </p>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 38, fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 'clamp(28px, 8vw, 38px)', fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
             <span style={{ fontSize: 16, fontWeight: 500, opacity: 0.6, marginRight: 4 }}>R$</span>
             <CountUp value={bruto} />
           </p>
