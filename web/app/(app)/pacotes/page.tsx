@@ -735,7 +735,7 @@ export default function PacotesPage() {
                   </div>
 
                   {/* Preço */}
-                  <p className="font-serif text-2xl text-text">{fmtBRL(p.preco)}</p>
+                  <p className="text-2xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{fmtBRL(p.preco)}</p>
 
                   {/* Serviços */}
                   <div className="flex flex-col gap-1 flex-1">

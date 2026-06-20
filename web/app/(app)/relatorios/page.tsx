@@ -1064,19 +1064,19 @@ export default function RelatoriosPage() {
           {!loading && comissoesPorProf.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
-                <p className="font-serif text-2xl text-amber-600">
+                <p className="text-2xl font-bold text-amber-600" style={{ letterSpacing: '-0.02em' }}>
                   {fmtBRL(comissoesPorProf.reduce((s, p) => s + p.totalPendente, 0))}
                 </p>
                 <p className="text-xs text-text-3 mt-1">A pagar (pendente)</p>
               </div>
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
-                <p className="font-serif text-2xl text-green-600">
+                <p className="text-2xl font-bold text-green-600" style={{ letterSpacing: '-0.02em' }}>
                   {fmtBRL(comissoesPorProf.reduce((s, p) => s + p.totalPago, 0))}
                 </p>
                 <p className="text-xs text-text-3 mt-1">Já pago</p>
               </div>
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
-                <p className="font-serif text-2xl text-text">{comissoes.length}</p>
+                <p className="text-2xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{comissoes.length}</p>
                 <p className="text-xs text-text-3 mt-1">Comissões no período</p>
               </div>
             </div>

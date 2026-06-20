@@ -185,7 +185,7 @@ export default function ComissoesPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Equipe</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 28, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.1 }}>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
             Comissões
           </h1>
         </div>
@@ -377,7 +377,7 @@ export default function ComissoesPage() {
               </div>
               <div className="bg-amber-soft rounded-xl p-4 text-center mb-6">
                 <p className="text-xs text-amber font-semibold mb-1">Total a repassar</p>
-                <p className="font-serif text-3xl text-amber">{fmtBRL(prof.pendente)}</p>
+                <p className="text-3xl font-bold text-amber" style={{ letterSpacing: '-0.02em' }}>{fmtBRL(prof.pendente)}</p>
               </div>
               <button onClick={() => marcarPago(prof.profissional_id)}
                 disabled={salvando}

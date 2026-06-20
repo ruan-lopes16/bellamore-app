@@ -319,7 +319,7 @@ function ConsumoModal({ ag, empresaId, onClose, onConfirmar }: {
                 <p className="text-xs font-semibold text-text-3 uppercase tracking-wide mb-1">
                   Total do atendimento
                 </p>
-                <p className="font-serif text-3xl text-text">{fmtBRL(ag.valor)}</p>
+                <p className="text-3xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{fmtBRL(ag.valor)}</p>
               </div>
 
               {/* Chips de método */}
