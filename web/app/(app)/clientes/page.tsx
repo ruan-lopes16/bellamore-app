@@ -51,7 +51,7 @@ function NovoClienteModal({ empresaId, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 pt-8 sm:pt-4 overflow-y-auto">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
@@ -156,7 +156,7 @@ export default function ClientesPage() {
   return (
     <div>
       {/* Header Bellamore */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>
             Base de clientes
@@ -165,7 +165,7 @@ export default function ClientesPage() {
             Clientes
           </h1>
         </div>
-        <div className="flex gap-2 pt-1">
+        <div className="flex flex-wrap gap-2 sm:pt-1">
           <ExportButton
             filename="clientes"
             title="Clientes"

@@ -609,7 +609,7 @@ function NovoAgModal({
   }));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-3 md:px-16 py-8">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-3 md:px-16 py-4 sm:py-8 overflow-y-auto">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         {/* Header */}
@@ -831,10 +831,10 @@ function TimelineView({
   }
 
   return (
-    <div className="flex gap-4 items-start">
+    <div className="flex gap-4 items-start min-w-0">
 
       {/* ── Grid de timeline ── */}
-      <div className="flex-1 border border-border rounded-2xl overflow-x-auto bg-surface min-w-0">
+      <div className="flex-1 border border-border rounded-2xl overflow-x-auto bg-surface min-w-0 w-full">
 
         {/* Cabeçalho com nomes dos profissionais */}
         <div className="flex border-b border-border bg-bg">
@@ -961,17 +961,18 @@ function TimelineView({
       {/* ── Painel lateral — detalhes do agendamento ── */}
       {agSel && (
         <>
-          {/* Mobile: backdrop + bottom sheet */}
-          <div className="md:hidden fixed inset-0 z-30 bg-black/30" onClick={() => setAgSel(null)} />
-          <div className="md:hidden fixed bottom-20 left-3 right-3 z-40 bg-surface border border-border rounded-2xl shadow-xl overflow-hidden">
+          {/* Mobile: backdrop + bottom sheet ancorado acima do bottom nav */}
+          <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={() => setAgSel(null)} />
+          <div className="md:hidden fixed left-3 right-3 z-50 bg-surface border border-border rounded-2xl shadow-xl overflow-hidden"
+            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 76px)' }}>
             <div className="flex items-center justify-between p-3 border-b border-border">
               <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
               <button onClick={() => setAgSel(null)}
-                className="w-6 h-6 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
-                <X size={12} />
+                className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
+                <X size={14} />
               </button>
             </div>
-            <div className="p-3 max-h-[45vh] overflow-y-auto">
+            <div className="p-3 max-h-[50vh] overflow-y-auto">
               <AgCard ag={agSel} empresaId={empresaId} onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}/>
             </div>
           </div>
@@ -1017,13 +1018,13 @@ function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus }: {
           {[1,2,3].map(i => (
             <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-start gap-3">
               <Sk className="w-9 h-9 rounded-xl flex-shrink-0"/>
-              <div className="flex-1 flex flex-col gap-2">
+              <div className="flex-1 min-w-0 flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Sk className="h-4 w-32"/>
-                  <Sk className="h-5 w-20 rounded-lg flex-shrink-0"/>
+                  <Sk className="h-4 w-1/2 max-w-[140px]"/>
+                  <Sk className="h-5 w-16 rounded-lg flex-shrink-0"/>
                 </div>
-                <Sk className="h-3 w-40"/>
-                <Sk className="h-3 w-24"/>
+                <Sk className="h-3 w-2/3 max-w-[180px]"/>
+                <Sk className="h-3 w-1/3 max-w-[100px]"/>
               </div>
             </div>
           ))}
@@ -1076,9 +1077,9 @@ function MesView({
 
   return (
     <div>
-      <div className="grid grid-cols-7 mb-1">
+      <div className="grid grid-cols-7 gap-1 mb-1">
         {DIAS.map(d => (
-          <div key={d} className="w-10 text-center text-[10px] font-semibold text-text-4 py-1">{d}</div>
+          <div key={d} className="text-center text-[10px] font-semibold text-text-4 py-1">{d}</div>
         ))}
       </div>
       <div className="grid grid-cols-7 gap-1">
@@ -1092,7 +1093,7 @@ function MesView({
             <div key={key} className="relative group">
               <button
                 onClick={() => onDiaClick(d)}
-                className={`w-10 h-10 flex items-center justify-center rounded-lg text-sm font-bold transition
+                className={`w-full aspect-square flex items-center justify-center rounded-lg text-sm font-bold transition
                   ${selDia  ? 'bg-primary text-white'
                   : hojeDia ? 'bg-primary-soft text-primary'
                   : dMes    ? 'hover:bg-bg text-text-2'
@@ -1231,14 +1232,14 @@ export default function AgendaPage() {
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }} className="capitalize">
             {format(dataSel, 'MMMM yyyy', { locale: ptBR })}
           </p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Agenda</h1>
         </div>
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2 sm:pt-1">
           {/* Toggle view */}
           <div style={{ display: 'flex', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 14, overflow: 'hidden' }}>
             {([
@@ -1275,24 +1276,23 @@ export default function AgendaPage() {
 
       {/* Navegador de semana — visível em Semana e Timeline */}
       {(view === 'semana' || view === 'timeline') && (
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
-          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: '12px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="flex justify-center mb-6">
+          <div className="bg-surface border border-border rounded-[20px] py-3 px-2 sm:px-4 max-w-full">
+            <div className="flex items-center gap-1 sm:gap-1.5">
               <button onClick={() => navSemana(-1)}
-                style={{ width: 32, height: 32, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-ink3)', background: 'transparent', border: 'none', cursor: 'pointer' }}
-                className="hover:bg-bg transition flex-shrink-0">
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0">
                 <ChevronLeft size={16}/>
               </button>
-              <div style={{ display: 'flex', gap: 4 }}>
+              <div className="flex gap-0.5 sm:gap-1">
                 {semana.map((d, i) => {
                   const sel = isSameDay(d, dataSel);
                   const hj  = isToday(d);
                   return (
-                    <button key={d.toISOString()} onClick={() => selecionarDia(d)} className="bm-stagger press"
+                    <button key={d.toISOString()} onClick={() => selecionarDia(d)} className="bm-stagger press flex flex-col items-center rounded-[14px] py-2.5 w-10 sm:w-11 flex-shrink-0"
                       style={{
                         '--bm-i': i, '--bm-step': '35ms',
-                        width: 46, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 0', borderRadius: 14, border: 'none', cursor: 'pointer', transition: 'all 0.15s',
                         background: sel ? 'var(--color-primary)' : 'transparent',
+                        transition: 'all 0.15s',
                       } as React.CSSProperties}>
                       <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4, fontFamily: 'var(--font-sans)', color: sel ? 'rgba(255,255,255,0.7)' : 'var(--color-ink4)' }}>{DIAS[d.getDay()]}</span>
                       <span style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-sans)', color: sel ? '#fff' : hj ? 'var(--color-accent)' : 'var(--color-ink2)' }}>{format(d, 'd')}</span>
@@ -1301,8 +1301,7 @@ export default function AgendaPage() {
                 })}
               </div>
               <button onClick={() => navSemana(1)}
-                style={{ width: 32, height: 32, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-ink3)', background: 'transparent', border: 'none', cursor: 'pointer' }}
-                className="hover:bg-bg transition flex-shrink-0">
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0">
                 <ChevronRight size={16}/>
               </button>
             </div>
@@ -1324,7 +1323,7 @@ export default function AgendaPage() {
         <>
           {/* Mês: calendário centralizado + lista abaixo */}
           <div className="flex justify-center mb-6">
-          <div className="bg-surface border border-border rounded-2xl p-5 w-fit">
+          <div className="bg-surface border border-border rounded-2xl p-4 sm:p-5 w-full max-w-md">
             <div className="flex items-center justify-center gap-3 mb-4">
               <button onClick={() => navMes(-1)} className="w-8 h-8 rounded-lg hover:bg-bg flex items-center justify-center text-text-3 transition">
                 <ChevronLeft size={16}/>

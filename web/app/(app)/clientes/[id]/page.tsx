@@ -119,7 +119,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-3 md:px-16 py-8">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-3 md:px-16 py-4 sm:py-8 overflow-y-auto">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
@@ -358,27 +358,27 @@ export default function ClientePerfilPage() {
   if (loading) return (
     <div>
       <Sk className="h-4 w-20 mb-6" />
-      <div className="flex gap-6 items-start">
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
         {/* coluna principal */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 w-full">
           {/* Perfil card */}
-          <div className="bg-surface border border-border rounded-2xl p-6 mb-5 shadow-sm">
+          <div className="bg-surface border border-border rounded-2xl p-5 sm:p-6 mb-5 shadow-sm">
             <div className="flex items-start gap-4">
               <Sk className="w-14 h-14 rounded-2xl flex-shrink-0" />
-              <div className="flex-1 flex flex-col gap-2 pt-1">
-                <Sk className="h-6 w-44" />
-                <Sk className="h-3.5 w-28" />
+              <div className="flex-1 min-w-0 flex flex-col gap-2 pt-1">
+                <Sk className="h-6 w-3/4 max-w-[180px]" />
+                <Sk className="h-3.5 w-1/2 max-w-[140px]" />
               </div>
             </div>
-            <div className="flex gap-5 mt-4 pt-4 border-t border-border">
-              <Sk className="h-4 w-28" />
-              <Sk className="h-4 w-36" />
+            <div className="flex flex-wrap gap-3 sm:gap-5 mt-4 pt-4 border-t border-border">
+              <Sk className="h-4 w-24 sm:w-28" />
+              <Sk className="h-4 w-28 sm:w-36" />
             </div>
           </div>
           {/* Tabs */}
-          <div className="flex gap-1 mb-5 border-b border-border">
+          <div className="flex gap-1 mb-5 border-b border-border overflow-x-auto">
             {[60, 72, 68].map((w, i) => (
-              <Sk key={i} className="h-9 rounded-lg mb-px" style={{ width: `${w}px` }} />
+              <Sk key={i} className="h-9 rounded-lg mb-px flex-shrink-0" style={{ width: `${w}px` }} />
             ))}
           </div>
           {/* Bloco info */}
@@ -392,7 +392,7 @@ export default function ClientePerfilPage() {
           </div>
         </div>
         {/* Sidebar */}
-        <div className="w-56 flex-shrink-0 flex flex-col gap-4">
+        <div className="w-full lg:w-56 lg:flex-shrink-0 flex flex-col gap-4">
           <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3">
             {[1,2,3,4].map(i => (
               <div key={i}>

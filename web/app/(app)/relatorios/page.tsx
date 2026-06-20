@@ -584,7 +584,7 @@ export default function RelatoriosPage() {
       )}
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
           <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Análise</p>
           <h1 className="font-serif text-2xl md:text-3xl text-text">Relatórios</h1>
@@ -594,7 +594,7 @@ export default function RelatoriosPage() {
         </div>
 
         {/* Exportar + Seletor de período */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!loading && (
             <ExportButton
               size="sm"
