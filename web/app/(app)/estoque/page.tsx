@@ -743,19 +743,19 @@ export default function EstoquePage() {
       {aba === 'produtos' && <>
       {/* Stats */}
       {loading ? (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {[1,2,3,4].map(i => (
-            <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3">
+            <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3 min-w-0">
               <Sk className="w-9 h-9 rounded-xl flex-shrink-0"/>
-              <div className="flex flex-col gap-2 flex-1">
+              <div className="flex flex-col gap-2 flex-1 min-w-0">
                 <Sk className="h-5 w-10"/>
-                <Sk className="h-3 w-24"/>
+                <Sk className="h-3 w-2/3 max-w-[100px]"/>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {[
             { label: 'Materiais / Insumos',   value: String(produtos.filter(p => p.tipo === 'material').length), sub: 'para atendimentos', icon: Package2,     color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
             { label: 'Para venda (PDV)',       value: String(produtos.filter(p => p.tipo === 'venda').length),    sub: 'para revenda',    icon: DollarSign,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
@@ -779,14 +779,14 @@ export default function EstoquePage() {
 
       {/* Filtro por tipo — Material vs Venda */}
       {!loading && (produtos.some(p => p.tipo === 'venda') || produtos.some(p => p.tipo === 'material')) && (
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 overflow-x-auto">
           {([
             { key: 'todos',    label: 'Todos',              count: produtos.length },
             { key: 'material', label: 'Materiais / Insumos', count: produtos.filter(p => p.tipo === 'material').length },
             { key: 'venda',    label: 'Para venda (PDV)',    count: produtos.filter(p => p.tipo === 'venda').length },
           ] as const).map(({ key, label, count }) => (
             <button key={key} onClick={() => { setFiltroPorTipo(key); setFiltroCat(null); }}
-              className={`flex items-center gap-2 h-9 px-4 rounded-xl text-xs font-semibold border transition ${
+              className={`flex items-center gap-2 h-9 px-4 rounded-xl text-xs font-semibold border transition flex-shrink-0 ${
                 filtroPorTipo === key
                   ? key === 'venda'
                     ? 'bg-green/10 border-green/30 text-green'
@@ -803,7 +803,7 @@ export default function EstoquePage() {
       )}
 
       {/* Busca + filtro status */}
-      <div className="flex items-center gap-3 mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
         <div className="relative flex-1">
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-4" strokeWidth={2}/>
           <input value={busca} onChange={e => setBusca(e.target.value)}

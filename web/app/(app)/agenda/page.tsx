@@ -1052,9 +1052,9 @@ function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus }: {
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-3 py-4 px-1 text-text-3 text-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 py-4 px-1 text-text-3 text-sm">
           <span>Nenhum agendamento para este dia.</span>
-          <button onClick={onNovo} className="text-accent font-semibold hover:underline whitespace-nowrap">+ Criar agendamento</button>
+          <button onClick={onNovo} className="text-accent font-semibold hover:underline self-start whitespace-nowrap">+ Criar agendamento</button>
         </div>
       )}
     </div>
