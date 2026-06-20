@@ -467,7 +467,7 @@ export default function ClientePerfilPage() {
                 {iniciais(cliente.nome)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 26, fontWeight: 600, color: '#fff', lineHeight: 1.1 }}>{cliente.nome}</h1>
+                <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(20px, 5vw, 26px)', fontWeight: 600, color: '#fff', lineHeight: 1.1 }}>{cliente.nome}</h1>
                 <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
                   Cliente desde {format(new Date(cliente.created_at), "MMMM 'de' yyyy", { locale: ptBR })}
                   {idade !== null && ` · ${idade} anos`}
