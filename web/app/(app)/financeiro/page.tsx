@@ -124,7 +124,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
@@ -224,7 +224,7 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 overflow-y-auto">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6">
         <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Confirmar pagamento</p>
@@ -497,7 +497,7 @@ export default function FinanceiroPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <p className="text-text-3 text-xs font-semibold uppercase tracking-widest mb-1">Visão Geral</p>
           <h1 className="font-serif text-2xl md:text-3xl text-text">Financeiro</h1>
@@ -544,17 +544,17 @@ export default function FinanceiroPage() {
       {/* KPIs */}
       {loading ? (
         <div className="flex flex-col gap-3 mb-6">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             {[1,2,3].map(i => (
               <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-                <Sk className="h-3 w-20 mb-3"/><Sk className="h-7 w-28 mb-3"/><Sk className="h-3 w-28"/>
+                <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             {[1,2].map(i => (
               <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-                <Sk className="h-3 w-16 mb-3"/><Sk className="h-7 w-24 mb-3"/><Sk className="h-3 w-24"/>
+                <Sk className="h-3 w-1/3 mb-3 max-w-[90px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[120px]"/><Sk className="h-3 w-1/2 max-w-[110px]"/>
               </div>
             ))}
           </div>
@@ -642,7 +642,7 @@ export default function FinanceiroPage() {
             </div>
           </div>
           {/* Skeleton: despesas (col-span-2) */}
-          <div className="col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <Sk className="h-5 w-24"/>
               <Sk className="h-4 w-16"/>
@@ -669,9 +669,9 @@ export default function FinanceiroPage() {
 
         {/* Evolução mensal */}
         <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center gap-4 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-4">
             <p className="font-serif text-lg text-text flex-1">Evolução Mensal</p>
-            <div className="flex items-center gap-3 text-xs text-text-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-text-4">
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-primary inline-block"/>Bruto</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber inline-block opacity-80"/>Comissões</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-red inline-block opacity-60"/>Gastos</span>
@@ -764,7 +764,7 @@ export default function FinanceiroPage() {
         )}
 
         {/* Despesas */}
-        <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'col-span-2'}`}>
+        <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <p className="font-serif text-lg text-text">Despesas</p>
             <button onClick={() => setModalDespesa(true)}

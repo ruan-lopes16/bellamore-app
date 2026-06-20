@@ -346,8 +346,8 @@ export default function ConfiguracoesPage() {
         </div>
       )}
 
-      <div className="flex items-start justify-between mb-6">
-        <div>
+      <div className="flex items-start justify-between gap-3 mb-6">
+        <div className="min-w-0">
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Administração</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Configurações</h1>
         </div>
@@ -509,23 +509,23 @@ export default function ConfiguracoesPage() {
               {DIAS.map(({ key, label }) => {
                 const h = horarios[key];
                 return (
-                  <div key={key} className="flex items-center gap-4">
+                  <div key={key} className="flex flex-wrap items-center gap-3 sm:gap-4">
                     <button type="button"
                       onClick={() => isOwner && setHorarioDia(key, 'aberto', !h.aberto)}
                       disabled={!isOwner}
                       className={`relative w-10 h-5 rounded-full transition flex-shrink-0 ${h.aberto ? 'bg-primary' : 'bg-border'} ${!isOwner ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
                       <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${h.aberto ? 'left-[22px]' : 'left-0.5'}`}/>
                     </button>
-                    <span className={`text-sm w-32 flex-shrink-0 ${h.aberto ? 'text-text font-semibold' : 'text-text-4'}`}>{label}</span>
+                    <span className={`text-sm w-20 sm:w-32 flex-shrink-0 ${h.aberto ? 'text-text font-semibold' : 'text-text-4'}`}>{label}</span>
                     {h.aberto ? (
-                      <div className="flex items-center gap-2 flex-1">
+                      <div className="flex items-center gap-2 flex-1 min-w-0 basis-full sm:basis-auto">
                         <input type="time" value={h.inicio} onChange={e => setHorarioDia(key, 'inicio', e.target.value)}
                           disabled={!isOwner}
-                          className="h-9 px-2.5 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent transition disabled:opacity-60 disabled:cursor-not-allowed"/>
+                          className="flex-1 min-w-0 h-9 px-2 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent transition disabled:opacity-60 disabled:cursor-not-allowed"/>
                         <span className="text-text-4 text-sm">até</span>
                         <input type="time" value={h.fim} onChange={e => setHorarioDia(key, 'fim', e.target.value)}
                           disabled={!isOwner}
-                          className="h-9 px-2.5 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent transition disabled:opacity-60 disabled:cursor-not-allowed"/>
+                          className="flex-1 min-w-0 h-9 px-2 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent transition disabled:opacity-60 disabled:cursor-not-allowed"/>
                       </div>
                     ) : (
                       <span className="text-sm text-text-4 italic">Fechado</span>
