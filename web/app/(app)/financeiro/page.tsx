@@ -500,7 +500,7 @@ export default function FinanceiroPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <p className="text-text-3 text-xs font-semibold uppercase tracking-widest mb-1">Visão Geral</p>
-          <h1 className="font-serif text-3xl text-text">Financeiro</h1>
+          <h1 className="font-serif text-2xl md:text-3xl text-text">Financeiro</h1>
         </div>
         <ExportButton
           filename={`financeiro-despesas-${format(mesRef, 'yyyy-MM')}`}

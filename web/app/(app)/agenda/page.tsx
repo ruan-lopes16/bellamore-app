@@ -960,25 +960,36 @@ function TimelineView({
 
       {/* ── Painel lateral — detalhes do agendamento ── */}
       {agSel && (
-        <div className="w-72 flex-shrink-0">
-          <div className="sticky top-4">
-            <div className="flex items-center justify-between mb-2 px-1">
-              <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">
-                Detalhes
-              </p>
-              <button
-                onClick={() => setAgSel(null)}
-                className="w-6 h-6 rounded-lg hover:bg-surface flex items-center justify-center text-text-4 transition">
+        <>
+          {/* Mobile: backdrop + bottom sheet */}
+          <div className="md:hidden fixed inset-0 z-30 bg-black/30" onClick={() => setAgSel(null)} />
+          <div className="md:hidden fixed bottom-20 left-3 right-3 z-40 bg-surface border border-border rounded-2xl shadow-xl overflow-hidden">
+            <div className="flex items-center justify-between p-3 border-b border-border">
+              <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
+              <button onClick={() => setAgSel(null)}
+                className="w-6 h-6 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
                 <X size={12} />
               </button>
             </div>
-            <AgCard
-              ag={agSel}
-              empresaId={empresaId}
-              onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
-            />
+            <div className="p-3 max-h-[45vh] overflow-y-auto">
+              <AgCard ag={agSel} empresaId={empresaId} onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}/>
+            </div>
           </div>
-        </div>
+
+          {/* Desktop: painel lateral */}
+          <div className="hidden md:block w-72 flex-shrink-0">
+            <div className="sticky top-4">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
+                <button onClick={() => setAgSel(null)}
+                  className="w-6 h-6 rounded-lg hover:bg-surface flex items-center justify-center text-text-4 transition">
+                  <X size={12} />
+                </button>
+              </div>
+              <AgCard ag={agSel} empresaId={empresaId} onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}/>
+            </div>
+          </div>
+        </>
       )}
 
     </div>
@@ -1225,7 +1236,7 @@ export default function AgendaPage() {
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }} className="capitalize">
             {format(dataSel, 'MMMM yyyy', { locale: ptBR })}
           </p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 30, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Agenda</h1>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Agenda</h1>
         </div>
         <div className="flex items-center gap-2 pt-1">
           {/* Toggle view */}
