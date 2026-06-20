@@ -587,7 +587,7 @@ export default function RelatoriosPage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Análise</p>
-          <h1 className="font-serif text-3xl text-text">Relatórios</h1>
+          <h1 className="font-serif text-2xl md:text-3xl text-text">Relatórios</h1>
           {!loading && (
             <p className="text-sm text-text-3 mt-0.5 capitalize">{labelPeriodo}</p>
           )}

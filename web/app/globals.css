@@ -101,6 +101,8 @@ html, body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   transition: background-color 300ms ease, color 300ms ease;
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 /* Garante que Cormorant Garamond carregue via next/font — a classe Tailwind

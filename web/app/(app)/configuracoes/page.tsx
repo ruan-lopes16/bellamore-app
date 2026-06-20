@@ -349,7 +349,7 @@ export default function ConfiguracoesPage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Administração</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 30, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Configurações</h1>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Configurações</h1>
         </div>
         <button onClick={toggleDark} title={darkMode ? 'Modo claro' : 'Modo escuro'}
           className="press mt-1 w-10 h-10 rounded-2xl flex items-center justify-center transition"
