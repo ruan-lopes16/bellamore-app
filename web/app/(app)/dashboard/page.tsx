@@ -217,22 +217,22 @@ export default async function DashboardPage() {
       </Tilt>
 
       {/* ── KPIs do mês ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
         {[
           { label: 'Fat. Bruto',    value: fmt(bruto),   color: 'var(--color-green)',   delta: pctBruto, icon: TrendingUp  },
           { label: 'Fat. Líquido',  value: fmt(liquido), color: 'var(--color-primary)', delta: null,     icon: Wallet      },
           { label: 'Lucro do mês',  value: fmt(lucro),   color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, icon: Wallet },
         ].map(({ label, value, color, delta, icon: Icon }, i) => (
-          <div key={label} className="rounded-2xl p-4 md:p-5 bm-stagger"
+          <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
-            <div className="flex items-start justify-between mb-2.5">
-              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</p>
-              <Icon size={14} style={{ color, opacity: 0.7 }} strokeWidth={2} />
+            <div className="flex items-start justify-between mb-2 gap-1">
+              <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+              <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 800, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
+            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 800, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
             {delta !== null && (
-              <span className="flex items-center gap-0.5 mt-2" style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 600, color: delta >= 0 ? 'var(--color-green)' : 'var(--color-rose)' }}>
-                {delta >= 0 ? <ArrowUp size={10} /> : <ArrowDown size={10} />}
+              <span className="flex items-center gap-0.5 mt-1.5" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 600, color: delta >= 0 ? 'var(--color-green)' : 'var(--color-rose)' }}>
+                {delta >= 0 ? <ArrowUp size={9} /> : <ArrowDown size={9} />}
                 {Math.abs(delta).toFixed(0)}%
               </span>
             )}
@@ -241,20 +241,20 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── KPIs do dia ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-7">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-7">
         {[
           { label: 'Agenda hoje',    value: String(agsHoje.length), sub: `${agsConcluidos.length} concluído(s)`, icon: CalendarDays,  color: 'var(--color-accent)'   },
-          { label: 'Faturamento hoje', value: fmt(fatHoje),         sub: 'Serviços + vendas',                   icon: ShoppingBag,   color: 'var(--color-primary)' },
-          { label: 'Clientes ativos',  value: String(totalClientes.count ?? 0), sub: 'Total na base',          icon: Users,         color: 'var(--color-amber)'    },
+          { label: 'Fat. hoje',       value: fmt(fatHoje),         sub: 'Serv. + vendas',                       icon: ShoppingBag,   color: 'var(--color-primary)' },
+          { label: 'Clientes',         value: String(totalClientes.count ?? 0), sub: 'Total na base',          icon: Users,         color: 'var(--color-amber)'    },
         ].map(({ label, value, sub, icon: Icon, color }, i) => (
-          <div key={label} className="rounded-2xl p-4 md:p-5 bm-stagger"
+          <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
             style={{ '--bm-i': i + 3, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
-            <div className="flex items-start justify-between mb-2.5">
-              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</p>
-              <Icon size={14} style={{ color, opacity: 0.7 }} strokeWidth={2} />
+            <div className="flex items-start justify-between mb-2 gap-1">
+              <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+              <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 22, fontWeight: 800, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
-            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: 'var(--color-ink4)', marginTop: 6 }}>{sub}</p>
+            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 800, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
+            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'var(--color-ink4)', marginTop: 4 }}>{sub}</p>
           </div>
         ))}
       </div>

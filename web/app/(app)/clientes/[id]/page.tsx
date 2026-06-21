@@ -357,32 +357,50 @@ export default function ClientePerfilPage() {
 
   if (loading) return (
     <div>
-      <Sk className="h-4 w-20 mb-6" />
+      <Sk className="h-4 w-20 mb-4" />
+      {/* Hero gradient (avatar + nome + ações + 3 KPIs) */}
+      <div className="rounded-2xl p-5 mb-6"
+        style={{ background: 'linear-gradient(135deg, #2C1750 0%, #4A2A86 100%)' }}>
+        <div className="flex items-start gap-4 mb-5">
+          <div className="w-14 h-14 rounded-2xl flex-shrink-0 bg-white/10" />
+          <div className="flex-1 min-w-0 flex flex-col gap-2 pt-1">
+            <div className="h-6 w-3/4 max-w-[200px] rounded bg-white/15" />
+            <div className="h-3.5 w-1/2 max-w-[140px] rounded bg-white/10" />
+          </div>
+          <div className="w-8 h-8 rounded-[10px] bg-white/10 flex-shrink-0" />
+        </div>
+        {/* Action buttons */}
+        <div className="flex gap-2 mb-5">
+          <div className="flex-1 h-10 rounded-xl bg-white/90" />
+          <div className="flex-1 h-10 rounded-xl bg-white/10" />
+          <div className="flex-1 h-10 rounded-xl bg-white/10" />
+        </div>
+        {/* KPIs hero */}
+        <div className="flex gap-2">
+          {[1,2,3].map(i => (
+            <div key={i} className="flex-1 rounded-[14px] p-3 bg-white/8" style={{ background: 'rgba(255,255,255,0.08)' }}>
+              <div className="h-5 w-12 rounded bg-white/15 mb-1.5" />
+              <div className="h-3 w-3/4 rounded bg-white/10" />
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         {/* coluna principal */}
         <div className="flex-1 min-w-0 w-full">
-          {/* Perfil card */}
-          <div className="bg-surface border border-border rounded-2xl p-5 sm:p-6 mb-5 shadow-sm">
-            <div className="flex items-start gap-4">
-              <Sk className="w-14 h-14 rounded-2xl flex-shrink-0" />
-              <div className="flex-1 min-w-0 flex flex-col gap-2 pt-1">
-                <Sk className="h-6 w-3/4 max-w-[180px]" />
-                <Sk className="h-3.5 w-1/2 max-w-[140px]" />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3 sm:gap-5 mt-4 pt-4 border-t border-border">
-              <Sk className="h-4 w-24 sm:w-28" />
-              <Sk className="h-4 w-28 sm:w-36" />
-            </div>
-          </div>
           {/* Tabs */}
-          <div className="flex gap-1 mb-5 border-b border-border overflow-x-auto">
-            {[60, 72, 68].map((w, i) => (
-              <Sk key={i} className="h-9 rounded-lg mb-px flex-shrink-0" style={{ width: `${w}px` }} />
+          <div className="flex gap-1 bg-surface border border-border rounded-xl p-1 mb-5 w-fit">
+            {[80, 90, 80].map((w, i) => (
+              <Sk key={i} className="h-8 rounded-lg" style={{ width: `${w}px` }} />
             ))}
           </div>
           {/* Bloco info */}
           <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm flex flex-col gap-4">
+            <div className="flex items-center justify-between pb-4 border-b border-border">
+              <Sk className="h-4 w-32" />
+              <Sk className="h-4 w-12" />
+            </div>
             {[1,2,3,4].map(i => (
               <div key={i}>
                 <Sk className="h-3 w-16 mb-2" />
@@ -392,9 +410,16 @@ export default function ClientePerfilPage() {
           </div>
         </div>
         {/* Sidebar */}
-        <div className="w-full lg:w-56 lg:flex-shrink-0 flex flex-col gap-4">
+        <div className="w-full lg:w-72 lg:flex-shrink-0 flex flex-col gap-4">
+          {/* Ações rápidas */}
+          <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm">
+            <Sk className="h-3 w-24 mb-3" />
+            <Sk className="h-9 w-full rounded-xl" />
+          </div>
+          {/* Informações */}
           <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex flex-col gap-3">
-            {[1,2,3,4].map(i => (
+            <Sk className="h-3 w-24 mb-1" />
+            {[1,2,3].map(i => (
               <div key={i}>
                 <Sk className="h-3 w-14 mb-1.5" />
                 <Sk className="h-4 w-28" />
@@ -442,7 +467,7 @@ export default function ClientePerfilPage() {
                 {iniciais(cliente.nome)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 26, fontWeight: 600, color: '#fff', lineHeight: 1.1 }}>{cliente.nome}</h1>
+                <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(20px, 5vw, 26px)', fontWeight: 600, color: '#fff', lineHeight: 1.1 }}>{cliente.nome}</h1>
                 <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
                   Cliente desde {format(new Date(cliente.created_at), "MMMM 'de' yyyy", { locale: ptBR })}
                   {idade !== null && ` · ${idade} anos`}

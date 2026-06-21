@@ -174,24 +174,24 @@ function KpiCard({
 }) {
   if (loading) {
     return (
-      <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3">
+      <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex items-center gap-2 sm:gap-3 min-w-0">
         <Sk className="w-9 h-9 rounded-xl flex-shrink-0" />
-        <div className="flex-1 flex flex-col gap-2">
-          <Sk className="h-5 w-20" /><Sk className="h-3 w-28" />
+        <div className="flex-1 min-w-0 flex flex-col gap-2">
+          <Sk className="h-5 w-1/2 max-w-[60px]" /><Sk className="h-3 w-2/3 max-w-[100px]" />
         </div>
       </div>
     );
   }
   return (
-    <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3">
+    <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex items-center gap-2 sm:gap-3 min-w-0">
       <div className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center"
         style={{ background: cor + '18' }}>
         <Icon size={18} style={{ color: cor }} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-lg font-bold text-text leading-tight truncate">{value}</p>
-        <p className="text-xs text-text-3 truncate">{label}</p>
-        {sub && <p className="text-xs font-semibold mt-0.5" style={{ color: cor }}>{sub}</p>}
+        <p className="text-base sm:text-lg font-bold text-text leading-tight truncate">{value}</p>
+        <p className="text-[11px] sm:text-xs text-text-3 truncate">{label}</p>
+        {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 truncate" style={{ color: cor }}>{sub}</p>}
       </div>
     </div>
   );
@@ -1064,19 +1064,19 @@ export default function RelatoriosPage() {
           {!loading && comissoesPorProf.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
-                <p className="font-serif text-2xl text-amber-600">
+                <p className="text-2xl font-bold text-amber-600" style={{ letterSpacing: '-0.02em' }}>
                   {fmtBRL(comissoesPorProf.reduce((s, p) => s + p.totalPendente, 0))}
                 </p>
                 <p className="text-xs text-text-3 mt-1">A pagar (pendente)</p>
               </div>
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
-                <p className="font-serif text-2xl text-green-600">
+                <p className="text-2xl font-bold text-green-600" style={{ letterSpacing: '-0.02em' }}>
                   {fmtBRL(comissoesPorProf.reduce((s, p) => s + p.totalPago, 0))}
                 </p>
                 <p className="text-xs text-text-3 mt-1">Já pago</p>
               </div>
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
-                <p className="font-serif text-2xl text-text">{comissoes.length}</p>
+                <p className="text-2xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{comissoes.length}</p>
                 <p className="text-xs text-text-3 mt-1">Comissões no período</p>
               </div>
             </div>

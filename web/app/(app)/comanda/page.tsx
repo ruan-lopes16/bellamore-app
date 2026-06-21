@@ -679,7 +679,7 @@ export default function ComandaPage() {
                   )}
                   <div className="flex items-center justify-between px-4 py-4">
                     <span className="text-base font-bold text-text">Total</span>
-                    <span className="text-2xl text-text" style={{ fontFamily: 'var(--font-serif)' }}>{fmtBRL(total)}</span>
+                    <span className="text-2xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{fmtBRL(total)}</span>
                   </div>
                 </section>
 
