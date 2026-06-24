@@ -40,7 +40,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, X, Package2, Trash2,
-  Banknote, Zap, CreditCard, Gift, Check, CalendarPlus,
+  Banknote, Zap, CreditCard, Gift, Check, CalendarPlus, AlertTriangle,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
@@ -51,12 +51,14 @@ const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
+type AgServico = { servico: { id: string; nome: string } | null; valor: number; duracao_minutos: number; ordem: number };
 type Ag = {
   id: string; data_hora_inicio: string; data_hora_fim: string;
   status: string; valor: number; observacao?: string;
   cliente: { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico: { id: string; nome: string; duracao_minutos: number } | null;
+  agendamento_servicos: AgServico[];
 };
 type ClienteOpt = { id: string; nome: string; telefone?: string };
 type Servico = { id: string; nome: string; preco: number; duracao_minutos: number };
@@ -120,25 +122,39 @@ function ConsumoModal({ ag, empresaId, onClose, onConfirmar }: {
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
 
-  // Busca receita do serviço + catálogo de produtos ao montar
+  // Busca receitas de todos os serviços + catálogo de produtos ao montar
   useEffect(() => {
+    const servicoIds = (ag.agendamento_servicos ?? []).length > 0
+      ? (ag.agendamento_servicos ?? []).map(s => s.servico?.id).filter((id): id is string => !!id)
+      : [ag.servico?.id ?? ''].filter(Boolean);
+
     Promise.all([
       supabase.from('servico_produtos')
         .select('produto_id, quantidade, produto:produtos(nome, unidade)')
-        .eq('servico_id', ag.servico?.id ?? ''),
+        .in('servico_id', servicoIds),
       supabase.from('produtos').select('id, nome, unidade')
         .eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'material').order('nome'),
     ]).then(([recipe, prods]) => {
-      setItens((recipe.data ?? []).map((r: any) => ({
-        produto_id: r.produto_id, nome: r.produto.nome,
-        unidade: r.produto.unidade, quantidade: String(r.quantidade),
-      })));
+      // Mescla receitas de múltiplos serviços somando quantidades do mesmo produto
+      const merged: Record<string, ConsumoItem> = {};
+      for (const r of (recipe.data ?? []) as any[]) {
+        if (!merged[r.produto_id]) {
+          merged[r.produto_id] = {
+            produto_id: r.produto_id, nome: r.produto.nome,
+            unidade: r.produto.unidade, quantidade: String(r.quantidade),
+          };
+        } else {
+          merged[r.produto_id].quantidade = String(
+            parseFloat(merged[r.produto_id].quantidade) + r.quantidade
+          );
+        }
+      }
+      setItens(Object.values(merged));
       setProdutos((prods.data ?? []) as { id: string; nome: string; unidade: string }[]);
-      // Pré-preenche pagamento com o valor total no primeiro método (ajustável)
       setSplits([]);
       setLoading(false);
     });
-  }, [ag.servico?.id, empresaId]);
+  }, [ag.id, empresaId]);
 
   // ── Helpers: insumos
   function adicionarProduto(id: string) {
@@ -244,7 +260,9 @@ function ConsumoModal({ ag, empresaId, onClose, onConfirmar }: {
                 {etapa === 'insumos' ? 'Insumos consumidos' : 'Forma de pagamento'}
               </h2>
               <p className="text-xs text-text-3 mt-0.5 truncate max-w-[220px]">
-                {ag.servico?.nome} · {ag.cliente?.nome}
+                {(ag.agendamento_servicos ?? []).length > 0
+                  ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
+                  : ag.servico?.nome} · {ag.cliente?.nome}
               </p>
             </div>
           </div>
@@ -497,7 +515,11 @@ function AgCard({ ag, empresaId, onStatus }: {
               )}
             </div>
           </div>
-          <p className="text-text-3 text-xs mb-2 truncate">{ag.servico?.nome ?? '—'}</p>
+          <p className="text-text-3 text-xs mb-2 truncate">
+            {(ag.agendamento_servicos ?? []).length > 0
+              ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
+              : ag.servico?.nome ?? '—'}
+          </p>
           <div className="flex items-center gap-3 text-xs text-text-3">
             <span className="flex items-center gap-1"><Clock size={10} strokeWidth={2}/>{inicio}–{fim}</span>
             {ag.profissional && <span className="flex items-center gap-1"><User size={10} strokeWidth={2}/>{ag.profissional.nome.split(' ')[0]}</span>}
@@ -523,36 +545,44 @@ function AgCard({ ag, empresaId, onStatus }: {
 
 // ── Modal de novo agendamento ─────────────────────────────────
 
+type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: number };
+type ConflitoDet  = { inicio: string; fim: string; cliente: string; servico: string };
+
 function NovoAgModal({
   data, empresaId, onClose, onSalvo,
 }: {
   data: Date; empresaId: string;
   onClose: () => void; onSalvo: () => void;
 }) {
-
   const [clientes,      setClientes]      = useState<ClienteOpt[]>([]);
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<Servico[]>([]);
 
-  const [clienteId,  setClienteId]  = useState('');
-  const [servicoId,  setServicoId]  = useState('');
-  const [profId,     setProfId]     = useState('');
-  const [hora,       setHora]       = useState('09:00');
-  const [duracao,    setDuracao]    = useState(60);
-  const [valor,      setValor]      = useState('');
-  const [obs,        setObs]        = useState('');
-  const [salvando,   setSalvando]   = useState(false);
-  const [erro,       setErro]       = useState('');
+  const [clienteId, setClienteId] = useState('');
+  const [profId,    setProfId]    = useState('');
+  const [hora,      setHora]      = useState('09:00');
+  const [obs,       setObs]       = useState('');
+  const [salvando,  setSalvando]  = useState(false);
+  const [erro,      setErro]      = useState('');
+
+  const [linhas, setLinhas] = useState<ServicoLinha[]>([
+    { uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 },
+  ]);
+
+  // Conflito de horário detectado
+  const [conflitos,  setConflitos]  = useState<ConflitoDet[]>([]);
+  const [pendInicio, setPendInicio] = useState<Date | null>(null);
+  const [pendFim,    setPendFim]    = useState<Date | null>(null);
+
+  const totalDuracao = linhas.reduce((s, l) => s + (l.duracao || 0), 0);
+  const totalValor   = linhas.reduce((s, l) => s + (l.valor  || 0), 0);
 
   useEffect(() => {
     Promise.all([
-      // Clientes da tabela clientes (web)
       supabase.from('clientes').select('id, nome, telefone')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
-      // Profissionais da tabela empresa_membros
       supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
         .eq('empresa_id', empresaId).eq('role', 'profissional').eq('ativo', true),
-      // Serviços
       supabase.from('servicos').select('id, nome, preco, duracao_minutos')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
     ]).then(([c, p, s]) => {
@@ -562,51 +592,94 @@ function NovoAgModal({
     });
   }, [empresaId]);
 
-  function onServicoChange(id: string) {
-    setServicoId(id);
-    const s = servicos.find(s => s.id === id);
-    if (s) { setDuracao(s.duracao_minutos); setValor(String(s.preco)); }
+  function onServicoChange(uid: string, id: string) {
+    const s = servicos.find(x => x.id === id);
+    setLinhas(prev => prev.map(l =>
+      l.uid === uid
+        ? { ...l, servico_id: id, duracao: s?.duracao_minutos ?? 60, valor: s?.preco ?? 0 }
+        : l
+    ));
+  }
+
+  function addLinha() {
+    setLinhas(prev => [...prev, { uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 }]);
+  }
+
+  function removeLinha(uid: string) {
+    setLinhas(prev => prev.length > 1 ? prev.filter(l => l.uid !== uid) : prev);
+  }
+
+  async function executarSalvar(inicio: Date, fim: Date) {
+    setSalvando(true);
+    const filled = linhas.filter(l => l.servico_id);
+    const { data: ag, error } = await supabase.from('agendamentos').insert({
+      empresa_id:       empresaId,
+      cliente_id:       clienteId,
+      profissional_id:  profId,
+      servico_id:       filled[0].servico_id,
+      data_hora_inicio: inicio.toISOString(),
+      data_hora_fim:    fim.toISOString(),
+      status:           'agendado',
+      valor:            filled.reduce((s, l) => s + l.valor, 0),
+      observacao:       obs.trim() || null,
+    }).select().single();
+    if (error) { setSalvando(false); setErro(error.message); return; }
+    await supabase.from('agendamento_servicos').insert(
+      filled.map((l, i) => ({
+        agendamento_id:  ag.id,
+        servico_id:      l.servico_id,
+        valor:           l.valor,
+        duracao_minutos: l.duracao,
+        ordem:           i,
+        empresa_id:      empresaId,
+      }))
+    );
+    setSalvando(false);
+    onSalvo();
   }
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setErro('');
-    if (!clienteId || !servicoId || !profId) { setErro('Preencha cliente, serviço e profissional.'); return; }
-    setSalvando(true);
+    setConflitos([]);
+    const filled = linhas.filter(l => l.servico_id);
+    if (!clienteId || filled.length === 0 || !profId) {
+      setErro('Preencha cliente, pelo menos um serviço e profissional.');
+      return;
+    }
     const [h, m] = hora.split(':').map(Number);
     const inicio = new Date(data); inicio.setHours(h, m, 0, 0);
-    const fim    = addMinutes(inicio, duracao);
-    const { error } = await supabase.from('agendamentos').insert({
-      empresa_id: empresaId,
-      cliente_id: clienteId,
-      profissional_id: profId,
-      servico_id: servicoId,
-      data_hora_inicio: inicio.toISOString(),
-      data_hora_fim: fim.toISOString(),
-      status: 'agendado',
-      valor: parseFloat(valor) || 0,
-      observacao: obs.trim() || null,
-    });
-    setSalvando(false);
-    if (error) { setErro(error.message); return; }
-    onSalvo();
+    const fim    = addMinutes(inicio, totalDuracao || 60);
+
+    const { data: conf } = await supabase
+      .from('agendamentos')
+      .select(`id,data_hora_inicio,data_hora_fim,
+        cliente:clientes!agendamentos_cliente_id_fkey(nome),
+        servico:servicos(nome)`)
+      .eq('empresa_id', empresaId)
+      .eq('profissional_id', profId)
+      .not('status', 'in', '("cancelado","faltou")')
+      .lt('data_hora_inicio', fim.toISOString())
+      .gt('data_hora_fim', inicio.toISOString());
+
+    if (conf && conf.length > 0) {
+      setPendInicio(inicio);
+      setPendFim(fim);
+      setConflitos(conf.map((c: any) => ({
+        inicio:  format(parseISO(c.data_hora_inicio), 'HH:mm'),
+        fim:     format(parseISO(c.data_hora_fim),    'HH:mm'),
+        cliente: c.cliente?.nome ?? '—',
+        servico: c.servico?.nome  ?? '—',
+      })));
+      return;
+    }
+    await executarSalvar(inicio, fim);
   }
 
   const inputClass = "w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
-
-  const clienteOpts = clientes.map(c => ({
-    value: c.id,
-    label: c.nome,
-    sub:   c.telefone,
-  }));
-  const servicoOpts = servicos.map(s => ({
-    value: s.id,
-    label: s.nome,
-  }));
-  const profOpts = profissionais.map(p => ({
-    value: p.id,
-    label: p.nome,
-  }));
+  const clienteOpts = clientes.map(c => ({ value: c.id, label: c.nome, sub: c.telefone }));
+  const profOpts    = profissionais.map(p => ({ value: p.id, label: p.nome }));
+  const servicoOpts = servicos.map(s => ({ value: s.id, label: s.nome }));
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-3 md:px-16 py-4 sm:py-8 overflow-y-auto overscroll-contain">
@@ -625,55 +698,106 @@ function NovoAgModal({
           </button>
         </div>
 
+        {/* Aviso de conflito de horário */}
+        {conflitos.length > 0 && (
+          <div className="mx-5 mt-5 rounded-2xl overflow-hidden border border-amber/30" style={{ background: 'var(--color-amber-soft)' }}>
+            <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+              <AlertTriangle size={15} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
+              <p className="text-sm font-bold text-amber">Conflito de horário</p>
+            </div>
+            <p className="text-xs text-text-2 px-4 pb-2">Este profissional já tem agendamento(s) nesse intervalo:</p>
+            <div className="px-4 pb-3 flex flex-col gap-1">
+              {conflitos.map((c, i) => (
+                <p key={i} className="text-xs text-text-2">• {c.inicio}–{c.fim} · {c.cliente} ({c.servico})</p>
+              ))}
+            </div>
+            <div className="flex gap-2 px-4 pb-4">
+              <button type="button" onClick={() => setConflitos([])}
+                className="flex-1 h-9 rounded-xl border border-border text-xs font-semibold text-text-2 hover:bg-bg transition bg-surface">
+                Cancelar
+              </button>
+              <button type="button" disabled={salvando}
+                onClick={() => pendInicio && pendFim && executarSalvar(pendInicio, pendFim)}
+                className="flex-1 h-9 rounded-xl text-white text-xs font-bold transition disabled:opacity-60"
+                style={{ background: 'var(--color-amber)' }}>
+                {salvando ? 'Salvando...' : 'Agendar mesmo assim'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Form */}
         <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Cliente</label>
-            <SearchSelect
-              options={clienteOpts}
-              value={clienteId}
-              onChange={setClienteId}
-              placeholder="Buscar cliente..."
-              required
-            />
+            <SearchSelect options={clienteOpts} value={clienteId} onChange={setClienteId} placeholder="Buscar cliente..." required />
           </div>
 
+          {/* Lista de serviços (multi) */}
           <div>
-            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Serviço</label>
-            <SearchSelect
-              options={servicoOpts}
-              value={servicoId}
-              onChange={onServicoChange}
-              placeholder="Buscar serviço..."
-              required
-            />
+            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Serviços</label>
+            <div className="flex flex-col gap-2">
+              {linhas.map((l) => (
+                <div key={l.uid} className="flex flex-col gap-2 rounded-xl p-3" style={{ background: 'var(--color-bg)' }}>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <SearchSelect
+                        options={servicoOpts}
+                        value={l.servico_id}
+                        onChange={id => onServicoChange(l.uid, id)}
+                        placeholder="Buscar serviço..."
+                      />
+                    </div>
+                    {linhas.length > 1 && (
+                      <button type="button" onClick={() => removeLinha(l.uid)}
+                        className="w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                        <X size={13} strokeWidth={2.5}/>
+                      </button>
+                    )}
+                  </div>
+                  {l.servico_id && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1">Duração (min)</p>
+                        <input type="number" value={l.duracao} min={5} step={5}
+                          onChange={e => setLinhas(prev => prev.map(x => x.uid === l.uid ? { ...x, duracao: Number(e.target.value) } : x))}
+                          className={inputClass} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1">Valor (R$)</p>
+                        <input type="number" value={l.valor} min={0} step={0.01} placeholder="0,00"
+                          onChange={e => setLinhas(prev => prev.map(x => x.uid === l.uid ? { ...x, valor: Number(e.target.value) } : x))}
+                          className={inputClass} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <button type="button" onClick={addLinha}
+                className="flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-border text-xs font-semibold text-text-3 hover:border-accent hover:text-accent transition">
+                <Plus size={12} strokeWidth={2.5}/> Adicionar serviço
+              </button>
+            </div>
+            {linhas.filter(l => l.servico_id).length > 1 && (
+              <p className="text-xs text-text-3 mt-1.5">
+                Total: {totalDuracao} min · {fmtBRL(totalValor)}
+              </p>
+            )}
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Profissional</label>
-            <SearchSelect
-              options={profOpts}
-              value={profId}
-              onChange={setProfId}
-              placeholder="Selecionar profissional..."
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Horário</label>
-              <input type="time" value={hora} onChange={e => setHora(e.target.value)} required className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Duração (min)</label>
-              <input type="number" value={duracao} onChange={e => setDuracao(Number(e.target.value))} min={15} step={15} required className={inputClass} />
-            </div>
+            <SearchSelect options={profOpts} value={profId} onChange={setProfId} placeholder="Selecionar profissional..." required />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Valor (R$)</label>
-            <input type="number" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" step="0.01" min="0" className={inputClass} />
+            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Horário de início</label>
+            <input type="time" value={hora} onChange={e => setHora(e.target.value)} required className={inputClass} />
+            {totalDuracao > 0 && (() => {
+              const [h, m] = hora.split(':').map(Number);
+              const fim = addMinutes(new Date(new Date(data).setHours(h, m, 0, 0)), totalDuracao);
+              return <p className="text-xs text-text-3 mt-1">Término previsto: {format(fim, 'HH:mm')}</p>;
+            })()}
           </div>
 
           <div>
@@ -1161,7 +1285,8 @@ export default function AgendaPage() {
       .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,
         cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
         profissional:users!agendamentos_profissional_id_fkey(id,nome),
-        servico:servicos(id,nome,duracao_minutos)`)
+        servico:servicos(id,nome,duracao_minutos),
+        agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome))`)
       .eq('empresa_id', empId)
       .gte('data_hora_inicio', startOfDay(data).toISOString())
       .lte('data_hora_inicio', endOfDay(data).toISOString())

@@ -29,20 +29,21 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Clock, User, Plus, Trash2, X, Check, ChevronRight,
+  Clock, User, Plus, Trash2, X, Check, ChevronRight, ChevronLeft,
   Banknote, Zap, CreditCard, Gift, Receipt, Tag,
   AlertCircle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
-import { format, startOfDay, endOfDay, parseISO } from 'date-fns';
+import { format, startOfDay, endOfDay, parseISO, addDays, subDays, isToday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
+type AgServicoDia = { servico: { id: string; nome: string } | null; valor: number; duracao_minutos: number; ordem: number };
 type AgDia = {
   id: string;
   data_hora_inicio: string;
@@ -52,6 +53,7 @@ type AgDia = {
   cliente:      { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico:      { id: string; nome: string; preco: number }    | null;
+  agendamento_servicos: AgServicoDia[];
 };
 
 /** Item dentro da comanda (agendamento ou extra) */
@@ -117,9 +119,10 @@ function uid() { return crypto.randomUUID(); }
 // ── Componente principal ──────────────────────────────────────
 
 export default function ComandaPage() {
-  const [empresaId, setEmpresaId]   = useState<string | null>(null);
-  const [loading,   setLoading]     = useState(true);
-  const [agDia,     setAgDia]       = useState<AgDia[]>([]);
+  const [empresaId,    setEmpresaId]    = useState<string | null>(null);
+  const [loading,      setLoading]      = useState(true);
+  const [agDia,        setAgDia]        = useState<AgDia[]>([]);
+  const [dataComanda,  setDataComanda]  = useState<Date>(new Date());
 
   // Catálogos para pesquisa
   const [servicos,  setServicos]    = useState<{ id: string; nome: string; preco: number }[]>([]);
@@ -148,20 +151,22 @@ export default function ComandaPage() {
     })();
   }, []);
 
-  // ── Carregar dados do dia
+  // ── Carregar dados do dia selecionado
   useEffect(() => {
     if (!empresaId) return;
-    const hoje = new Date();
+    setLoading(true);
+    setClienteSel(null);
     Promise.all([
       // Agendamentos do dia (exceto cancelados)
       supabase.from('agendamentos')
         .select(`id, data_hora_inicio, data_hora_fim, status, valor,
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
-          servico:servicos(id, nome, preco)`)
+          servico:servicos(id, nome, preco),
+          agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome))`)
         .eq('empresa_id', empresaId)
-        .gte('data_hora_inicio', startOfDay(hoje).toISOString())
-        .lte('data_hora_inicio', endOfDay(hoje).toISOString())
+        .gte('data_hora_inicio', startOfDay(dataComanda).toISOString())
+        .lte('data_hora_inicio', endOfDay(dataComanda).toISOString())
         .neq('status', 'cancelado')
         .order('data_hora_inicio'),
 
@@ -180,7 +185,7 @@ export default function ComandaPage() {
       })));
       setLoading(false);
     });
-  }, [empresaId]);
+  }, [empresaId, dataComanda]);
 
   // ── Clientes do dia (agrupados)
   const clientesDia = useMemo<ClienteComanda[]>(() => {
@@ -214,17 +219,22 @@ export default function ComandaPage() {
     setItens(
       cliente.agendamentos
         .filter(ag => ag.status !== 'concluido')
-        .map(ag => ({
-          uid:            uid(),
-          tipo:           'agendamento',
-          descricao:      ag.servico?.nome ?? 'Serviço',
-          profissional:   ag.profissional?.nome,
-          valor:          ag.valor,
-          quantidade:     1,
-          agendamento_id: ag.id,
-          servico_id:     ag.servico?.id,
-          profissional_id: ag.profissional?.id,
-        }))
+        .map(ag => {
+          const nomesServicos = (ag.agendamento_servicos ?? []).length > 0
+            ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
+            : ag.servico?.nome ?? 'Serviço';
+          return {
+            uid:            uid(),
+            tipo:           'agendamento' as const,
+            descricao:      nomesServicos,
+            profissional:   ag.profissional?.nome,
+            valor:          ag.valor,
+            quantidade:     1,
+            agendamento_id: ag.id,
+            servico_id:     ag.servico?.id,
+            profissional_id: ag.profissional?.id,
+          };
+        })
     );
   }
 
@@ -404,18 +414,32 @@ export default function ComandaPage() {
 
   // ── Render ────────────────────────────────────────────────────
 
-  const hoje = new Date();
-
   return (
     <div className="flex gap-0 -m-4 md:-m-8 overflow-hidden" style={{ height: '100dvh' }}>
 
       {/* ════ PAINEL ESQUERDO — clientes do dia ════ */}
       <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} w-full md:w-72 flex-shrink-0 border-r border-border flex-col bg-bg`}>
-        {/* Header */}
+        {/* Header com navegação de data */}
         <div className="px-4 py-4 border-b border-border">
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.1 }}>Atendimentos</h1>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 600, color: 'var(--color-ink3)', marginTop: 2, textTransform: 'capitalize' }}>
-            {format(hoje, "EEEE, d 'de' MMM", { locale: ptBR })}
+          <div className="flex items-center justify-between mb-0.5">
+            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.1 }}>Comanda</h1>
+            <div className="flex items-center gap-0.5">
+              <button onClick={() => setDataComanda(d => subDays(d, 1))}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:bg-surface transition">
+                <ChevronLeft size={15}/>
+              </button>
+              <button onClick={() => setDataComanda(new Date())}
+                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${isToday(dataComanda) ? 'text-primary' : 'text-text-3 hover:text-accent'}`}>
+                {isToday(dataComanda) ? 'Hoje' : format(dataComanda, 'dd/MM')}
+              </button>
+              <button onClick={() => setDataComanda(d => addDays(d, 1))}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:bg-surface transition">
+                <ChevronRight size={15}/>
+              </button>
+            </div>
+          </div>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 600, color: 'var(--color-ink3)', textTransform: 'capitalize' }}>
+            {format(dataComanda, "EEEE, d 'de' MMMM", { locale: ptBR })}
           </p>
         </div>
 
@@ -428,7 +452,9 @@ export default function ComandaPage() {
           ) : clientesDia.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-6 py-8">
               <Receipt size={28} className="text-text-4 mb-2" />
-              <p className="text-sm text-text-3">Nenhum atendimento hoje</p>
+              <p className="text-sm text-text-3">
+                {isToday(dataComanda) ? 'Nenhum atendimento hoje' : 'Nenhum atendimento neste dia'}
+              </p>
             </div>
           ) : (
             <div className="p-2 flex flex-col gap-1">
@@ -457,7 +483,11 @@ export default function ComandaPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-text truncate">{cliente.nome}</p>
                         <p className="text-xs text-text-3 truncate">
-                          {fmtHora(primeiroAg.data_hora_inicio)} · {primeiroAg.servico?.nome ?? '—'}
+                          {fmtHora(primeiroAg.data_hora_inicio)} · {
+                            (primeiroAg.agendamento_servicos ?? []).length > 0
+                              ? [...(primeiroAg.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
+                              : primeiroAg.servico?.nome ?? '—'
+                          }
                         </p>
                       </div>
                       {jaFeita ? (
