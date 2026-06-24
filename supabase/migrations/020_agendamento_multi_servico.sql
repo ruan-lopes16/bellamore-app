@@ -21,8 +21,8 @@ ALTER TABLE public.agendamento_servicos ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "agendamento_servicos: membro gerencia"
   ON public.agendamento_servicos FOR ALL
-  USING  (empresa_id IN (SELECT unnest(minha_empresas())))
-  WITH CHECK (empresa_id IN (SELECT unnest(minha_empresas())));
+  USING  (empresa_id IN (SELECT minha_empresas()))
+  WITH CHECK (empresa_id IN (SELECT minha_empresas()));
 
 -- ── 2. Substituir bloqueio de conflito por aviso client-side ───
 -- O trigger impedia qualquer sobreposição; agora o client avisa
