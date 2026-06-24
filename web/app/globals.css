@@ -140,11 +140,11 @@ html, body {
 
 .bm-page { animation: bm-screen 340ms cubic-bezier(.2,.85,.3,1) both; }
 
-/* Stagger: aplicar no elemento INTERNO do card (fill-mode both quebraria
-   o scale de press se aplicado no elemento pressável). Delay via
-   --bm-i (índice) definido inline. */
+/* Stagger: fill-mode backwards (não forwards/both) para não manter
+   transform após a animação — transform persistente cria stacking context
+   que faz dropdowns absolute ficarem atrás de overlays fixed. */
 .bm-stagger {
-  animation: bm-stagger .45s cubic-bezier(.2,.85,.3,1) both;
+  animation: bm-stagger .45s cubic-bezier(.2,.85,.3,1) backwards;
   animation-delay: calc(var(--bm-i, 0) * var(--bm-step, 60ms));
 }
 .bm-pop  { animation: bm-pop .32s cubic-bezier(.2,.9,.3,1); }

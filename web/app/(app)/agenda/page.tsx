@@ -40,7 +40,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, X, Package2, Trash2,
-  Banknote, Zap, CreditCard, Gift, Check, CalendarPlus, AlertTriangle,
+  Banknote, Zap, CreditCard, Gift, Check, CalendarPlus, AlertTriangle, Pencil,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
@@ -51,7 +51,7 @@ const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-type AgServico = { servico: { id: string; nome: string } | null; valor: number; duracao_minutos: number; ordem: number };
+type AgServico = { servico_id: string; servico: { id: string; nome: string } | null; valor: number; duracao_minutos: number; ordem: number };
 type Ag = {
   id: string; data_hora_inicio: string; data_hora_fim: string;
   status: string; valor: number; observacao?: string;
@@ -82,7 +82,7 @@ function fmtBRL(v: number) {
 // ── Modal: conclusão de atendimento (Insumos → Pagamento) ────
 
 type ConsumoItem = { produto_id: string; nome: string; unidade: string; quantidade: string };
-type Split       = { metodo: string; valor: string };
+type Split       = { metodo: string; valor: string; bandeira?: string };
 
 /** Configuração visual de cada forma de pagamento */
 const METODOS_PAG = [
@@ -91,6 +91,14 @@ const METODOS_PAG = [
   { key: 'credito',  label: 'Crédito',  icon: CreditCard,  cor: '#D97706', bg: '#FEF3C7' },
   { key: 'debito',   label: 'Débito',   icon: CreditCard,  cor: '#9D174D', bg: '#FDF2F8' },
   { key: 'cortesia', label: 'Cortesia', icon: Gift,         cor: '#6B7280', bg: '#F9FAFB' },
+] as const;
+
+const BANDEIRAS = [
+  { key: 'visa',       label: 'Visa'      },
+  { key: 'mastercard', label: 'Master'    },
+  { key: 'elo',        label: 'Elo'       },
+  { key: 'amex',       label: 'Amex'      },
+  { key: 'hipercard',  label: 'Hipercard' },
 ] as const;
 
 /**
@@ -185,6 +193,9 @@ function ConsumoModal({ ag, empresaId, onClose, onConfirmar }: {
   function removerSplit(idx: number) {
     setSplits(prev => prev.filter((_, i) => i !== idx));
   }
+  function atualizarSplitBandeira(idx: number, bandeira: string) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
+  }
 
   // ── Cálculo de totais do pagamento
   const recebido = splits.reduce((s, x) => s + (parseFloat(x.valor.replace(',', '.')) || 0), 0);
@@ -222,6 +233,7 @@ function ConsumoModal({ ag, empresaId, onClose, onConfirmar }: {
             agendamento_id: ag.id,
             valor:          parseFloat(s.valor.replace(',', '.')),
             metodo:         s.metodo,
+            bandeira:       (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
             status:         'pago',
           })),
         );
@@ -362,25 +374,43 @@ function ConsumoModal({ ag, empresaId, onClose, onConfirmar }: {
                   {splits.map((s, i) => {
                     const m = METODOS_PAG.find(x => x.key === s.metodo) ?? METODOS_PAG[0];
                     const IconM = m.icon;
+                    const isCard = s.metodo === 'credito' || s.metodo === 'debito';
                     return (
-                      <div key={i} className="flex items-center gap-2 rounded-xl px-3 py-2.5 border border-border"
+                      <div key={i} className="flex flex-col gap-2 rounded-xl px-3 py-2.5 border border-border"
                         style={{ background: m.bg }}>
-                        <IconM size={15} strokeWidth={2} style={{ color: m.cor }} className="flex-shrink-0"/>
-                        <span className="text-sm font-semibold flex-1" style={{ color: m.cor }}>
-                          {m.label}
-                        </span>
-                        <span className="text-xs text-text-3">R$</span>
-                        <input
-                          value={s.valor}
-                          onChange={e => atualizarSplit(i, e.target.value)}
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          className="w-24 h-8 px-2 text-sm text-right rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition font-semibold"
-                        />
-                        <button onClick={() => removerSplit(i)}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
-                          <X size={13}/>
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <IconM size={15} strokeWidth={2} style={{ color: m.cor }} className="flex-shrink-0"/>
+                          <span className="text-sm font-semibold flex-1" style={{ color: m.cor }}>
+                            {m.label}
+                          </span>
+                          <span className="text-xs text-text-3">R$</span>
+                          <input
+                            value={s.valor}
+                            onChange={e => atualizarSplit(i, e.target.value)}
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            className="w-24 h-8 px-2 text-sm text-right rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition font-semibold"
+                          />
+                          <button onClick={() => removerSplit(i)}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
+                            <X size={13}/>
+                          </button>
+                        </div>
+                        {isCard && (
+                          <div className="flex gap-1.5 flex-wrap">
+                            {BANDEIRAS.map(b => (
+                              <button key={b.key} type="button" onClick={() => atualizarSplitBandeira(i, b.key)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                                  s.bandeira === b.key
+                                    ? 'bg-white/60 border-current'
+                                    : 'border-border/50 opacity-60 hover:opacity-100 hover:border-current'
+                                }`}
+                                style={{ color: m.cor }}>
+                                {b.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -451,10 +481,11 @@ const STATUS_OPCOES = [
   { key: 'faltou',     label: 'Faltou',     cor: 'text-red'     },
 ];
 
-function AgCard({ ag, empresaId, onStatus }: {
+function AgCard({ ag, empresaId, onStatus, onEditar }: {
   ag: Ag;
   empresaId: string;
   onStatus: (id: string, s: string) => void;
+  onEditar?: (ag: Ag) => void;
 }) {
   const [menuAberto,   setMenuAberto]   = useState(false);
   const [modalConsumo, setModalConsumo] = useState(false);
@@ -489,9 +520,15 @@ function AgCard({ ag, empresaId, onStatus }: {
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 mb-0.5">
             <p className="font-semibold text-text text-sm truncate">{ag.cliente?.nome ?? '—'}</p>
-
-            {/* Badge de status clicável */}
-            <div className="relative flex-shrink-0">
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {onEditar && (
+                <button onClick={() => onEditar(ag)}
+                  className="w-6 h-6 rounded-lg flex items-center justify-center text-text-4 hover:text-accent hover:bg-accent/10 transition">
+                  <Pencil size={11} strokeWidth={2.5}/>
+                </button>
+              )}
+              {/* Badge de status clicável */}
+              <div className="relative">
               <button
                 onClick={() => setMenuAberto(v => !v)}
                 className={`text-xs font-semibold px-2 py-0.5 rounded-lg transition hover:opacity-80 ${st.bg} ${st.text}`}>
@@ -513,8 +550,9 @@ function AgCard({ ag, empresaId, onStatus }: {
                   </div>
                 </>
               )}
-            </div>
-          </div>
+              </div>{/* /relative (status) */}
+            </div>{/* /flex gap-1 */}
+          </div>{/* /justify-between */}
           <p className="text-text-3 text-xs mb-2 truncate">
             {(ag.agendamento_servicos ?? []).length > 0
               ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
@@ -549,25 +587,32 @@ type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: n
 type ConflitoDet  = { inicio: string; fim: string; cliente: string; servico: string };
 
 function NovoAgModal({
-  data, empresaId, onClose, onSalvo,
+  data, empresaId, onClose, onSalvo, agEditar,
 }: {
   data: Date; empresaId: string;
   onClose: () => void; onSalvo: () => void;
+  agEditar?: Ag;
 }) {
   const [clientes,      setClientes]      = useState<ClienteOpt[]>([]);
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<Servico[]>([]);
 
-  const [clienteId, setClienteId] = useState('');
-  const [profId,    setProfId]    = useState('');
-  const [hora,      setHora]      = useState('09:00');
-  const [obs,       setObs]       = useState('');
+  const [dataSel,   setDataSel]   = useState(() => agEditar ? parseISO(agEditar.data_hora_inicio) : data);
+  const [clienteId, setClienteId] = useState(() => agEditar?.cliente?.id ?? '');
+  const [profId,    setProfId]    = useState(() => agEditar?.profissional?.id ?? '');
+  const [hora,      setHora]      = useState(() => agEditar ? format(parseISO(agEditar.data_hora_inicio), 'HH:mm') : '09:00');
+  const [obs,       setObs]       = useState(() => agEditar?.observacao ?? '');
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
 
-  const [linhas, setLinhas] = useState<ServicoLinha[]>([
-    { uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 },
-  ]);
+  const [linhas, setLinhas] = useState<ServicoLinha[]>(() => {
+    if (agEditar && (agEditar.agendamento_servicos ?? []).length > 0) {
+      return [...(agEditar.agendamento_servicos ?? [])]
+        .sort((a, b) => a.ordem - b.ordem)
+        .map(s => ({ uid: crypto.randomUUID(), servico_id: s.servico_id, duracao: s.duracao_minutos, valor: s.valor }));
+    }
+    return [{ uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 }];
+  });
 
   // Conflito de horário detectado
   const [conflitos,  setConflitos]  = useState<ConflitoDet[]>([]);
@@ -612,21 +657,40 @@ function NovoAgModal({
   async function executarSalvar(inicio: Date, fim: Date) {
     setSalvando(true);
     const filled = linhas.filter(l => l.servico_id);
-    const { data: ag, error } = await supabase.from('agendamentos').insert({
-      empresa_id:       empresaId,
-      cliente_id:       clienteId,
-      profissional_id:  profId,
-      servico_id:       filled[0].servico_id,
-      data_hora_inicio: inicio.toISOString(),
-      data_hora_fim:    fim.toISOString(),
-      status:           'agendado',
-      valor:            filled.reduce((s, l) => s + l.valor, 0),
-      observacao:       obs.trim() || null,
-    }).select().single();
-    if (error) { setSalvando(false); setErro(error.message); return; }
+    let agId = '';
+
+    if (agEditar) {
+      const { error } = await supabase.from('agendamentos').update({
+        cliente_id:       clienteId,
+        profissional_id:  profId,
+        servico_id:       filled[0]?.servico_id ?? null,
+        data_hora_inicio: inicio.toISOString(),
+        data_hora_fim:    fim.toISOString(),
+        valor:            filled.reduce((s, l) => s + l.valor, 0),
+        observacao:       obs.trim() || null,
+      }).eq('id', agEditar.id);
+      if (error) { setSalvando(false); setErro(error.message); return; }
+      await supabase.from('agendamento_servicos').delete().eq('agendamento_id', agEditar.id);
+      agId = agEditar.id;
+    } else {
+      const { data: ag, error } = await supabase.from('agendamentos').insert({
+        empresa_id:       empresaId,
+        cliente_id:       clienteId,
+        profissional_id:  profId,
+        servico_id:       filled[0].servico_id,
+        data_hora_inicio: inicio.toISOString(),
+        data_hora_fim:    fim.toISOString(),
+        status:           'agendado',
+        valor:            filled.reduce((s, l) => s + l.valor, 0),
+        observacao:       obs.trim() || null,
+      }).select().single();
+      if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
+      agId = ag.id;
+    }
+
     await supabase.from('agendamento_servicos').insert(
       filled.map((l, i) => ({
-        agendamento_id:  ag.id,
+        agendamento_id:  agId,
         servico_id:      l.servico_id,
         valor:           l.valor,
         duracao_minutos: l.duracao,
@@ -648,10 +712,10 @@ function NovoAgModal({
       return;
     }
     const [h, m] = hora.split(':').map(Number);
-    const inicio = new Date(data); inicio.setHours(h, m, 0, 0);
+    const inicio = new Date(dataSel); inicio.setHours(h, m, 0, 0);
     const fim    = addMinutes(inicio, totalDuracao || 60);
 
-    const { data: conf } = await supabase
+    let confQuery = supabase
       .from('agendamentos')
       .select(`id,data_hora_inicio,data_hora_fim,
         cliente:clientes!agendamentos_cliente_id_fkey(nome),
@@ -661,6 +725,8 @@ function NovoAgModal({
       .not('status', 'in', '("cancelado","faltou")')
       .lt('data_hora_inicio', fim.toISOString())
       .gt('data_hora_fim', inicio.toISOString());
+    if (agEditar) confQuery = confQuery.neq('id', agEditar.id);
+    const { data: conf } = await confQuery;
 
     if (conf && conf.length > 0) {
       setPendInicio(inicio);
@@ -682,15 +748,15 @@ function NovoAgModal({
   const servicoOpts = servicos.map(s => ({ value: s.id, label: s.nome }));
 
   return (
-    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-3 md:px-16 py-4 sm:py-8 overflow-y-auto overscroll-contain">
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
-            <h2 className="font-serif text-xl text-text">Novo agendamento</h2>
+            <h2 className="font-serif text-xl text-text">{agEditar ? 'Editar agendamento' : 'Novo agendamento'}</h2>
             <p className="text-text-3 text-xs mt-0.5 capitalize">
-              {format(data, "EEEE, dd 'de' MMMM", { locale: ptBR })}
+              {format(dataSel, "EEEE, dd 'de' MMMM", { locale: ptBR })}
             </p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
@@ -720,7 +786,7 @@ function NovoAgModal({
                 onClick={() => pendInicio && pendFim && executarSalvar(pendInicio, pendFim)}
                 className="flex-1 h-9 rounded-xl text-white text-xs font-bold transition disabled:opacity-60"
                 style={{ background: 'var(--color-amber)' }}>
-                {salvando ? 'Salvando...' : 'Agendar mesmo assim'}
+                {salvando ? 'Salvando...' : agEditar ? 'Salvar assim mesmo' : 'Agendar mesmo assim'}
               </button>
             </div>
           </div>
@@ -790,12 +856,21 @@ function NovoAgModal({
             <SearchSelect options={profOpts} value={profId} onChange={setProfId} placeholder="Selecionar profissional..." required />
           </div>
 
+          {agEditar && (
+            <div>
+              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Data</label>
+              <input type="date" value={format(dataSel, 'yyyy-MM-dd')}
+                onChange={e => { if (e.target.value) setDataSel(new Date(e.target.value + 'T00:00:00')); }}
+                className={inputClass} />
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Horário de início</label>
             <input type="time" value={hora} onChange={e => setHora(e.target.value)} required className={inputClass} />
             {totalDuracao > 0 && (() => {
               const [h, m] = hora.split(':').map(Number);
-              const fim = addMinutes(new Date(new Date(data).setHours(h, m, 0, 0)), totalDuracao);
+              const fim = addMinutes(new Date(new Date(dataSel).setHours(h, m, 0, 0)), totalDuracao);
               return <p className="text-xs text-text-3 mt-1">Término previsto: {format(fim, 'HH:mm')}</p>;
             })()}
           </div>
@@ -811,7 +886,7 @@ function NovoAgModal({
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
             <button type="submit" disabled={salvando} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
-              {salvando ? 'Salvando...' : 'Agendar'}
+              {salvando ? 'Salvando...' : agEditar ? 'Salvar alterações' : 'Agendar'}
             </button>
           </div>
         </form>
@@ -888,11 +963,12 @@ function computeLanes(colAgs: Ag[]): Map<string, { lane: number; totalLanes: num
  * Clicar num bloco abre o AgCard no painel lateral.
  */
 function TimelineView({
-  ags, loading, empresaId, onStatus, dataSel,
+  ags, loading, empresaId, onStatus, dataSel, onEditar,
 }: {
   ags: Ag[]; loading: boolean; empresaId: string;
   onStatus: (id: string, s: string) => void;
   dataSel: Date;
+  onEditar?: (ag: Ag) => void;
 }) {
   const [agSel,   setAgSel]   = useState<Ag | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1087,7 +1163,7 @@ function TimelineView({
         <>
           {/* Mobile: backdrop + bottom sheet ancorado acima do bottom nav */}
           <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={() => setAgSel(null)} />
-          <div className="md:hidden fixed left-3 right-3 z-50 bg-surface border border-border rounded-2xl shadow-xl overflow-hidden"
+          <div className="md:hidden fixed left-3 right-3 z-50 bg-surface border border-border rounded-2xl shadow-xl"
             style={{ bottom: 'calc(env(safe-area-inset-bottom) + 76px)' }}>
             <div className="flex items-center justify-between p-3 border-b border-border">
               <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
@@ -1097,7 +1173,9 @@ function TimelineView({
               </button>
             </div>
             <div className="p-3 max-h-[50vh] overflow-y-auto">
-              <AgCard ag={agSel} empresaId={empresaId} onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}/>
+              <AgCard ag={agSel} empresaId={empresaId}
+                onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
+                onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
             </div>
           </div>
 
@@ -1111,7 +1189,9 @@ function TimelineView({
                   <X size={12} />
                 </button>
               </div>
-              <AgCard ag={agSel} empresaId={empresaId} onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}/>
+              <AgCard ag={agSel} empresaId={empresaId}
+                onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
+                onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
             </div>
           </div>
         </>
@@ -1123,9 +1203,10 @@ function TimelineView({
 
 // ── Lista do dia ─────────────────────────────────────────────
 
-function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus }: {
+function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar }: {
   ags: Ag[]; loading: boolean; dataSel: Date; empresaId: string;
   onNovo: () => void; onStatus: (id: string, s: string) => void;
+  onEditar?: (ag: Ag) => void;
 }) {
   return (
     <div>
@@ -1157,7 +1238,7 @@ function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus }: {
         <div className="flex flex-col gap-3">
           {ags.map((ag, idx) => (
             <div key={ag.id} className="bm-stagger" style={{ '--bm-i': idx, '--bm-step': '60ms' } as React.CSSProperties}>
-              <AgCard ag={ag} empresaId={empresaId} onStatus={onStatus}/>
+              <AgCard ag={ag} empresaId={empresaId} onStatus={onStatus} onEditar={onEditar}/>
             </div>
           ))}
           {/* Slot livre */}
@@ -1260,6 +1341,7 @@ export default function AgendaPage() {
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
   const [modal,      setModal]     = useState(false);
+  const [agEditar,   setAgEditar]  = useState<Ag | null>(null);
   const [toastErro,  setToastErro] = useState('');
 
   function showErro(msg: string) {
@@ -1435,7 +1517,7 @@ export default function AgendaPage() {
       )}
 
       {view === 'semana' ? (
-        <ListaDia ags={ags} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus}/>
+        <ListaDia ags={ags} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)}/>
       ) : view === 'timeline' ? (
         <TimelineView
           ags={ags}
@@ -1443,6 +1525,7 @@ export default function AgendaPage() {
           empresaId={empresaId ?? ''}
           onStatus={mudarStatus}
           dataSel={dataSel}
+          onEditar={ag => setAgEditar(ag)}
         />
       ) : (
         <>
@@ -1463,21 +1546,23 @@ export default function AgendaPage() {
             <MesView mes={dataSel} agsPorDia={agsMes} diaSel={dataSel} onDiaClick={selecionarDia}/>
           </div>
           </div>
-          <ListaDia ags={ags} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus}/>
+          <ListaDia ags={ags} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)}/>
         </>
       )}
 
-      {/* Modal */}
-      {modal && empresaId && (
+      {/* Modal novo/editar agendamento */}
+      {(modal || agEditar) && empresaId && (
         <NovoAgModal
-          data={dataSel}
+          data={agEditar ? parseISO(agEditar.data_hora_inicio) : dataSel}
           empresaId={empresaId}
-          onClose={() => setModal(false)}
+          onClose={() => { setModal(false); setAgEditar(null); }}
           onSalvo={() => {
             setModal(false);
+            setAgEditar(null);
             fetchDia(dataSel, empresaId);
             if (view === 'mes') fetchMes(dataSel, empresaId);
           }}
+          agEditar={agEditar ?? undefined}
         />
       )}
     </div>

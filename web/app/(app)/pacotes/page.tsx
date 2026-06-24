@@ -169,15 +169,15 @@ function PacoteModal({
   }
 
   return (
-    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md flex flex-col">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
           <h2 className="font-serif text-xl text-text">{pacote ? 'Editar pacote' : 'Novo pacote'}</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
 
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
           <div>
             <label className={labelCls}>Nome *</label>
             <input value={nome} onChange={e => setNome(e.target.value)} required placeholder="Ex: Pacote Escova Mensal" className={inputCls}/>
@@ -292,9 +292,9 @@ function VenderModal({
   }
 
   return (
-    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm flex flex-col">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
             <h2 className="font-serif text-xl text-text">Vender pacote</h2>
@@ -401,9 +401,9 @@ function SessaoModal({
   }
 
   return (
-    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm flex flex-col">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
             <h2 className="font-serif text-xl text-text">Registrar sessão</h2>
