@@ -1,18 +1,15 @@
--- Corrige definitivamente a geração automática de comissões:
+-- Corrige definitivamente a geração automática de comissões.
 --
--- Problema 1 (migration 022): filtro role='profissional' impedia gestores/owners
---   que também atendem de gerar comissão. → Filtro removido.
+-- EXECUTE ESTE ARQUIVO NO SUPABASE SQL EDITOR
+-- (não há supabase/config.toml — as migrations são manuais)
 --
--- Problema 2 (este arquivo): a função rodava como o usuário corrente, então
---   o INSERT em comissoes precisava passar pelo RLS (policy "comissoes: membro insere").
---   Em certos contextos de auth (ex: update via service role, revalidação, etc.)
---   auth.uid() pode ser NULL, fazendo o CHECK falhar silenciosamente e a comissão
---   nunca ser criada.
---
--- Solução: SECURITY DEFINER + SET search_path = public
---   A função passa a rodar como owner do banco (bypassa RLS), garantindo que o
---   INSERT sempre ocorre quando as condições de negócio são atendidas.
+-- Problemas corrigidos:
+--   1. Filtro role='profissional' impedia gestores/owners de gerarem comissão
+--   2. Função sem SECURITY DEFINER dependia de auth.uid() no contexto do trigger,
+--      que pode ser NULL em certas chamadas → INSERT bloqueado silenciosamente pelo RLS
+--   3. Trigger pode não existir se o banco foi criado sem rodar migration 001 completa
 
+-- ── 1. Recria a função com SECURITY DEFINER ─────────────────────────────────
 CREATE OR REPLACE FUNCTION public.gerar_comissao()
 RETURNS trigger AS $$
 DECLARE
@@ -34,3 +31,17 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- ── 2. Garante que o trigger existe ─────────────────────────────────────────
+DROP TRIGGER IF EXISTS trg_gerar_comissao ON public.agendamentos;
+
+CREATE TRIGGER trg_gerar_comissao
+  AFTER UPDATE ON public.agendamentos
+  FOR EACH ROW
+  EXECUTE FUNCTION public.gerar_comissao();
+
+-- ── 3. Diagnóstico: mostra membros sem percentual configurado ────────────────
+-- (rode separadamente para verificar; não afeta nada)
+-- SELECT user_id, role, percentual_comissao
+-- FROM public.empresa_membros
+-- WHERE ativo = true;
