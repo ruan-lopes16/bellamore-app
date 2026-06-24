@@ -30,18 +30,24 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Clock, User, Plus, Trash2, X, Check, ChevronRight, ChevronLeft,
-  Banknote, Zap, CreditCard, Gift, Receipt, Tag,
+  Banknote, Zap, CreditCard, Gift, Receipt, Tag, Pencil,
   AlertCircle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
-import { format, startOfDay, endOfDay, parseISO, addDays, subDays, isToday } from 'date-fns';
+import {
+  format, startOfDay, endOfDay, parseISO,
+  addDays, subDays, addMonths, subMonths, isToday, isSameDay, isSameMonth,
+  startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
+
+const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 type AgServicoDia = { servico: { id: string; nome: string } | null; valor: number; duracao_minutos: number; ordem: number };
 type AgDia = {
@@ -50,6 +56,7 @@ type AgDia = {
   data_hora_fim: string;
   status: string;
   valor: number;
+  comanda_id: string | null;
   cliente:      { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico:      { id: string; nome: string; preco: number }    | null;
@@ -119,10 +126,16 @@ function uid() { return crypto.randomUUID(); }
 // ── Componente principal ──────────────────────────────────────
 
 export default function ComandaPage() {
-  const [empresaId,    setEmpresaId]    = useState<string | null>(null);
-  const [loading,      setLoading]      = useState(true);
-  const [agDia,        setAgDia]        = useState<AgDia[]>([]);
-  const [dataComanda,  setDataComanda]  = useState<Date>(new Date());
+  const [empresaId,         setEmpresaId]         = useState<string | null>(null);
+  const [loading,           setLoading]           = useState(true);
+  const [agDia,             setAgDia]             = useState<AgDia[]>([]);
+  const [dataComanda,       setDataComanda]       = useState<Date>(new Date());
+  const [view,              setView]              = useState<'semana' | 'mes'>('semana');
+  const [semana,            setSemana]            = useState<Date[]>(() =>
+    Array.from({ length: 7 }, (_, i) => addDays(subDays(new Date(), 3), i))
+  );
+  const [agsMes,            setAgsMes]            = useState<Map<string, number>>(new Map());
+  const [comandaExistenteId, setComandaExistenteId] = useState<string | null>(null);
 
   // Catálogos para pesquisa
   const [servicos,  setServicos]    = useState<{ id: string; nome: string; preco: number }[]>([]);
@@ -159,7 +172,7 @@ export default function ComandaPage() {
     Promise.all([
       // Agendamentos do dia (exceto cancelados)
       supabase.from('agendamentos')
-        .select(`id, data_hora_inicio, data_hora_fim, status, valor,
+        .select(`id, data_hora_inicio, data_hora_fim, status, valor, comanda_id,
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
           servico:servicos(id, nome, preco),
@@ -187,6 +200,43 @@ export default function ComandaPage() {
     });
   }, [empresaId, dataComanda]);
 
+  // Contagem por dia para a visão mensal
+  const fetchMes = useCallback(async (mes: Date, empId: string) => {
+    const { data: rows } = await supabase
+      .from('agendamentos')
+      .select('data_hora_inicio')
+      .eq('empresa_id', empId)
+      .neq('status', 'cancelado')
+      .gte('data_hora_inicio', startOfMonth(mes).toISOString())
+      .lte('data_hora_inicio', endOfMonth(mes).toISOString());
+    const map = new Map<string, number>();
+    ((rows ?? []) as { data_hora_inicio: string }[]).forEach(r => {
+      const k = format(parseISO(r.data_hora_inicio), 'yyyy-MM-dd');
+      map.set(k, (map.get(k) ?? 0) + 1);
+    });
+    setAgsMes(map);
+  }, []);
+
+  useEffect(() => {
+    if (!empresaId || view !== 'mes') return;
+    fetchMes(dataComanda, empresaId);
+  }, [view, dataComanda, empresaId, fetchMes]);
+
+  // ── Navegação
+  function navSemana(dir: number) {
+    setSemana(s => s.map(d => addDays(d, dir * 7)));
+    setDataComanda(d => addDays(d, dir * 7));
+  }
+  function navMes(dir: number) {
+    setDataComanda(d => dir > 0 ? addMonths(d, 1) : subMonths(d, 1));
+  }
+  function selecionarDia(d: Date) {
+    setDataComanda(d);
+    setView('semana');
+    if (!semana.some(s => isSameDay(s, d)))
+      setSemana(Array.from({ length: 7 }, (_, i) => addDays(subDays(d, 3), i)));
+  }
+
   // ── Clientes do dia (agrupados)
   const clientesDia = useMemo<ClienteComanda[]>(() => {
     const map: Record<string, ClienteComanda> = {};
@@ -209,9 +259,10 @@ export default function ComandaPage() {
     });
   }, [agDia]);
 
-  // ── Abrir comanda para um cliente
+  // ── Abrir comanda para um cliente (nova)
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
+    setComandaExistenteId(null);
     setErro('');
     setDesconto('');
     setSplits([]);
@@ -236,6 +287,100 @@ export default function ComandaPage() {
           };
         })
     );
+  }
+
+  // ── Abrir comanda já fechada para edição
+  async function abrirComandaFechada(cliente: ClienteComanda) {
+    const comandaId = cliente.agendamentos.find(a => a.comanda_id)?.comanda_id ?? null;
+    if (!comandaId) { abrirComanda(cliente); return; }
+
+    setClienteSel(cliente);
+    setComandaExistenteId(comandaId);
+    setErro(''); setDesconto(''); setSplits([]);
+
+    const agItems: ComandaItem[] = cliente.agendamentos.map(ag => {
+      const nomesServicos = (ag.agendamento_servicos ?? []).length > 0
+        ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
+        : ag.servico?.nome ?? 'Serviço';
+      return {
+        uid: uid(), tipo: 'agendamento' as const,
+        descricao: nomesServicos,
+        profissional: ag.profissional?.nome,
+        valor: ag.valor, quantidade: 1,
+        agendamento_id: ag.id,
+        servico_id: ag.servico?.id,
+        profissional_id: ag.profissional?.id,
+      };
+    });
+
+    const [{ data: cmd }, { data: extraItems }, { data: pags }] = await Promise.all([
+      supabase.from('comandas').select('desconto').eq('id', comandaId).single(),
+      supabase.from('comanda_itens').select('tipo,descricao,servico_id,produto_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId),
+      supabase.from('pagamentos').select('metodo,valor').eq('comanda_id', comandaId),
+    ]);
+
+    if ((cmd as any)?.desconto > 0) setDesconto(String((cmd as any).desconto).replace('.', ','));
+
+    const extras: ComandaItem[] = (extraItems ?? []).map((item: any) => ({
+      uid: uid(), tipo: item.tipo as 'servico' | 'produto',
+      descricao: item.descricao ?? '—',
+      valor: item.valor_unit, quantidade: item.quantidade,
+      servico_id: item.servico_id ?? undefined,
+      produto_id: item.produto_id ?? undefined,
+      profissional_id: item.profissional_id ?? undefined,
+    }));
+
+    setItens([...agItems, ...extras]);
+    setSplits((pags ?? []).map((p: any) => ({
+      metodo: p.metodo,
+      valor: Number(p.valor).toFixed(2).replace('.', ','),
+    })));
+  }
+
+  // ── Editar comanda já fechada (UPDATE ao invés de INSERT)
+  async function editarComanda(comandaId: string) {
+    setFechando(true); setErro('');
+
+    const { error: errCmd } = await supabase.from('comandas')
+      .update({ valor_total: subtotal, desconto: descontoN })
+      .eq('id', comandaId);
+    if (errCmd) { setErro(errCmd.message); setFechando(false); return; }
+
+    // Substitui itens extras
+    await supabase.from('comanda_itens').delete().eq('comanda_id', comandaId);
+    const extras = itens.filter(i => i.tipo !== 'agendamento');
+    if (extras.length > 0) {
+      await supabase.from('comanda_itens').insert(
+        extras.map(i => ({
+          comanda_id: comandaId, empresa_id: empresaId,
+          tipo: i.tipo, descricao: i.descricao,
+          servico_id: i.servico_id ?? null,
+          produto_id: i.produto_id ?? null,
+          profissional_id: i.profissional_id ?? null,
+          quantidade: i.quantidade, valor_unit: i.valor,
+        }))
+      );
+    }
+
+    // Substitui pagamentos
+    await supabase.from('pagamentos').delete().eq('comanda_id', comandaId);
+    const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
+    if (splitsValidos.length > 0) {
+      const { error: errPag } = await supabase.from('pagamentos').insert(
+        splitsValidos.map(s => ({
+          empresa_id: empresaId, comanda_id: comandaId,
+          valor: parseFloat(s.valor.replace(',', '.')),
+          metodo: s.metodo, status: 'pago',
+        }))
+      );
+      if (errPag) { setErro(errPag.message); setFechando(false); return; }
+    }
+
+    setFechando(false);
+    const nomeCliente = clienteSel?.nome ?? '—';
+    setClienteSel(null);
+    setComandaExistenteId(null);
+    setSucesso({ nome: nomeCliente, valor: subtotal - descontoN });
   }
 
   // ── Itens: adicionar/remover
@@ -293,9 +438,10 @@ export default function ComandaPage() {
     setSplits(prev => prev.filter((_, i) => i !== idx));
   }
 
-  // ── Fechar comanda
+  // ── Fechar / salvar comanda
   async function fecharComanda() {
     if (!clienteSel || !empresaId || fechando) return;
+    if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
     setFechando(true); setErro('');
 
     // 1. Criar comanda no banco
@@ -419,33 +565,96 @@ export default function ComandaPage() {
 
       {/* ════ PAINEL ESQUERDO — clientes do dia ════ */}
       <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} w-full md:w-72 flex-shrink-0 border-r border-border flex-col bg-bg`}>
-        {/* Header com navegação de data */}
-        <div className="px-4 py-4 border-b border-border">
-          <div className="flex items-center justify-between mb-0.5">
-            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.1 }}>Comanda</h1>
+        {/* Header — título + toggle + week strip */}
+        <div className="px-3 pt-3 pb-2 border-b border-border flex-shrink-0">
+          {/* Linha 1: título + toggle Semana/Mês */}
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em' }} className="capitalize">
+                {format(dataComanda, 'MMMM yyyy', { locale: ptBR })}
+              </p>
+              <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 20, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.1 }}>Comanda</h1>
+            </div>
+            <div style={{ display: 'flex', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
+              {(['semana', 'mes'] as const).map(v => (
+                <button key={v} onClick={() => setView(v)}
+                  style={view === v
+                    ? { background: 'var(--color-primary)', color: '#fff', fontWeight: 700, fontFamily: 'var(--font-sans)', fontSize: 11, padding: '6px 10px' }
+                    : { color: 'var(--color-ink3)', fontWeight: 600, fontFamily: 'var(--font-sans)', fontSize: 11, padding: '6px 10px' }}>
+                  {v === 'semana' ? 'Semana' : 'Mês'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Week strip (igual à agenda) */}
+          <div className="overflow-x-auto">
             <div className="flex items-center gap-0.5">
-              <button onClick={() => setDataComanda(d => subDays(d, 1))}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:bg-surface transition">
-                <ChevronLeft size={15}/>
+              <button onClick={() => navSemana(-1)}
+                className="w-7 h-7 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-surface flex-shrink-0 transition">
+                <ChevronLeft size={14}/>
               </button>
-              <button onClick={() => setDataComanda(new Date())}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${isToday(dataComanda) ? 'text-primary' : 'text-text-3 hover:text-accent'}`}>
-                {isToday(dataComanda) ? 'Hoje' : format(dataComanda, 'dd/MM')}
-              </button>
-              <button onClick={() => setDataComanda(d => addDays(d, 1))}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:bg-surface transition">
-                <ChevronRight size={15}/>
+              <div className="flex gap-0.5 flex-1 justify-between">
+                {semana.map((d, i) => {
+                  const sel = isSameDay(d, dataComanda);
+                  const hj  = isToday(d);
+                  return (
+                    <button key={d.toISOString()} onClick={() => selecionarDia(d)}
+                      className="flex flex-col items-center rounded-[12px] py-1.5 flex-1 transition"
+                      style={{ background: sel ? 'var(--color-primary)' : 'transparent' }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', fontFamily: 'var(--font-sans)', color: sel ? 'rgba(255,255,255,0.7)' : 'var(--color-ink4)', marginBottom: 2 }}>{DIAS[d.getDay()]}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-sans)', color: sel ? '#fff' : hj ? 'var(--color-accent)' : 'var(--color-ink2)' }}>{format(d, 'd')}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button onClick={() => navSemana(1)}
+                className="w-7 h-7 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-surface flex-shrink-0 transition">
+                <ChevronRight size={14}/>
               </button>
             </div>
           </div>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 600, color: 'var(--color-ink3)', textTransform: 'capitalize' }}>
-            {format(dataComanda, "EEEE, d 'de' MMMM", { locale: ptBR })}
-          </p>
         </div>
 
-        {/* Lista */}
+        {/* Conteúdo: lista de clientes ou calendário mensal */}
         <div className="flex-1 overflow-y-auto">
-          {loading ? (
+          {view === 'mes' ? (
+            /* ── Visão mensal ── */
+            <div className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <button onClick={() => navMes(-1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:bg-surface transition"><ChevronLeft size={14}/></button>
+                <p className="text-xs font-bold text-text-2 capitalize">{format(dataComanda, 'MMMM yyyy', { locale: ptBR })}</p>
+                <button onClick={() => navMes(1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 hover:bg-surface transition"><ChevronRight size={14}/></button>
+              </div>
+              <div className="grid grid-cols-7 gap-0.5 mb-1">
+                {DIAS.map(d => <div key={d} className="text-center text-[9px] font-semibold text-text-4 py-1">{d}</div>)}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">
+                {eachDayOfInterval({
+                  start: startOfWeek(startOfMonth(dataComanda), { weekStartsOn: 0 }),
+                  end: (() => { const e = new Date(startOfWeek(startOfMonth(dataComanda), { weekStartsOn: 0 })); e.setDate(e.getDate() + 41); return e; })(),
+                }).map(d => {
+                  const key    = format(d, 'yyyy-MM-dd');
+                  const count  = agsMes.get(key) ?? 0;
+                  const sel    = isSameDay(d, dataComanda);
+                  const hj     = isToday(d);
+                  const dMes   = isSameMonth(d, dataComanda);
+                  return (
+                    <div key={key} className="relative">
+                      <button onClick={() => selecionarDia(d)}
+                        className={`w-full aspect-square flex items-center justify-center rounded-lg text-xs font-bold transition
+                          ${sel ? 'bg-primary text-white' : hj ? 'bg-primary-soft text-primary' : dMes ? 'hover:bg-surface text-text-2' : 'text-text-4 hover:bg-surface'}`}>
+                        {format(d, 'd')}
+                      </button>
+                      {count > 0 && !sel && (
+                        <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent pointer-events-none"/>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : loading ? (
             <div className="p-3 flex flex-col gap-2">
               {[1, 2, 3, 4].map(i => <Sk key={i} className="h-16 rounded-xl" />)}
             </div>
@@ -465,13 +674,12 @@ export default function ComandaPage() {
                 return (
                   <button
                     key={cliente.id}
-                    onClick={() => !jaFeita && abrirComanda(cliente)}
-                    disabled={jaFeita}
+                    onClick={() => jaFeita ? abrirComandaFechada(cliente) : abrirComanda(cliente)}
                     className={`w-full text-left rounded-xl p-3 transition-colors border ${
                       ativo
                         ? 'bg-primary-soft border-primary/30'
                         : jaFeita
-                        ? 'bg-bg border-transparent opacity-50 cursor-default'
+                        ? 'bg-bg border-border opacity-60 hover:opacity-100 hover:border-accent/40'
                         : 'bg-surface border-border hover:border-accent/40'
                     }`}
                   >
@@ -491,7 +699,10 @@ export default function ComandaPage() {
                         </p>
                       </div>
                       {jaFeita ? (
-                        <Check size={14} className="text-green flex-shrink-0" strokeWidth={2.5}/>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <Check size={12} className="text-green" strokeWidth={2.5}/>
+                          <Pencil size={11} className="text-text-4" strokeWidth={2}/>
+                        </div>
                       ) : (
                         <ChevronRight size={14} className="text-text-4 flex-shrink-0"/>
                       )}
@@ -825,8 +1036,8 @@ export default function ComandaPage() {
                     'Fechando...'
                   ) : (
                     <>
-                      <Check size={18} strokeWidth={2.5}/>
-                      Fechar comanda — {fmtBRL(total)}
+                      {comandaExistenteId ? <Pencil size={16} strokeWidth={2.5}/> : <Check size={18} strokeWidth={2.5}/>}
+                      {comandaExistenteId ? `Salvar edição — ${fmtBRL(total)}` : `Fechar comanda — ${fmtBRL(total)}`}
                     </>
                   )}
                 </button>
