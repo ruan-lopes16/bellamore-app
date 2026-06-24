@@ -413,10 +413,10 @@ export default function ComandaPage() {
       <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} w-full md:w-72 flex-shrink-0 border-r border-border flex-col bg-bg`}>
         {/* Header */}
         <div className="px-4 py-4 border-b border-border">
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Atendimentos</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.1 }}>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.1 }}>Atendimentos</h1>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 600, color: 'var(--color-ink3)', marginTop: 2, textTransform: 'capitalize' }}>
             {format(hoje, "EEEE, d 'de' MMM", { locale: ptBR })}
-          </h1>
+          </p>
         </div>
 
         {/* Lista */}

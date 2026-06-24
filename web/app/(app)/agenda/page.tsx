@@ -1277,7 +1277,7 @@ export default function AgendaPage() {
       {/* Navegador de semana — visível em Semana e Timeline */}
       {(view === 'semana' || view === 'timeline') && (
         <div className="flex justify-center mb-6">
-          <div className="bg-surface border border-border rounded-[20px] py-3 px-2 sm:px-4 max-w-full">
+          <div className="bg-surface border border-border rounded-[20px] py-3 px-2 sm:px-4 max-w-full overflow-x-auto">
             <div className="flex items-center gap-1 sm:gap-1.5">
               <button onClick={() => navSemana(-1)}
                 className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0">
@@ -1288,7 +1288,7 @@ export default function AgendaPage() {
                   const sel = isSameDay(d, dataSel);
                   const hj  = isToday(d);
                   return (
-                    <button key={d.toISOString()} onClick={() => selecionarDia(d)} className="bm-stagger press flex flex-col items-center rounded-[14px] py-2.5 w-10 sm:w-11 flex-shrink-0"
+                    <button key={d.toISOString()} onClick={() => selecionarDia(d)} className="bm-stagger press flex flex-col items-center rounded-[14px] py-2.5 w-9 sm:w-11 flex-shrink-0"
                       style={{
                         '--bm-i': i, '--bm-step': '35ms',
                         background: sel ? 'var(--color-primary)' : 'transparent',

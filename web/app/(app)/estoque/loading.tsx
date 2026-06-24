@@ -23,14 +23,15 @@ export default function EstoqueLoading() {
         <Sk className="h-9 w-32 rounded-t-lg flex-shrink-0" />
       </div>
 
-      {/* Stats: 4 cards (icon + value + label) */}
+      {/* Stats: 4 cards (icon + value + label + sub) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
         {[1,2,3,4].map(i => (
           <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3 min-w-0">
             <Sk className="w-9 h-9 rounded-xl flex-shrink-0" />
             <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-              <Sk className="h-5 w-1/3 max-w-[40px]" />
-              <Sk className="h-3 w-2/3 max-w-[100px]" />
+              <Sk className="h-5 w-1/3 max-w-[44px]" />
+              <Sk className="h-2.5 w-2/3 max-w-[100px]" />
+              <Sk className="h-2 w-1/2 max-w-[80px]" />
             </div>
           </div>
         ))}

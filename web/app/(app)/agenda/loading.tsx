@@ -30,7 +30,7 @@ export default function AgendaLoading() {
             <Sk className="w-8 h-8 rounded-[10px] flex-shrink-0" />
             <div className="flex gap-0.5 sm:gap-1">
               {[1,2,3,4,5,6,7].map(i => (
-                <div key={i} className="w-10 sm:w-11 flex flex-col items-center py-2 gap-1 flex-shrink-0">
+                <div key={i} className="w-9 sm:w-11 flex flex-col items-center py-2 gap-1 flex-shrink-0">
                   <Sk className="h-2.5 w-6" />
                   <Sk className="h-5 w-5 rounded" />
                 </div>

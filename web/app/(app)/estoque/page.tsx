@@ -747,9 +747,10 @@ export default function EstoquePage() {
           {[1,2,3,4].map(i => (
             <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3 min-w-0">
               <Sk className="w-9 h-9 rounded-xl flex-shrink-0"/>
-              <div className="flex flex-col gap-2 flex-1 min-w-0">
-                <Sk className="h-5 w-10"/>
-                <Sk className="h-3 w-2/3 max-w-[100px]"/>
+              <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                <Sk className="h-5 w-1/3 max-w-[44px]"/>
+                <Sk className="h-2.5 w-2/3 max-w-[100px]"/>
+                <Sk className="h-2 w-1/2 max-w-[80px]"/>
               </div>
             </div>
           ))}
