@@ -81,7 +81,7 @@ export default async function DashboardPage() {
   const [
     agendamentosHoje, agsMes, agsMesAnt, membros,
     despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
-    totalClientes, estoqueBaixo, despPendentes, comissoesPendentes,
+    totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
   ] = await Promise.all([
     supabase.from('agendamentos')
       .select('id,status,valor,data_hora_inicio,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
@@ -94,7 +94,7 @@ export default async function DashboardPage() {
       .eq('empresa_id', empresaId).eq('status', 'concluido')
       .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
     supabase.from('empresa_membros').select('user_id,percentual_comissao')
-      .eq('empresa_id', empresaId).eq('role', 'profissional'),
+      .eq('empresa_id', empresaId).eq('ativo', true),
     supabase.from('despesas').select('valor')
       .eq('empresa_id', empresaId).eq('status', 'pago')
       .gte('data_pagamento', inicioMes.slice(0,10)).lte('data_pagamento', fimMes.slice(0,10)),
@@ -116,6 +116,9 @@ export default async function DashboardPage() {
       .gte('data_vencimento', hojeStr).lte('data_vencimento', daqui7).order('data_vencimento'),
     supabase.from('comissoes').select('id,valor_comissao')
       .eq('empresa_id', empresaId).eq('status', 'pendente'),
+    supabase.from('comissoes').select('valor_comissao,status')
+      .eq('empresa_id', empresaId)
+      .gte('created_at', inicioMes).lte('created_at', fimMes),
   ]);
 
   // KPIs
@@ -143,6 +146,8 @@ export default async function DashboardPage() {
   const estoqueBaixoItems  = estoqueBaixo.data ?? [];
   const despPendentesItems = despPendentes.data ?? [];
   const totalComPendente   = (comissoesPendentes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
+  const totalComMes        = (comissoesMes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
+  const comPendenteMes     = (comissoesMes.data ?? []).filter(c => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
   const totalAlertas       = estoqueBaixoItems.length + despPendentesItems.length + (totalComPendente > 0 ? 1 : 0);
 
   const pctBruto = pct(bruto, brutoAnt);
@@ -217,12 +222,13 @@ export default async function DashboardPage() {
       </Tilt>
 
       {/* ── KPIs do mês ── */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
         {[
-          { label: 'Fat. Bruto',    value: fmt(bruto),   color: 'var(--color-green)',   delta: pctBruto, icon: TrendingUp  },
-          { label: 'Fat. Líquido',  value: fmt(liquido), color: 'var(--color-primary)', delta: null,     icon: Wallet      },
-          { label: 'Lucro do mês',  value: fmt(lucro),   color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, icon: Wallet },
-        ].map(({ label, value, color, delta, icon: Icon }, i) => (
+          { label: 'Fat. Bruto',    value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
+          { label: 'Fat. Líquido',  value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
+          { label: 'Lucro do mês',  value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: null, icon: Wallet },
+          { label: 'Comissões',     value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} pend.` : 'Em dia', icon: BadgeDollarSign },
+        ].map(({ label, value, color, delta, sub, icon: Icon }, i) => (
           <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
             <div className="flex items-start justify-between mb-2 gap-1">
@@ -235,6 +241,9 @@ export default async function DashboardPage() {
                 {delta >= 0 ? <ArrowUp size={9} /> : <ArrowDown size={9} />}
                 {Math.abs(delta).toFixed(0)}%
               </span>
+            )}
+            {sub !== null && (
+              <p className="truncate mt-1.5" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}>{sub}</p>
             )}
           </div>
         ))}
