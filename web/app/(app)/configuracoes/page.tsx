@@ -111,11 +111,12 @@ export default function ConfiguracoesPage() {
   const [segmento,  setSegmento]  = useState('Estúdio');
   const [cnpj,      setCnpj]      = useState('');
   const [telefone,  setTelefone]  = useState('');
-  const [cep,       setCep]       = useState('');
-  const [rua,       setRua]       = useState('');
-  const [numero,    setNumero]    = useState('');
-  const [bairro,    setBairro]    = useState('');
-  const [localidade,setLocalidade]= useState('');
+  const [cep,        setCep]        = useState('');
+  const [rua,        setRua]        = useState('');
+  const [numero,     setNumero]     = useState('');
+  const [complemento,setComplemento]= useState('');
+  const [bairro,     setBairro]     = useState('');
+  const [localidade, setLocalidade] = useState('');
   const [logoUrl,   setLogoUrl]   = useState('');
   const [logoPreview,setLogoPreview] = useState('');
   const [horarios,  setHorarios]  = useState<Horarios>(HORARIO_DEFAULT);
@@ -189,14 +190,20 @@ export default function ConfiguracoesPage() {
           const parts = endRaw.split(',').map((s: string) => s.trim()).filter(Boolean);
           if (parts.length >= 3) {
             setRua(parts[0]);
-            // Se a segunda parte começa com dígito, é o número
-            if (/^\d/.test(parts[1])) {
+            setLocalidade(parts[parts.length - 1]);
+            if (parts.length >= 4 && /^\d/.test(parts[1])) {
               setNumero(parts[1]);
-              setBairro(parts.slice(2, -1).join(', '));
+              if (parts.length >= 5) {
+                // rua, numero, complemento, bairro, localidade
+                setComplemento(parts[2]);
+                setBairro(parts.slice(3, -1).join(', '));
+              } else {
+                // rua, numero, bairro, localidade (sem complemento)
+                setBairro(parts[2]);
+              }
             } else {
               setBairro(parts.slice(1, -1).join(', '));
             }
-            setLocalidade(parts[parts.length - 1]);
           } else {
             setRua(endRaw);
           }
@@ -306,7 +313,7 @@ export default function ConfiguracoesPage() {
     if (cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
     setSalvando(true); setErro('');
 
-    const enderecoFinal = [rua, numero, bairro, localidade].filter(Boolean).join(', ');
+    const enderecoFinal = [rua, numero, complemento, bairro, localidade].filter(Boolean).join(', ');
 
     const { error } = await supabase.from('empresas').update({
       nome:                  nome.trim(),
@@ -527,6 +534,12 @@ export default function ConfiguracoesPage() {
               <label className={labelCls}>Logradouro</label>
               <input value={rua} onChange={e => setRua(e.target.value)}
                 className={inputCls} disabled={!isOwner}/>
+            </div>
+
+            <div>
+              <label className={labelCls}>Complemento</label>
+              <input value={complemento} onChange={e => setComplemento(e.target.value)}
+                placeholder="Apto, sala, bloco... (opcional)" className={inputCls} disabled={!isOwner}/>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
