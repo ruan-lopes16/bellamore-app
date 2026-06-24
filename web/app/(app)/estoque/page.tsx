@@ -174,7 +174,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
 
@@ -401,7 +401,7 @@ function MovModal({ produto, onClose, onSalvo }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm">
 

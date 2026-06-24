@@ -163,3 +163,11 @@ html, body {
   .bm-stagger, .bm-pop, .bm-grow, .bm-page { animation: none !important; }
   .bm-tilt { transform: none !important; }
 }
+
+/* ── Mobile: previne zoom automático do iOS ao focar inputs ── */
+@media (max-width: 768px) {
+  input, select, textarea { font-size: 16px; }
+}
+
+/* ── Trava scroll de fundo quando há modal aberto ─────────── */
+html:has(.bm-modal) { overflow: hidden; }

@@ -124,7 +124,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
@@ -224,7 +224,7 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 overflow-y-auto">
+    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 overflow-y-auto overscroll-contain">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6">
         <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Confirmar pagamento</p>

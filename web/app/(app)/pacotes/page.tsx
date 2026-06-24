@@ -169,7 +169,7 @@ function PacoteModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
@@ -292,7 +292,7 @@ function VenderModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-border">
@@ -401,7 +401,7 @@ function SessaoModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto">
+    <div className="bm-modal fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 py-4 sm:py-8 overflow-y-auto overscroll-contain">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-border">
