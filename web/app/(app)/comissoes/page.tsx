@@ -361,7 +361,7 @@ export default function ComissoesPage() {
         const prof = profissionais.find(p => p.profissional_id === pagando);
         if (!prof) return null;
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center bg-black/40"
             onClick={() => !salvando && setPagando(null)}>
             <div className="bg-surface rounded-2xl p-6 w-full max-w-sm md:w-96 shadow-xl mx-4" onClick={e => e.stopPropagation()}
               style={{ animation: 'bm-pop .3s cubic-bezier(.2,.85,.3,1)' }}>

@@ -247,7 +247,7 @@ export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: {
       {/* ── Drawer "Mais" mobile ─────────────────────────────── */}
       {maisAberto && (
         <>
-          <div className="md:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+          <div className="md:hidden bm-modal fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
             onClick={() => setMaisAberto(false)} />
           <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl overflow-hidden"
             style={{ background: 'var(--color-surface)', boxShadow: '0 -4px 24px rgba(44,23,80,0.12)', paddingBottom: 'env(safe-area-inset-bottom)', animation: 'bm-sheet .28s cubic-bezier(.2,.85,.3,1) both' }}>
