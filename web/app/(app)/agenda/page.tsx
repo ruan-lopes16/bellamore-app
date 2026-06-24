@@ -5,21 +5,10 @@
  * Agenda interativa com visão semanal e mensal.
  *
  * ## Componentes internos
- * - `ConsumoModal`  — modal de insumos consumidos ao concluir agendamento
  * - `AgCard`        — card de agendamento com dropdown de status
- * - `NovoAgModal`   — modal de criação de agendamento
+ * - `NovoAgModal`   — modal de criação/edição de agendamento
  * - `ListaDia`      — lista de agendamentos do dia selecionado
  * - `MesView`       — calendário mensal com dots indicadores
- *
- * ## Fluxo de conclusão de agendamento (2 etapas)
- * 1. Usuário clica em "Concluído" no dropdown do AgCard
- * 2. AgCard abre ConsumoModal — etapa 1: Insumos
- * 3. ConsumoModal busca servico_produtos (receita padrão) para pré-preencher
- * 4. Usuário ajusta quantidades e clica "Próximo: Pagamento"
- * 5. Etapa 2: Pagamento — usuário adiciona formas de pagamento (PIX, dinheiro, etc.)
- *    Pode dividir o valor em múltiplos métodos; resumo mostra restante/troco
- * 6. "Confirmar e concluir" → INSERT estoque_movimentos + INSERT pagamentos + status='concluido'
- * 7. Links de escape: "Concluir sem insumos/pagamento" em cada etapa
  *
  * ## Otimistic UI
  * Mudanças de status são aplicadas na UI antes da confirmação do banco.
@@ -39,8 +28,8 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
-  ChevronLeft, ChevronRight, Plus, Clock, User, X, Package2, Trash2,
-  Banknote, Zap, CreditCard, Gift, Check, CalendarPlus, AlertTriangle, Pencil,
+  ChevronLeft, ChevronRight, Plus, Clock, User, X,
+  CalendarPlus, AlertTriangle, Pencil,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
@@ -79,398 +68,6 @@ function fmtBRL(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
 }
 
-// ── Modal: conclusão de atendimento (Insumos → Pagamento) ────
-
-type ConsumoItem = { produto_id: string; nome: string; unidade: string; quantidade: string };
-type Split       = { metodo: string; valor: string; bandeira?: string };
-
-/** Configuração visual de cada forma de pagamento */
-const METODOS_PAG = [
-  { key: 'dinheiro', label: 'Dinheiro', icon: Banknote,    cor: '#16A34A', bg: '#F0FDF4' },
-  { key: 'pix',      label: 'PIX',      icon: Zap,         cor: '#4F46E5', bg: '#EEF2FF' },
-  { key: 'credito',  label: 'Crédito',  icon: CreditCard,  cor: '#D97706', bg: '#FEF3C7' },
-  { key: 'debito',   label: 'Débito',   icon: CreditCard,  cor: '#9D174D', bg: '#FDF2F8' },
-  { key: 'cortesia', label: 'Cortesia', icon: Gift,         cor: '#6B7280', bg: '#F9FAFB' },
-] as const;
-
-const BANDEIRAS = [
-  { key: 'visa',       label: 'Visa'      },
-  { key: 'mastercard', label: 'Master'    },
-  { key: 'elo',        label: 'Elo'       },
-  { key: 'amex',       label: 'Amex'      },
-  { key: 'hipercard',  label: 'Hipercard' },
-] as const;
-
-/**
- * Modal de conclusão de agendamento em 2 etapas:
- * 1. Insumos — ajuste das quantidades consumidas (receita padrão + extras)
- * 2. Pagamento — divisão do valor em múltiplas formas de pagamento
- *
- * Nenhuma escrita no banco ocorre até o usuário confirmar na etapa 2.
- * Ambas as etapas são opcionais via links de escape.
- */
-function ConsumoModal({ ag, empresaId, onClose, onConfirmar }: {
-  ag: Ag; empresaId: string; onClose: () => void; onConfirmar: () => void;
-}) {
-
-
-  // ── Etapa atual
-  const [etapa, setEtapa] = useState<'insumos' | 'pagamento'>('insumos');
-
-  // ── Estado — insumos
-  const [itens,    setItens]    = useState<ConsumoItem[]>([]);
-  const [produtos, setProdutos] = useState<{ id: string; nome: string; unidade: string }[]>([]);
-  const [addId,    setAddId]    = useState('');
-  const [loading,  setLoading]  = useState(true);
-
-  // ── Estado — pagamento
-  const [splits,   setSplits]   = useState<Split[]>([]);
-
-  // ── Compartilhado
-  const [salvando, setSalvando] = useState(false);
-  const [erro,     setErro]     = useState('');
-
-  // Busca receitas de todos os serviços + catálogo de produtos ao montar
-  useEffect(() => {
-    const servicoIds = (ag.agendamento_servicos ?? []).length > 0
-      ? (ag.agendamento_servicos ?? []).map(s => s.servico?.id).filter((id): id is string => !!id)
-      : [ag.servico?.id ?? ''].filter(Boolean);
-
-    Promise.all([
-      supabase.from('servico_produtos')
-        .select('produto_id, quantidade, produto:produtos(nome, unidade)')
-        .in('servico_id', servicoIds),
-      supabase.from('produtos').select('id, nome, unidade')
-        .eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'material').order('nome'),
-    ]).then(([recipe, prods]) => {
-      // Mescla receitas de múltiplos serviços somando quantidades do mesmo produto
-      const merged: Record<string, ConsumoItem> = {};
-      for (const r of (recipe.data ?? []) as any[]) {
-        if (!merged[r.produto_id]) {
-          merged[r.produto_id] = {
-            produto_id: r.produto_id, nome: r.produto.nome,
-            unidade: r.produto.unidade, quantidade: String(r.quantidade),
-          };
-        } else {
-          merged[r.produto_id].quantidade = String(
-            parseFloat(merged[r.produto_id].quantidade) + r.quantidade
-          );
-        }
-      }
-      setItens(Object.values(merged));
-      setProdutos((prods.data ?? []) as { id: string; nome: string; unidade: string }[]);
-      setSplits([]);
-      setLoading(false);
-    });
-  }, [ag.id, empresaId]);
-
-  // ── Helpers: insumos
-  function adicionarProduto(id: string) {
-    if (!id || itens.find(i => i.produto_id === id)) return;
-    const p = produtos.find(x => x.id === id);
-    if (!p) return;
-    setItens(prev => [...prev, { produto_id: id, nome: p.nome, unidade: p.unidade, quantidade: '1' }]);
-    setAddId('');
-  }
-  function atualizarQtd(id: string, qtd: string) {
-    setItens(prev => prev.map(i => i.produto_id === id ? { ...i, quantidade: qtd } : i));
-  }
-  function removerItem(id: string) {
-    setItens(prev => prev.filter(i => i.produto_id !== id));
-  }
-
-  // ── Helpers: pagamento
-  /** Adiciona um split com o valor restante pré-preenchido */
-  function adicionarSplit(metodo: string) {
-    const recebido   = splits.reduce((s, x) => s + (parseFloat(x.valor.replace(',', '.')) || 0), 0);
-    const restante   = Math.max(ag.valor - recebido, 0);
-    const valorPre   = restante > 0 ? restante.toFixed(2).replace('.', ',') : '';
-    setSplits(prev => [...prev, { metodo, valor: valorPre }]);
-  }
-  function atualizarSplit(idx: number, valor: string) {
-    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, valor } : s));
-  }
-  function removerSplit(idx: number) {
-    setSplits(prev => prev.filter((_, i) => i !== idx));
-  }
-  function atualizarSplitBandeira(idx: number, bandeira: string) {
-    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
-  }
-
-  // ── Cálculo de totais do pagamento
-  const recebido = splits.reduce((s, x) => s + (parseFloat(x.valor.replace(',', '.')) || 0), 0);
-  const restante = ag.valor - recebido;
-
-  // ── Confirmar: insere insumos + pagamentos + conclui
-  async function confirmar(semInsumos = false, semPagamento = false) {
-    setSalvando(true); setErro('');
-
-    // 1. Insumos (se não foi pulado)
-    if (!semInsumos) {
-      const validos = itens.filter(i => parseFloat(i.quantidade.replace(',', '.')) > 0);
-      if (validos.length > 0) {
-        const { error } = await supabase.from('estoque_movimentos').insert(
-          validos.map(i => ({
-            produto_id:     i.produto_id,
-            empresa_id:     empresaId,
-            tipo:           'saida',
-            quantidade:     parseFloat(i.quantidade.replace(',', '.')) || 0,
-            motivo:         `Agendamento concluído — ${ag.servico?.nome ?? ''}`,
-            agendamento_id: ag.id,
-          })),
-        );
-        if (error) { setSalvando(false); setErro(error.message); return; }
-      }
-    }
-
-    // 2. Pagamentos (se não foi pulado)
-    if (!semPagamento) {
-      const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
-      if (splitsValidos.length > 0) {
-        const { error } = await supabase.from('pagamentos').insert(
-          splitsValidos.map(s => ({
-            empresa_id:     empresaId,
-            agendamento_id: ag.id,
-            valor:          parseFloat(s.valor.replace(',', '.')),
-            metodo:         s.metodo,
-            bandeira:       (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
-            status:         'pago',
-          })),
-        );
-        if (error) { setSalvando(false); setErro(error.message); return; }
-      }
-    }
-
-    setSalvando(false);
-    onConfirmar();
-  }
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-8">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] flex flex-col">
-
-        {/* Header com indicador de etapa */}
-        <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
-          <div className="flex items-center gap-3">
-            {etapa === 'pagamento' && (
-              <button onClick={() => setEtapa('insumos')}
-                className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
-                <ChevronLeft size={16}/>
-              </button>
-            )}
-            <div>
-              {/* Dots de progresso */}
-              <div className="flex items-center gap-1.5 mb-1">
-                <div className={`h-1.5 w-6 rounded-full transition-colors ${etapa === 'insumos' ? 'bg-accent' : 'bg-green'}`}/>
-                <div className={`h-1.5 w-6 rounded-full transition-colors ${etapa === 'pagamento' ? 'bg-accent' : 'bg-border'}`}/>
-                <span className="text-[10px] text-text-4 ml-1">
-                  {etapa === 'insumos' ? '1/2' : '2/2'}
-                </span>
-              </div>
-              <h2 className="font-serif text-xl text-text">
-                {etapa === 'insumos' ? 'Insumos consumidos' : 'Forma de pagamento'}
-              </h2>
-              <p className="text-xs text-text-3 mt-0.5 truncate max-w-[220px]">
-                {(ag.agendamento_servicos ?? []).length > 0
-                  ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
-                  : ag.servico?.nome} · {ag.cliente?.nome}
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose}
-            className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
-            <X size={16}/>
-          </button>
-        </div>
-
-        {/* ── Etapa 1: Insumos ── */}
-        {etapa === 'insumos' && (
-          <>
-            <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-3">
-              {loading ? (
-                <div className="flex flex-col gap-2">
-                  {[1, 2].map(i => <Sk key={i} className="h-10 rounded-xl"/>)}
-                </div>
-              ) : (
-                <>
-                  {itens.length === 0 && (
-                    <p className="text-sm text-text-4 text-center py-2">
-                      Nenhum insumo vinculado a este serviço.
-                    </p>
-                  )}
-                  {itens.map(ins => (
-                    <div key={ins.produto_id} className="flex items-center gap-2 bg-bg rounded-xl px-3 py-2">
-                      <Package2 size={13} className="text-text-4 flex-shrink-0" strokeWidth={2}/>
-                      <span className="flex-1 text-sm text-text truncate">{ins.nome}</span>
-                      <input
-                        value={ins.quantidade}
-                        onChange={e => atualizarQtd(ins.produto_id, e.target.value)}
-                        inputMode="decimal"
-                        className="w-16 h-8 px-2 text-sm text-center rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition"
-                      />
-                      <span className="text-xs text-text-4 w-6 flex-shrink-0">{ins.unidade}</span>
-                      <button type="button" onClick={() => removerItem(ins.produto_id)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
-                        <Trash2 size={12} strokeWidth={2}/>
-                      </button>
-                    </div>
-                  ))}
-                  <SearchSelect
-                    options={produtos
-                      .filter(p => !itens.find(i => i.produto_id === p.id))
-                      .map(p => ({ value: p.id, label: p.nome, sub: p.unidade }))}
-                    value={addId}
-                    onChange={id => { setAddId(id); adicionarProduto(id); }}
-                    placeholder="+ Adicionar produto extra..."
-                  />
-                </>
-              )}
-            </div>
-            <div className="flex flex-col gap-2 p-5 border-t border-border flex-shrink-0">
-              <button onClick={() => setEtapa('pagamento')} disabled={loading}
-                className="w-full h-10 rounded-xl bg-accent text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
-                Próximo: Pagamento <ChevronRight size={16}/>
-              </button>
-              <button onClick={() => confirmar(true, true)} disabled={salvando}
-                className="w-full h-9 rounded-xl text-text-3 text-xs font-semibold hover:bg-bg transition">
-                Concluir sem registrar insumos nem pagamento
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* ── Etapa 2: Pagamento ── */}
-        {etapa === 'pagamento' && (
-          <>
-            <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
-              {/* Total do atendimento */}
-              <div className="bg-bg rounded-xl p-4 text-center">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-wide mb-1">
-                  Total do atendimento
-                </p>
-                <p className="text-3xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{fmtBRL(ag.valor)}</p>
-              </div>
-
-              {/* Chips de método */}
-              <div>
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-wide mb-2">
-                  Adicionar forma de pagamento
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {METODOS_PAG.map(({ key, label, icon: Icon, cor, bg }) => (
-                    <button key={key} onClick={() => adicionarSplit(key)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border text-sm font-semibold transition hover:border-accent"
-                      style={{ background: bg, color: cor }}>
-                      <Icon size={14} strokeWidth={2}/>{label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Lista de splits */}
-              {splits.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  {splits.map((s, i) => {
-                    const m = METODOS_PAG.find(x => x.key === s.metodo) ?? METODOS_PAG[0];
-                    const IconM = m.icon;
-                    const isCard = s.metodo === 'credito' || s.metodo === 'debito';
-                    return (
-                      <div key={i} className="flex flex-col gap-2 rounded-xl px-3 py-2.5 border border-border"
-                        style={{ background: m.bg }}>
-                        <div className="flex items-center gap-2">
-                          <IconM size={15} strokeWidth={2} style={{ color: m.cor }} className="flex-shrink-0"/>
-                          <span className="text-sm font-semibold flex-1" style={{ color: m.cor }}>
-                            {m.label}
-                          </span>
-                          <span className="text-xs text-text-3">R$</span>
-                          <input
-                            value={s.valor}
-                            onChange={e => atualizarSplit(i, e.target.value)}
-                            inputMode="decimal"
-                            placeholder="0,00"
-                            className="w-24 h-8 px-2 text-sm text-right rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition font-semibold"
-                          />
-                          <button onClick={() => removerSplit(i)}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
-                            <X size={13}/>
-                          </button>
-                        </div>
-                        {isCard && (
-                          <div className="flex gap-1.5 flex-wrap">
-                            {BANDEIRAS.map(b => (
-                              <button key={b.key} type="button" onClick={() => atualizarSplitBandeira(i, b.key)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
-                                  s.bandeira === b.key
-                                    ? 'bg-white/60 border-current'
-                                    : 'border-border/50 opacity-60 hover:opacity-100 hover:border-current'
-                                }`}
-                                style={{ color: m.cor }}>
-                                {b.label}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Resumo recebido / restante */}
-              {splits.length > 0 && (
-                <div className={`rounded-xl p-3 border ${
-                  Math.abs(restante) < 0.01
-                    ? 'bg-green-soft border-green/20'
-                    : restante > 0
-                    ? 'bg-amber-soft border-amber/20'
-                    : 'bg-primary-soft border-primary/20'
-                }`}>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-text-2">Recebido</span>
-                    <span className="font-bold text-text">{fmtBRL(recebido)}</span>
-                  </div>
-                  {restante > 0.01 && (
-                    <div className="flex items-center justify-between text-sm mt-1.5">
-                      <span className="text-amber font-semibold">Falta</span>
-                      <span className="text-amber font-bold">{fmtBRL(restante)}</span>
-                    </div>
-                  )}
-                  {restante < -0.01 && (
-                    <div className="flex items-center justify-between text-sm mt-1.5">
-                      <span className="text-primary font-semibold">Troco</span>
-                      <span className="text-primary font-bold">{fmtBRL(-restante)}</span>
-                    </div>
-                  )}
-                  {Math.abs(restante) < 0.01 && (
-                    <div className="flex items-center justify-center gap-1 mt-1.5">
-                      <Check size={12} className="text-green" strokeWidth={3}/>
-                      <span className="text-green text-xs font-bold">Valor quitado</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {erro && <p className="text-red text-sm">{erro}</p>}
-            </div>
-
-            <div className="flex flex-col gap-2 p-5 border-t border-border flex-shrink-0">
-              <button onClick={() => confirmar(false, false)} disabled={salvando}
-                className="w-full h-10 rounded-xl bg-green text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50">
-                {salvando ? 'Salvando...' : 'Confirmar e concluir'}
-              </button>
-              <button onClick={() => confirmar(false, true)} disabled={salvando}
-                className="w-full h-9 rounded-xl text-text-3 text-xs font-semibold hover:bg-bg transition">
-                Concluir sem registrar pagamento
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Card de agendamento ───────────────────────────────────────
 
 const STATUS_OPCOES = [
@@ -487,8 +84,7 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
   onStatus: (id: string, s: string) => void;
   onEditar?: (ag: Ag) => void;
 }) {
-  const [menuAberto,   setMenuAberto]   = useState(false);
-  const [modalConsumo, setModalConsumo] = useState(false);
+  const [menuAberto, setMenuAberto] = useState(false);
   const inicio = format(parseISO(ag.data_hora_inicio), 'HH:mm');
   const fim    = format(parseISO(ag.data_hora_fim), 'HH:mm');
   const st     = STATUS[ag.status] ?? { label: ag.status, bg: 'bg-bg', text: 'text-text-3' };
@@ -496,12 +92,7 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
   function selecionarStatus(s: string) {
     setMenuAberto(false);
     if (s === ag.status) return;
-    if (s === 'concluido') {
-      // Intercept: primeiro mostra modal de insumos
-      setModalConsumo(true);
-    } else {
-      onStatus(ag.id, s);
-    }
+    onStatus(ag.id, s);
   }
 
   const clienteNome = ag.cliente?.nome ?? '';
@@ -566,17 +157,6 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
         </div>
       </div>
     </div>
-    {modalConsumo && (
-      <ConsumoModal
-        ag={ag}
-        empresaId={empresaId}
-        onClose={() => setModalConsumo(false)}
-        onConfirmar={() => {
-          setModalConsumo(false);
-          onStatus(ag.id, 'concluido');
-        }}
-      />
-    )}
     </>
   );
 }

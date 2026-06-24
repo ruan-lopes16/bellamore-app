@@ -77,7 +77,7 @@ type ComandaItem = {
   profissional_id?: string;
 };
 
-type Split = { metodo: string; valor: string };
+type Split = { metodo: string; valor: string; bandeira?: string };
 
 type ClienteComanda = {
   id: string;
@@ -94,6 +94,14 @@ const METODOS_PAG = [
   { key: 'credito',  label: 'Crédito',  icon: CreditCard, cor: '#D97706', bg: '#FEF3C7' },
   { key: 'debito',   label: 'Débito',   icon: CreditCard, cor: '#9D174D', bg: '#FDF2F8' },
   { key: 'cortesia', label: 'Cortesia', icon: Gift,        cor: '#6B7280', bg: '#F9FAFB' },
+] as const;
+
+const BANDEIRAS = [
+  { key: 'visa',       label: 'Visa'      },
+  { key: 'mastercard', label: 'Master'    },
+  { key: 'elo',        label: 'Elo'       },
+  { key: 'amex',       label: 'Amex'      },
+  { key: 'hipercard',  label: 'Hipercard' },
 ] as const;
 
 const STATUS_COR: Record<string, string> = {
@@ -316,7 +324,7 @@ export default function ComandaPage() {
     const [{ data: cmd }, { data: extraItems }, { data: pags }] = await Promise.all([
       supabase.from('comandas').select('desconto').eq('id', comandaId).single(),
       supabase.from('comanda_itens').select('tipo,descricao,servico_id,produto_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId),
-      supabase.from('pagamentos').select('metodo,valor').eq('comanda_id', comandaId),
+      supabase.from('pagamentos').select('metodo,valor,bandeira').eq('comanda_id', comandaId),
     ]);
 
     if ((cmd as any)?.desconto > 0) setDesconto(String((cmd as any).desconto).replace('.', ','));
@@ -332,8 +340,9 @@ export default function ComandaPage() {
 
     setItens([...agItems, ...extras]);
     setSplits((pags ?? []).map((p: any) => ({
-      metodo: p.metodo,
-      valor: Number(p.valor).toFixed(2).replace('.', ','),
+      metodo:   p.metodo,
+      valor:    Number(p.valor).toFixed(2).replace('.', ','),
+      bandeira: p.bandeira ?? undefined,
     })));
   }
 
@@ -369,8 +378,10 @@ export default function ComandaPage() {
       const { error: errPag } = await supabase.from('pagamentos').insert(
         splitsValidos.map(s => ({
           empresa_id: empresaId, comanda_id: comandaId,
-          valor: parseFloat(s.valor.replace(',', '.')),
-          metodo: s.metodo, status: 'pago',
+          valor:   parseFloat(s.valor.replace(',', '.')),
+          metodo:  s.metodo,
+          bandeira: (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
+          status:  'pago',
         }))
       );
       if (errPag) { setErro(errPag.message); setFechando(false); return; }
@@ -436,6 +447,9 @@ export default function ComandaPage() {
   }
   function removerSplit(idx: number) {
     setSplits(prev => prev.filter((_, i) => i !== idx));
+  }
+  function atualizarSplitBandeira(idx: number, bandeira: string) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
   }
 
   // ── Fechar / salvar comanda
@@ -539,6 +553,7 @@ export default function ComandaPage() {
           comanda_id:  comandaId,
           valor:       parseFloat(s.valor.replace(',', '.')),
           metodo:      s.metodo,
+          bandeira:    (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
           status:      'pago',
         }))
       );
@@ -947,23 +962,41 @@ export default function ComandaPage() {
                       {splits.map((s, i) => {
                         const m = METODOS_PAG.find(x => x.key === s.metodo) ?? METODOS_PAG[0];
                         const IconM = m.icon;
+                        const isCard = s.metodo === 'credito' || s.metodo === 'debito';
                         return (
-                          <div key={i} className="flex items-center gap-3 rounded-xl px-4 py-3 border border-border"
+                          <div key={i} className="flex flex-col gap-2 rounded-xl px-4 py-3 border border-border"
                             style={{ background: m.bg }}>
-                            <IconM size={16} strokeWidth={2} style={{ color: m.cor }} className="flex-shrink-0"/>
-                            <span className="text-sm font-semibold flex-1" style={{ color: m.cor }}>{m.label}</span>
-                            <span className="text-xs text-text-3">R$</span>
-                            <input
-                              value={s.valor}
-                              onChange={e => atualizarSplit(i, e.target.value)}
-                              inputMode="decimal"
-                              placeholder="0,00"
-                              className="w-28 h-9 px-3 text-sm text-right rounded-xl border border-border bg-surface focus:outline-none focus:border-accent transition font-semibold"
-                            />
-                            <button onClick={() => removerSplit(i)}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
-                              <X size={13}/>
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <IconM size={16} strokeWidth={2} style={{ color: m.cor }} className="flex-shrink-0"/>
+                              <span className="text-sm font-semibold flex-1" style={{ color: m.cor }}>{m.label}</span>
+                              <span className="text-xs text-text-3">R$</span>
+                              <input
+                                value={s.valor}
+                                onChange={e => atualizarSplit(i, e.target.value)}
+                                inputMode="decimal"
+                                placeholder="0,00"
+                                className="w-28 h-9 px-3 text-sm text-right rounded-xl border border-border bg-surface focus:outline-none focus:border-accent transition font-semibold"
+                              />
+                              <button onClick={() => removerSplit(i)}
+                                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
+                                <X size={13}/>
+                              </button>
+                            </div>
+                            {isCard && (
+                              <div className="flex gap-1.5 flex-wrap">
+                                {BANDEIRAS.map(b => (
+                                  <button key={b.key} type="button" onClick={() => atualizarSplitBandeira(i, b.key)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                                      s.bandeira === b.key
+                                        ? 'bg-white/60 border-current'
+                                        : 'border-border/50 opacity-60 hover:opacity-100 hover:border-current'
+                                    }`}
+                                    style={{ color: m.cor }}>
+                                    {b.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
