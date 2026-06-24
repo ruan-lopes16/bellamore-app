@@ -33,10 +33,10 @@ export default function RelatoriosLoading() {
         ))}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-border mb-6 overflow-x-auto">
-        {[1,2,3,4,5].map(i => (
-          <Sk key={i} className="h-9 w-24 rounded-t-lg flex-shrink-0" />
+      {/* Tabs — 6 abas: Financeiro, Serviços, Equipe, Clientes, Estoque, Comissões */}
+      <div className="flex gap-0 border-b border-border mb-6 overflow-x-auto">
+        {[1,2,3,4,5,6].map(i => (
+          <Sk key={i} className="h-10 w-24 rounded-t-lg flex-shrink-0" />
         ))}
       </div>
 

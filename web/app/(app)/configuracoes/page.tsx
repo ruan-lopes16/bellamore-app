@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
-import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon } from 'lucide-react';
 import { validaCNPJ } from '@/lib/masks';
 import Image from 'next/image';
 
@@ -56,14 +56,24 @@ function maskCnpj(raw: string): string {
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
 }
 
-function SectionCard({ title, icon: Icon, children, hue = 270 }: {
-  title: string; icon: React.ElementType; children: React.ReactNode; hue?: number;
+const SECTION_COLORS = {
+  primary: { bg: 'var(--color-primary-soft)', fg: 'var(--color-primary)' },
+  accent:  { bg: 'var(--color-accent-soft)',  fg: 'var(--color-accent)'  },
+  green:   { bg: 'var(--color-green-soft)',   fg: 'var(--color-green)'   },
+  rose:    { bg: 'var(--color-rose-soft)',    fg: 'var(--color-rose)'    },
+} as const;
+
+type SectionColor = keyof typeof SECTION_COLORS;
+
+function SectionCard({ title, icon: Icon, children, color = 'primary' }: {
+  title: string; icon: React.ElementType; children: React.ReactNode; color?: SectionColor;
 }) {
+  const { bg, fg } = SECTION_COLORS[color];
   return (
     <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 16, borderBottom: '1px solid var(--color-border)' }}>
-        <div style={{ width: 32, height: 32, borderRadius: 10, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Icon size={14} color="white" strokeWidth={2}/>
+        <div style={{ width: 36, height: 36, borderRadius: 12, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon size={18} style={{ color: fg }} strokeWidth={1.75}/>
         </div>
         <h2 style={{ fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: 14, color: 'var(--color-ink)' }}>{title}</h2>
       </div>
@@ -385,7 +395,7 @@ export default function ConfiguracoesPage() {
           )}
 
           {/* Logo — primeiro para reflexo imediato */}
-          <SectionCard title="Logo" icon={Upload} hue={220}>
+          <SectionCard title="Logo" icon={ImageIcon} color="accent">
             <div className="flex items-center gap-5">
               <div
                 onClick={() => isOwner && fileInputRef.current?.click()}
@@ -417,7 +427,7 @@ export default function ConfiguracoesPage() {
           </SectionCard>
 
           {/* Dados gerais */}
-          <SectionCard title="Dados da empresa" icon={Building2} hue={270}>
+          <SectionCard title="Dados da empresa" icon={Building2} color="primary">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className={labelCls}>Nome do salão *</label>
@@ -504,7 +514,7 @@ export default function ConfiguracoesPage() {
           </SectionCard>
 
           {/* Horários */}
-          <SectionCard title="Horários de funcionamento" icon={Clock} hue={145}>
+          <SectionCard title="Horários de funcionamento" icon={Clock} color="green">
             <div className="flex flex-col gap-3">
               {DIAS.map(({ key, label }) => {
                 const h = horarios[key];
@@ -558,7 +568,7 @@ export default function ConfiguracoesPage() {
       {/* ══ TAB: MEU PERFIL ══ */}
       {aba === 'perfil' && (
         <form onSubmit={salvarPerfil} className="max-w-2xl flex flex-col gap-6">
-          <SectionCard title="Meu perfil" icon={User} hue={330}>
+          <SectionCard title="Meu perfil" icon={User} color="rose">
             <div>
               <label className={labelCls}>Nome *</label>
               <input value={perfilNome} onChange={e => setPerfilNome(e.target.value)} required
