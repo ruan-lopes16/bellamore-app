@@ -688,7 +688,7 @@ export default function RelatoriosPage() {
       </div>
 
       {/* ── Abas ── */}
-      <div className="flex gap-0 border-b border-border mb-6 overflow-x-auto">
+      <div className="flex gap-0 border-b border-border mb-6 overflow-x-auto" style={{ touchAction: 'pan-x', overscrollBehaviorX: 'contain' }}>
         {ABA_OPTS.map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setAba(key)}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition border-b-2 -mb-px ${
