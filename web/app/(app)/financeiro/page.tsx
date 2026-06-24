@@ -499,8 +499,8 @@ export default function FinanceiroPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Visão Geral</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Financeiro</h1>
+          <p className="text-text-3 text-xs font-semibold uppercase tracking-widest mb-1">Visão Geral</p>
+          <h1 className="font-serif text-2xl md:text-3xl text-text">Financeiro</h1>
         </div>
         <ExportButton
           filename={`financeiro-despesas-${format(mesRef, 'yyyy-MM')}`}

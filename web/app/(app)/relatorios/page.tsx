@@ -586,8 +586,8 @@ export default function RelatoriosPage() {
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Análise</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Relatórios</h1>
+          <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Análise</p>
+          <h1 className="font-serif text-2xl md:text-3xl text-text">Relatórios</h1>
           {!loading && (
             <p className="text-sm text-text-3 mt-0.5 capitalize">{labelPeriodo}</p>
           )}
