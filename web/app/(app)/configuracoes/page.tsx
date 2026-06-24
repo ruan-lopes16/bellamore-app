@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
-import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon } from 'lucide-react';
+import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail } from 'lucide-react';
 import { validaCNPJ } from '@/lib/masks';
 import Image from 'next/image';
 
@@ -135,6 +135,15 @@ export default function ConfiguracoesPage() {
   const [toast,    setToast]    = useState('');
   const [erro,     setErro]     = useState('');
 
+  // Fluxo de troca de e-mail
+  const [emailPendente,  setEmailPendente]  = useState('');
+  const [alterandoEmail, setAlterandoEmail] = useState(false);
+  const [novoEmail,      setNovoEmail]      = useState('');
+  const [novoEmailConf,  setNovoEmailConf]  = useState('');
+  const [enviandoLink,   setEnviandoLink]   = useState(false);
+  const [erroEmail,      setErroEmail]      = useState('');
+  const [emailEnviado,   setEmailEnviado]   = useState('');
+
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(''), 3500);
@@ -147,6 +156,7 @@ export default function ConfiguracoesPage() {
       if (!user) return;
       setUserId(user.id);
       setPerfilEmail(user.email ?? '');
+      setEmailPendente(user.new_email ?? '');
 
       const { data: membro } = await supabase
         .from('empresa_membros').select('empresa_id')
@@ -326,6 +336,26 @@ export default function ConfiguracoesPage() {
     setSalvando(false);
     if (error) { setErro(error.message); return; }
     showToast('Perfil atualizado!');
+  }
+
+  async function solicitarMudancaEmail() {
+    setErroEmail('');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(novoEmail)) { setErroEmail('E-mail inválido.'); return; }
+    if (novoEmail !== novoEmailConf)  { setErroEmail('Os e-mails não coincidem.'); return; }
+    if (novoEmail === perfilEmail)    { setErroEmail('O novo e-mail deve ser diferente do atual.'); return; }
+
+    setEnviandoLink(true);
+    const { error } = await supabase.auth.updateUser({ email: novoEmail });
+    setEnviandoLink(false);
+
+    if (error) { setErroEmail(error.message); return; }
+
+    setEmailEnviado(novoEmail);
+    setEmailPendente(novoEmail);
+    setAlterandoEmail(false);
+    setNovoEmail('');
+    setNovoEmailConf('');
   }
 
   function setHorarioDia(dia: DiaSemana, campo: keyof HorarioDia, valor: boolean | string) {
@@ -579,11 +609,91 @@ export default function ConfiguracoesPage() {
               <input value={perfilTelefone} onChange={e => setPerfilTelefone(maskPhone(e.target.value))}
                 placeholder="(11) 99999-9999" inputMode="numeric" maxLength={15} className={inputCls}/>
             </div>
-            <div>
+            <div className="flex flex-col gap-2">
               <label className={labelCls}>E-mail</label>
-              <input value={perfilEmail} disabled
-                className={`${inputCls} opacity-50 cursor-not-allowed`} placeholder="E-mail não disponível"/>
-              <p className="text-xs text-text-4 mt-1">O e-mail é gerenciado pela autenticação e não pode ser alterado aqui.</p>
+
+              {/* Estado normal: e-mail atual + botão Alterar */}
+              {!alterandoEmail && (
+                <div className="flex items-center gap-2">
+                  <input value={perfilEmail} disabled
+                    className={`${inputCls} flex-1 opacity-60 cursor-not-allowed`}/>
+                  <button type="button"
+                    onClick={() => { setAlterandoEmail(true); setErroEmail(''); setEmailEnviado(''); }}
+                    className="flex-shrink-0 h-10 px-4 rounded-xl border border-border text-xs font-semibold text-text-2 hover:bg-bg2 transition">
+                    Alterar
+                  </button>
+                </div>
+              )}
+
+              {/* Confirmação pendente */}
+              {emailPendente && !alterandoEmail && (
+                <div className="flex items-start gap-2 rounded-xl px-3 py-2.5 border"
+                  style={{ background: 'var(--color-amber-soft)', borderColor: 'rgba(255,170,0,0.25)' }}>
+                  <Mail size={14} style={{ color: 'var(--color-amber)', marginTop: 1, flexShrink: 0 }}/>
+                  <div>
+                    <p className="text-xs font-semibold" style={{ color: 'var(--color-amber)' }}>Confirmação pendente</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-ink3)' }}>
+                      Novo e-mail: <span className="font-semibold">{emailPendente}</span>. Verifique a caixa de entrada e clique no link enviado.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Link enviado com sucesso */}
+              {emailEnviado && !alterandoEmail && (
+                <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 border"
+                  style={{ background: 'var(--color-green-soft)', borderColor: 'rgba(52,201,146,0.25)' }}>
+                  <Check size={14} style={{ color: 'var(--color-green)', flexShrink: 0 }}/>
+                  <p className="text-xs font-semibold" style={{ color: 'var(--color-green)' }}>
+                    Link enviado para {emailEnviado}. Verifique sua caixa de entrada.
+                  </p>
+                </div>
+              )}
+
+              {/* Formulário de troca */}
+              {alterandoEmail && (
+                <div className="flex flex-col gap-3 p-4 rounded-2xl border"
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
+                  <p className="text-xs" style={{ color: 'var(--color-ink3)' }}>
+                    E-mail atual: <span className="font-semibold" style={{ color: 'var(--color-ink2)' }}>{perfilEmail}</span>
+                  </p>
+                  <div>
+                    <label className={labelCls}>Novo e-mail</label>
+                    <input value={novoEmail} onChange={e => setNovoEmail(e.target.value)}
+                      type="email" placeholder="novo@email.com" className={inputCls} autoFocus/>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Confirmar novo e-mail</label>
+                    <input value={novoEmailConf} onChange={e => setNovoEmailConf(e.target.value)}
+                      type="email" placeholder="novo@email.com" className={inputCls}/>
+                  </div>
+                  {erroEmail && (
+                    <div className="flex items-center gap-2 rounded-xl px-3 py-2 border border-red/20"
+                      style={{ background: 'var(--color-red-soft)' }}>
+                      <AlertCircle size={13} style={{ color: 'var(--color-rose)', flexShrink: 0 }}/>
+                      <p className="text-xs" style={{ color: 'var(--color-rose)' }}>{erroEmail}</p>
+                    </div>
+                  )}
+                  <p className="text-xs" style={{ color: 'var(--color-ink4)' }}>
+                    Um link de confirmação será enviado para o novo endereço. Seu e-mail atual só é substituído após você clicar nesse link.
+                  </p>
+                  <div className="flex gap-2">
+                    <button type="button"
+                      onClick={() => { setAlterandoEmail(false); setNovoEmail(''); setNovoEmailConf(''); setErroEmail(''); }}
+                      className="h-9 px-4 rounded-xl border border-border text-xs font-semibold transition"
+                      style={{ color: 'var(--color-ink2)' }}>
+                      Cancelar
+                    </button>
+                    <button type="button" onClick={solicitarMudancaEmail}
+                      disabled={enviandoLink || !novoEmail || !novoEmailConf}
+                      className="press h-9 px-4 rounded-xl text-white text-xs font-bold transition disabled:opacity-40 flex items-center gap-1.5"
+                      style={{ background: 'var(--color-primary)' }}>
+                      {enviandoLink && <Loader2 size={12} className="animate-spin"/>}
+                      {enviandoLink ? 'Enviando...' : 'Enviar link de confirmação'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </SectionCard>
 
