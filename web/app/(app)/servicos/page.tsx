@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Clock, Edit3, X, Trash2, Package2, Layers, Zap, EyeOff } from 'lucide-react';
+import { Plus, Clock, Edit3, X, Trash2, Package2, Layers, Zap, EyeOff, ChevronDown } from 'lucide-react';
 import {
   IconCilios, IconSobrancelhas, IconDepilacao, IconUnhas,
   IconPele, IconDermaplaning, IconMaquiagem, IconOutros,
@@ -70,7 +70,7 @@ const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-w
 // ── Modal criar / editar ──────────────────────────────────────
 
 type ModalState =
-  | { modo: 'criar' }
+  | { modo: 'criar'; categoria?: CategoriaKey }
   | { modo: 'editar'; servico: Servico };
 
 type InsumoItem = {
@@ -87,13 +87,15 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
   onSalvo: (s: Servico) => void;
 }) {
   const editando = state.modo === 'editar' ? state.servico : null;
+  const catInicial: CategoriaKey = editando?.categoria ?? (state.modo === 'criar' ? (state.categoria ?? 'outros') : 'outros');
 
-  const [nome,      setNome]      = useState(editando?.nome      ?? '');
-  const [descricao, setDescricao] = useState(editando?.descricao ?? '');
-  const [categoria, setCategoria] = useState<CategoriaKey>(editando?.categoria ?? 'outros');
-  const [preco,     setPreco]     = useState(editando ? String(editando.preco) : '');
-  const [custo,     setCusto]     = useState(editando && editando.custo > 0 ? String(editando.custo) : '');
-  const [duracao,   setDuracao]   = useState(editando?.duracao_minutos ?? 60);
+  const [nome,        setNome]        = useState(editando?.nome      ?? '');
+  const [descricao,   setDescricao]   = useState(editando?.descricao ?? '');
+  const [categoria,   setCategoria]   = useState<CategoriaKey>(catInicial);
+  const [preco,       setPreco]       = useState(editando ? String(editando.preco) : '');
+  const [custo,       setCusto]       = useState(editando && editando.custo > 0 ? String(editando.custo) : '');
+  const [duracao,     setDuracao]     = useState(editando?.duracao_minutos ?? 60);
+  const [duracaoInput, setDuracaoInput] = useState(String(editando?.duracao_minutos ?? 60));
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
 
@@ -276,9 +278,9 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
           {/* Duração */}
           <div>
             <label className={labelClass}>Duração</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 mb-2">
               {DURACOES.map(({ label, valor }) => (
-                <button key={valor} type="button" onClick={() => setDuracao(valor)}
+                <button key={valor} type="button" onClick={() => { setDuracao(valor); setDuracaoInput(String(valor)); }}
                   className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
                     duracao === valor
                       ? 'bg-primary-soft border-primary/30 text-primary'
@@ -288,6 +290,28 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
                   {label}
                 </button>
               ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock size={13} className="text-text-4 flex-shrink-0" strokeWidth={2}/>
+              <input
+                value={duracaoInput}
+                onChange={e => {
+                  setDuracaoInput(e.target.value);
+                  const v = parseInt(e.target.value, 10);
+                  if (!isNaN(v) && v > 0) setDuracao(v);
+                }}
+                onBlur={() => {
+                  const v = parseInt(duracaoInput, 10);
+                  if (isNaN(v) || v <= 0) { setDuracaoInput(String(duracao)); return; }
+                  setDuracao(v);
+                  setDuracaoInput(String(v));
+                }}
+                inputMode="numeric"
+                placeholder="Ex: 75"
+                className={`${inputClass} w-28`}
+              />
+              <span className="text-sm text-text-3">min</span>
+              <span className="text-xs text-text-4">= {fmtDuracao(duracao)}</span>
             </div>
           </div>
 
@@ -433,6 +457,15 @@ export default function ServicosPage() {
   const [loading,   setLoading]   = useState(true);
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [modal,     setModal]     = useState<ModalState | null>(null);
+  const [colapsos,  setColapsos]  = useState<Set<CategoriaKey>>(new Set());
+
+  function toggleColapso(key: CategoriaKey) {
+    setColapsos(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
   useEffect(() => {
     (async () => {
@@ -572,29 +605,46 @@ export default function ServicosPage() {
         <div className="flex flex-col gap-8">
           {porCategoria.map(({ cat, items }) => {
             const Icon = cat.icon;
+            const colapsado = colapsos.has(cat.key);
             return (
               <div key={cat.key}>
-                {/* Header da categoria — chip Bellamore */}
+                {/* Header da categoria */}
                 <div className="flex items-center gap-2.5 mb-3">
-                  <div className="w-8 h-8 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: cat.bg }}>
-                    <Icon size={15} strokeWidth={1.8} style={{ color: cat.cor }}/>
-                  </div>
-                  <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: cat.cor }}>
-                    {cat.label}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink4)', marginLeft: 'auto' }}>
-                    {items.length} {items.length === 1 ? 'serviço' : 'serviços'}
-                  </span>
+                  <button
+                    onClick={() => toggleColapso(cat.key)}
+                    className="flex items-center gap-2.5 flex-1 min-w-0 group"
+                    title={colapsado ? 'Expandir' : 'Colapsar'}>
+                    <div className="w-8 h-8 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: cat.bg }}>
+                      <Icon size={15} strokeWidth={1.8} style={{ color: cat.cor }}/>
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: cat.cor }}>
+                      {cat.label}
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink4)' }}>
+                      {items.length} {items.length === 1 ? 'serviço' : 'serviços'}
+                    </span>
+                    <ChevronDown
+                      size={14} strokeWidth={2}
+                      style={{ color: cat.cor, transition: 'transform 0.2s', transform: colapsado ? 'rotate(-90deg)' : 'rotate(0deg)', flexShrink: 0 }}/>
+                  </button>
+                  <button
+                    onClick={() => setModal({ modo: 'criar', categoria: cat.key })}
+                    title={`Novo serviço em ${cat.label}`}
+                    className="w-7 h-7 rounded-xl flex items-center justify-center border border-border text-text-4 hover:text-text-2 hover:bg-bg transition flex-shrink-0">
+                    <Plus size={13} strokeWidth={2.5}/>
+                  </button>
                 </div>
 
-                {/* Cards */}
-                <div className="flex flex-col gap-2">
-                  {items.map((s, i) => (
-                    <div key={s.id} className="bm-stagger" style={{ '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
-                      <ServicoCard servico={s} onToggle={() => toggleAtivo(s)} onEdit={() => setModal({ modo: 'editar', servico: s })}/>
-                    </div>
-                  ))}
-                </div>
+                {/* Cards — colapsa com animação suave */}
+                {!colapsado && (
+                  <div className="flex flex-col gap-2">
+                    {items.map((s, i) => (
+                      <div key={s.id} className="bm-stagger" style={{ '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
+                        <ServicoCard servico={s} onToggle={() => toggleAtivo(s)} onEdit={() => setModal({ modo: 'editar', servico: s })}/>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
