@@ -158,27 +158,23 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
     if (!nome.trim()) return;
     setErro(''); setSalvando(true);
 
-    // Atualiza dados pessoais via API (service role)
+    const pct = parseFloat(comissao) || 0;
     const res = await fetch('/api/profissionais', {
       method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        userId:   prof.user_id,
-        nome:     nome.trim(),
-        telefone: telefone.trim() || null,
-        email:    email.trim() || null,
+        userId:               prof.user_id,
+        nome:                 nome.trim(),
+        telefone:             telefone.trim() || null,
+        email:                email.trim() || null,
+        membroId:             prof.id,
+        percentual_comissao:  pct,
       }),
     });
     const json = await res.json();
-    if (!res.ok) { setSalvando(false); setErro(json.error ?? 'Erro ao salvar.'); return; }
-
-    // Atualiza comissão diretamente
-    const pct = parseFloat(comissao) || 0;
-    await supabase.from('empresa_membros')
-      .update({ percentual_comissao: pct })
-      .eq('id', prof.id);
-
     setSalvando(false);
+    if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
+
     onSalvo({ nome: nome.trim(), telefone: telefone.trim(), email: email.trim(), comissao: pct });
   }
 

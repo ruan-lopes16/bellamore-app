@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, nome, telefone, email } = await req.json();
+    const { userId, nome, telefone, email, membroId, percentual_comissao } = await req.json();
 
     if (!userId || !nome?.trim()) {
       return NextResponse.json({ error: 'userId e nome são obrigatórios.' }, { status: 400 });
@@ -135,6 +135,15 @@ export async function PATCH(req: NextRequest) {
     await adminClient.auth.admin.updateUserById(userId, {
       user_metadata: { nome: nome.trim() },
     });
+
+    // Atualiza percentual de comissão se fornecido
+    if (membroId != null && percentual_comissao != null) {
+      const { error: errComissao } = await adminClient
+        .from('empresa_membros')
+        .update({ percentual_comissao })
+        .eq('id', membroId);
+      if (errComissao) return NextResponse.json({ error: errComissao.message }, { status: 400 });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
