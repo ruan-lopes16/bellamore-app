@@ -52,12 +52,12 @@ type Ag = {
 type ClienteOpt = { id: string; nome: string; telefone?: string };
 type Servico = { id: string; nome: string; preco: number; duracao_minutos: number };
 
-const STATUS: Record<string, { label: string; bg: string; text: string }> = {
-  agendado:   { label: 'Agendado',   bg: 'bg-amber-soft',   text: 'text-amber'   },
-  confirmado: { label: 'Confirmado', bg: 'bg-primary-soft', text: 'text-primary' },
-  concluido:  { label: 'Concluído',  bg: 'bg-green-soft',   text: 'text-green'   },
-  cancelado:  { label: 'Cancelado',  bg: 'bg-red-soft',     text: 'text-red'     },
-  faltou:     { label: 'Faltou',     bg: 'bg-red-soft',     text: 'text-red'     },
+const STATUS: Record<string, { label: string; bg: string; text: string; bdr: string }> = {
+  agendado:   { label: 'Agendado',   bg: 'bg-amber-soft',   text: 'text-amber',   bdr: 'rgba(166,90,27,0.35)'   },
+  confirmado: { label: 'Confirmado', bg: 'bg-primary-soft', text: 'text-primary', bdr: 'rgba(44,23,80,0.25)'    },
+  concluido:  { label: 'Concluído',  bg: 'bg-green-soft',   text: 'text-green',   bdr: 'rgba(21,122,91,0.35)'   },
+  cancelado:  { label: 'Cancelado',  bg: 'bg-red-soft',     text: 'text-red',     bdr: 'rgba(201,82,127,0.35)'  },
+  faltou:     { label: 'Faltou',     bg: 'bg-red-soft',     text: 'text-red',     bdr: 'rgba(201,82,127,0.35)'  },
 };
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -701,12 +701,14 @@ function TimelineView({
                         key={ag.id}
                         onClick={() => setAgSel(selecionado ? null : ag)}
                         style={{
-                          top:    top + 2,
-                          height: h - 4,
-                          left:   `calc(${lane * pct}% + 3px)`,
-                          width:  `calc(${pct}% - 6px)`,
+                          top:         top + 2,
+                          height:      h - 4,
+                          left:        `calc(${lane * pct}% + 3px)`,
+                          width:       `calc(${pct}% - 6px)`,
+                          borderRadius: 5,
+                          borderColor:  st.bdr,
                         }}
-                        className={`absolute rounded-lg overflow-hidden text-left border transition-all
+                        className={`absolute overflow-hidden text-left border transition-all
                           ${selecionado
                             ? 'ring-2 ring-accent shadow-lg z-10'
                             : 'hover:shadow-sm hover:brightness-95 z-0'
