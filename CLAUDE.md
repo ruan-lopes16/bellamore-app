@@ -129,19 +129,55 @@
 
 ---
 
+### Sessão 2026-06-24 — Bugs Críticos + Redesign Comissões
+
+*Escopo: ConsumoModal (removido da agenda), bandeiras na comanda, modais quebrados (CSS),*
+*comissão não persistindo (RLS), trigger gerar_comissao (SECURITY DEFINER), redesign da tela de Comissões.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado em todas as entregas |
+| UX / Padrões    | 9.0  | Cards colapsáveis em Comissões; seletor de período completo; bandeiras na comanda |
+| Segurança       | 9.5  | Comissão via API (admin client); trigger com SECURITY DEFINER; migration 024 documentada |
+| Documentação    | 9.0  | CLAUDE.md atualizado; causa raiz dos bugs documentada nos commits |
+| Arquitetura     | 9.0  | Update de percentual_comissao via API Route; groupByPeriodo no cliente |
+| Performance     | 8.5  | Queries eficientes; `getPeriodRange` memoizado com `useMemo` |
+| Visual (UI)     | —    | Não auditado visualmente nesta sessão |
+| **Completude**  | 9.0  | 4 bugs corrigidos; redesign completo de Comissões entregue |
+| **Proatividade**| 9.0  | Diagnosticou RLS silencioso antes de ser reportado; backfill SQL gerado proativamente |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.1 / 10` → **A+**
+
+**Bugs corrigidos nesta sessão:**
+- `bm-page fill-mode: both` → `backwards` — modais e dropdowns quebrados em todo o app
+- `ConsumoModal` removido da Agenda — conclusão de agendamento agora é direta, sem modal
+- Comissão não persistia ao trocar de tela — update agora via `/api/profissionais` PATCH com admin client (bypass RLS)
+- `gerar_comissao` trigger reescrito com `SECURITY DEFINER` e sem filtro `role='profissional'` — migration 024
+
+**Features entregues nesta sessão:**
+- Bandeira (Visa/Master/Elo/Amex/Hipercard) nos splits de crédito/débito na Comanda
+- Redesign de Comissões: cards colapsáveis (nome / % / R$ / atendimentos) + detalhe expandido agrupado por dia ou mês + seletor de período (Dia, Semana, Mês, Trimestre, Semestre, Ano)
+
+**⚠️ Ação manual pendente:**
+- Rodar SQL da [migration 024](supabase/migrations/024_fix_comissao_security_definer.sql) no Supabase SQL Editor para ativar o trigger corrigido + backfill dos atendimentos anteriores
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
 |---|---|
 | Dashboard | ✅ |
 | Agenda | ✅ |
-| Comanda (estoque + vendas integrados) | ✅ |
+| Comanda (estoque + vendas + bandeiras) | ✅ |
 | Vendas avulsas | ✅ |
 | Clientes + perfil + anamnese | ✅ |
 | Financeiro + despesas recorrentes | ✅ |
 | Serviços | ✅ |
 | Pacotes + relatório de utilização | ✅ |
 | Equipe + comissões + badge sidebar | ✅ |
+| Comissões (redesign + períodos) | ✅ |
 | Estoque + movimentações + toast | ✅ |
 | Relatórios | ✅ |
 | Configurações (máscaras CNPJ/tel) | ✅ |
@@ -156,5 +192,8 @@
 - [x] ~~Extrair tipos compartilhados para `web/types/index.ts`~~ — resolvido em 2026-06-06 (continuação)
 - [x] ~~Módulo de Vendas~~ — resolvido em 2026-06-06
 - [x] ~~Exportação de dados (9/9 páginas)~~ — resolvido em 2026-06-06 (continuação)
+- [x] ~~Modais quebrados em todo o app~~ — resolvido em 2026-06-24 (bm-page fill-mode)
+- [x] ~~Comissão não persistindo ao trocar de tela~~ — resolvido em 2026-06-24 (API admin client)
 - [~] ~~Renomear pasta~~ — **decisão: manter nome com acento** para preservar histórico de sessões e memórias do Claude Code (4.5 MB de contexto). Claude in Chrome cobre a auditoria visual.
 - [x] ~~Conectar extensão "Claude in Chrome"~~ — conectado pelo usuário em 2026-06-06
+- [ ] **Rodar migration 024 no Supabase SQL Editor** — trigger `gerar_comissao` + backfill atendimentos anteriores
