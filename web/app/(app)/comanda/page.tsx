@@ -602,8 +602,8 @@ export default function ComandaPage() {
             </div>
           </div>
 
-          {/* Week strip (igual à agenda) */}
-          <div className="overflow-x-auto">
+          {/* Week strip — só visível no modo Semana */}
+          {view === 'semana' && <div className="overflow-x-auto">
             <div className="flex items-center gap-0.5">
               <button onClick={() => navSemana(-1)}
                 className="w-7 h-7 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-surface flex-shrink-0 transition">
@@ -628,7 +628,7 @@ export default function ComandaPage() {
                 <ChevronRight size={14}/>
               </button>
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Conteúdo: lista de clientes ou calendário mensal */}
