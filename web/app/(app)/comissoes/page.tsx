@@ -12,11 +12,13 @@ import type { CategoriaServico } from '@/components/CategoriaIcon';
 import {
   addDays, subDays, addWeeks, subWeeks, addMonths, subMonths, addYears, subYears,
   startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
-  startOfYear, endOfYear, format, parseISO,
+  startOfYear, endOfYear, format, parseISO, isSameDay, isToday,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const supabase = createClient();
+
+const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 type Periodo = 'dia' | 'semana' | 'mes' | 'trimestre' | 'semestre' | 'ano';
 type Filtro  = 'todas' | 'pendentes' | 'pagas';
@@ -148,6 +150,9 @@ export default function ComissoesPage() {
   const [loading,   setLoading]   = useState(true);
   const [periodo,   setPeriodo]   = useState<Periodo>('mes');
   const [refDate,   setRefDate]   = useState(new Date());
+  const [semana,    setSemana]    = useState<Date[]>(() =>
+    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
+  );
   const [comissoes, setComissoes] = useState<ComissaoRow[]>([]);
   const [membros,   setMembros]   = useState<{ user_id: string; percentual_comissao: number; users: { nome: string } | null }[]>([]);
   const [filtro,    setFiltro]    = useState<Filtro>('todas');
@@ -223,6 +228,17 @@ export default function ComissoesPage() {
     }
     return { total, pendente, pago };
   }, [comissoes]);
+
+  function navSemana(dir: 1 | -1) {
+    const nova = semana.map(d => addDays(d, dir * 7));
+    setSemana(nova);
+    setRefDate(d => addDays(d, dir * 7));
+  }
+
+  function selecionarDia(d: Date) {
+    setRefDate(d);
+    setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
+  }
 
   function toggleExpand(id: string) {
     setExpandidos(prev => {
@@ -310,19 +326,60 @@ export default function ComissoesPage() {
         ))}
       </div>
 
-      {/* Navegação */}
-      <div className="flex items-center gap-3 mb-5">
-        <button onClick={() => setRefDate(d => navigate(d, periodo, -1))}
-          className="w-8 h-8 rounded-lg border border-border bg-surface flex items-center justify-center hover:bg-bg transition">
-          <ChevronLeft size={14}/>
-        </button>
-        <span className="text-sm font-semibold text-text text-center" style={{ minWidth: 220 }}>{periodoLabel}</span>
-        <button onClick={() => !isFuturo && setRefDate(d => navigate(d, periodo, 1))}
-          disabled={isFuturo}
-          className="w-8 h-8 rounded-lg border border-border bg-surface flex items-center justify-center hover:bg-bg transition disabled:opacity-30">
-          <ChevronRight size={14}/>
-        </button>
-      </div>
+      {/* Navegação de data */}
+      {periodo === 'dia' ? (
+        <div className="flex justify-center mb-5">
+          <div className="bg-surface border border-border rounded-[20px] py-3 px-2 sm:px-4 overflow-x-auto">
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <button onClick={() => navSemana(-1)}
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0">
+                <ChevronLeft size={16}/>
+              </button>
+              <div className="flex gap-0.5 sm:gap-1">
+                {semana.map((d) => {
+                  const sel = isSameDay(d, refDate);
+                  const hj  = isToday(d);
+                  const fut = d > new Date();
+                  return (
+                    <button key={d.toISOString()}
+                      onClick={() => !fut && selecionarDia(d)}
+                      disabled={fut}
+                      className="press flex flex-col items-center rounded-[14px] py-2.5 w-9 sm:w-11 flex-shrink-0 disabled:opacity-30"
+                      style={{ background: sel ? 'var(--color-primary)' : 'transparent', transition: 'all 0.15s' }}>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4, fontFamily: 'var(--font-sans)', color: sel ? 'rgba(255,255,255,0.7)' : 'var(--color-ink4)' }}>
+                        {DIAS_SEMANA[d.getDay()]}
+                      </span>
+                      <span style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-sans)', color: sel ? '#fff' : hj ? 'var(--color-accent)' : 'var(--color-ink2)' }}>
+                        {format(d, 'd')}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button onClick={() => navSemana(1)}
+                disabled={semana[6] >= new Date()}
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0 disabled:opacity-30">
+                <ChevronRight size={16}/>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center gap-3 mb-5">
+          <div className="bg-surface border border-border rounded-[20px] flex items-center gap-2 px-3 py-2">
+            <button onClick={() => setRefDate(d => navigate(d, periodo, -1))}
+              className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
+              <ChevronLeft size={16}/>
+            </button>
+            <span className="text-sm font-semibold text-text text-center" style={{ minWidth: 200 }}>{periodoLabel}</span>
+            <button onClick={() => !isFuturo && setRefDate(d => navigate(d, periodo, 1))}
+              disabled={isFuturo}
+              className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition disabled:opacity-30">
+              <ChevronRight size={16}/>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Resumo */}
       <div className="grid grid-cols-3 gap-3 mb-5">
@@ -429,7 +486,8 @@ export default function ComissoesPage() {
                 </button>
 
                 {/* Detalhe expandido */}
-                {expanded && (
+                <div style={{ display: 'grid', gridTemplateRows: expanded ? '1fr' : '0fr', transition: 'grid-template-rows 0.22s ease' }}>
+                  <div className="overflow-hidden">
                   <div className="border-t border-border">
                     {groups.map(group => (
                       <div key={group.key}>
@@ -506,7 +564,8 @@ export default function ComissoesPage() {
                       )}
                     </div>
                   </div>
-                )}
+                  </div>
+                </div>
               </div>
             );
           })}

@@ -276,7 +276,6 @@ export default function RelatoriosPage() {
     setTimeout(() => setToastErro(''), 4000);
   }
   const [periodo,   setPeriodo]   = useState<Periodo>('mes');
-  const [showPer,   setShowPer]   = useState(false);
   const [aba,       setAba]       = useState<Aba>('financeiro');
 
   // ── Dados brutos carregados do Supabase
@@ -584,7 +583,7 @@ export default function RelatoriosPage() {
       )}
 
       {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div>
           <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Análise</p>
           <h1 className="font-serif text-2xl md:text-3xl text-text">Relatórios</h1>
@@ -593,8 +592,8 @@ export default function RelatoriosPage() {
           )}
         </div>
 
-        {/* Exportar + Seletor de período */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Exportar */}
+        <div className="flex items-center gap-2">
           {!loading && (
             <ExportButton
               size="sm"
@@ -645,34 +644,22 @@ export default function RelatoriosPage() {
               ) as any[]}
             />
           )}
-        <div className="relative">
-          <button
-            onClick={() => setShowPer(v => !v)}
-            className="flex items-center gap-2 h-10 px-4 rounded-xl border border-border bg-surface hover:bg-bg text-sm font-semibold text-text transition"
-          >
-            <span>{PERIODOS.find(p => p.key === periodo)?.label}</span>
-            <ChevronDown size={14} className="text-text-3" />
+        </div>
+      </div>
+
+      {/* Seletor de período — tabs */}
+      <div className="flex gap-1 mb-6 p-1 rounded-2xl overflow-x-auto w-fit" style={{ background: 'var(--color-bg2)' }}>
+        {PERIODOS.map(p => (
+          <button key={p.key}
+            onClick={() => setPeriodo(p.key)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+              periodo === p.key
+                ? 'bg-surface text-primary border border-border shadow-sm'
+                : 'text-text-3 hover:text-text-2'
+            }`}>
+            {p.label}
           </button>
-          {showPer && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowPer(false)} />
-              <div className="absolute right-0 top-full mt-1.5 z-50 bg-surface border border-border rounded-xl shadow-xl py-1 min-w-[150px]">
-                {PERIODOS.map(p => (
-                  <button key={p.key}
-                    onClick={() => { setPeriodo(p.key); setShowPer(false); }}
-                    className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-bg transition ${
-                      periodo === p.key ? 'text-accent font-semibold' : 'text-text'
-                    }`}
-                  >
-                    {periodo === p.key && <Check size={12} className="flex-shrink-0" />}
-                    <span>{p.label}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        </div>
+        ))}
       </div>
 
       {/* ── KPIs ── */}

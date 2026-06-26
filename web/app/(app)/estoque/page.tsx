@@ -1006,21 +1006,20 @@ export default function EstoquePage() {
       {aba === 'movimentacoes' && (
         <div>
           {/* Navegação de mês */}
-          <div className="flex items-center justify-between mb-5">
-            <button onClick={() => navMes(-1)}
-              className="w-9 h-9 rounded-xl border border-border flex items-center justify-center text-text-3 hover:bg-bg transition">
-              <ChevronLeft size={16}/>
-            </button>
-            <div className="flex items-center gap-2">
-              <CalendarDays size={15} className="text-text-3" strokeWidth={2}/>
-              <span className="text-sm font-semibold text-text-2 capitalize w-36 text-center">
+          <div className="flex items-center justify-center mb-5">
+            <div className="bg-surface border border-border rounded-[20px] flex items-center gap-2 px-3 py-2">
+              <button onClick={() => navMes(-1)}
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
+                <ChevronLeft size={16}/>
+              </button>
+              <span className="text-sm font-semibold capitalize text-center" style={{ minWidth: 160, color: 'var(--color-ink)' }}>
                 {format(mesMov, 'MMMM yyyy', { locale: ptBR })}
               </span>
+              <button onClick={() => navMes(1)}
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
+                <ChevronRight size={16}/>
+              </button>
             </div>
-            <button onClick={() => navMes(1)}
-              className="w-9 h-9 rounded-xl border border-border flex items-center justify-center text-text-3 hover:bg-bg transition">
-              <ChevronRight size={16}/>
-            </button>
           </div>
 
           {/* KPIs do mês */}
