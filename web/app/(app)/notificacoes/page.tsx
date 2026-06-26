@@ -272,7 +272,7 @@ export default function NotificacoesPage() {
 
   if (loading) {
     return (
-      <div>
+      <div className="bm-page">
         <div className="mb-6"><Sk className="h-3 w-28 mb-2"/><Sk className="h-9 w-40"/></div>
         <div className="flex flex-col gap-3">
           {[1,2,3,4,5].map(i => (

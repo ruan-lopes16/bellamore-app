@@ -596,7 +596,7 @@ function TimelineView({
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="bm-page flex flex-col gap-3">
         {[1, 2, 3].map(i => <Sk key={i} className="h-28 rounded-2xl"/>)}
       </div>
     );
