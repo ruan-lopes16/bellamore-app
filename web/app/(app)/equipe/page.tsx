@@ -406,7 +406,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
   const mes      = format(new Date(), 'MMMM', { locale: ptBR });
 
   return (
-    <div>
+    <div className="bm-page">
       {/* Header Bellamore */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
@@ -437,7 +437,12 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
       {/* Stats */}
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-          {[1,2,3].map(i => <div key={i} className="rounded-2xl p-4" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}><Sk className="h-7 w-12 mb-2"/><Sk className="h-3 w-16"/></div>)}
+          {[1,2,3].map(i => (
+            <div key={i} className="rounded-2xl p-4 flex items-center gap-3" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+              <Sk className="w-10 h-10 rounded-2xl flex-shrink-0"/>
+              <div className="flex flex-col gap-2"><Sk className="h-6 w-10"/><Sk className="h-3 w-16"/></div>
+            </div>
+          ))}
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">

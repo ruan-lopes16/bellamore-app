@@ -172,10 +172,10 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto w-full">
+    <div className="bm-page max-w-5xl mx-auto w-full">
 
       {/* ── Header ── */}
-      <div className="mb-7">
+      <div className="mb-6">
         <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>
           {mesLabel}
         </p>

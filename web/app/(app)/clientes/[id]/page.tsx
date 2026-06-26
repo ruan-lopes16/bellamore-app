@@ -356,7 +356,7 @@ export default function ClientePerfilPage() {
   }
 
   if (loading) return (
-    <div>
+    <div className="bm-page">
       <Sk className="h-4 w-20 mb-4" />
       {/* Hero gradient (avatar + nome + ações + 3 KPIs) */}
       <div className="rounded-2xl p-5 mb-6"
@@ -447,7 +447,7 @@ export default function ClientePerfilPage() {
   ];
 
   return (
-    <div>
+    <div className="bm-page">
       {/* Hero plum */}
       {(() => {
         let hue = 0;

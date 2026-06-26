@@ -644,7 +644,7 @@ export default function EstoquePage() {
   const totalEntradas = useMemo(() => movimentos.filter(m => m.tipo === 'entrada').reduce((s, m) => s + Number(m.quantidade), 0), [movimentos]);
 
   return (
-    <div>
+    <div className="bm-page">
       {/* Toast de feedback */}
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-green text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none">

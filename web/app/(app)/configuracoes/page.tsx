@@ -371,7 +371,7 @@ export default function ConfiguracoesPage() {
 
   if (loading) {
     return (
-      <div>
+      <div className="bm-page">
         <div className="mb-6"><Sk className="h-3 w-32 mb-2"/><Sk className="h-9 w-40"/></div>
         <div className="flex gap-1 border-b border-border mb-8">
           <Sk className="h-9 w-24 rounded-t-lg"/><Sk className="h-9 w-24 rounded-t-lg"/>
@@ -386,7 +386,7 @@ export default function ConfiguracoesPage() {
   }
 
   return (
-    <div>
+    <div className="bm-page">
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-green text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm">
           <Check size={16} strokeWidth={2.5}/> {toast}
