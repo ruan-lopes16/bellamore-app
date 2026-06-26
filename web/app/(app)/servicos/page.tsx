@@ -392,10 +392,13 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
 
 // ── Card de serviço ───────────────────────────────────────────
 
-function ServicoCard({ servico, onToggle, onEdit }: {
+function ServicoCard({ servico, onToggle, onEdit, onDelete, onCancelDelete, excluindo }: {
   servico: Servico;
   onToggle: () => void;
   onEdit: () => void;
+  onDelete: () => void;
+  onCancelDelete: () => void;
+  excluindo: boolean;
 }) {
   const cat = CAT_MAP[servico.categoria] ?? CAT_MAP.outros;
   const Icon = cat.icon;
@@ -429,21 +432,42 @@ function ServicoCard({ servico, onToggle, onEdit }: {
 
         {/* Preço + ações */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)' }}>{fmtBRL(servico.preco)}</span>
-          <button onClick={onEdit}
-            className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg hover:text-text-2 flex items-center justify-center transition">
-            <Edit3 size={13} strokeWidth={2}/>
-          </button>
-          <button
-            onClick={onToggle}
-            title={servico.ativo ? 'Desativar' : 'Ativar'}
-            className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 flex-shrink-0 ${
-              servico.ativo ? 'bg-green' : 'bg-border'
-            }`}>
-            <span className={`absolute top-px w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${
-              servico.ativo ? 'left-[14px]' : 'left-px'
-            }`}/>
-          </button>
+          {excluindo ? (
+            <>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-rose)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>Excluir?</span>
+              <button onClick={onDelete}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition"
+                style={{ background: 'var(--color-rose)', color: '#fff' }}>
+                <Trash2 size={12} strokeWidth={2.5}/>
+              </button>
+              <button onClick={onCancelDelete}
+                className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg flex items-center justify-center transition">
+                <X size={13} strokeWidth={2.5}/>
+              </button>
+            </>
+          ) : (
+            <>
+              <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)' }}>{fmtBRL(servico.preco)}</span>
+              <button onClick={onEdit}
+                className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg hover:text-text-2 flex items-center justify-center transition">
+                <Edit3 size={13} strokeWidth={2}/>
+              </button>
+              <button onClick={onDelete}
+                className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-rose-soft hover:text-rose flex items-center justify-center transition">
+                <Trash2 size={13} strokeWidth={2}/>
+              </button>
+              <button
+                onClick={onToggle}
+                title={servico.ativo ? 'Desativar' : 'Ativar'}
+                className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 flex-shrink-0 ${
+                  servico.ativo ? 'bg-green' : 'bg-border'
+                }`}>
+                <span className={`absolute top-px w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${
+                  servico.ativo ? 'left-[14px]' : 'left-px'
+                }`}/>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -453,11 +477,13 @@ function ServicoCard({ servico, onToggle, onEdit }: {
 // ── Tela principal ────────────────────────────────────────────
 
 export default function ServicosPage() {
-  const [servicos,  setServicos]  = useState<Servico[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [empresaId, setEmpresaId] = useState<string | null>(null);
-  const [modal,     setModal]     = useState<ModalState | null>(null);
-  const [colapsos,  setColapsos]  = useState<Set<CategoriaKey>>(new Set());
+  const [servicos,    setServicos]    = useState<Servico[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [empresaId,   setEmpresaId]   = useState<string | null>(null);
+  const [modal,       setModal]       = useState<ModalState | null>(null);
+  const [colapsos,    setColapsos]    = useState<Set<CategoriaKey>>(new Set());
+  const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [toastErro,   setToastErro]   = useState('');
 
   function toggleColapso(key: CategoriaKey) {
     setColapsos(prev => {
@@ -481,6 +507,17 @@ export default function ServicosPage() {
       setLoading(false);
     })();
   }, []);
+
+  async function excluirServico(s: Servico) {
+    setExcluindoId(null);
+    const { error } = await supabase.from('servicos').delete().eq('id', s.id);
+    if (error) {
+      setToastErro('Serviço possui atendimentos vinculados — desative-o em vez de excluir.');
+      setTimeout(() => setToastErro(''), 4500);
+      return;
+    }
+    setServicos(prev => prev.filter(x => x.id !== s.id));
+  }
 
   async function toggleAtivo(s: Servico) {
     await supabase.from('servicos').update({ ativo: !s.ativo }).eq('id', s.id);
@@ -509,6 +546,14 @@ export default function ServicosPage() {
 
   return (
     <div>
+      {/* Toast de erro */}
+      {toastErro && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none"
+          style={{ background: 'var(--color-rose)', color: '#fff', fontFamily: 'var(--font-sans)' }}>
+          {toastErro}
+        </div>
+      )}
+
       {/* Header Bellamore */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
@@ -636,15 +681,24 @@ export default function ServicosPage() {
                 </div>
 
                 {/* Cards — colapsa com animação suave */}
-                {!colapsado && (
-                  <div className="flex flex-col gap-2">
-                    {items.map((s, i) => (
-                      <div key={s.id} className="bm-stagger" style={{ '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
-                        <ServicoCard servico={s} onToggle={() => toggleAtivo(s)} onEdit={() => setModal({ modo: 'editar', servico: s })}/>
-                      </div>
-                    ))}
+                <div style={{ display: 'grid', gridTemplateRows: colapsado ? '0fr' : '1fr', transition: 'grid-template-rows 0.22s ease' }}>
+                  <div className="overflow-hidden">
+                    <div className="flex flex-col gap-2 pt-0">
+                      {items.map((s, i) => (
+                        <div key={s.id} className="bm-stagger" style={{ '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
+                          <ServicoCard
+                            servico={s}
+                            onToggle={() => toggleAtivo(s)}
+                            onEdit={() => setModal({ modo: 'editar', servico: s })}
+                            excluindo={excluindoId === s.id}
+                            onDelete={() => excluindoId === s.id ? excluirServico(s) : setExcluindoId(s.id)}
+                            onCancelDelete={() => setExcluindoId(null)}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             );
           })}

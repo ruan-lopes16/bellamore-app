@@ -9,7 +9,7 @@ import { Sk } from '@/components/Skeleton';
 export default function ComandaLoading() {
   return (
     <div>
-      <div className="flex -m-4 md:-m-8 overflow-hidden" style={{ height: '100dvh' }}>
+      <div className="flex -mt-6 -mb-24 -mx-4 md:-mt-8 md:-mb-10 md:-mx-8 overflow-hidden" style={{ height: '100dvh' }}>
         {/* Painel esquerdo: clientes */}
         <div className="w-full md:w-72 md:flex-shrink-0 border-r border-border bg-bg p-3 flex flex-col gap-2">
           {/* Header */}

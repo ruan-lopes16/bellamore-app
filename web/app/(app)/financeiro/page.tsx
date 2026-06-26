@@ -520,23 +520,23 @@ export default function FinanceiroPage() {
 
       {/* Seletor de mês */}
       <div className="flex items-center justify-center mb-6">
-        <div className="bg-surface border border-border rounded-2xl p-3 flex items-center gap-3 shadow-sm">
+        <div className="bg-surface border border-border rounded-[20px] flex items-center gap-2 px-3 py-2">
           <button onClick={() => setMesRef(m => subMonths(m, 1))}
-            className="w-8 h-8 rounded-lg border border-border bg-bg hover:bg-border flex items-center justify-center text-text-3 transition">
-            <ChevronLeft size={14}/>
+            className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
+            <ChevronLeft size={16}/>
           </button>
-          <div className="text-center w-36">
-            <p className="text-sm font-semibold text-text capitalize">
+          <div className="text-center" style={{ minWidth: 180 }}>
+            <p className="text-sm font-semibold capitalize" style={{ color: 'var(--color-ink)' }}>
               {format(mesRef, 'MMMM yyyy', { locale: ptBR })}
             </p>
-            <p className="text-xs text-text-4 mt-0.5">
+            <p className="text-xs mt-0.5" style={{ color: 'var(--color-ink4)' }}>
               {format(startOfMonth(mesRef), 'dd/MM')} – {format(endOfMonth(mesRef), 'dd/MM')}
             </p>
           </div>
           <button onClick={() => !isHoje && setMesRef(m => addMonths(m, 1))}
             disabled={isHoje}
-            className="w-8 h-8 rounded-lg border border-border bg-bg hover:bg-border flex items-center justify-center text-text-3 transition disabled:opacity-30">
-            <ChevronRight size={14}/>
+            className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition disabled:opacity-30">
+            <ChevronRight size={16}/>
           </button>
         </div>
       </div>

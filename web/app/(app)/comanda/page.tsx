@@ -596,10 +596,10 @@ export default function ComandaPage() {
   // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="flex gap-0 -m-4 md:-m-8 overflow-hidden" style={{ height: '100dvh' }}>
+    <div className="flex gap-0 -mt-6 -mb-24 -mx-4 md:-mt-8 md:-mb-10 md:-mx-8 overflow-hidden" style={{ height: '100dvh' }}>
 
       {/* ════ PAINEL ESQUERDO — clientes do dia ════ */}
-      <div className={`${clienteSel ? 'hidden md:flex md:w-72' : 'flex md:w-[26rem]'} w-full flex-shrink-0 border-r border-border flex-col bg-bg`}>
+      <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} md:w-[26rem] w-full flex-shrink-0 border-r border-border flex-col bg-bg`}>
         {/* Header — título + toggle + week strip */}
         <div className="px-3 pt-3 pb-2 border-b border-border flex-shrink-0">
           {/* Linha 1: título + toggle Semana/Mês */}
@@ -1057,11 +1057,6 @@ export default function ComandaPage() {
                     </div>
                   )}
 
-                  {splits.length === 0 && (
-                    <p className="text-xs text-text-4 text-center py-2">
-                      Selecione ao menos uma forma de pagamento
-                    </p>
-                  )}
                 </section>
 
                 {/* Erro */}
