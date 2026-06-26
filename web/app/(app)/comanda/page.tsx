@@ -599,7 +599,7 @@ export default function ComandaPage() {
     <div className="flex gap-0 -m-4 md:-m-8 overflow-hidden" style={{ height: '100dvh' }}>
 
       {/* ════ PAINEL ESQUERDO — clientes do dia ════ */}
-      <div className={`${clienteSel ? 'hidden md:flex md:w-72' : 'flex md:w-[26rem]'} w-full flex-shrink-0 border-r border-border flex-col bg-bg`}>
+      <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} md:w-[26rem] w-full flex-shrink-0 border-r border-border flex-col bg-bg`}>
         {/* Header — título + toggle + week strip */}
         <div className="px-3 pt-3 pb-2 border-b border-border flex-shrink-0">
           {/* Linha 1: título + toggle Semana/Mês */}
