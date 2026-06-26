@@ -9,14 +9,14 @@ import { SwRegister } from '@/components/SwRegister';
 const cormorant = Cormorant_Garamond({
   variable: '--font-cormorant',
   subsets: ['latin'],
-  weight: ['400', '600', '700'],
+  weight: ['300', '400', '700'],
   display: 'swap',
 });
 
 const jakarta = Plus_Jakarta_Sans({
   variable: '--font-jakarta',
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
+  weight: ['400', '500', '600', '700'],
   display: 'swap',
 });
 

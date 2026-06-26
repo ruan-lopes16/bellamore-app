@@ -49,6 +49,23 @@
   --font-serif: var(--font-cormorant), "Georgia", serif;
   --font-sans:  var(--font-jakarta), system-ui, sans-serif;
 
+  /* ── Escala tipográfica — mobile first (≤ 767px) ──────────
+     Pesos semânticos:
+       300 (light)   → subtítulos suaves, Cormorant decorativo
+       400 (regular) → corpo de texto
+       500 (medium)  → labels, metadados, botões secundários
+       600 (semibold)→ botões primários, itens de lista com destaque
+       700 (bold)    → títulos de seção, headings de página
+  ────────────────────────────────────────────────────────── */
+  --text-xs:   0.6875rem;  /* 11px */
+  --text-sm:   0.8125rem;  /* 13px */
+  --text-base: 0.9375rem;  /* 15px */
+  --text-lg:   1.0625rem;  /* 17px */
+  --text-xl:   1.25rem;    /* 20px */
+  --text-2xl:  1.375rem;   /* 22px */
+  --text-3xl:  1.625rem;   /* 26px */
+  --text-4xl:  1.875rem;   /* 30px */
+
   /* Border-radius como utilitários */
   --radius-sm:   12px;
   --radius-md:   16px;
@@ -166,9 +183,35 @@ html, body {
   .bm-tilt { transform: none !important; }
 }
 
+/* ── Escala tipográfica responsiva ─────────────────────────── */
+/* Tablet ≥ 768px */
+@media (min-width: 768px) {
+  :root {
+    --text-base: 1rem;       /* 16px */
+    --text-lg:   1.125rem;   /* 18px */
+    --text-xl:   1.375rem;   /* 22px */
+    --text-2xl:  1.5rem;     /* 24px */
+    --text-3xl:  1.875rem;   /* 30px */
+    --text-4xl:  2.25rem;    /* 36px */
+  }
+}
+
+/* Desktop ≥ 1024px */
+@media (min-width: 1024px) {
+  :root {
+    --text-sm:   0.875rem;   /* 14px */
+    --text-base: 1rem;       /* 16px */
+    --text-lg:   1.125rem;   /* 18px */
+    --text-xl:   1.5rem;     /* 24px */
+    --text-2xl:  1.75rem;    /* 28px */
+    --text-3xl:  2rem;       /* 32px */
+    --text-4xl:  2.5rem;     /* 40px */
+  }
+}
+
 /* ── Mobile: previne zoom automático do iOS ao focar inputs ── */
-@media (max-width: 768px) {
-  input, select, textarea { font-size: 16px; }
+@media (max-width: 767px) {
+  input, select, textarea { font-size: max(16px, var(--text-base)); }
 }
 
 /* ── Trava scroll de fundo quando há modal aberto ─────────── */
