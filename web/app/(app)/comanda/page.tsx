@@ -1057,11 +1057,6 @@ export default function ComandaPage() {
                     </div>
                   )}
 
-                  {splits.length === 0 && (
-                    <p className="text-xs text-text-4 text-center py-2">
-                      Selecione ao menos uma forma de pagamento
-                    </p>
-                  )}
                 </section>
 
                 {/* Erro */}
