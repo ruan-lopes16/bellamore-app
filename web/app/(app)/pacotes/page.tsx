@@ -602,7 +602,7 @@ export default function PacotesPage() {
 
   // ── Render
   return (
-    <div>
+    <div className="bm-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>

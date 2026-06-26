@@ -278,7 +278,7 @@ export default function ComissoesPage() {
   });
 
   return (
-    <div>
+    <div className="bm-page">
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-green text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 pointer-events-none"

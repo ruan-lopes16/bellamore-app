@@ -406,7 +406,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
   const mes      = format(new Date(), 'MMMM', { locale: ptBR });
 
   return (
-    <div>
+    <div className="bm-page">
       {/* Header Bellamore */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>

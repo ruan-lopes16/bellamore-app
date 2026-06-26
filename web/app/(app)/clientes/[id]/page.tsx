@@ -447,7 +447,7 @@ export default function ClientePerfilPage() {
   ];
 
   return (
-    <div>
+    <div className="bm-page">
       {/* Hero plum */}
       {(() => {
         let hue = 0;

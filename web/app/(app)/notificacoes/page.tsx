@@ -289,7 +289,7 @@ export default function NotificacoesPage() {
   }
 
   return (
-    <div>
+    <div className="bm-page">
       {/* Header Bellamore */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>

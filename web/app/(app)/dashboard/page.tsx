@@ -172,7 +172,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto w-full">
+    <div className="bm-page max-w-5xl mx-auto w-full">
 
       {/* ── Header ── */}
       <div className="mb-7">
