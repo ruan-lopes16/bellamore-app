@@ -42,6 +42,7 @@ import {
   startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
 
 const supabase = createClient();
 
@@ -77,7 +78,7 @@ type ComandaItem = {
   profissional_id?: string;
 };
 
-type Split = { metodo: string; valor: string; bandeira?: string };
+type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number };
 
 type ClienteComanda = {
   id: string;
@@ -344,7 +345,7 @@ export default function ComandaPage() {
     const [{ data: cmd }, { data: extraItems }, { data: pags }] = await Promise.all([
       supabase.from('comandas').select('desconto').eq('id', comandaId).single(),
       supabase.from('comanda_itens').select('tipo,descricao,servico_id,produto_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId),
-      supabase.from('pagamentos').select('metodo,valor,bandeira').eq('comanda_id', comandaId),
+      supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas').eq('comanda_id', comandaId),
     ]);
 
     if ((cmd as any)?.desconto > 0) setDesconto(String((cmd as any).desconto).replace('.', ','));
@@ -363,6 +364,7 @@ export default function ComandaPage() {
       metodo:   p.metodo,
       valor:    Number(p.valor).toFixed(2).replace('.', ','),
       bandeira: p.bandeira ?? undefined,
+      parcelas: p.parcelas ?? 1,
     })));
   }
 
@@ -396,13 +398,22 @@ export default function ComandaPage() {
     const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
     if (splitsValidos.length > 0) {
       const { error: errPag } = await supabase.from('pagamentos').insert(
-        splitsValidos.map(s => ({
-          empresa_id: empresaId, comanda_id: comandaId,
-          valor:   parseFloat(s.valor.replace(',', '.')),
-          metodo:  s.metodo,
-          bandeira: (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
-          status:  'pago',
-        }))
+        splitsValidos.map(s => {
+          const v    = parseFloat(s.valor.replace(',', '.'));
+          const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
+          const taxa = calcTaxa(s.metodo, parc);
+          return {
+            empresa_id:    empresaId,
+            comanda_id:    comandaId,
+            valor:         v,
+            metodo:        s.metodo,
+            bandeira:      (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
+            parcelas:      parc,
+            taxa_perc:     taxa > 0 ? taxa : null,
+            valor_liquido: taxa > 0 ? valorLiquido(v, taxa) : null,
+            status:        'pago',
+          };
+        })
       );
       if (errPag) { setErro(errPag.message); setFechando(false); return; }
     }
@@ -470,6 +481,9 @@ export default function ComandaPage() {
   }
   function atualizarSplitBandeira(idx: number, bandeira: string) {
     setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
+  }
+  function atualizarSplitParcelas(idx: number, parcelas: number) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas } : s));
   }
 
   // ── Fechar / salvar comanda
@@ -568,14 +582,22 @@ export default function ComandaPage() {
     const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
     if (splitsValidos.length > 0) {
       const { error: errPag } = await supabase.from('pagamentos').insert(
-        splitsValidos.map(s => ({
-          empresa_id:  empresaId,
-          comanda_id:  comandaId,
-          valor:       parseFloat(s.valor.replace(',', '.')),
-          metodo:      s.metodo,
-          bandeira:    (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
-          status:      'pago',
-        }))
+        splitsValidos.map(s => {
+          const v    = parseFloat(s.valor.replace(',', '.'));
+          const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
+          const taxa = calcTaxa(s.metodo, parc);
+          return {
+            empresa_id:    empresaId,
+            comanda_id:    comandaId,
+            valor:         v,
+            metodo:        s.metodo,
+            bandeira:      (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
+            parcelas:      parc,
+            taxa_perc:     taxa > 0 ? taxa : null,
+            valor_liquido: taxa > 0 ? valorLiquido(v, taxa) : null,
+            status:        'pago',
+          };
+        })
       );
       if (errPag) { setErro(errPag.message); setFechando(false); return; }
     }
@@ -1017,6 +1039,32 @@ export default function ComandaPage() {
                                 ))}
                               </div>
                             )}
+                            {s.metodo === 'credito' && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-text-3 flex-shrink-0">Parcelas:</span>
+                                <select
+                                  value={s.parcelas ?? 1}
+                                  onChange={e => atualizarSplitParcelas(i, Number(e.target.value))}
+                                  className="h-7 px-2 rounded-lg border border-border/50 bg-surface text-xs font-semibold focus:outline-none focus:border-accent transition"
+                                  style={{ color: m.cor }}>
+                                  {OPCOES_PARCELAS.map(n => (
+                                    <option key={n} value={n}>{n}x{n === 1 ? ' (à vista)' : ''}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                            {isCard && (() => {
+                              const valorN = parseFloat(s.valor.replace(',', '.')) || 0;
+                              const taxa   = calcTaxa(s.metodo, s.parcelas ?? 1);
+                              const liq    = valorLiquido(valorN, taxa);
+                              if (!valorN) return null;
+                              return (
+                                <div className="flex items-center justify-between text-xs opacity-70" style={{ color: m.cor }}>
+                                  <span>Taxa {fmtTaxa(taxa)}</span>
+                                  <span>Líquido {fmtBRL(liq)}</span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })}
