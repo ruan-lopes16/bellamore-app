@@ -33,6 +33,7 @@ import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
 
 const supabase = createClient();
 
@@ -56,7 +57,7 @@ type CartItem = {
   unidade: string;
 };
 
-type Split = { metodo: string; valor: string };
+type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number };
 
 type Cliente = Pick<ClienteBase, 'id' | 'nome'>;
 
@@ -79,6 +80,14 @@ const METODOS_PAG = [
   { id: 'credito',  label: 'Crédito',  icon: CreditCard },
   { id: 'debito',   label: 'Débito',   icon: CreditCard },
   { id: 'cortesia', label: 'Cortesia', icon: Gift       },
+];
+
+const BANDEIRAS = [
+  { key: 'visa',       label: 'Visa'      },
+  { key: 'mastercard', label: 'Master'    },
+  { key: 'elo',        label: 'Elo'       },
+  { key: 'amex',       label: 'Amex'      },
+  { key: 'hipercard',  label: 'Hipercard' },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -235,6 +244,14 @@ export default function VendasPage() {
     setSplits(prev => prev.map(s => s.metodo === metodo ? { ...s, valor } : s));
   }
 
+  function updateSplitBandeira(metodo: string, bandeira: string) {
+    setSplits(prev => prev.map(s => s.metodo === metodo ? { ...s, bandeira } : s));
+  }
+
+  function updateSplitParcelas(metodo: string, parcelas: number) {
+    setSplits(prev => prev.map(s => s.metodo === metodo ? { ...s, parcelas } : s));
+  }
+
   // ── Finalizar venda
   async function finalizar() {
     if (cart.length === 0)     { setErro('Carrinho vazio'); return; }
@@ -280,13 +297,22 @@ export default function VendasPage() {
 
     // 4. Pagamentos
     const { error: e4 } = await supabase.from('pagamentos').insert(
-      splits.map(sp => ({
-        empresa_id: empresaId,
-        venda_id:   venda.id,
-        valor:      parseFloat(sp.valor.replace(',', '.')) || 0,
-        metodo:     sp.metodo,
-        status:     'pago',
-      }))
+      splits.map(sp => {
+        const v    = parseFloat(sp.valor.replace(',', '.')) || 0;
+        const parc = sp.metodo === 'credito' ? (sp.parcelas ?? 1) : 1;
+        const taxa = calcTaxa(sp.metodo, parc);
+        return {
+          empresa_id:    empresaId,
+          venda_id:      venda.id,
+          valor:         v,
+          metodo:        sp.metodo,
+          bandeira:      (sp.metodo === 'credito' || sp.metodo === 'debito') ? (sp.bandeira ?? null) : null,
+          parcelas:      parc,
+          taxa_perc:     taxa > 0 ? taxa : null,
+          valor_liquido: taxa > 0 ? valorLiquido(v, taxa) : null,
+          status:        'pago',
+        };
+      })
     );
     if (e4) { setErro(e4.message); setFinalizando(false); return; }
 
@@ -502,27 +528,61 @@ export default function VendasPage() {
               {splits.length > 0 && (
                 <div className="flex flex-col gap-2">
                   {splits.map(sp => {
-                    const m = METODOS_PAG.find(x => x.id === sp.metodo)!;
-                    const Icon = m.icon;
+                    const m      = METODOS_PAG.find(x => x.id === sp.metodo)!;
+                    const Icon   = m.icon;
+                    const isCard = sp.metodo === 'credito' || sp.metodo === 'debito';
+                    const taxa   = calcTaxa(sp.metodo, sp.parcelas ?? 1);
+                    const valorN = parseFloat(sp.valor.replace(',', '.')) || 0;
                     return (
-                      <div key={sp.metodo} className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5 w-24 flex-shrink-0">
-                          <Icon size={13} className="text-text-3"/>
-                          <span className="text-xs font-semibold text-text-2">{m.label}</span>
-                        </div>
-                        <div className="relative flex-1">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-3 text-xs font-bold">R$</span>
+                      <div key={sp.metodo} className="flex flex-col gap-2 rounded-xl px-3 py-2.5 border border-border bg-bg">
+                        <div className="flex items-center gap-2">
+                          <Icon size={13} className="text-text-3 flex-shrink-0"/>
+                          <span className="text-xs font-semibold text-text-2 flex-1">{m.label}</span>
+                          <span className="text-xs text-text-3">R$</span>
                           <input
                             value={sp.valor}
                             onChange={e => updateSplitValor(sp.metodo, e.target.value)}
                             inputMode="decimal" placeholder="0,00"
-                            className="w-full h-9 pl-8 pr-3 rounded-xl border border-border bg-bg text-sm text-text focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
+                            className="w-24 h-8 px-2 text-sm text-right rounded-lg border border-border bg-surface text-text focus:outline-none focus:border-accent transition font-semibold"
                           />
+                          <button onClick={() => removeSplit(sp.metodo)}
+                            className="w-6 h-6 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
+                            <X size={12}/>
+                          </button>
                         </div>
-                        <button onClick={() => removeSplit(sp.metodo)}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
-                          <X size={12}/>
-                        </button>
+                        {isCard && (
+                          <div className="flex gap-1.5 flex-wrap">
+                            {BANDEIRAS.map(b => (
+                              <button key={b.key} type="button" onClick={() => updateSplitBandeira(sp.metodo, b.key)}
+                                className={`px-2 py-0.5 rounded-lg text-xs font-semibold border transition ${
+                                  sp.bandeira === b.key
+                                    ? 'bg-accent/10 border-accent text-accent'
+                                    : 'border-border/60 text-text-3 hover:border-accent/50 hover:text-text-2'
+                                }`}>
+                                {b.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {sp.metodo === 'credito' && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-text-3 flex-shrink-0">Parcelas:</span>
+                            <select
+                              value={sp.parcelas ?? 1}
+                              onChange={e => updateSplitParcelas(sp.metodo, Number(e.target.value))}
+                              className="h-7 px-2 rounded-lg border border-border/60 bg-surface text-xs font-semibold text-text-2 focus:outline-none focus:border-accent transition">
+                              {OPCOES_PARCELAS.map(n => (
+                                <option key={n} value={n}>{n}x{n === 1 ? ' (à vista)' : ''}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {isCard && valorN > 0 && (
+                          <div className="flex items-center justify-between text-xs text-text-3">
+                            <span>Taxa {fmtTaxa(taxa)}</span>
+                            <span>Líquido {fmtBRL(valorLiquido(valorN, taxa))}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
