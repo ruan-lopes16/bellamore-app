@@ -636,15 +636,17 @@ export default function ServicosPage() {
                 </div>
 
                 {/* Cards — colapsa com animação suave */}
-                {!colapsado && (
-                  <div className="flex flex-col gap-2">
-                    {items.map((s, i) => (
-                      <div key={s.id} className="bm-stagger" style={{ '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
-                        <ServicoCard servico={s} onToggle={() => toggleAtivo(s)} onEdit={() => setModal({ modo: 'editar', servico: s })}/>
-                      </div>
-                    ))}
+                <div style={{ display: 'grid', gridTemplateRows: colapsado ? '0fr' : '1fr', transition: 'grid-template-rows 0.22s ease' }}>
+                  <div className="overflow-hidden">
+                    <div className="flex flex-col gap-2 pt-0">
+                      {items.map((s, i) => (
+                        <div key={s.id} className="bm-stagger" style={{ '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
+                          <ServicoCard servico={s} onToggle={() => toggleAtivo(s)} onEdit={() => setModal({ modo: 'editar', servico: s })}/>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             );
           })}
