@@ -274,25 +274,36 @@ export default function ComandaPage() {
     setErro('');
     setDesconto('');
     setSplits([]);
-    // Pré-preenche itens com os agendamentos do cliente (exceto concluídos)
+    // Pré-preenche itens — cada serviço do agendamento vira um item separado
     setItens(
       cliente.agendamentos
         .filter(ag => ag.status !== 'concluido')
-        .map(ag => {
-          const nomesServicos = (ag.agendamento_servicos ?? []).length > 0
-            ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
-            : ag.servico?.nome ?? 'Serviço';
-          return {
-            uid:            uid(),
-            tipo:           'agendamento' as const,
-            descricao:      nomesServicos,
-            profissional:   ag.profissional?.nome,
-            valor:          ag.valor,
-            quantidade:     1,
-            agendamento_id: ag.id,
-            servico_id:     ag.servico?.id,
+        .flatMap(ag => {
+          const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
+          if (servicos.length > 0) {
+            return servicos.map(s => ({
+              uid:             uid(),
+              tipo:            'agendamento' as const,
+              descricao:       s.servico?.nome ?? 'Serviço',
+              profissional:    ag.profissional?.nome,
+              valor:           s.valor,
+              quantidade:      1,
+              agendamento_id:  ag.id,
+              servico_id:      s.servico?.id,
+              profissional_id: ag.profissional?.id,
+            }));
+          }
+          return [{
+            uid:             uid(),
+            tipo:            'agendamento' as const,
+            descricao:       ag.servico?.nome ?? 'Serviço',
+            profissional:    ag.profissional?.nome,
+            valor:           ag.valor,
+            quantidade:      1,
+            agendamento_id:  ag.id,
+            servico_id:      ag.servico?.id,
             profissional_id: ag.profissional?.id,
-          };
+          }];
         })
     );
   }
@@ -306,19 +317,28 @@ export default function ComandaPage() {
     setComandaExistenteId(comandaId);
     setErro(''); setDesconto(''); setSplits([]);
 
-    const agItems: ComandaItem[] = cliente.agendamentos.map(ag => {
-      const nomesServicos = (ag.agendamento_servicos ?? []).length > 0
-        ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
-        : ag.servico?.nome ?? 'Serviço';
-      return {
+    const agItems: ComandaItem[] = cliente.agendamentos.flatMap(ag => {
+      const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
+      if (servicos.length > 0) {
+        return servicos.map(s => ({
+          uid: uid(), tipo: 'agendamento' as const,
+          descricao: s.servico?.nome ?? 'Serviço',
+          profissional: ag.profissional?.nome,
+          valor: s.valor, quantidade: 1,
+          agendamento_id: ag.id,
+          servico_id: s.servico?.id,
+          profissional_id: ag.profissional?.id,
+        }));
+      }
+      return [{
         uid: uid(), tipo: 'agendamento' as const,
-        descricao: nomesServicos,
+        descricao: ag.servico?.nome ?? 'Serviço',
         profissional: ag.profissional?.nome,
         valor: ag.valor, quantidade: 1,
         agendamento_id: ag.id,
         servico_id: ag.servico?.id,
         profissional_id: ag.profissional?.id,
-      };
+      }];
     });
 
     const [{ data: cmd }, { data: extraItems }, { data: pags }] = await Promise.all([
@@ -579,7 +599,7 @@ export default function ComandaPage() {
     <div className="flex gap-0 -m-4 md:-m-8 overflow-hidden" style={{ height: '100dvh' }}>
 
       {/* ════ PAINEL ESQUERDO — clientes do dia ════ */}
-      <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} w-full md:w-72 flex-shrink-0 border-r border-border flex-col bg-bg`}>
+      <div className={`${clienteSel ? 'hidden md:flex md:w-72' : 'flex md:w-[26rem]'} w-full flex-shrink-0 border-r border-border flex-col bg-bg`}>
         {/* Header — título + toggle + week strip */}
         <div className="px-3 pt-3 pb-2 border-b border-border flex-shrink-0">
           {/* Linha 1: título + toggle Semana/Mês */}
@@ -1062,7 +1082,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || !empresaId}
+                  disabled={fechando || itens.length === 0 || splits.length === 0 || !empresaId}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {fechando ? (
@@ -1076,7 +1096,7 @@ export default function ComandaPage() {
                 </button>
                 {splits.length === 0 && itens.length > 0 && (
                   <p className="text-xs text-text-4 text-center mt-2">
-                    Você pode fechar sem registrar pagamento
+                    Selecione ao menos uma forma de pagamento para fechar
                   </p>
                 )}
               </div>

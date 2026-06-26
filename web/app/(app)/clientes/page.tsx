@@ -285,9 +285,9 @@ export default function ClientesPage() {
                   {inits}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span style={{ fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 14, color: 'var(--color-ink)' }}>{c.nome}</span>
-                    {isNew && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--color-green-soft)', color: 'var(--color-green)' }}>Nova</span>}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="truncate" style={{ fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 14, color: 'var(--color-ink)' }}>{c.nome}</span>
+                    {isNew && <span className="flex-shrink-0" style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--color-green-soft)', color: 'var(--color-green)' }}>Nova</span>}
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                     {c.telefone && <span className="flex items-center gap-1" style={{ fontSize: 12, color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}><Phone size={11} strokeWidth={2}/>{c.telefone}</span>}
