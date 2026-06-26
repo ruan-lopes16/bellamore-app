@@ -1082,7 +1082,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || !empresaId}
+                  disabled={fechando || itens.length === 0 || splits.length === 0 || !empresaId}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {fechando ? (
@@ -1096,7 +1096,7 @@ export default function ComandaPage() {
                 </button>
                 {splits.length === 0 && itens.length > 0 && (
                   <p className="text-xs text-text-4 text-center mt-2">
-                    Você pode fechar sem registrar pagamento
+                    Selecione ao menos uma forma de pagamento para fechar
                   </p>
                 )}
               </div>
