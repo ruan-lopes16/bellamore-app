@@ -7,7 +7,7 @@ import Tilt from '@/components/Tilt';
 import {
   TrendingUp, CalendarDays, Users, Wallet,
   AlertTriangle, ShoppingBag, Clock, ArrowUp, ArrowDown,
-  CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight,
+  CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, Target,
   UserMinus, Cake,
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths, differenceInDays } from 'date-fns';
@@ -78,6 +78,10 @@ export default async function DashboardPage() {
   const fimMesAnt    = endOfMonth(subMonths(hoje, 1)).toISOString();
   const daqui7       = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   const hojeStr      = hoje.toISOString().slice(0, 10);
+
+  const { data: empresaData } = await supabase
+    .from('empresas').select('meta_mensal').eq('id', empresaId).single();
+  const metaMensal = Number(empresaData?.meta_mensal ?? 0);
 
   const [
     agendamentosHoje, agsMes, agsMesAnt, membros,
@@ -308,6 +312,33 @@ export default async function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* ── Meta mensal ── */}
+      {metaMensal > 0 && (() => {
+        const pctMeta = Math.min((bruto / metaMensal) * 100, 100);
+        const atingida = bruto >= metaMensal;
+        return (
+          <div className="mb-4 rounded-2xl p-4 md:p-5"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' }}>
+            <div className="flex items-center gap-2 mb-3">
+              <Target size={13} style={{ color: atingida ? 'var(--color-green)' : 'var(--color-accent)', flexShrink: 0 }} strokeWidth={2}/>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>
+                Meta do mês
+              </p>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 700, color: atingida ? 'var(--color-green)' : 'var(--color-ink2)' }}>
+                {fmt(bruto)} / {fmt(metaMensal)}
+              </p>
+            </div>
+            <div className="relative h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-bg)' }}>
+              <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
+                style={{ width: `${pctMeta}%`, background: atingida ? 'var(--color-green)' : 'linear-gradient(90deg, var(--color-primary), var(--color-accent))' }}/>
+            </div>
+            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: atingida ? 'var(--color-green)' : 'var(--color-ink4)', marginTop: 6, fontWeight: atingida ? 700 : 400 }}>
+              {atingida ? `Meta atingida! +${fmt(bruto - metaMensal)} acima` : `${pctMeta.toFixed(0)}% concluído · faltam ${fmt(metaMensal - bruto)}`}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* ── Ações rápidas ── */}
       <div className="mb-7">

@@ -29,7 +29,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, X,
-  CalendarPlus, AlertTriangle, Pencil,
+  CalendarPlus, AlertTriangle, Pencil, Star,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
@@ -927,7 +927,8 @@ export default function AgendaPage() {
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
   const [modal,      setModal]     = useState(false);
   const [agEditar,   setAgEditar]  = useState<Ag | null>(null);
-  const [toastErro,  setToastErro] = useState('');
+  const [toastErro,    setToastErro]   = useState('');
+  const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string; profissionalId: string | null } | null>(null);
 
   function showErro(msg: string) {
     setToastErro(msg);
@@ -1001,7 +1002,8 @@ export default function AgendaPage() {
 
   async function mudarStatus(id: string, status: string) {
     // Salva o status original ANTES de atualizar (necessário para revert)
-    const statusOriginal = ags.find(a => a.id === id)?.status ?? '';
+    const ag = ags.find(a => a.id === id);
+    const statusOriginal = ag?.status ?? '';
     // Otimista: atualiza local imediatamente
     setAgs(prev => prev.map(a => a.id === id ? { ...a, status } : a));
     const { error } = await supabase
@@ -1011,6 +1013,15 @@ export default function AgendaPage() {
     if (error) {
       setAgs(prev => prev.map(a => a.id === id ? { ...a, status: statusOriginal } : a));
       showErro(`Erro ao salvar status: ${error.message}`);
+      return;
+    }
+    if (status === 'concluido' && ag?.cliente) {
+      setAvaliacaoAg({
+        agId: id,
+        clienteNome: ag.cliente.nome,
+        clienteId: ag.cliente.id,
+        profissionalId: ag.profissional?.id ?? null,
+      });
     }
   }
 
@@ -1150,6 +1161,109 @@ export default function AgendaPage() {
           agEditar={agEditar ?? undefined}
         />
       )}
+
+      {/* Modal de avaliação pós-atendimento */}
+      {avaliacaoAg && empresaId && (
+        <AvaliacaoModal
+          clienteNome={avaliacaoAg.clienteNome}
+          onClose={() => setAvaliacaoAg(null)}
+          onSalvar={async (nota, comentario) => {
+            await supabase.from('avaliacoes').insert({
+              empresa_id:      empresaId,
+              agendamento_id:  avaliacaoAg.agId,
+              cliente_id:      avaliacaoAg.clienteId,
+              profissional_id: avaliacaoAg.profissionalId,
+              nota,
+              comentario: comentario || null,
+            });
+            setAvaliacaoAg(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Modal de Avaliação ─────────────────────────────────────────
+
+function AvaliacaoModal({ clienteNome, onClose, onSalvar }: {
+  clienteNome: string;
+  onClose: () => void;
+  onSalvar: (nota: number, comentario: string) => Promise<void>;
+}) {
+  const [nota,       setNota]       = useState(0);
+  const [hover,      setHover]      = useState(0);
+  const [comentario, setComentario] = useState('');
+  const [salvando,   setSalvando]   = useState(false);
+
+  async function salvar() {
+    if (nota === 0) return;
+    setSalvando(true);
+    await onSalvar(nota, comentario);
+  }
+
+  const estrelaAtiva = hover || nota;
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-5"
+        style={{ animation: 'bm-screen .3s cubic-bezier(.2,.85,.3,1)' }}>
+
+        <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3">
+          <X size={15}/>
+        </button>
+
+        <div className="text-center">
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>
+            Atendimento concluído
+          </p>
+          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 20, fontWeight: 600, color: 'var(--color-ink)' }}>
+            Como foi com {clienteNome.split(' ')[0]}?
+          </h2>
+        </div>
+
+        <div className="flex justify-center gap-2">
+          {[1, 2, 3, 4, 5].map(i => (
+            <button key={i} type="button"
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(0)}
+              onClick={() => setNota(i)}
+              className="transition-transform hover:scale-110 active:scale-95">
+              <Star
+                size={36}
+                strokeWidth={1.5}
+                fill={i <= estrelaAtiva ? 'var(--color-amber)' : 'none'}
+                style={{ color: i <= estrelaAtiva ? 'var(--color-amber)' : 'var(--color-border)' }}
+              />
+            </button>
+          ))}
+        </div>
+
+        {nota > 0 && (
+          <div>
+            <textarea
+              value={comentario}
+              onChange={e => setComentario(e.target.value)}
+              placeholder="Comentário opcional..."
+              rows={2}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none"
+            />
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+            Pular
+          </button>
+          <button onClick={salvar} disabled={nota === 0 || salvando}
+            className="flex-1 h-10 rounded-xl text-white text-sm font-bold transition disabled:opacity-40"
+            style={{ background: 'var(--color-amber)', boxShadow: '0 4px 14px rgba(166,90,27,0.25)' }}>
+            {salvando ? 'Salvando...' : 'Salvar avaliação'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

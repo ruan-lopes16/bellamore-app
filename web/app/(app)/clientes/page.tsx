@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, UserPlus, Phone, Mail, X, ChevronRight, Users, UserCheck, CalendarPlus } from 'lucide-react';
+import { Search, UserPlus, Phone, Mail, X, ChevronRight, Users, UserCheck, CalendarPlus, Crown, AlertTriangle, Sparkles } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { Cliente } from '@/types';
 import { format, startOfMonth } from 'date-fns';
@@ -95,12 +95,14 @@ function NovoClienteModal({ empresaId, onClose }: {
 
 export default function ClientesPage() {
   const router    = useRouter();
-  const [clientes,  setClientes]  = useState<Cliente[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [busca,     setBusca]     = useState('');
-  const [filtro,    setFiltro]    = useState<'todas' | 'novas' | 'aniver'>('todas');
-  const [empresaId, setEmpresaId] = useState<string | null>(null);
-  const [modal,     setModal]     = useState(false);
+  const [clientes,       setClientes]       = useState<Cliente[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [busca,          setBusca]          = useState('');
+  const [filtro,         setFiltro]         = useState<'todas' | 'novas' | 'aniver' | 'segmentos'>('todas');
+  const [empresaId,      setEmpresaId]      = useState<string | null>(null);
+  const [modal,          setModal]          = useState(false);
+  const [visitaMap,      setVisitaMap]      = useState<Map<string, { lastVisit: Date; total: number }> | null>(null);
+  const [loadingVisitas, setLoadingVisitas] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -116,6 +118,28 @@ export default function ClientesPage() {
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    if (filtro !== 'segmentos' || !empresaId || visitaMap !== null) return;
+    (async () => {
+      setLoadingVisitas(true);
+      const { data } = await supabase.from('agendamentos')
+        .select('cliente_id, data_hora_inicio')
+        .eq('empresa_id', empresaId)
+        .eq('status', 'concluido')
+        .order('data_hora_inicio', { ascending: false })
+        .limit(5000);
+      const map = new Map<string, { lastVisit: Date; total: number }>();
+      for (const ag of (data ?? [])) {
+        if (!ag.cliente_id) continue;
+        const d = new Date(ag.data_hora_inicio);
+        if (!map.has(ag.cliente_id)) map.set(ag.cliente_id, { lastVisit: d, total: 0 });
+        map.get(ag.cliente_id)!.total++;
+      }
+      setVisitaMap(map);
+      setLoadingVisitas(false);
+    })();
+  }, [filtro, empresaId, visitaMap]);
 
   const filtrados = useMemo(() => {
     let list = clientes;
@@ -228,9 +252,10 @@ export default function ClientesPage() {
       {!loading && (
         <div className="flex gap-2 mb-5">
           {([
-            { key: 'todas' as const, label: 'Todas' },
-            { key: 'novas' as const, label: 'Novas' },
-            { key: 'aniver' as const, label: 'Aniversariantes' },
+            { key: 'todas'     as const, label: 'Todas' },
+            { key: 'novas'     as const, label: 'Novas' },
+            { key: 'aniver'    as const, label: 'Aniversariantes' },
+            { key: 'segmentos' as const, label: 'Segmentos' },
           ]).map(f => (
             <button key={f.key} onClick={() => setFiltro(f.key)}
               className="press"
@@ -247,8 +272,93 @@ export default function ClientesPage() {
         </div>
       )}
 
-      {/* Lista */}
-      {loading ? (
+      {/* Segmentos */}
+      {filtro === 'segmentos' && !loading && (() => {
+        if (loadingVisitas || visitaMap === null) {
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+              {[1,2,3].map(i => <div key={i} className="rounded-2xl p-5" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}><Sk className="h-6 w-12 mb-2"/><Sk className="h-3 w-28"/></div>)}
+            </div>
+          );
+        }
+        const agora = new Date();
+        const cutoffRisco = new Date(agora.getTime() - 45 * 86400000);
+        const cutoffNovos = new Date(agora.getTime() - 30 * 86400000);
+
+        const vip       = clientes.filter(c => (visitaMap.get(c.id)?.total ?? 0) >= 8);
+        const emRisco   = clientes.filter(c => {
+          const v = visitaMap.get(c.id);
+          if (!v) return false; // sem visitas = já nunca voltou, mas não tem data
+          return v.lastVisit < cutoffRisco;
+        });
+        const semVisita = clientes.filter(c => !visitaMap.has(c.id) && new Date(c.created_at) < cutoffNovos);
+        const novos     = clientes.filter(c => new Date(c.created_at) >= cutoffNovos);
+
+        const segmentos = [
+          { label: 'VIP', desc: '8+ atendimentos', icon: Crown,        cor: 'var(--color-amber)',   bg: 'var(--color-amber-soft)',   clientes: vip,       qtd: vip.length },
+          { label: 'Em risco', desc: 'Sem visita há +45 dias', icon: AlertTriangle, cor: 'var(--color-rose)', bg: 'var(--color-rose-soft)', clientes: emRisco,   qtd: emRisco.length },
+          { label: 'Nunca retornou', desc: 'Cadastrado há +30 dias sem atendimento', icon: Users,        cor: 'var(--color-ink3)',    bg: 'var(--color-bg)',           clientes: semVisita, qtd: semVisita.length },
+          { label: 'Novos', desc: 'Cadastrados há menos de 30 dias', icon: Sparkles,    cor: 'var(--color-green)', bg: 'var(--color-green-soft)', clientes: novos,     qtd: novos.length },
+        ];
+
+        return (
+          <div className="mb-5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+              {segmentos.map(({ label, desc, icon: Icon, cor, bg, qtd }) => (
+                <div key={label} className="rounded-2xl p-4 flex items-center gap-3"
+                  style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.05)' }}>
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
+                    <Icon size={16} style={{ color: cor }} strokeWidth={1.8}/>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-lg leading-none" style={{ color: cor, fontFamily: 'var(--font-sans)' }}>{qtd}</p>
+                    <p className="text-xs font-semibold text-text-2 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>{label}</p>
+                    <p className="text-[10px] text-text-4 mt-0.5 truncate" style={{ fontFamily: 'var(--font-sans)' }}>{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {segmentos.filter(s => s.qtd > 0).map(({ label, cor, clientes: list }) => (
+              <div key={label} className="mb-4">
+                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: cor, fontFamily: 'var(--font-sans)' }}>{label}</p>
+                <div className="flex flex-col gap-2">
+                  {list.slice(0, 5).map(c => {
+                    let h = 0;
+                    for (let i = 0; i < c.nome.length; i++) h = (h * 31 + c.nome.charCodeAt(i)) % 360;
+                    const inits = c.nome.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
+                    const v = visitaMap.get(c.id);
+                    return (
+                      <button key={c.id} onClick={() => router.push(`/clientes/${c.id}`)}
+                        className="press w-full text-left flex items-center gap-3 p-3 rounded-xl"
+                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 12, flexShrink: 0, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 13 }}>
+                          {inits}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm text-text truncate" style={{ fontFamily: 'var(--font-sans)' }}>{c.nome}</p>
+                          <p className="text-xs text-text-4 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>
+                            {v ? `${v.total} atend. · último ${format(v.lastVisit, 'dd/MM/yy')}` : 'Sem atendimento'}
+                          </p>
+                        </div>
+                        <ChevronRight size={14} className="text-text-4 flex-shrink-0"/>
+                      </button>
+                    );
+                  })}
+                  {list.length > 5 && (
+                    <p className="text-xs text-text-4 text-center py-1" style={{ fontFamily: 'var(--font-sans)' }}>
+                      +{list.length - 5} clientes neste segmento
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Lista — oculta na view de segmentos */}
+      {filtro !== 'segmentos' && (loading ? (
         <div className="flex flex-col gap-3">
           {[1,2,3,4,5].map(i => (
             <div key={i} className="rounded-2xl p-4 flex items-center gap-3" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
@@ -299,7 +409,7 @@ export default function ClientesPage() {
             );
           })}
         </div>
-      )}
+      ))}
 
       {modal && empresaId && (
         <NovoClienteModal empresaId={empresaId} onClose={() => setModal(false)}/>
