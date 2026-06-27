@@ -24,7 +24,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
-  ChevronDown, DollarSign, Target, Activity, User, Check,
+  ChevronDown, DollarSign, Target, Activity, User, Check, CreditCard,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
@@ -284,6 +284,7 @@ export default function RelatoriosPage() {
   const [comissoes, setComissoes] = useState<Comissao[]>([]);
   const [movs,      setMovs]      = useState<MovEstoque[]>([]);
   const [vendas,    setVendas]    = useState<Venda[]>([]);
+  const [pags,      setPags]      = useState<{ valor: number; valor_liquido: number | null }[]>([]);
 
   // ── Buscar empresaId ao montar
   useEffect(() => {
@@ -310,7 +311,7 @@ export default function RelatoriosPage() {
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rMovs, rVendas] = await Promise.all([
+    const [rAgs, rDesp, rCom, rMovs, rVendas, rPags] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       supabase.from('agendamentos')
         .select(`id, valor, status, data_hora_inicio, servico_id, profissional_id, cliente_id,
@@ -356,6 +357,14 @@ export default function RelatoriosPage() {
         .eq('empresa_id', empId)
         .gte('created_at', isoIni)
         .lte('created_at', isoFim),
+
+      // 6. Pagamentos do período (para cálculo de taxas de cartão)
+      supabase.from('pagamentos')
+        .select('valor, valor_liquido')
+        .eq('empresa_id', empId)
+        .eq('status', 'pago')
+        .gte('created_at', isoIni)
+        .lte('created_at', isoFim),
     ]);
 
     setAgs((rAgs.data     ?? []) as unknown as Ag[]);
@@ -363,6 +372,7 @@ export default function RelatoriosPage() {
     setComissoes((rCom.data  ?? []) as unknown as Comissao[]);
     setMovs((rMovs.data    ?? []) as unknown as MovEstoque[]);
     setVendas((rVendas.data ?? []) as Venda[]);
+    setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null }[]);
     setLoading(false);
   }, [supabase]);
 
@@ -378,13 +388,17 @@ export default function RelatoriosPage() {
   const faltaram   = useMemo(() => ags.filter(a => a.status === 'faltou'),    [ags]);
   const cancelados = useMemo(() => ags.filter(a => a.status === 'cancelado'), [ags]);
 
-  const brutoServicos = useMemo(() => concluidos.reduce((s, a) => s + a.valor, 0), [concluidos]);
-  const brutoVendas   = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
-  const bruto         = brutoServicos + brutoVendas;
-  const comTot  = useMemo(() => comissoes.reduce((s, c) => s + c.valor_comissao, 0), [comissoes]);
-  const despTot = useMemo(() => despesas.reduce((s, d) => s + d.valor, 0), [despesas]);
-  const liquido = bruto - comTot;
-  const lucro   = liquido - despTot;
+  const brutoServicos   = useMemo(() => concluidos.reduce((s, a) => s + a.valor, 0), [concluidos]);
+  const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
+  const bruto           = brutoServicos + brutoVendas;
+  const comTot          = useMemo(() => comissoes.reduce((s, c) => s + c.valor_comissao, 0), [comissoes]);
+  const despTot         = useMemo(() => despesas.reduce((s, d) => s + d.valor, 0), [despesas]);
+  const taxasCartao     = useMemo(() =>
+    pags.reduce((s, p) => s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0),
+  [pags]);
+  const liquido         = bruto - comTot;
+  const liquidoAposTaxas = bruto - taxasCartao;
+  const lucro           = liquidoAposTaxas - comTot - despTot;
   // Ticket médio baseado apenas em serviços (mais representativo)
   const ticket  = concluidos.length > 0 ? brutoServicos / concluidos.length : 0;
   const taxaBase = concluidos.length + faltaram.length;
@@ -663,11 +677,14 @@ export default function RelatoriosPage() {
       </div>
 
       {/* ── KPIs ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <KpiCard icon={DollarSign} label="Faturamento bruto"    value={fmtBRL(bruto)}
           sub={brutoVendas > 0 ? `inc. ${fmtBRL(brutoVendas)} em vendas` : undefined}
           cor="#7C3AED" loading={loading} />
-        <KpiCard icon={TrendingUp} label="Faturamento líquido"  value={fmtBRL(liquido)}             cor="#16A34A" loading={loading} />
+        {taxasCartao > 0 && (
+          <KpiCard icon={CreditCard} label="Taxas de cartão"    value={fmtBRL(taxasCartao)}         cor="#DC2626" loading={loading} />
+        )}
+        <KpiCard icon={TrendingUp} label="Líquido após taxas"   value={fmtBRL(liquidoAposTaxas)}    cor="#16A34A" loading={loading} />
         <KpiCard icon={Activity}   label="Lucro real"           value={fmtBRL(lucro)}               cor={lucro >= 0 ? '#0D7E5F' : '#DC2626'} loading={loading} />
         <KpiCard icon={Scissors}   label="Atendimentos"         value={String(concluidos.length)}   sub="concluídos" cor="#D4608A" loading={loading} />
         <KpiCard icon={Target}     label="Ticket médio"         value={fmtBRL(ticket)}              cor="#B45309" loading={loading} />
