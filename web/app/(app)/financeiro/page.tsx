@@ -264,6 +264,7 @@ export default function FinanceiroPage() {
   // Dados
   const [receita,       setReceita]       = useState(0);
   const [receitaAnt,    setReceitaAnt]    = useState(0);
+  const [taxasCartao,   setTaxasCartao]   = useState(0);
   const [comissoes,     setComissoes]     = useState(0);
   const [comissoesAnt,  setComissoesAnt]  = useState(0);
   const [gastos,        setGastos]        = useState(0);
@@ -333,7 +334,7 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('data_pagamento', ini6.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
       // Formas de pagamento
-      supabase.from('pagamentos').select('metodo, valor')
+      supabase.from('pagamentos').select('metodo, valor, valor_liquido')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('created_at', ini).lte('created_at', fim),
       // Lista de despesas do mês (pendentes + pagas)
@@ -398,9 +399,16 @@ export default function FinanceiroPage() {
     const maxSvc = svcLista[0]?.receita ?? 1;
     setTopServicos(svcLista.map(s => ({ ...s, percentual: Math.round((s.receita / maxSvc) * 100) })));
 
+    // Taxas de cartão — soma (valor - valor_liquido) onde valor_liquido não é nulo
+    type PagRow = { metodo: string; valor: number; valor_liquido: number | null };
+    const pagsData = (pagsMes.data ?? []) as PagRow[];
+    const taxasCartaoVal = pagsData.reduce((s, p) =>
+      s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0);
+    setTaxasCartao(taxasCartaoVal);
+
     // Formas de pagamento
     const metMap: Record<string, { valor: number; quantidade: number }> = {};
-    ((pagsMes.data ?? []) as { metodo: string; valor: number }[]).forEach(p => {
+    pagsData.forEach(p => {
       if (!metMap[p.metodo]) metMap[p.metodo] = { valor: 0, quantidade: 0 };
       metMap[p.metodo].valor += Number(p.valor); metMap[p.metodo].quantidade += 1;
     });
@@ -485,13 +493,11 @@ export default function FinanceiroPage() {
     recarregar();
   }
 
-  const liquido     = receita - comissoes;
-  const liquidoAnt  = receitaAnt - comissoesAnt;
-  const lucro       = liquido - gastos;
-  const dReceita    = delta(receita,   receitaAnt);
-  const dComissoes  = delta(comissoes, comissoesAnt);
-  const dLiquido    = delta(liquido,   liquidoAnt);
-  const dGastos     = delta(gastos,    gastosAnt);
+  const liquidoAposTaxas = receita - taxasCartao;
+  const lucro            = liquidoAposTaxas - comissoes - gastos;
+  const dReceita         = delta(receita,   receitaAnt);
+  const dComissoes       = delta(comissoes, comissoesAnt);
+  const dGastos          = delta(gastos,    gastosAnt);
   const maxEvolucao = Math.max(...evolucao.flatMap(e => [e.receita, e.gastos, e.comissoes ?? 0]), 1);
 
   return (
@@ -544,29 +550,24 @@ export default function FinanceiroPage() {
       {/* KPIs */}
       {loading ? (
         <div className="flex flex-col gap-3 mb-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-            {[1,2,3].map(i => (
-              <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-                <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-            {[1,2].map(i => (
-              <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-                <Sk className="h-3 w-1/3 mb-3 max-w-[90px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[120px]"/><Sk className="h-3 w-1/2 max-w-[110px]"/>
-              </div>
-            ))}
-          </div>
+          {[0,1].map(row => (
+            <div key={row} className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              {[1,2,3].map(i => (
+                <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
+                  <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       ) : (
         <div className="flex flex-col gap-3 mb-6">
-          {/* Linha 1: Bruto | Comissões | Líquido */}
+          {/* Linha 1: Bruto → Taxas Cartão → Líquido após Taxas */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: 'Faturamento Bruto',    value: receita,   d: dReceita,   cor: 'text-green',   invertDelta: false },
-              { label: 'Comissões',            value: comissoes, d: dComissoes, cor: 'text-amber',   invertDelta: true  },
-              { label: 'Faturamento Líquido',  value: liquido,   d: dLiquido,   cor: liquido >= 0 ? 'text-primary' : 'text-red', invertDelta: false },
+              { label: 'Faturamento Bruto',   value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
+              { label: 'Taxas de Cartão',     value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
+              { label: 'Líquido após Taxas',  value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
             ].map(({ label, value, d, cor, invertDelta }) => (
               <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
                 <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-2">{label}</p>
@@ -585,11 +586,12 @@ export default function FinanceiroPage() {
               </div>
             ))}
           </div>
-          {/* Linha 2: Gastos | Lucro Real */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Linha 2: Comissões | Gastos | Lucro Real */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: 'Gastos Operacionais', value: gastos, d: dGastos, cor: 'text-red',   invertDelta: true  },
-              { label: 'Lucro Real',          value: lucro,  d: null,    cor: lucro >= 0 ? 'text-primary' : 'text-red', invertDelta: false },
+              { label: 'Comissões',           value: comissoes, d: dComissoes, cor: 'text-amber',                                    invertDelta: true  },
+              { label: 'Gastos Operacionais', value: gastos,    d: dGastos,   cor: 'text-rose',                                     invertDelta: true  },
+              { label: 'Lucro Real',          value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        invertDelta: false },
             ].map(({ label, value, d, cor, invertDelta }) => (
               <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
                 <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-2">{label}</p>

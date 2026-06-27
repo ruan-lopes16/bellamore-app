@@ -31,7 +31,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Clock, User, Plus, Trash2, X, Check, ChevronRight, ChevronLeft,
   Banknote, Zap, CreditCard, Gift, Receipt, Tag, Pencil,
-  AlertCircle,
+  AlertCircle, Share2,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
@@ -43,6 +43,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
+import { toWhatsApp } from '@/lib/masks';
 
 const supabase = createClient();
 
@@ -132,6 +133,49 @@ function avatarGradient(nome: string) {
 }
 function uid() { return crypto.randomUUID(); }
 
+type SucessoRecibo = {
+  nome: string;
+  valor: number;
+  telefone?: string;
+  itens: ComandaItem[];
+  splits: Split[];
+  desconto: number;
+  data: Date;
+};
+
+const MET_LABELS: Record<string, string> = {
+  dinheiro: 'Dinheiro', pix: 'PIX', credito: 'Crédito', debito: 'Débito', cortesia: 'Cortesia',
+};
+const BAND_LABELS: Record<string, string> = {
+  visa: 'Visa', mastercard: 'Master', elo: 'Elo', amex: 'Amex', hipercard: 'Hipercard',
+};
+
+function gerarTextoRecibo(s: SucessoRecibo): string {
+  const data = format(s.data, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+  const linhas: string[] = [
+    `🌸 *Recibo de Atendimento*`,
+    ``,
+    `👤 ${s.nome}`,
+    `📅 ${data}`,
+    ``,
+    `*Serviços:*`,
+    ...s.itens.map(i => `• ${i.descricao}${i.quantidade > 1 ? ` (${i.quantidade}x)` : ''} — ${fmtBRL(i.valor * i.quantidade)}`),
+    ...(s.desconto > 0 ? [`• Desconto — −${fmtBRL(s.desconto)}`] : []),
+    ``,
+    `💰 *Total: ${fmtBRL(s.valor)}*`,
+    ``,
+    `*Pagamento:*`,
+    ...s.splits.map(sp => {
+      const valorN = parseFloat(sp.valor.replace(',', '.'));
+      let label = MET_LABELS[sp.metodo] ?? sp.metodo;
+      if (sp.bandeira) label += ` ${BAND_LABELS[sp.bandeira] ?? sp.bandeira}`;
+      if (sp.metodo === 'credito' && (sp.parcelas ?? 1) > 1) label += ` ${sp.parcelas}x`;
+      return `• ${label} — ${fmtBRL(valorN)}`;
+    }),
+  ];
+  return linhas.join('\n');
+}
+
 // ── Componente principal ──────────────────────────────────────
 
 export default function ComandaPage() {
@@ -157,8 +201,8 @@ export default function ComandaPage() {
   const [desconto,   setDesconto]   = useState('');
   const [splits,     setSplits]     = useState<Split[]>([]);
   const [fechando,   setFechando]   = useState(false);
-  const [toast,      setToast]      = useState('');   // mensagem de feedback rápido
-  const [sucesso,    setSucesso]    = useState<{ nome: string; valor: number } | null>(null); // tela de sucesso pós-fechamento
+  const [toast,      setToast]      = useState('');
+  const [sucesso,    setSucesso]    = useState<SucessoRecibo | null>(null);
   const [erro,       setErro]       = useState('');
 
   // ── Carregar empresaId
@@ -420,9 +464,13 @@ export default function ComandaPage() {
 
     setFechando(false);
     const nomeCliente = clienteSel?.nome ?? '—';
+    const telefoneCliente = clienteSel?.telefone;
+    const reciboItens = [...itens];
+    const reciboSplits = [...splits];
+    const reciboDesconto = descontoN;
     setClienteSel(null);
     setComandaExistenteId(null);
-    setSucesso({ nome: nomeCliente, valor: subtotal - descontoN });
+    setSucesso({ nome: nomeCliente, valor: subtotal - descontoN, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
   }
 
   // ── Itens: adicionar/remover
@@ -611,8 +659,12 @@ export default function ComandaPage() {
 
     // Mostra tela de sucesso com checkmark animado (design Bellamore)
     const nomeCliente = clienteSel.nome;
+    const telefoneCliente = clienteSel.telefone;
+    const reciboItens = [...itens];
+    const reciboSplits = [...splits];
+    const reciboDesconto = descontoN;
     setClienteSel(null);
-    setSucesso({ nome: nomeCliente, valor: subtotal - descontoN });
+    setSucesso({ nome: nomeCliente, valor: subtotal - descontoN, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -806,11 +858,25 @@ export default function ComandaPage() {
             <p className="text-text-2 text-sm text-center">
               {sucesso.nome} · {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.valor)}
             </p>
-            <button onClick={() => setSucesso(null)}
-              className="press mt-2 px-8 py-3.5 rounded-2xl text-white text-sm font-bold"
-              style={{ background: 'var(--color-green)', boxShadow: '0 6px 20px rgba(21,122,91,0.3)' }}>
-              Voltar
-            </button>
+            <div className="flex flex-col items-center gap-2 mt-2 w-full max-w-xs">
+              {sucesso.telefone && (
+                <button
+                  onClick={() => {
+                    const texto = gerarTextoRecibo(sucesso);
+                    const tel = sucesso.telefone!.replace(/\D/g, '');
+                    window.open(`https://wa.me/55${tel}?text=${encodeURIComponent(texto)}`, '_blank');
+                  }}
+                  className="press w-full px-8 py-3.5 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2"
+                  style={{ background: 'var(--color-green)', boxShadow: '0 6px 20px rgba(21,122,91,0.3)' }}>
+                  <Share2 size={16}/>
+                  Compartilhar recibo
+                </button>
+              )}
+              <button onClick={() => setSucesso(null)}
+                className="press w-full px-8 py-3.5 rounded-2xl text-sm font-bold border border-border text-text-2">
+                Voltar
+              </button>
+            </div>
           </div>
         )}
 
@@ -1125,7 +1191,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || splits.length === 0 || !empresaId}
+                  disabled={fechando || itens.length === 0 || splits.length === 0 || !empresaId || (splits.length > 0 && restante > 0.01)}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {fechando ? (
@@ -1140,6 +1206,11 @@ export default function ComandaPage() {
                 {splits.length === 0 && itens.length > 0 && (
                   <p className="text-xs text-text-4 text-center mt-2">
                     Selecione ao menos uma forma de pagamento para fechar
+                  </p>
+                )}
+                {splits.length > 0 && restante > 0.01 && (
+                  <p className="text-xs text-amber text-center mt-2 font-semibold">
+                    Ainda faltam {fmtBRL(restante)} para cobrir o total
                   </p>
                 )}
               </div>
