@@ -336,7 +336,7 @@ export default function EquipePage() {
       .from('empresa_membros')
       .select('id, user_id, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
       .eq('empresa_id', empId)
-      .eq('role', 'profissional')
+      .in('role', ['gestor', 'profissional'])
       .order('ativo', { ascending: false })
       .order('created_at');
 
