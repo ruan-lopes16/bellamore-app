@@ -24,7 +24,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
-  ChevronDown, DollarSign, Target, Activity, User, Check,
+  ChevronDown, DollarSign, Target, Activity, User, Check, Star,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
@@ -77,6 +77,14 @@ type MovEstoque = {
   produto_id: string; quantidade: number;
   produto: { nome: string; preco_custo: number } | null;
 };
+type Avaliacao = {
+  nota: number;
+  comentario: string | null;
+  created_at: string;
+  profissional_id: string | null;
+  profissional: { nome: string } | null;
+  cliente: { nome: string } | null;
+};
 
 /** Item genérico de ranking (serviços, equipe, clientes) */
 type RankItem = { nome: string; valor: number; qtd: number; pct: number };
@@ -100,6 +108,7 @@ const ABA_OPTS = [
   { key: 'clientes'   as const, label: 'Clientes',   icon: User       },
   { key: 'estoque'    as const, label: 'Estoque',    icon: Package    },
   { key: 'comissoes'  as const, label: 'Comissões',  icon: DollarSign },
+  { key: 'avaliacoes' as const, label: 'Avaliações', icon: Star       },
 ];
 type Aba = typeof ABA_OPTS[number]['key'];
 
@@ -279,11 +288,12 @@ export default function RelatoriosPage() {
   const [aba,       setAba]       = useState<Aba>('financeiro');
 
   // ── Dados brutos carregados do Supabase
-  const [ags,       setAgs]       = useState<Ag[]>([]);
-  const [despesas,  setDespesas]  = useState<Despesa[]>([]);
-  const [comissoes, setComissoes] = useState<Comissao[]>([]);
-  const [movs,      setMovs]      = useState<MovEstoque[]>([]);
-  const [vendas,    setVendas]    = useState<Venda[]>([]);
+  const [ags,        setAgs]        = useState<Ag[]>([]);
+  const [despesas,   setDespesas]   = useState<Despesa[]>([]);
+  const [comissoes,  setComissoes]  = useState<Comissao[]>([]);
+  const [movs,       setMovs]       = useState<MovEstoque[]>([]);
+  const [vendas,     setVendas]     = useState<Venda[]>([]);
+  const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
 
   // ── Buscar empresaId ao montar
   useEffect(() => {
@@ -310,7 +320,7 @@ export default function RelatoriosPage() {
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rMovs, rVendas] = await Promise.all([
+    const [rAgs, rDesp, rCom, rMovs, rVendas, rAvals] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       supabase.from('agendamentos')
         .select(`id, valor, status, data_hora_inicio, servico_id, profissional_id, cliente_id,
@@ -356,6 +366,16 @@ export default function RelatoriosPage() {
         .eq('empresa_id', empId)
         .gte('created_at', isoIni)
         .lte('created_at', isoFim),
+
+      // 6. Avaliações do período
+      supabase.from('avaliacoes')
+        .select(`nota, comentario, created_at, profissional_id,
+          profissional:empresa_membros!avaliacoes_profissional_id_fkey(nome),
+          cliente:clientes!avaliacoes_cliente_id_fkey(nome)`)
+        .eq('empresa_id', empId)
+        .gte('created_at', isoIni)
+        .lte('created_at', isoFim)
+        .order('created_at', { ascending: false }),
     ]);
 
     setAgs((rAgs.data     ?? []) as unknown as Ag[]);
@@ -363,6 +383,7 @@ export default function RelatoriosPage() {
     setComissoes((rCom.data  ?? []) as unknown as Comissao[]);
     setMovs((rMovs.data    ?? []) as unknown as MovEstoque[]);
     setVendas((rVendas.data ?? []) as Venda[]);
+    setAvaliacoes((rAvals.data ?? []) as unknown as Avaliacao[]);
     setLoading(false);
   }, [supabase]);
 
@@ -448,6 +469,26 @@ export default function RelatoriosPage() {
     const maxQ = list[0]?.qtd ?? 1;
     return list.map(s => ({ ...s, pct: (s.qtd / maxQ) * 100 }));
   }, [movs]);
+
+  // ── Avaliações: média por profissional
+  const { notaMedia, rankAvaliacoes } = useMemo(() => {
+    const notaMedia = avaliacoes.length > 0
+      ? avaliacoes.reduce((s, a) => s + a.nota, 0) / avaliacoes.length
+      : 0;
+
+    const map: Record<string, { nome: string; total: number; qtd: number }> = {};
+    for (const av of avaliacoes) {
+      const k = av.profissional_id ?? '__sem__';
+      if (!map[k]) map[k] = { nome: av.profissional?.nome ?? 'Sem profissional', total: 0, qtd: 0 };
+      map[k].total += av.nota;
+      map[k].qtd++;
+    }
+    const rank = Object.values(map)
+      .map(p => ({ ...p, media: p.total / p.qtd }))
+      .sort((a, b) => b.media - a.media);
+
+    return { notaMedia, rankAvaliacoes: rank };
+  }, [avaliacoes]);
 
   // ── Ranking: despesas por categoria
   const rankDespCat = useMemo<RankItem[]>(() => {
@@ -1192,6 +1233,97 @@ export default function RelatoriosPage() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════
+          TAB: AVALIAÇÕES
+      ════════════════════════════════════════════════════════ */}
+      {aba === 'avaliacoes' && (
+        <div className="flex flex-col gap-4">
+
+          {/* KPIs */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <KpiCard loading={loading} icon={Star} label="Nota média geral" cor="#D97706"
+              value={notaMedia > 0 ? notaMedia.toFixed(1) : '—'}
+              sub={avaliacoes.length > 0 ? `${avaliacoes.length} avaliação${avaliacoes.length !== 1 ? 'ões' : ''}` : 'Nenhuma ainda'}/>
+            <KpiCard loading={loading} icon={Users} label="Profissionais avaliados" cor="#7C3AED"
+              value={String(rankAvaliacoes.length)}/>
+            <KpiCard loading={loading} icon={TrendingUp} label="Com nota 5" cor="#0D7E5F"
+              value={String(avaliacoes.filter(a => a.nota === 5).length)}
+              sub={avaliacoes.length > 0 ? `${((avaliacoes.filter(a => a.nota === 5).length / avaliacoes.length) * 100).toFixed(0)}% das avaliações` : undefined}/>
+          </div>
+
+          {/* Ranking por profissional */}
+          {rankAvaliacoes.length > 0 && (
+            <div className="bg-surface border border-border rounded-2xl p-5">
+              <h3 className="text-sm font-bold text-text mb-3 uppercase tracking-wide text-text-3" style={{ fontSize: 10.5 }}>
+                Nota média por profissional
+              </h3>
+              <div className="flex flex-col gap-1">
+                {rankAvaliacoes.map((p, i) => (
+                  <div key={i} className="flex items-center gap-3 py-2.5 border-b border-border last:border-0">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                      style={{ background: i < 3 ? 'var(--color-amber)' : 'var(--color-ink4)' }}>
+                      {i + 1}
+                    </div>
+                    <span className="flex-1 text-sm font-semibold text-text truncate">{p.nome}</span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <div className="flex gap-0.5">
+                        {[1,2,3,4,5].map(s => (
+                          <Star key={s} size={12} strokeWidth={1.5}
+                            fill={s <= Math.round(p.media) ? 'var(--color-amber)' : 'none'}
+                            style={{ color: s <= Math.round(p.media) ? 'var(--color-amber)' : 'var(--color-border)' }}/>
+                        ))}
+                      </div>
+                      <span className="text-sm font-bold text-amber">{p.media.toFixed(1)}</span>
+                      <span className="text-xs text-text-4">({p.qtd})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Avaliações recentes */}
+          {avaliacoes.length > 0 ? (
+            <div className="bg-surface border border-border rounded-2xl p-5">
+              <h3 className="text-sm font-bold text-text mb-3 uppercase tracking-wide text-text-3" style={{ fontSize: 10.5 }}>
+                Avaliações recentes
+              </h3>
+              <div className="flex flex-col gap-3">
+                {avaliacoes.slice(0, 20).map((av, i) => (
+                  <div key={i} className="flex flex-col gap-1 pb-3 border-b border-border last:border-0">
+                    <div className="flex items-center gap-2 justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-semibold text-text">{av.cliente?.nome ?? '—'}</span>
+                        {av.profissional && (
+                          <span className="text-xs text-text-4">· {av.profissional.nome}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {[1,2,3,4,5].map(s => (
+                          <Star key={s} size={11} strokeWidth={1.5}
+                            fill={s <= av.nota ? 'var(--color-amber)' : 'none'}
+                            style={{ color: s <= av.nota ? 'var(--color-amber)' : 'var(--color-border)' }}/>
+                        ))}
+                      </div>
+                    </div>
+                    {av.comentario && (
+                      <p className="text-xs text-text-3 italic">"{av.comentario}"</p>
+                    )}
+                    <p className="text-xs text-text-4">{format(parseISO(av.created_at), "dd/MM/yyyy", { locale: ptBR })}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : !loading ? (
+            <div className="bg-surface border border-border rounded-2xl p-10 text-center">
+              <Star size={28} className="mx-auto mb-2 text-text-4" strokeWidth={1.5}/>
+              <p className="text-sm text-text-3">Nenhuma avaliação registrada neste período.</p>
+              <p className="text-xs text-text-4 mt-1">As avaliações são coletadas ao marcar um atendimento como concluído na Agenda.</p>
+            </div>
+          ) : null}
         </div>
       )}
 

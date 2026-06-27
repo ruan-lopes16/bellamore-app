@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
-import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail } from 'lucide-react';
+import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target } from 'lucide-react';
 import { validaCNPJ } from '@/lib/masks';
 import Image from 'next/image';
 
@@ -119,7 +119,8 @@ export default function ConfiguracoesPage() {
   const [localidade, setLocalidade] = useState('');
   const [logoUrl,   setLogoUrl]   = useState('');
   const [logoPreview,setLogoPreview] = useState('');
-  const [horarios,  setHorarios]  = useState<Horarios>(HORARIO_DEFAULT);
+  const [horarios,    setHorarios]    = useState<Horarios>(HORARIO_DEFAULT);
+  const [metaMensal,  setMetaMensal]  = useState('');
 
   const [buscandoCep,  setBuscandoCep]  = useState(false);
   const [buscandoCnpj, setBuscandoCnpj] = useState(false);
@@ -167,7 +168,7 @@ export default function ConfiguracoesPage() {
       setEmpresaId(membro.empresa_id);
 
       const [{ data: empresa }, { data: perfil }] = await Promise.all([
-        supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id')
+        supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id, meta_mensal')
           .eq('id', membro.empresa_id).single(),
         supabase.from('users').select('nome, telefone').eq('id', user.id).single(),
       ]);
@@ -180,6 +181,7 @@ export default function ConfiguracoesPage() {
         setLogoUrl(empresa.logo_url ?? '');
         setLogoPreview(empresa.logo_url ?? '');
         setIsOwner(empresa.owner_id === user.id);
+        setMetaMensal(empresa.meta_mensal ? String(empresa.meta_mensal) : '');
         if (empresa.horario_funcionamento) {
           setHorarios({ ...HORARIO_DEFAULT, ...(empresa.horario_funcionamento as Horarios) });
         }
@@ -323,6 +325,7 @@ export default function ConfiguracoesPage() {
       endereco:              enderecoFinal   || null,
       logo_url:              logoUrl         || null,
       horario_funcionamento: horarios,
+      meta_mensal:           parseFloat(metaMensal.replace(',', '.')) || 0,
     }).eq('id', empresaId);
 
     setSalvando(false);
@@ -552,6 +555,27 @@ export default function ConfiguracoesPage() {
                 <label className={labelCls}>Cidade / Estado</label>
                 <input value={localidade} onChange={e => setLocalidade(e.target.value)}
                   className={inputCls} disabled={!isOwner}/>
+              </div>
+            </div>
+          </SectionCard>
+
+          {/* Meta mensal */}
+          <SectionCard title="Meta mensal de receita" icon={Target} color="accent">
+            <p className="text-xs text-text-3 -mt-2">
+              Define a meta de faturamento bruto para o mês. Aparece como barra de progresso no Dashboard.
+            </p>
+            <div>
+              <label className={labelCls}>Meta de receita bruta</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <input
+                  value={metaMensal}
+                  onChange={e => setMetaMensal(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  disabled={!isOwner}
+                  className={`${inputCls} pl-9`}
+                />
               </div>
             </div>
           </SectionCard>
