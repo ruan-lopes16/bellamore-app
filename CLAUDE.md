@@ -158,3 +158,6 @@
 - [x] ~~Exportação de dados (9/9 páginas)~~ — resolvido em 2026-06-06 (continuação)
 - [~] ~~Renomear pasta~~ — **decisão: manter nome com acento** para preservar histórico de sessões e memórias do Claude Code (4.5 MB de contexto). Claude in Chrome cobre a auditoria visual.
 - [x] ~~Conectar extensão "Claude in Chrome"~~ — conectado pelo usuário em 2026-06-06
+
+### Features planejadas — próximas sessões
+- [ ] **Controle de acesso por role** — diferenciar UI/ações com base em `empresa_membros.role` (`owner`/`gestor`/`profissional`). Ex: profissionais só veem a própria agenda e comissões; apenas gestores/owners editam serviços, equipe e financeiro. Requer: ler `role` no contexto da sessão (já disponível em `empresa_membros`) e condicionar renderização/rotas.

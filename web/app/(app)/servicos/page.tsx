@@ -482,8 +482,9 @@ export default function ServicosPage() {
   const [empresaId,   setEmpresaId]   = useState<string | null>(null);
   const [modal,       setModal]       = useState<ModalState | null>(null);
   const [colapsos,    setColapsos]    = useState<Set<CategoriaKey>>(new Set());
-  const [excluindoId, setExcluindoId] = useState<string | null>(null);
-  const [toastErro,   setToastErro]   = useState('');
+  const [excluindoId,   setExcluindoId]   = useState<string | null>(null);
+  const [toastErro,     setToastErro]     = useState('');
+  const [toastSucesso,  setToastSucesso]  = useState('');
 
   function toggleColapso(key: CategoriaKey) {
     setColapsos(prev => {
@@ -517,6 +518,8 @@ export default function ServicosPage() {
       return;
     }
     setServicos(prev => prev.filter(x => x.id !== s.id));
+    setToastSucesso(`Serviço "${s.nome}" excluído.`);
+    setTimeout(() => setToastSucesso(''), 3500);
   }
 
   async function toggleAtivo(s: Servico) {
@@ -546,11 +549,17 @@ export default function ServicosPage() {
 
   return (
     <div className="bm-page">
-      {/* Toast de erro */}
+      {/* Toasts */}
       {toastErro && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none"
           style={{ background: 'var(--color-rose)', color: '#fff', fontFamily: 'var(--font-sans)' }}>
           {toastErro}
+        </div>
+      )}
+      {toastSucesso && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none"
+          style={{ background: 'var(--color-green)', color: '#fff', fontFamily: 'var(--font-sans)' }}>
+          {toastSucesso}
         </div>
       )}
 

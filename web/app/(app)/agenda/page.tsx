@@ -144,11 +144,14 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
               </div>{/* /relative (status) */}
             </div>{/* /flex gap-1 */}
           </div>{/* /justify-between */}
-          <p className="text-text-3 text-xs mb-2 truncate">
+          <p className="text-text-3 text-xs mb-1.5 truncate">
             {(ag.agendamento_servicos ?? []).length > 0
               ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
               : ag.servico?.nome ?? '—'}
           </p>
+          {ag.observacao && (
+            <p className="text-xs text-text-4 italic mb-1.5 truncate">{ag.observacao}</p>
+          )}
           <div className="flex items-center gap-3 text-xs text-text-3">
             <span className="flex items-center gap-1"><Clock size={10} strokeWidth={2}/>{inicio}–{fim}</span>
             {ag.profissional && <span className="flex items-center gap-1"><User size={10} strokeWidth={2}/>{ag.profissional.nome.split(' ')[0]}</span>}
