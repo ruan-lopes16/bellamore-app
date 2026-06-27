@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { Cliente } from '@/types';
-import { format, differenceInYears, addMinutes, parseISO } from 'date-fns';
+import { format, differenceInYears, differenceInDays, addMinutes, parseISO } from 'date-fns';
 import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { ptBR } from 'date-fns/locale';
 import { Sk } from '@/components/Skeleton';
@@ -41,6 +41,13 @@ function DisplayRow({ label, value, placeholder = '—' }: {
 }
 
 // ── Tipos auxiliares ──────────────────────────────────────────
+
+type ClienteStats = {
+  totalVisitas: number;
+  totalGasto: number;
+  ultimaVisita: string | null;
+  servicoFavorito: string | null;
+};
 
 type HistAg = {
   id: string; data_hora_inicio: string; data_hora_fim: string;
@@ -238,17 +245,38 @@ export default function ClientePerfilPage() {
   const [histCarregado, setHistCarregado] = useState(false);
 
   // ── Modal novo agendamento ──────────────────────────────────
+  const [stats, setStats] = useState<ClienteStats>({
+    totalVisitas: 0, totalGasto: 0, ultimaVisita: null, servicoFavorito: null,
+  });
+
   const [empresaId,       setEmpresaId]       = useState<string | null>(null);
   const [modalAg,         setModalAg]         = useState(false);
   const [confirmArquivar, setConfirmArquivar] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const { data: clienteData } = await supabase.from('clientes').select('*').eq('id', id).single();
+      const [{ data: clienteData }, { data: agsStats }, { data: { user } }] = await Promise.all([
+        supabase.from('clientes').select('*').eq('id', id).single(),
+        supabase.from('agendamentos')
+          .select('valor, data_hora_inicio, servico:servicos(nome)')
+          .eq('cliente_id', id)
+          .eq('status', 'concluido')
+          .order('data_hora_inicio', { ascending: false }),
+        supabase.auth.getUser(),
+      ]);
+
       setCliente(clienteData as Cliente);
       setLoading(false);
-      // Busca empresa do usuário logado para o modal de agendamento
-      const { data: { user } } = await supabase.auth.getUser();
+
+      const rows = (agsStats ?? []) as { valor: number | null; data_hora_inicio: string; servico: { nome: string } | null }[];
+      const totalVisitas = rows.length;
+      const totalGasto = rows.reduce((s, a) => s + Number(a.valor ?? 0), 0);
+      const ultimaVisita = rows[0]?.data_hora_inicio ?? null;
+      const svcCount: Record<string, number> = {};
+      rows.forEach(a => { if (a.servico?.nome) svcCount[a.servico.nome] = (svcCount[a.servico.nome] ?? 0) + 1; });
+      const servicoFavorito = Object.entries(svcCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      setStats({ totalVisitas, totalGasto, ultimaVisita, servicoFavorito });
+
       if (!user) return;
       const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
@@ -376,9 +404,9 @@ export default function ClientePerfilPage() {
           <div className="flex-1 h-10 rounded-xl bg-white/10" />
         </div>
         {/* KPIs hero */}
-        <div className="flex gap-2">
-          {[1,2,3].map(i => (
-            <div key={i} className="flex-1 rounded-[14px] p-3 bg-white/8" style={{ background: 'rgba(255,255,255,0.08)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+          {[1,2,3,4].map(i => (
+            <div key={i} className="rounded-[14px] p-3" style={{ background: 'rgba(255,255,255,0.08)' }}>
               <div className="h-5 w-12 rounded bg-white/15 mb-1.5" />
               <div className="h-3 w-3/4 rounded bg-white/10" />
             </div>
@@ -452,9 +480,11 @@ export default function ClientePerfilPage() {
       {(() => {
         let hue = 0;
         for (let i = 0; i < cliente.nome.length; i++) hue = (hue * 31 + cliente.nome.charCodeAt(i)) % 360;
-        const totalVisitas = historico.length;
-        const totalGasto = historico.reduce((s, a) => s + (a.valor ?? 0), 0);
-        const ticketMedio = totalVisitas > 0 ? totalGasto / totalVisitas : 0;
+        const diasUltima = stats.ultimaVisita ? differenceInDays(new Date(), parseISO(stats.ultimaVisita)) : null;
+        const ultimaLabel = diasUltima === null ? '—'
+          : diasUltima === 0 ? 'Hoje'
+          : diasUltima === 1 ? 'Ontem'
+          : `há ${diasUltima}d`;
         return (
           <div style={{ background: 'linear-gradient(135deg, #2C1750 0%, #4A2A86 100%)', borderRadius: 24, padding: '28px 28px 20px', marginBottom: 20, position: 'relative', overflow: 'hidden' }}>
             <button onClick={() => router.push('/clientes')}
@@ -506,16 +536,17 @@ export default function ClientePerfilPage() {
             </div>
 
             {/* KPIs */}
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
               {[
-                { label: 'Visitas', value: String(totalVisitas) },
-                { label: 'Total gasto', value: `R$ ${totalGasto.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` },
-                { label: 'Ticket médio', value: `R$ ${ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` },
+                { label: 'Visitas', value: stats.totalVisitas > 0 ? String(stats.totalVisitas) : '—' },
+                { label: 'Total gasto', value: stats.totalGasto > 0 ? `R$ ${stats.totalGasto.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : '—' },
+                { label: 'Última visita', value: ultimaLabel },
+                { label: 'Serv. favorito', value: stats.servicoFavorito ?? '—' },
               ].map((kpi, i) => (
                 <div key={kpi.label} className="bm-stagger"
-                  style={{ flex: 1, background: 'rgba(255,255,255,0.08)', borderRadius: 14, padding: '12px 14px', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{kpi.value}</p>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: 'rgba(255,255,255,0.45)', marginTop: 4, fontWeight: 600 }}>{kpi.label}</p>
+                  style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 14, padding: '10px 12px', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 16, fontWeight: 800, color: '#fff', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kpi.value}</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 4, fontWeight: 600 }}>{kpi.label}</p>
                 </div>
               ))}
             </div>
