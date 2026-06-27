@@ -8,8 +8,9 @@ import {
   TrendingUp, CalendarDays, Users, Wallet,
   AlertTriangle, ShoppingBag, Clock, ArrowUp, ArrowDown,
   CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight,
+  UserMinus, Cake,
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 function fmt(v: number) {
@@ -82,6 +83,7 @@ export default async function DashboardPage() {
     agendamentosHoje, agsMes, agsMesAnt, membros,
     despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
     totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
+    todasAgsCompletas, clientesComAniversario,
   ] = await Promise.all([
     supabase.from('agendamentos')
       .select('id,status,valor,data_hora_inicio,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
@@ -119,6 +121,14 @@ export default async function DashboardPage() {
     supabase.from('comissoes').select('valor_comissao,status')
       .eq('empresa_id', empresaId)
       .gte('created_at', inicioMes).lte('created_at', fimMes),
+    supabase.from('agendamentos')
+      .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(id, nome)')
+      .eq('empresa_id', empresaId).eq('status', 'concluido')
+      .order('data_hora_inicio', { ascending: false }).limit(3000),
+    supabase.from('clientes')
+      .select('id, nome, data_nascimento, telefone')
+      .eq('empresa_id', empresaId).eq('ativo', true)
+      .not('data_nascimento', 'is', null),
   ]);
 
   // KPIs
@@ -152,6 +162,37 @@ export default async function DashboardPage() {
 
   const pctBruto = pct(bruto, brutoAnt);
   const pctLucro = pct(lucro, brutoAnt - gastosAnt);
+
+  // Clientes inativos: última visita há mais de 45 dias
+  const cutoff45 = new Date(Date.now() - 45 * 86400000);
+  const lastVisitMap = new Map<string, { nome: string; lastVisit: string }>();
+  for (const ag of (todasAgsCompletas.data ?? [])) {
+    const c = ag.cliente as any;
+    if (c && !lastVisitMap.has(ag.cliente_id)) {
+      lastVisitMap.set(ag.cliente_id, { nome: c.nome, lastVisit: ag.data_hora_inicio });
+    }
+  }
+  const clientesInativos = Array.from(lastVisitMap.entries())
+    .filter(([, v]) => new Date(v.lastVisit) < cutoff45)
+    .sort((a, b) => new Date(a[1].lastVisit).getTime() - new Date(b[1].lastVisit).getTime())
+    .slice(0, 5)
+    .map(([clienteId, v]) => ({ clienteId, ...v }));
+
+  // Aniversariantes nos próximos 7 dias
+  const todayMidnight = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  const aniversariantes = (clientesComAniversario.data ?? [])
+    .map(c => {
+      const parts = (c.data_nascimento as string).split('-');
+      const mes = parseInt(parts[1]) - 1;
+      const dia = parseInt(parts[2]);
+      let bDay = new Date(hoje.getFullYear(), mes, dia);
+      if (bDay < todayMidnight) bDay = new Date(hoje.getFullYear() + 1, mes, dia);
+      const diasAte = Math.round((bDay.getTime() - todayMidnight.getTime()) / 86400000);
+      return { ...c, diasAte, mes, dia };
+    })
+    .filter(c => c.diasAte >= 0 && c.diasAte <= 7)
+    .sort((a, b) => a.diasAte - b.diasAte)
+    .slice(0, 8);
 
   // Receita diária acumulada para o sparkline
   const todayDay = hoje.getDate();
@@ -293,6 +334,89 @@ export default async function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Retenção de clientes ── */}
+      {(clientesInativos.length > 0 || aniversariantes.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-7">
+
+          {/* Clientes inativos */}
+          {clientesInativos.length > 0 && (
+            <div className="rounded-2xl p-5"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' }}>
+              <div className="flex items-center gap-2 mb-4">
+                <UserMinus size={14} style={{ color: 'var(--color-rose)' }} strokeWidth={2} />
+                <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-ink)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  Reconquistar
+                </h2>
+                <span className="ml-auto text-xs font-bold text-white px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--color-rose)', fontFamily: 'var(--font-sans)', fontSize: 10 }}>
+                  {clientesInativos.length}
+                </span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {clientesInativos.map(c => {
+                  const dias = differenceInDays(hoje, new Date(c.lastVisit));
+                  return (
+                    <Link key={c.clienteId} href={`/clientes/${c.clienteId}`}
+                      className="flex items-center gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
+                      style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border-soft)' }}>
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                        style={{ background: 'var(--color-rose-soft)', fontSize: 11, fontWeight: 700, color: 'var(--color-rose)', fontFamily: 'var(--font-sans)' }}>
+                        {c.nome.split(' ').slice(0,2).map((n: string) => n[0]).join('').toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, color: 'var(--color-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</p>
+                        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>Sem visita há {dias} dias</p>
+                      </div>
+                      <ChevronRight size={13} style={{ color: 'var(--color-ink4)', flexShrink: 0 }} strokeWidth={2} />
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Aniversariantes */}
+          {aniversariantes.length > 0 && (
+            <div className="rounded-2xl p-5"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' }}>
+              <div className="flex items-center gap-2 mb-4">
+                <Cake size={14} style={{ color: 'var(--color-primary)' }} strokeWidth={2} />
+                <h2 style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-ink)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  Aniversariantes
+                </h2>
+                <span className="ml-auto text-xs font-bold text-white px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--color-primary)', fontFamily: 'var(--font-sans)', fontSize: 10 }}>
+                  {aniversariantes.length}
+                </span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {aniversariantes.map(c => {
+                  const isToday = c.diasAte === 0;
+                  const label = isToday ? '🎂 Hoje!' : c.diasAte === 1 ? 'Amanhã' : `Em ${c.diasAte} dias`;
+                  const dateStr = format(new Date(hoje.getFullYear(), c.mes, c.dia), "dd/MM", { locale: ptBR });
+                  return (
+                    <Link key={c.id} href={`/clientes/${c.id}`}
+                      className="flex items-center gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
+                      style={{ background: isToday ? 'var(--color-primary-soft)' : 'var(--color-bg)', border: `1px solid ${isToday ? 'rgba(44,23,80,0.12)' : 'var(--color-border-soft)'}` }}>
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                        style={{ background: 'var(--color-primary-soft)', fontFamily: 'var(--font-sans)' }}>
+                        <Cake size={14} style={{ color: 'var(--color-primary)' }} strokeWidth={2} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, color: 'var(--color-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</p>
+                        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>{dateStr} · {label}</p>
+                      </div>
+                      <ChevronRight size={13} style={{ color: 'var(--color-ink4)', flexShrink: 0 }} strokeWidth={2} />
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
 
       {/* ── Grid: Agenda hoje + Alertas ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
