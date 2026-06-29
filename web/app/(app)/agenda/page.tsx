@@ -21,7 +21,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  format, addDays, subDays, addMonths, subMonths,
+  format, addDays, addMonths, subMonths,
   startOfDay, endOfDay, startOfMonth, endOfMonth,
   startOfWeek, eachDayOfInterval,
   isSameDay, isSameMonth, isToday, addMinutes, parseISO,
@@ -919,7 +919,7 @@ export default function AgendaPage() {
   const [view,      setView]      = useState<'semana' | 'mes' | 'timeline'>('semana');
   const [dataSel,   setDataSel]   = useState(new Date());
   const [semana,    setSemana]    = useState(() =>
-    Array.from({ length: 7 }, (_, i) => addDays(subDays(new Date(), 3), i))
+    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
   );
   const [ags,        setAgs]       = useState<Ag[]>([]);
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
@@ -997,7 +997,7 @@ export default function AgendaPage() {
   function selecionarDia(d: Date) {
     setDataSel(d);
     if (!semana.some(s => isSameDay(s, d)))
-      setSemana(Array.from({ length: 7 }, (_, i) => addDays(subDays(d, 3), i)));
+      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
   }
 
   async function mudarStatus(id: string, status: string) {
