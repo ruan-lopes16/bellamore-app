@@ -2,13 +2,13 @@ import { Sk } from '@/components/Skeleton';
 
 /**
  * Skeleton da Dashboard — corresponde ao layout real:
- * header + hero receita + 3 KPIs mês + 3 KPIs dia + 4 ações rápidas + grid agenda/alertas
+ * header + hero receita + 4 KPIs mês + 3 KPIs dia + 4 ações rápidas + grid agenda/alertas
  */
 export default function DashboardLoading() {
   return (
     <div className="max-w-5xl mx-auto w-full">
       {/* Header */}
-      <div className="mb-7">
+      <div className="mb-6">
         <Sk className="h-3 w-24 mb-1.5" />
         <Sk className="h-8 w-44" />
       </div>
@@ -21,9 +21,9 @@ export default function DashboardLoading() {
         <div className="h-5 w-24 rounded-full bg-white/10" />
       </div>
 
-      {/* KPIs do mês — 3 cards compactos */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
-        {[1,2,3].map(i => (
+      {/* KPIs do mês — 4 cards (2x2 mobile, 4 colunas desktop) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
+        {[1,2,3,4].map(i => (
           <div key={i} className="bg-surface border border-border-soft rounded-2xl p-3 md:p-5 shadow-sm min-w-0">
             <div className="flex items-start justify-between mb-2">
               <Sk className="h-2.5 w-2/3 max-w-[60px]" />

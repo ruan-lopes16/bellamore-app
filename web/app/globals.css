@@ -72,6 +72,10 @@
   --radius-lg:   20px;
   --radius-xl:   26px;
   --radius-pill: 9999px;
+
+  /* Bottom nav mobile — translúcido com blur */
+  --color-nav-bg:     rgba(251,248,244,0.92);
+  --color-nav-border: var(--color-border-soft);
 }
 
 /* ── Modo escuro ───────────────────────────────────────────── */
@@ -109,6 +113,10 @@
 
   --color-red:       #E8729A;
   --color-red-soft:  rgba(232,114,154,0.15);
+
+  /* Bottom nav mobile no escuro */
+  --color-nav-bg:     rgba(19,14,31,0.85);
+  --color-nav-border: rgba(255,255,255,0.06);
 }
 
 /* ── Base ──────────────────────────────────────────────────── */
@@ -132,6 +140,10 @@ html, body {
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+
+/* Esconde scrollbar (mantém scroll funcional) — útil para listas horizontais */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* ── Skeleton shimmer ──────────────────────────────────────── */
 @keyframes shimmer {

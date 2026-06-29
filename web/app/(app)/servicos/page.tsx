@@ -94,8 +94,12 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
   const [categoria,   setCategoria]   = useState<CategoriaKey>(catInicial);
   const [preco,       setPreco]       = useState(editando ? String(editando.preco) : '');
   const [custo,       setCusto]       = useState(editando && editando.custo > 0 ? String(editando.custo) : '');
-  const [duracao,     setDuracao]     = useState(editando?.duracao_minutos ?? 60);
-  const [duracaoInput, setDuracaoInput] = useState(String(editando?.duracao_minutos ?? 60));
+  const duracaoInicial = editando?.duracao_minutos ?? 60;
+  const duracaoEhPreset = DURACOES.some(d => d.valor === duracaoInicial);
+  const [duracao,           setDuracao]           = useState(duracaoInicial);
+  const [duracaoPersonal,   setDuracaoPersonal]   = useState(!duracaoEhPreset);
+  const [horasInput,        setHorasInput]        = useState(String(Math.floor(duracaoInicial / 60)));
+  const [minutosInput,      setMinutosInput]      = useState(String(duracaoInicial % 60));
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
 
@@ -279,40 +283,85 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
           <div>
             <label className={labelClass}>Duração</label>
             <div className="flex flex-wrap gap-2 mb-2">
-              {DURACOES.map(({ label, valor }) => (
-                <button key={valor} type="button" onClick={() => { setDuracao(valor); setDuracaoInput(String(valor)); }}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
-                    duracao === valor
-                      ? 'bg-primary-soft border-primary/30 text-primary'
-                      : 'bg-bg border-border text-text-3 hover:border-accent'
-                  }`}>
-                  <Clock size={11} strokeWidth={2}/>
-                  {label}
-                </button>
-              ))}
+              {DURACOES.map(({ label, valor }) => {
+                const ativo = !duracaoPersonal && duracao === valor;
+                return (
+                  <button key={valor} type="button"
+                    onClick={() => {
+                      setDuracao(valor);
+                      setDuracaoPersonal(false);
+                      setHorasInput(String(Math.floor(valor / 60)));
+                      setMinutosInput(String(valor % 60));
+                    }}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
+                      ativo
+                        ? 'bg-primary-soft border-primary/30 text-primary'
+                        : 'bg-bg border-border text-text-3 hover:border-accent'
+                    }`}>
+                    <Clock size={11} strokeWidth={2}/>
+                    {label}
+                  </button>
+                );
+              })}
+              <button type="button"
+                onClick={() => setDuracaoPersonal(true)}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
+                  duracaoPersonal
+                    ? 'bg-primary-soft border-primary/30 text-primary'
+                    : 'bg-bg border-border text-text-3 hover:border-accent'
+                }`}>
+                <Clock size={11} strokeWidth={2}/>
+                Personalizado
+              </button>
             </div>
-            <div className="flex items-center gap-2">
-              <Clock size={13} className="text-text-4 flex-shrink-0" strokeWidth={2}/>
-              <input
-                value={duracaoInput}
-                onChange={e => {
-                  setDuracaoInput(e.target.value);
-                  const v = parseInt(e.target.value, 10);
-                  if (!isNaN(v) && v > 0) setDuracao(v);
-                }}
-                onBlur={() => {
-                  const v = parseInt(duracaoInput, 10);
-                  if (isNaN(v) || v <= 0) { setDuracaoInput(String(duracao)); return; }
-                  setDuracao(v);
-                  setDuracaoInput(String(v));
-                }}
-                inputMode="numeric"
-                placeholder="Ex: 75"
-                className={`${inputClass} w-28`}
-              />
-              <span className="text-sm text-text-3">min</span>
-              <span className="text-xs text-text-4">= {fmtDuracao(duracao)}</span>
-            </div>
+            {duracaoPersonal && (
+              <div className="rounded-xl p-3 flex items-center gap-3 flex-wrap" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border-soft)' }}>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={horasInput}
+                    onChange={e => {
+                      const txt = e.target.value.replace(/\D/g, '').slice(0, 2);
+                      setHorasInput(txt);
+                      const h = parseInt(txt, 10) || 0;
+                      const m = parseInt(minutosInput, 10) || 0;
+                      const total = h * 60 + Math.min(m, 59);
+                      if (total > 0) setDuracao(total);
+                    }}
+                    onBlur={() => { if (horasInput === '') setHorasInput('0'); }}
+                    inputMode="numeric"
+                    placeholder="0"
+                    aria-label="Horas"
+                    className={`${inputClass} w-16 text-center`}
+                  />
+                  <span className="text-xs font-semibold text-text-3">h</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={minutosInput}
+                    onChange={e => {
+                      const txt = e.target.value.replace(/\D/g, '').slice(0, 2);
+                      setMinutosInput(txt);
+                      const m = Math.min(parseInt(txt, 10) || 0, 59);
+                      const h = parseInt(horasInput, 10) || 0;
+                      const total = h * 60 + m;
+                      if (total > 0) setDuracao(total);
+                    }}
+                    onBlur={() => {
+                      const m = parseInt(minutosInput, 10);
+                      if (isNaN(m)) { setMinutosInput('0'); return; }
+                      const clamped = Math.min(Math.max(m, 0), 59);
+                      setMinutosInput(String(clamped));
+                    }}
+                    inputMode="numeric"
+                    placeholder="0"
+                    aria-label="Minutos"
+                    className={`${inputClass} w-16 text-center`}
+                  />
+                  <span className="text-xs font-semibold text-text-3">min</span>
+                </div>
+                <span className="text-xs text-text-4 ml-auto">= {fmtDuracao(duracao)}</span>
+              </div>
+            )}
           </div>
 
           {/* Preview */}
@@ -407,7 +456,8 @@ function ServicoCard({ servico, onToggle, onEdit, onDelete, onCancelDelete, excl
   for (let i = 0; i < cat.key.length; i++) hue = (hue * 31 + cat.key.charCodeAt(i)) % 360;
 
   return (
-    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', opacity: servico.ativo ? 1 : 0.5, transition: 'opacity 0.2s' }}>
+    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', opacity: servico.ativo ? 1 : 0.5, transition: 'opacity 0.2s' }}>
+      {/* Linha 1: ícone + nome/descrição + preço */}
       <div className="flex items-start gap-3">
         {/* Ícone categoria */}
         <div style={{ width: 36, height: 36, borderRadius: 12, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -416,54 +466,64 @@ function ServicoCard({ servico, onToggle, onEdit, onDelete, onCancelDelete, excl
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <p style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{servico.nome}</p>
+          <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{servico.nome}</p>
           {servico.descricao && (
             <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' } as React.CSSProperties}>{servico.descricao}</p>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--color-ink4)' }}>
-              <Clock size={10} strokeWidth={2}/> {fmtDuracao(servico.duracao_minutos)}
-            </span>
-            {servico.custo > 0 && (
-              <span style={{ fontSize: 11.5, color: 'var(--color-ink4)' }}>Custo {fmtBRL(servico.custo)}</span>
-            )}
-          </div>
         </div>
 
-        {/* Preço + ações */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Preço */}
+        <span className="flex-shrink-0" style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>
+          {fmtBRL(servico.preco)}
+        </span>
+      </div>
+
+      {/* Linha 2: metadados + ações */}
+      <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border-soft)' }}>
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="flex items-center gap-1" style={{ fontSize: 11.5, color: 'var(--color-ink4)', whiteSpace: 'nowrap' }}>
+            <Clock size={11} strokeWidth={2}/> {fmtDuracao(servico.duracao_minutos)}
+          </span>
+          {servico.custo > 0 && (
+            <span style={{ fontSize: 11.5, color: 'var(--color-ink4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Custo {fmtBRL(servico.custo)}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           {excluindo ? (
             <>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-rose)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>Excluir?</span>
-              <button onClick={onDelete}
+              <button onClick={onDelete} aria-label="Confirmar exclusão"
                 className="w-8 h-8 rounded-lg flex items-center justify-center transition"
                 style={{ background: 'var(--color-rose)', color: '#fff' }}>
-                <Trash2 size={12} strokeWidth={2.5}/>
+                <Trash2 size={13} strokeWidth={2.5}/>
               </button>
-              <button onClick={onCancelDelete}
+              <button onClick={onCancelDelete} aria-label="Cancelar"
                 className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg flex items-center justify-center transition">
                 <X size={13} strokeWidth={2.5}/>
               </button>
             </>
           ) : (
             <>
-              <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)' }}>{fmtBRL(servico.preco)}</span>
-              <button onClick={onEdit}
+              <button onClick={onEdit} aria-label="Editar serviço"
                 className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg hover:text-text-2 flex items-center justify-center transition">
                 <Edit3 size={13} strokeWidth={2}/>
               </button>
-              <button onClick={onDelete}
+              <button onClick={onDelete} aria-label="Excluir serviço"
                 className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-rose-soft hover:text-rose flex items-center justify-center transition">
                 <Trash2 size={13} strokeWidth={2}/>
               </button>
               <button
                 onClick={onToggle}
+                aria-label={servico.ativo ? 'Desativar serviço' : 'Ativar serviço'}
                 title={servico.ativo ? 'Desativar' : 'Ativar'}
-                className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 flex-shrink-0 ${
+                className={`relative w-9 h-5 rounded-full transition-colors duration-200 flex-shrink-0 ml-1 ${
                   servico.ativo ? 'bg-green' : 'bg-border'
                 }`}>
-                <span className={`absolute top-px w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${
-                  servico.ativo ? 'left-[14px]' : 'left-px'
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${
+                  servico.ativo ? 'left-[18px]' : 'left-0.5'
                 }`}/>
               </button>
             </>

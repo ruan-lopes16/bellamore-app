@@ -199,10 +199,10 @@ export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: {
       {/* ── Bottom nav mobile ─────────────────────────────────── */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex"
         style={{
-          background:    'rgba(251,248,244,0.92)',
+          background:    'var(--color-nav-bg)',
           backdropFilter:'blur(28px) saturate(200%)',
           WebkitBackdropFilter: 'blur(28px) saturate(200%)',
-          borderTop:     '1px solid var(--color-border-soft)',
+          borderTop:     '1px solid var(--color-nav-border)',
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}>
         {MOBILE_NAV.map(({ href, label, icon: Icon }) => {
