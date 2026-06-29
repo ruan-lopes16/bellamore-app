@@ -190,31 +190,31 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo }: {
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
 
           {/* Tipo de produto — Material ou Para venda */}
           <div>
             <label className={labelClass}>Tipo de produto *</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2.5">
               <button type="button" onClick={() => setTipo('material')}
-                className={`h-14 rounded-xl flex flex-col items-center justify-center gap-1 border-2 transition text-sm font-semibold ${
+                className={`px-3 py-3.5 rounded-xl flex flex-col items-center justify-center gap-1.5 border-2 transition text-sm font-semibold leading-tight text-center ${
                   tipo === 'material'
                     ? 'border-primary bg-primary-soft text-primary'
                     : 'border-border text-text-3 hover:border-accent bg-bg'
                 }`}>
-                <Package2 size={16} strokeWidth={2}/>
-                Material / Insumo
-                <span className="text-[10px] font-normal opacity-70">Usado em atendimentos</span>
+                <Package2 size={18} strokeWidth={2}/>
+                <span>Material / Insumo</span>
+                <span className="text-[10.5px] font-normal opacity-70 leading-tight">Usado em atendimentos</span>
               </button>
               <button type="button" onClick={() => setTipo('venda')}
-                className={`h-14 rounded-xl flex flex-col items-center justify-center gap-1 border-2 transition text-sm font-semibold ${
+                className={`px-3 py-3.5 rounded-xl flex flex-col items-center justify-center gap-1.5 border-2 transition text-sm font-semibold leading-tight text-center ${
                   tipo === 'venda'
                     ? 'border-green bg-green/10 text-green'
                     : 'border-border text-text-3 hover:border-accent bg-bg'
                 }`}>
-                <DollarSign size={16} strokeWidth={2}/>
-                Para venda (PDV)
-                <span className="text-[10px] font-normal opacity-70">Revenda para clientes</span>
+                <DollarSign size={18} strokeWidth={2}/>
+                <span>Para venda (PDV)</span>
+                <span className="text-[10.5px] font-normal opacity-70 leading-tight">Revenda para clientes</span>
               </button>
             </div>
           </div>
