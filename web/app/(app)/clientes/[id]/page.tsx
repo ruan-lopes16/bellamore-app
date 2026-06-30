@@ -460,7 +460,8 @@ export default function ClientePerfilPage() {
   );
   if (!cliente) return <div className="text-center py-16 text-text-3">Cliente não encontrado.</div>;
 
-  const idade = cliente.data_nascimento
+  const anoNasc = cliente.data_nascimento ? parseInt(cliente.data_nascimento.slice(0, 4)) : null;
+  const idade = (cliente.data_nascimento && anoNasc && anoNasc > 1905)
     ? differenceInYears(new Date(), new Date(cliente.data_nascimento + 'T00:00:00'))
     : null;
 
@@ -604,9 +605,34 @@ export default function ClientePerfilPage() {
                       </div>
                       <div>
                         <label className={labelClass}>Data de nascimento</label>
-                        <input value={rascunhoInfo.data_nascimento} type="date"
-                          onChange={e => setRascunhoInfo(r => ({ ...r, data_nascimento: e.target.value }))}
-                          className={inputClass}/>
+                        <div className="flex gap-2">
+                          <select
+                            value={rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(5, 7) : ''}
+                            onChange={e => {
+                              const m = e.target.value;
+                              const d = rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(8, 10) : '01';
+                              setRascunhoInfo(r => ({ ...r, data_nascimento: m ? `1900-${m}-${d || '01'}` : '' }));
+                            }}
+                            className={inputClass}>
+                            <option value="">Mês</option>
+                            {[['01','Janeiro'],['02','Fevereiro'],['03','Março'],['04','Abril'],['05','Maio'],['06','Junho'],
+                              ['07','Julho'],['08','Agosto'],['09','Setembro'],['10','Outubro'],['11','Novembro'],['12','Dezembro']
+                            ].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          </select>
+                          <select
+                            value={rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(8, 10) : ''}
+                            onChange={e => {
+                              const d = e.target.value;
+                              const m = rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(5, 7) : '01';
+                              setRascunhoInfo(r => ({ ...r, data_nascimento: d ? `1900-${m || '01'}-${d}` : '' }));
+                            }}
+                            className={inputClass}>
+                            <option value="">Dia</option>
+                            {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map(d => (
+                              <option key={d} value={d}>{Number(d)}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
                     <div>
@@ -671,7 +697,7 @@ export default function ClientePerfilPage() {
                       <DisplayRow label="Telefone" value={cliente.telefone} placeholder="Não informado"/>
                       <DisplayRow label="Data de nascimento"
                         value={cliente.data_nascimento
-                          ? format(new Date(cliente.data_nascimento + 'T00:00:00'), 'dd/MM/yyyy')
+                          ? format(new Date(cliente.data_nascimento + 'T00:00:00'), 'dd/MM')
                           : undefined}
                         placeholder="Não informada"/>
                     </div>
@@ -993,7 +1019,7 @@ export default function ClientePerfilPage() {
                 <div>
                   <p className="text-xs text-text-4 mb-0.5">Nascimento</p>
                   <p className="text-sm font-medium text-text-2">
-                    {format(new Date(cliente.data_nascimento + 'T00:00:00'), 'dd/MM/yyyy')}
+                    {format(new Date(cliente.data_nascimento + 'T00:00:00'), 'dd/MM')}
                     {idade !== null && <span className="text-text-4 ml-1">({idade} anos)</span>}
                   </p>
                 </div>

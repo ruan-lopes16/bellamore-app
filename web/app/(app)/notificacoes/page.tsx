@@ -218,26 +218,33 @@ export default function NotificacoesPage() {
         });
       }
 
-      // Aniversariantes esta semana
+      // Aniversariantes: hoje + próximos 7 dias
       const clientes = rClientes.data ?? [];
-      const inicioSemana = new Date(hoje);
-      inicioSemana.setDate(hoje.getDate() - hoje.getDay());
-      const fimSemana = new Date(inicioSemana);
-      fimSemana.setDate(inicioSemana.getDate() + 6);
+      const limiteAniv = new Date(hoje.getTime() + 7 * 86400000);
 
       clientes.forEach((c: any) => {
         if (!c.data_nascimento) return;
         const nasc = new Date(c.data_nascimento + 'T12:00:00');
         const nascEsteAno = new Date(hoje.getFullYear(), nasc.getMonth(), nasc.getDate());
-        if (nascEsteAno >= inicioSemana && nascEsteAno <= fimSemana) {
-          const isHoje = nascEsteAno.toDateString() === hoje.toDateString();
+        const hojeD = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+        // Se já passou este ano, checar ano que vem
+        const nascRef = nascEsteAno < hojeD
+          ? new Date(hoje.getFullYear() + 1, nasc.getMonth(), nasc.getDate())
+          : nascEsteAno;
+        if (nascRef <= limiteAniv) {
+          const isHoje = nascRef.toDateString() === hoje.toDateString();
+          const diasRestantes = Math.round((nascRef.getTime() - hoje.getTime()) / 86400000);
           lista.push({
             id:       `aniv-${c.id}`,
             icone:    Gift,
             corIcone: '#D4608A',
             bgIcone:  '#FDF0F5',
             titulo:   `🎂 Aniversário: ${c.nome}`,
-            descricao: isHoje ? 'Aniversário hoje!' : `${format(nascEsteAno, "EEEE, dd/MM", { locale: ptBR })}`,
+            descricao: isHoje
+              ? 'Aniversário HOJE! 🎉'
+              : diasRestantes === 1
+                ? 'Amanhã!'
+                : `Em ${diasRestantes} dias · ${format(nascRef, 'dd/MM', { locale: ptBR })}`,
             link:     `/clientes/${c.id}`,
             urgente:  isHoje,
           });
