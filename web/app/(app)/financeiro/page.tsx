@@ -320,7 +320,8 @@ export default function FinanceiroPage() {
         .gte('data_hora_inicio', ini6).lte('data_hora_inicio', fim),
       // Membros ativos → percentual de comissão (inclui gestores que também atendem)
       supabase.from('empresa_membros').select('user_id, percentual_comissao')
-        .eq('empresa_id', empId).eq('ativo', true),
+        .eq('empresa_id', empId).eq('ativo', true)
+        .in('role', ['gestor', 'profissional']),
       // Despesas pagas no mês
       supabase.from('despesas').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
