@@ -27,6 +27,7 @@ type Profissional = {
   user: { id: string; nome: string; telefone?: string; email?: string };
   total_mes: number;
   atendimentos_mes: number;
+  comissao_mes: number;
 };
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -284,24 +285,28 @@ function ProfCard({ prof, onEditInfo, onToggle }: {
 
       {/* Stats do mês */}
       {prof.ativo && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
           <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
             <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{prof.atendimentos_mes}</p>
-            <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Atendimentos</p>
+            <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Atend.</p>
           </div>
           <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{fmtBRL(prof.total_mes)}</p>
-            <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Faturado · mês</p>
+            <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{fmtBRL(prof.total_mes)}</p>
+            <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Faturado</p>
+          </div>
+          <div style={{ background: 'var(--color-primary-soft)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-primary)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{fmtBRL(prof.comissao_mes)}</p>
+            <p style={{ fontSize: 9.5, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4, opacity: 0.7 }}>Comissão</p>
           </div>
         </div>
       )}
 
-      {/* Comissão */}
+      {/* % comissão configurada */}
       {prof.ativo && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 14, background: 'var(--color-primary-soft)', marginBottom: 12 }}>
-          <Percent size={14} strokeWidth={2} style={{ color: 'var(--color-primary)', flexShrink: 0 }}/>
-          <span style={{ fontSize: 11.5, color: 'var(--color-ink3)', flex: 1 }}>Comissão por atendimento</span>
-          <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)' }}>{prof.percentual_comissao}%</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 14, background: 'var(--color-bg2)', marginBottom: 12 }}>
+          <Percent size={13} strokeWidth={2} style={{ color: 'var(--color-ink3)', flexShrink: 0 }}/>
+          <span style={{ fontSize: 11.5, color: 'var(--color-ink3)', flex: 1 }}>Taxa de comissão</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-ink2)', fontFamily: 'var(--font-sans)' }}>{prof.percentual_comissao}%</span>
         </div>
       )}
 
@@ -369,11 +374,15 @@ export default function EquipePage() {
       stats[a.profissional_id].count += 1;
     });
 
-    setProfs(((membros ?? []) as any[]).map(m => ({
-      ...m,
-      total_mes:        stats[m.user_id]?.total ?? 0,
-      atendimentos_mes: stats[m.user_id]?.count ?? 0,
-    })));
+    setProfs(((membros ?? []) as any[]).map(m => {
+      const total = stats[m.user_id]?.total ?? 0;
+      return {
+        ...m,
+        total_mes:        total,
+        atendimentos_mes: stats[m.user_id]?.count ?? 0,
+        comissao_mes:     total * (m.percentual_comissao ?? 0) / 100,
+      };
+    }));
     setLoading(false);
   }
 
