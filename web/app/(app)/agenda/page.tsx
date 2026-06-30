@@ -170,11 +170,13 @@ type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: n
 type ConflitoDet  = { inicio: string; fim: string; cliente: string; servico: string };
 
 function NovoAgModal({
-  data, empresaId, onClose, onSalvo, agEditar,
+  data, empresaId, onClose, onSalvo, agEditar, horaInicial, profIdInicial,
 }: {
   data: Date; empresaId: string;
   onClose: () => void; onSalvo: () => void;
   agEditar?: Ag;
+  horaInicial?: string;
+  profIdInicial?: string;
 }) {
   const [clientes,      setClientes]      = useState<ClienteOpt[]>([]);
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
@@ -182,8 +184,8 @@ function NovoAgModal({
 
   const [dataSel,   setDataSel]   = useState(() => agEditar ? parseISO(agEditar.data_hora_inicio) : data);
   const [clienteId, setClienteId] = useState(() => agEditar?.cliente?.id ?? '');
-  const [profId,    setProfId]    = useState(() => agEditar?.profissional?.id ?? '');
-  const [hora,      setHora]      = useState(() => agEditar ? format(parseISO(agEditar.data_hora_inicio), 'HH:mm') : '09:00');
+  const [profId,    setProfId]    = useState(() => agEditar?.profissional?.id ?? (profIdInicial ?? ''));
+  const [hora,      setHora]      = useState(() => agEditar ? format(parseISO(agEditar.data_hora_inicio), 'HH:mm') : (horaInicial ?? '09:00'));
   const [obs,       setObs]       = useState(() => agEditar?.observacao ?? '');
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
@@ -545,15 +547,28 @@ function computeLanes(colAgs: Ag[]): Map<string, { lane: number; totalLanes: num
  * Sobreposições são detectadas e exibidas lado a lado.
  * Clicar num bloco abre o AgCard no painel lateral.
  */
+/** Snap Y para o horário mais próximo de 15 em 15 min e retorna "HH:mm" */
+function calcHoraTimeline(y: number): string {
+  const totalMins = Math.floor(y / TL_MIN_H);
+  const absM = TL_H_START * 60 + totalMins;
+  let h = Math.floor(absM / 60);
+  let m = Math.round((absM % 60) / 15) * 15;
+  if (m === 60) { m = 0; h += 1; }
+  h = Math.min(Math.max(h, TL_H_START), TL_H_END - 1);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 function TimelineView({
-  ags, loading, empresaId, onStatus, dataSel, onEditar,
+  ags, loading, empresaId, onStatus, dataSel, onEditar, onNovo,
 }: {
   ags: Ag[]; loading: boolean; empresaId: string;
   onStatus: (id: string, s: string) => void;
   dataSel: Date;
   onEditar?: (ag: Ag) => void;
+  onNovo: (params: { hora: string; profId: string }) => void;
 }) {
-  const [agSel,   setAgSel]   = useState<Ag | null>(null);
+  const [agSel,     setAgSel]     = useState<Ag | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ profId: string; y: number; horaStr: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Rola até o horário atual ao montar
@@ -622,19 +637,19 @@ function TimelineView({
         {/* Cabeçalho com nomes dos profissionais */}
         <div className="flex border-b border-border bg-bg">
           <div className="w-12 flex-shrink-0 border-r border-border" />
-          {profissionais.map(prof => (
-            <div key={prof.id}
-              className="flex-1 min-w-[80px] md:min-w-[130px] border-r border-border last:border-r-0 px-2 py-2 text-center">
-              <p className="text-xs font-bold text-text-2 truncate">
-                {prof.nome.split(' ')[0]}
-              </p>
-              {prof.nome.split(' ').length > 1 && (
-                <p className="text-[10px] text-text-4 truncate">
-                  {prof.nome.split(' ').slice(1).join(' ')}
-                </p>
-              )}
-            </div>
-          ))}
+          {profissionais.map(prof => {
+            const partes = prof.nome.trim().split(/\s+/);
+            const exibir = partes.length > 1
+              ? `${partes[0]} ${partes[partes.length - 1][0]}.`
+              : partes[0];
+            return (
+              <div key={prof.id}
+                className="flex-1 min-w-[80px] md:min-w-[130px] border-r border-border last:border-r-0 px-2 py-3 text-center"
+                title={prof.nome}>
+                <p className="text-xs font-bold text-text-2 truncate leading-none">{exibir}</p>
+              </div>
+            );
+          })}
         </div>
 
         {/* Área scrollável */}
@@ -663,8 +678,18 @@ function TimelineView({
 
               return (
                 <div key={prof.id}
-                  className="flex-1 min-w-[80px] md:min-w-[130px] border-r border-border last:border-r-0 relative"
-                  style={{ height: TL_TOTAL_H }}>
+                  className="flex-1 min-w-[80px] md:min-w-[130px] border-r border-border last:border-r-0 relative cursor-crosshair"
+                  style={{ height: TL_TOTAL_H }}
+                  onClick={e => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    onNovo({ hora: calcHoraTimeline(e.clientY - rect.top), profId: prof.id });
+                  }}
+                  onMouseMove={e => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    setHoverInfo({ profId: prof.id, y, horaStr: calcHoraTimeline(y) });
+                  }}
+                  onMouseLeave={() => setHoverInfo(null)}>
 
                   {/* Linhas de hora */}
                   {TL_HOURS.map(h => (
@@ -690,6 +715,16 @@ function TimelineView({
                     </div>
                   )}
 
+                  {/* Hover guide */}
+                  {hoverInfo?.profId === prof.id && (
+                    <div className="absolute inset-x-0 pointer-events-none z-30" style={{ top: hoverInfo.y }}>
+                      <div className="absolute inset-x-0 border-t border-dashed border-accent/60" />
+                      <span className="absolute right-1.5 -top-4 text-[9px] font-bold text-accent bg-surface/95 px-1.5 py-0.5 rounded-md border border-accent/25 whitespace-nowrap shadow-sm">
+                        {hoverInfo.horaStr}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Blocos de agendamento */}
                   {colAgs.map(ag => {
                     const { lane, totalLanes } = laneMap.get(ag.id) ?? { lane: 0, totalLanes: 1 };
@@ -702,7 +737,7 @@ function TimelineView({
                     return (
                       <button
                         key={ag.id}
-                        onClick={() => setAgSel(selecionado ? null : ag)}
+                        onClick={e => { e.stopPropagation(); setAgSel(selecionado ? null : ag); }}
                         style={{
                           top:         top + 2,
                           height:      h - 4,
@@ -925,7 +960,8 @@ export default function AgendaPage() {
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
-  const [modal,      setModal]     = useState(false);
+  const [modal,       setModal]      = useState(false);
+  const [modalParams, setModalParams] = useState<{ hora?: string; profId?: string }>({});
   const [agEditar,   setAgEditar]  = useState<Ag | null>(null);
   const [toastErro,    setToastErro]   = useState('');
   const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string; profissionalId: string | null } | null>(null);
@@ -1070,7 +1106,7 @@ export default function AgendaPage() {
             ]}
             getData={() => ags}
           />
-          <button onClick={() => setModal(true)} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
+          <button onClick={() => { setModalParams({}); setModal(true); }} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
             style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
             <Plus size={15} strokeWidth={2.5}/>Novo
           </button>
@@ -1122,6 +1158,7 @@ export default function AgendaPage() {
           onStatus={mudarStatus}
           dataSel={dataSel}
           onEditar={ag => setAgEditar(ag)}
+          onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
         />
       ) : (
         <>
@@ -1151,10 +1188,13 @@ export default function AgendaPage() {
         <NovoAgModal
           data={agEditar ? parseISO(agEditar.data_hora_inicio) : dataSel}
           empresaId={empresaId}
-          onClose={() => { setModal(false); setAgEditar(null); }}
+          horaInicial={modalParams.hora}
+          profIdInicial={modalParams.profId}
+          onClose={() => { setModal(false); setAgEditar(null); setModalParams({}); }}
           onSalvo={() => {
             setModal(false);
             setAgEditar(null);
+            setModalParams({});
             fetchDia(dataSel, empresaId);
             if (view === 'mes') fetchMes(dataSel, empresaId);
           }}
