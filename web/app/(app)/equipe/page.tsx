@@ -20,6 +20,7 @@ const supabase = createClient();
 type Profissional = {
   id: string;           // empresa_membros.id
   user_id: string;
+  role: 'owner' | 'gestor' | 'profissional';
   percentual_comissao: number;
   ativo: boolean;
   created_at: string;
@@ -41,6 +42,11 @@ function avatarCor(nome: string) {
 }
 function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
+}
+function roleBadge(role: 'owner' | 'gestor' | 'profissional') {
+  if (role === 'owner')  return { label: 'Dono(a)',     bg: 'var(--color-primary-soft)', color: 'var(--color-primary)' };
+  if (role === 'gestor') return { label: 'Gestor(a)',   bg: 'rgba(59,130,246,0.12)',     color: 'rgb(59,130,246)' };
+  return                        { label: 'Profissional', bg: 'var(--color-bg2)',          color: 'var(--color-ink3)' };
 }
 function fmtBRL(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
@@ -265,9 +271,14 @@ function ProfCard({ prof, onEditInfo, onToggle }: {
               <Phone size={10} strokeWidth={2}/>{prof.user.telefone}
             </a>
           )}
-          <span style={{ display: 'inline-flex', marginTop: 4, fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: prof.ativo ? 'var(--color-green-soft)' : 'var(--color-bg)', color: prof.ativo ? 'var(--color-green)' : 'var(--color-ink4)' }}>
-            {prof.ativo ? 'Ativa' : 'Inativa'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+            <span style={{ display: 'inline-flex', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: prof.ativo ? 'var(--color-green-soft)' : 'var(--color-bg)', color: prof.ativo ? 'var(--color-green)' : 'var(--color-ink4)' }}>
+              {prof.ativo ? 'Ativa' : 'Inativa'}
+            </span>
+            <span style={{ display: 'inline-flex', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: roleBadge(prof.role).bg, color: roleBadge(prof.role).color }}>
+              {roleBadge(prof.role).label}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -334,9 +345,9 @@ export default function EquipePage() {
 
     const { data: membros } = await supabase
       .from('empresa_membros')
-      .select('id, user_id, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
+      .select('id, user_id, role, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
       .eq('empresa_id', empId)
-      .in('role', ['gestor', 'profissional'])
+      .in('role', ['owner', 'gestor', 'profissional'])
       .order('ativo', { ascending: false })
       .order('created_at');
 

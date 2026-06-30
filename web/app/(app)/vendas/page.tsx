@@ -116,7 +116,7 @@ export default function VendasPage() {
   // Carrinho
   const [cart,       setCart]       = useState<CartItem[]>([]);
   const [clienteId,  setClienteId]  = useState('');
-  const [desconto,   setDesconto]   = useState('');
+  const [descontoPct, setDescontoPct] = useState('');
   const [splits,     setSplits]     = useState<Split[]>([]);
   const [finalizando,setFinalizando]= useState(false);
   const [erro,       setErro]       = useState('');
@@ -190,8 +190,9 @@ export default function VendasPage() {
 
   // ── Cálculos do carrinho
   const subtotal  = useMemo(() => cart.reduce((s, i) => s + i.preco_unitario * i.quantidade, 0), [cart]);
-  const descontoN = parseFloat(desconto.replace(',', '.')) || 0;
-  const total     = Math.max(0, subtotal - descontoN);
+  const descontoPctN = parseFloat(descontoPct.replace(',', '.')) || 0;
+  const descontoN    = subtotal * (descontoPctN / 100);
+  const total        = Math.max(0, subtotal - descontoN);
   const totalPago = splits.reduce((s, sp) => s + (parseFloat(sp.valor.replace(',', '.')) || 0), 0);
   const restante  = total - totalPago;
   const troco     = totalPago - total;
@@ -255,7 +256,7 @@ export default function VendasPage() {
   // ── Finalizar venda
   async function finalizar() {
     if (cart.length === 0)     { setErro('Carrinho vazio'); return; }
-    if (descontoN > subtotal)  { setErro('Desconto não pode ser maior que o subtotal'); return; }
+    if (descontoPctN > 100)    { setErro('Desconto não pode ser maior que 100%'); return; }
     if (splits.length === 0)   { setErro('Selecione um método de pagamento'); return; }
     if (restante > 0.01)       { setErro(`Faltam ${fmtBRL(restante)} para cobrir o total`); return; }
 
@@ -317,7 +318,7 @@ export default function VendasPage() {
     if (e4) { setErro(e4.message); setFinalizando(false); return; }
 
     // 5. Reset + feedback
-    setCart([]); setClienteId(''); setDesconto(''); setSplits([]);
+    setCart([]); setClienteId(''); setDescontoPct(''); setSplits([]);
     setFinalizando(false);
     setToast(`Venda de ${fmtBRL(total)} finalizada!`);
     setTimeout(() => setToast(''), 3500);
@@ -492,12 +493,12 @@ export default function VendasPage() {
                   />
                 </div>
                 <div>
-                  <label className={labelCls}>Desconto</label>
+                  <label className={labelCls}>Desconto (%)</label>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
-                    <input value={desconto} onChange={e => setDesconto(e.target.value)}
-                      inputMode="decimal" placeholder="0,00"
-                      className={`${inputCls} pl-9`}/>
+                    <input value={descontoPct} onChange={e => setDescontoPct(e.target.value)}
+                      inputMode="decimal" placeholder="0"
+                      className={`${inputCls} pr-9`}/>
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
                   </div>
                 </div>
               </div>
@@ -597,7 +598,7 @@ export default function VendasPage() {
                       <span>Subtotal</span><span>{fmtBRL(subtotal)}</span>
                     </div>
                     <div className="flex items-center justify-between text-xs text-green font-semibold">
-                      <span>Desconto</span><span>− {fmtBRL(descontoN)}</span>
+                      <span>Desconto ({descontoPctN}%)</span><span>− {fmtBRL(descontoN)}</span>
                     </div>
                   </>
                 )}

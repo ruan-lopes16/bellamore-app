@@ -198,7 +198,7 @@ export default function ComandaPage() {
   // Comanda em aberto
   const [clienteSel, setClienteSel] = useState<ClienteComanda | null>(null);
   const [itens,      setItens]      = useState<ComandaItem[]>([]);
-  const [desconto,   setDesconto]   = useState('');
+  const [descontoPct, setDescontoPct] = useState('');
   const [splits,     setSplits]     = useState<Split[]>([]);
   const [fechando,   setFechando]   = useState(false);
   const [toast,      setToast]      = useState('');
@@ -317,7 +317,7 @@ export default function ComandaPage() {
     setClienteSel(cliente);
     setComandaExistenteId(null);
     setErro('');
-    setDesconto('');
+    setDescontoPct('');
     setSplits([]);
     // Pré-preenche itens — cada serviço do agendamento vira um item separado
     setItens(
@@ -360,7 +360,7 @@ export default function ComandaPage() {
 
     setClienteSel(cliente);
     setComandaExistenteId(comandaId);
-    setErro(''); setDesconto(''); setSplits([]);
+    setErro(''); setDescontoPct(''); setSplits([]);
 
     const agItems: ComandaItem[] = cliente.agendamentos.flatMap(ag => {
       const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
@@ -392,7 +392,7 @@ export default function ComandaPage() {
       supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas').eq('comanda_id', comandaId),
     ]);
 
-    if ((cmd as any)?.desconto > 0) setDesconto(String((cmd as any).desconto).replace('.', ','));
+    setDescontoPct('');
 
     const extras: ComandaItem[] = (extraItems ?? []).map((item: any) => ({
       uid: uid(), tipo: item.tipo as 'servico' | 'produto',
@@ -508,8 +508,9 @@ export default function ComandaPage() {
 
   // ── Totais
   const subtotal  = itens.reduce((s, i) => s + i.valor * i.quantidade, 0);
-  const descontoN = parseFloat(desconto.replace(',', '.')) || 0;
-  const total     = Math.max(subtotal - descontoN, 0);
+  const descontoPctN = parseFloat(descontoPct.replace(',', '.')) || 0;
+  const descontoN    = subtotal * (descontoPctN / 100);
+  const total        = Math.max(subtotal - descontoN, 0);
   const recebido  = splits.reduce((s, x) => s + (parseFloat(x.valor.replace(',', '.')) || 0), 0);
   const restante  = total - recebido;
 
@@ -1018,14 +1019,16 @@ export default function ComandaPage() {
                   <div className="flex items-center gap-3 bg-bg rounded-xl px-4 py-3 border border-border">
                     <Tag size={16} className="text-text-3 flex-shrink-0"/>
                     <span className="text-sm text-text-2 flex-1">Desconto</span>
-                    <span className="text-xs text-text-3">R$</span>
-                    <input
-                      value={desconto}
-                      onChange={e => setDesconto(e.target.value)}
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      className="w-24 h-8 px-2 text-sm text-right rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition font-semibold"
-                    />
+                    <div className="relative">
+                      <input
+                        value={descontoPct}
+                        onChange={e => setDescontoPct(e.target.value)}
+                        inputMode="decimal"
+                        placeholder="0"
+                        className="w-20 h-8 px-2 pr-7 text-sm text-right rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition font-semibold"
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-text-3 font-bold">%</span>
+                    </div>
                   </div>
                 </section>
 
@@ -1037,7 +1040,7 @@ export default function ComandaPage() {
                   </div>
                   {descontoN > 0 && (
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                      <span className="text-sm text-text-2">(−) Desconto</span>
+                      <span className="text-sm text-text-2">(−) Desconto <span className="text-xs text-text-4">{descontoPctN}%</span></span>
                       <span className="text-sm font-semibold text-red">− {fmtBRL(descontoN)}</span>
                     </div>
                   )}
