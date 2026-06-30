@@ -33,17 +33,21 @@ function NovoClienteModal({ empresaId, onClose }: {
   const [nome,     setNome]     = useState('');
   const [telefone, setTelefone] = useState('');
   const [email,    setEmail]    = useState('');
-  const [nasc,     setNasc]     = useState('');
+  const [nascMes,  setNascMes]  = useState('');
+  const [nascDia,  setNascDia]  = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro(''); setSalvando(true);
+    const data_nascimento = (nascMes && nascDia)
+      ? `1900-${nascMes.padStart(2, '0')}-${nascDia.padStart(2, '0')}`
+      : null;
     const { data, error } = await supabase.from('clientes').insert({
       empresa_id: empresaId, nome: nome.trim(),
       telefone: telefone.trim() || null,
       email: email.trim() || null,
-      data_nascimento: nasc || null,
+      data_nascimento,
     }).select().single();
     setSalvando(false);
     if (error) { setErro(error.message); return; }
@@ -72,8 +76,21 @@ function NovoClienteModal({ empresaId, onClose }: {
             <input value={email} onChange={e => setEmail(e.target.value)} placeholder="opcional" type="email" className={inputClass}/>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Data de nascimento</label>
-            <input value={nasc} onChange={e => setNasc(e.target.value)} type="date" className={inputClass}/>
+            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Aniversário (opcional)</label>
+            <div className="grid grid-cols-2 gap-2">
+              <select value={nascMes} onChange={e => setNascMes(e.target.value)} className={inputClass}>
+                <option value="">Mês</option>
+                {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((m, i) => (
+                  <option key={i+1} value={String(i+1).padStart(2,'0')}>{m}</option>
+                ))}
+              </select>
+              <select value={nascDia} onChange={e => setNascDia(e.target.value)} className={inputClass}>
+                <option value="">Dia</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                  <option key={d} value={String(d).padStart(2,'0')}>{d}</option>
+                ))}
+              </select>
+            </div>
           </div>
           {erro && <p className="text-red text-sm">{erro}</p>}
           <p className="text-xs text-text-4 -mt-1">
@@ -216,7 +233,7 @@ export default function ClientesPage() {
               { header: 'Telefone',      accessor: (c: Cliente) => c.telefone ?? '',  width: 18 },
               { header: 'E-mail',        accessor: (c: Cliente) => c.email ?? '',     width: 28 },
               { header: 'Nascimento',    accessor: (c: Cliente) => c.data_nascimento
-                  ? format(new Date(c.data_nascimento + 'T00:00:00'), 'dd/MM/yyyy')
+                  ? format(new Date(c.data_nascimento + 'T00:00:00'), 'dd/MM')
                   : '',                                                                width: 14 },
               { header: 'Cadastrado em', accessor: (c: Cliente) => format(new Date(c.created_at), 'dd/MM/yyyy'), width: 16 },
             ]}
@@ -445,7 +462,7 @@ export default function ClientesPage() {
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                     {c.telefone && <span className="flex items-center gap-1" style={{ fontSize: 12, color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}><Phone size={11} strokeWidth={2}/>{c.telefone}</span>}
-                    {c.data_nascimento && <span style={{ fontSize: 12, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}>{format(new Date(c.data_nascimento + 'T00:00:00'), 'dd/MM/yyyy')}</span>}
+                    {c.data_nascimento && <span style={{ fontSize: 12, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}>{format(new Date(c.data_nascimento + 'T00:00:00'), 'dd/MM')}</span>}
                   </div>
                 </div>
                 <ChevronRight size={16} style={{ color: 'var(--color-ink4)', flexShrink: 0 }} strokeWidth={2}/>

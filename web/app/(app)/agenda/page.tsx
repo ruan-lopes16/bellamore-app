@@ -29,7 +29,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, X,
-  CalendarPlus, AlertTriangle, Pencil, Star,
+  CalendarPlus, AlertTriangle, Pencil, Star, Ban, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
@@ -50,7 +50,14 @@ type Ag = {
   agendamento_servicos: AgServico[];
 };
 type ClienteOpt = { id: string; nome: string; telefone?: string };
-type Servico = { id: string; nome: string; preco: number; duracao_minutos: number };
+type Servico    = { id: string; nome: string; preco: number; duracao_minutos: number };
+type Bloqueio   = {
+  id: string;
+  profissional_id: string | null;
+  titulo: string;
+  data_inicio: string;
+  data_fim: string;
+};
 
 const STATUS: Record<string, { label: string; bg: string; text: string; bdr: string }> = {
   agendado:   { label: 'Agendado',   bg: 'bg-amber-soft',   text: 'text-amber',   bdr: 'rgba(166,90,27,0.35)'   },
@@ -502,6 +509,18 @@ function tlHeight(ag: Ag): number {
   return Math.max((ms / 60000) * TL_MIN_H, 26);
 }
 
+/** Posição vertical (px) para um ISO string de hora */
+function tlTopISO(iso: string): number {
+  const d = parseISO(iso);
+  return Math.max(0, ((d.getHours() - TL_H_START) * 60 + d.getMinutes()) * TL_MIN_H);
+}
+
+/** Altura (px) entre dois ISO strings; mínimo 20px */
+function tlHeightISO(ini: string, fim: string): number {
+  const ms = parseISO(fim).getTime() - parseISO(ini).getTime();
+  return Math.max((ms / 60000) * TL_MIN_H, 20);
+}
+
 /** Verifica se dois agendamentos se sobrepõem no tempo */
 function sobrepoem(a: Ag, b: Ag): boolean {
   return a.data_hora_inicio < b.data_hora_fim && a.data_hora_fim > b.data_hora_inicio;
@@ -539,6 +558,121 @@ function computeLanes(colAgs: Ag[]): Map<string, { lane: number; totalLanes: num
   return result;
 }
 
+// ── Modal de bloqueio ─────────────────────────────────────────
+
+function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }: {
+  data: Date;
+  empresaId: string;
+  profissionais: { id: string; nome: string }[];
+  onClose: () => void;
+  onSalvo: (b: Bloqueio) => void;
+}) {
+  const [titulo,   setTitulo]   = useState('');
+  const [profId,   setProfId]   = useState('');
+  const [horaIni,  setHoraIni]  = useState('08:00');
+  const [horaFim,  setHoraFim]  = useState('09:00');
+  const [dataBl,   setDataBl]   = useState(format(data, 'yyyy-MM-dd'));
+  const [salvando, setSalvando] = useState(false);
+  const [erro,     setErro]     = useState('');
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro(''); setSalvando(true);
+
+    const dataInicio = new Date(`${dataBl}T${horaIni}:00`);
+    const dataFim    = new Date(`${dataBl}T${horaFim}:00`);
+    if (dataFim <= dataInicio) {
+      setErro('O horário de fim deve ser após o início.'); setSalvando(false); return;
+    }
+
+    const { data: row, error } = await supabase
+      .from('agenda_bloqueios')
+      .insert({
+        empresa_id:      empresaId,
+        profissional_id: profId || null,
+        titulo:          titulo.trim() || 'Bloqueio',
+        data_inicio:     dataInicio.toISOString(),
+        data_fim:        dataFim.toISOString(),
+      })
+      .select('id, profissional_id, titulo, data_inicio, data_fim')
+      .single();
+
+    setSalvando(false);
+    if (error) { setErro(error.message); return; }
+    onSalvo(row as Bloqueio);
+  }
+
+  const inputCls = "w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
+  const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1";
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm">
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Ban size={16} style={{ color: 'var(--color-rose)' }} strokeWidth={2}/>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 18, fontWeight: 600, color: 'var(--color-ink)' }}>
+              Bloquear horário
+            </h2>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <form onSubmit={salvar} className="p-5 flex flex-col gap-3">
+          <div>
+            <label className={labelCls}>Título (opcional)</label>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)}
+              placeholder="Ex: Folga, Reunião, Almoço..." className={inputCls}/>
+          </div>
+
+          <div>
+            <label className={labelCls}>Profissional</label>
+            <select value={profId} onChange={e => setProfId(e.target.value)} className={inputCls}>
+              <option value="">Todos os profissionais</option>
+              {profissionais.map(p => (
+                <option key={p.id} value={p.id}>{p.nome}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className={labelCls}>Data</label>
+            <input type="date" value={dataBl} onChange={e => setDataBl(e.target.value)} className={inputCls}/>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Início</label>
+              <input type="time" value={horaIni} onChange={e => setHoraIni(e.target.value)} className={inputCls}/>
+            </div>
+            <div>
+              <label className={labelCls}>Fim</label>
+              <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)} className={inputCls}/>
+            </div>
+          </div>
+
+          {erro && <p className="text-sm" style={{ color: 'var(--color-rose)' }}>{erro}</p>}
+
+          <div className="flex gap-3 mt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+              Cancelar
+            </button>
+            <button type="submit" disabled={salvando}
+              className="flex-1 h-10 rounded-xl text-white text-sm font-bold transition disabled:opacity-60"
+              style={{ background: 'var(--color-rose)' }}>
+              {salvando ? 'Salvando...' : 'Bloquear'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /**
  * TimelineView — Visão por hora dos agendamentos do dia.
  *
@@ -559,13 +693,14 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, loading, empresaId, onStatus, dataSel, onEditar, onNovo,
+  ags, bloqueios, loading, empresaId, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio,
 }: {
-  ags: Ag[]; loading: boolean; empresaId: string;
+  ags: Ag[]; bloqueios: Bloqueio[]; loading: boolean; empresaId: string;
   onStatus: (id: string, s: string) => void;
   dataSel: Date;
   onEditar?: (ag: Ag) => void;
   onNovo: (params: { hora: string; profId: string }) => void;
+  onDeletarBloqueio: (id: string) => void;
 }) {
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
   const [hoverInfo, setHoverInfo] = useState<{ profId: string; y: number; horaStr: string } | null>(null);
@@ -724,6 +859,36 @@ function TimelineView({
                       </span>
                     </div>
                   )}
+
+                  {/* Bloqueios de horário */}
+                  {bloqueios
+                    .filter(b => b.profissional_id === null || b.profissional_id === prof.id)
+                    .map(bl => {
+                      const topBl = tlTopISO(bl.data_inicio);
+                      const hBl   = tlHeightISO(bl.data_inicio, bl.data_fim);
+                      return (
+                        <div key={bl.id}
+                          className="absolute overflow-hidden z-5 flex flex-col"
+                          style={{
+                            top: topBl, height: hBl, left: 2, right: 2,
+                            borderRadius: 5,
+                            background: 'repeating-linear-gradient(-45deg, rgba(220,38,38,0.07), rgba(220,38,38,0.07) 5px, rgba(220,38,38,0.03) 5px, rgba(220,38,38,0.03) 10px)',
+                            border: '1px solid rgba(220,38,38,0.22)',
+                          }}>
+                          <div className="flex items-center justify-between px-1.5 py-0.5 gap-1">
+                            <span className="text-[9px] font-semibold truncate" style={{ color: 'var(--color-rose)' }}>
+                              {bl.titulo || 'Bloqueio'}
+                            </span>
+                            <button
+                              onClick={e => { e.stopPropagation(); onDeletarBloqueio(bl.id); }}
+                              className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-rose-soft transition"
+                              title="Remover bloqueio">
+                              <X size={9} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
 
                   {/* Blocos de agendamento */}
                   {colAgs.map(ag => {
@@ -957,10 +1122,12 @@ export default function AgendaPage() {
     Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
   );
   const [ags,        setAgs]       = useState<Ag[]>([]);
+  const [bloqueios,  setBloqueios] = useState<Bloqueio[]>([]);
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
   const [modal,       setModal]      = useState(false);
+  const [modalBloq,   setModalBloq]  = useState(false);
   const [modalParams, setModalParams] = useState<{ hora?: string; profId?: string }>({});
   const [agEditar,   setAgEditar]  = useState<Ag | null>(null);
   const [toastErro,    setToastErro]   = useState('');
@@ -981,21 +1148,34 @@ export default function AgendaPage() {
     })();
   }, []);
 
-  // Busca agendamentos do dia selecionado
+  // Busca agendamentos + bloqueios do dia selecionado
   const fetchDia = useCallback(async (data: Date, empId: string) => {
     setLoading(true);
-    const { data: rows } = await supabase
-      .from('agendamentos')
-      .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,
-        cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
-        profissional:users!agendamentos_profissional_id_fkey(id,nome),
-        servico:servicos(id,nome,duracao_minutos),
-        agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome))`)
-      .eq('empresa_id', empId)
-      .gte('data_hora_inicio', startOfDay(data).toISOString())
-      .lte('data_hora_inicio', endOfDay(data).toISOString())
-      .order('data_hora_inicio');
+    const iniDia = startOfDay(data).toISOString();
+    const fimDia = endOfDay(data).toISOString();
+
+    const [{ data: rows }, { data: blRows }] = await Promise.all([
+      supabase
+        .from('agendamentos')
+        .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,
+          cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
+          profissional:users!agendamentos_profissional_id_fkey(id,nome),
+          servico:servicos(id,nome,duracao_minutos),
+          agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome))`)
+        .eq('empresa_id', empId)
+        .gte('data_hora_inicio', iniDia)
+        .lte('data_hora_inicio', fimDia)
+        .order('data_hora_inicio'),
+      supabase
+        .from('agenda_bloqueios')
+        .select('id, profissional_id, titulo, data_inicio, data_fim')
+        .eq('empresa_id', empId)
+        .lte('data_inicio', fimDia)
+        .gte('data_fim',    iniDia),
+    ]);
+
     setAgs((rows ?? []) as unknown as Ag[]);
+    setBloqueios((blRows ?? []) as Bloqueio[]);
     setLoading(false);
   }, []);
 
@@ -1061,6 +1241,15 @@ export default function AgendaPage() {
     }
   }
 
+  async function deletarBloqueio(id: string) {
+    setBloqueios(prev => prev.filter(b => b.id !== id));
+    const { error } = await supabase.from('agenda_bloqueios').delete().eq('id', id);
+    if (error) {
+      if (empresaId) fetchDia(dataSel, empresaId);
+      showErro(`Erro ao remover bloqueio: ${error.message}`);
+    }
+  }
+
   return (
     <div className="bm-page">
       {/* Toast de erro */}
@@ -1106,6 +1295,12 @@ export default function AgendaPage() {
             ]}
             getData={() => ags}
           />
+          <button onClick={() => setModalBloq(true)}
+            className="press flex items-center gap-2 px-3 h-10 rounded-2xl text-sm font-bold border border-border transition hover:bg-bg"
+            style={{ fontFamily: 'var(--font-sans)', color: 'var(--color-rose)' }}
+            title="Bloquear horário">
+            <Ban size={14} strokeWidth={2}/><span className="hidden sm:inline">Bloquear</span>
+          </button>
           <button onClick={() => { setModalParams({}); setModal(true); }} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
             style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
             <Plus size={15} strokeWidth={2.5}/>Novo
@@ -1153,12 +1348,14 @@ export default function AgendaPage() {
       ) : view === 'timeline' ? (
         <TimelineView
           ags={ags}
+          bloqueios={bloqueios}
           loading={loading}
           empresaId={empresaId ?? ''}
           onStatus={mudarStatus}
           dataSel={dataSel}
           onEditar={ag => setAgEditar(ag)}
           onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
+          onDeletarBloqueio={deletarBloqueio}
         />
       ) : (
         <>
@@ -1201,6 +1398,25 @@ export default function AgendaPage() {
           agEditar={agEditar ?? undefined}
         />
       )}
+
+      {/* Modal de bloqueio */}
+      {modalBloq && empresaId && (() => {
+        const profsUnicos = Array.from(
+          new Map(ags.filter(a => a.profissional).map(a => [a.profissional!.id, a.profissional!])).entries()
+        ).map(([, p]) => p);
+        return (
+          <NovoBloqueioModal
+            data={dataSel}
+            empresaId={empresaId}
+            profissionais={profsUnicos}
+            onClose={() => setModalBloq(false)}
+            onSalvo={b => {
+              setBloqueios(prev => [...prev, b]);
+              setModalBloq(false);
+            }}
+          />
+        );
+      })()}
 
       {/* Modal de avaliação pós-atendimento */}
       {avaliacaoAg && empresaId && (
