@@ -20,16 +20,16 @@ CREATE TABLE IF NOT EXISTS public.agenda_bloqueios (
 ALTER TABLE public.agenda_bloqueios ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bloqueios_select" ON public.agenda_bloqueios
-  FOR SELECT USING (empresa_id = ANY(minha_empresas()));
+  FOR SELECT USING (empresa_id IN (SELECT minha_empresas()));
 
 CREATE POLICY "bloqueios_insert" ON public.agenda_bloqueios
-  FOR INSERT WITH CHECK (empresa_id = ANY(minha_empresas()));
+  FOR INSERT WITH CHECK (empresa_id IN (SELECT minha_empresas()));
 
 CREATE POLICY "bloqueios_update" ON public.agenda_bloqueios
-  FOR UPDATE USING (empresa_id = ANY(minha_empresas()));
+  FOR UPDATE USING (empresa_id IN (SELECT minha_empresas()));
 
 CREATE POLICY "bloqueios_delete" ON public.agenda_bloqueios
-  FOR DELETE USING (empresa_id = ANY(minha_empresas()));
+  FOR DELETE USING (empresa_id IN (SELECT minha_empresas()));
 
 CREATE INDEX IF NOT EXISTS idx_bloqueios_empresa_data
   ON public.agenda_bloqueios (empresa_id, data_inicio, data_fim);
