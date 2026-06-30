@@ -69,17 +69,26 @@ export async function POST(req: NextRequest) {
       email:    emailFinal,
     }, { onConflict: 'id' });
 
-    // 3. Adiciona à empresa como profissional
+    // 3. Adiciona à empresa como profissional (preserva role existente via insert+ignore, atualiza só dados)
+    const { data: existing } = await adminClient
+      .from('empresa_membros')
+      .select('id, role')
+      .eq('empresa_id', empresaId)
+      .eq('user_id', userId!)
+      .single();
+
+    const roleToUse = existing?.role ?? 'profissional';
+
     const { data: membro, error: membroError } = await adminClient
       .from('empresa_membros')
       .upsert({
         empresa_id:          empresaId,
         user_id:             userId,
-        role:                'profissional',
+        role:                roleToUse,
         percentual_comissao: percentual_comissao ?? 0,
         ativo:               true,
       }, { onConflict: 'empresa_id,user_id' })
-      .select('id, user_id, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
+      .select('id, user_id, role, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
       .single();
 
     if (membroError) {
