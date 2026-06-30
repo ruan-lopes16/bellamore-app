@@ -10,7 +10,7 @@ import {
   CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, Target,
   UserMinus, Cake,
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths, differenceInDays } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 function fmt(v: number) {
@@ -67,17 +67,22 @@ export default async function DashboardPage() {
   if (!membro) redirect('/criar-empresa');
   const empresaId = membro.empresa_id;
 
-  const hoje         = new Date();
+  // Brazil is UTC-3 (no DST since 2019). Shift so getUTC* returns Brazil local values.
+  const hoje         = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const mesLabel     = format(hoje, "MMMM 'de' yyyy", { locale: ptBR });
   const diaLabel     = format(hoje, "EEEE, d 'de' MMMM", { locale: ptBR });
   const inicioMes    = startOfMonth(hoje).toISOString();
   const fimMes       = endOfMonth(hoje).toISOString();
-  const inicioHoje   = startOfDay(hoje).toISOString();
-  const fimHoje      = endOfDay(hoje).toISOString();
   const inicioMesAnt = startOfMonth(subMonths(hoje, 1)).toISOString();
   const fimMesAnt    = endOfMonth(subMonths(hoje, 1)).toISOString();
-  const daqui7       = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-  const hojeStr      = hoje.toISOString().slice(0, 10);
+  // "Today" in Brazil: midnight BRT = 03:00 UTC, 23:59:59 BRT = next day 02:59:59 UTC
+  const brYear  = hoje.getUTCFullYear();
+  const brMonth = hoje.getUTCMonth();
+  const brDate  = hoje.getUTCDate();
+  const inicioHoje = new Date(Date.UTC(brYear, brMonth, brDate, 3, 0, 0, 0)).toISOString();
+  const fimHoje    = new Date(Date.UTC(brYear, brMonth, brDate + 1, 3, 0, 0, 0) - 1).toISOString();
+  const hojeStr    = `${brYear}-${String(brMonth + 1).padStart(2, '0')}-${String(brDate).padStart(2, '0')}`;
+  const daqui7     = new Date(Date.UTC(brYear, brMonth, brDate + 7)).toISOString().slice(0, 10);
 
   const { data: empresaData } = await supabase
     .from('empresas').select('meta_mensal').eq('id', empresaId).single();
@@ -488,8 +493,8 @@ export default async function DashboardPage() {
                         {(a.servico as any)?.nome ?? '—'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span style={{ fontFamily: 'var(--font-sans)', fontSize: 13.5, fontWeight: 800, color: 'var(--color-ink)' }}>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      <span style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 800, color: 'var(--color-ink)', whiteSpace: 'nowrap' }}>
                         {fmt(Number(a.valor))}
                       </span>
                       <StatusChip status={a.status} />

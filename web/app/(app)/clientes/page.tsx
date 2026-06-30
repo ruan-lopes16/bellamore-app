@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, UserPlus, Phone, Mail, X, ChevronRight, Users, UserCheck, CalendarPlus, Crown, AlertTriangle, Sparkles } from 'lucide-react';
+import { Search, UserPlus, Phone, Mail, X, ChevronRight, Users, UserCheck, CalendarPlus, Crown, AlertTriangle, Sparkles, LayoutGrid, List } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { Cliente } from '@/types';
 import { format, startOfMonth } from 'date-fns';
@@ -101,6 +101,7 @@ export default function ClientesPage() {
   const [filtro,         setFiltro]         = useState<'todas' | 'novas' | 'aniver' | 'segmentos'>('todas');
   const [empresaId,      setEmpresaId]      = useState<string | null>(null);
   const [modal,          setModal]          = useState(false);
+  const [viewMode,       setViewMode]       = useState<'lista' | 'grade'>('lista');
   const [visitaMap,      setVisitaMap]      = useState<Map<string, { lastVisit: Date; total: number }> | null>(null);
   const [loadingVisitas, setLoadingVisitas] = useState(false);
 
@@ -190,6 +191,23 @@ export default function ClientesPage() {
           </h1>
         </div>
         <div className="flex flex-wrap gap-2 sm:pt-1">
+          {/* Toggle lista/grade — visível apenas no desktop */}
+          <div className="hidden sm:flex items-center rounded-xl border border-border overflow-hidden">
+            <button
+              onClick={() => setViewMode('lista')}
+              className="flex items-center justify-center w-9 h-9 transition"
+              style={{ background: viewMode === 'lista' ? 'var(--color-primary-soft)' : 'var(--color-surface)', color: viewMode === 'lista' ? 'var(--color-primary)' : 'var(--color-ink4)' }}
+              title="Visualização em lista">
+              <List size={15} strokeWidth={2}/>
+            </button>
+            <button
+              onClick={() => setViewMode('grade')}
+              className="flex items-center justify-center w-9 h-9 transition"
+              style={{ background: viewMode === 'grade' ? 'var(--color-primary-soft)' : 'var(--color-surface)', color: viewMode === 'grade' ? 'var(--color-primary)' : 'var(--color-ink4)' }}
+              title="Visualização em grade">
+              <LayoutGrid size={15} strokeWidth={2}/>
+            </button>
+          </div>
           <ExportButton
             filename="clientes"
             title="Clientes"
@@ -382,6 +400,30 @@ export default function ClientesPage() {
             </button>
           )}
         </div>
+      ) : viewMode === 'grade' ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {filtrados.map((c, idx) => {
+            let h = 0;
+            for (let i = 0; i < c.nome.length; i++) h = (h * 31 + c.nome.charCodeAt(i)) % 360;
+            const inits = c.nome.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
+            const isNew = new Date(c.created_at) >= new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+            return (
+              <button key={c.id} onClick={() => router.push(`/clientes/${c.id}`)}
+                className="press bm-stagger w-full text-left"
+                style={{ '--bm-i': idx % 8, '--bm-step': '60ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: '16px 14px', boxShadow: '0 2px 6px rgba(44,23,80,0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 } as React.CSSProperties}>
+                <div style={{ width: 56, height: 56, borderRadius: 56 * 0.32, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 18, flexShrink: 0 }}>
+                  {inits}
+                </div>
+                <div style={{ width: '100%', textAlign: 'center', minWidth: 0 }}>
+                  <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 13, color: 'var(--color-ink)' }}>{c.nome}</p>
+                  {isNew && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--color-green-soft)', color: 'var(--color-green)' }}>Nova</span>}
+                  {c.telefone && <p className="truncate mt-1" style={{ fontSize: 11.5, color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}>{c.telefone}</p>}
+                  {c.data_nascimento && <p style={{ fontSize: 11, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}>{format(new Date(c.data_nascimento + 'T00:00:00'), 'dd/MM')}</p>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
           {filtrados.map((c, idx) => {
@@ -393,7 +435,6 @@ export default function ClientesPage() {
               <button key={c.id} onClick={() => router.push(`/clientes/${c.id}`)}
                 className="press bm-stagger w-full text-left"
                 style={{ '--bm-i': idx % 8, '--bm-step': '60ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: '12px 16px', boxShadow: '0 2px 6px rgba(44,23,80,0.05)', display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties}>
-                {/* Avatar */}
                 <div style={{ width: 44, height: 44, borderRadius: 44 * 0.32, flexShrink: 0, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 15 }}>
                   {inits}
                 </div>
