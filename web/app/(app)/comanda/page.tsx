@@ -38,7 +38,7 @@ import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import {
   format, startOfDay, endOfDay, parseISO,
-  addDays, subDays, addMonths, subMonths, isToday, isSameDay, isSameMonth,
+  addDays, addMonths, subMonths, isToday, isSameDay, isSameMonth,
   startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -185,7 +185,7 @@ export default function ComandaPage() {
   const [dataComanda,       setDataComanda]       = useState<Date>(new Date());
   const [view,              setView]              = useState<'semana' | 'mes'>('semana');
   const [semana,            setSemana]            = useState<Date[]>(() =>
-    Array.from({ length: 7 }, (_, i) => addDays(subDays(new Date(), 3), i))
+    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
   );
   const [agsMes,            setAgsMes]            = useState<Map<string, number>>(new Map());
   const [comandaExistenteId, setComandaExistenteId] = useState<string | null>(null);
@@ -287,7 +287,7 @@ export default function ComandaPage() {
     setDataComanda(d);
     setView('semana');
     if (!semana.some(s => isSameDay(s, d)))
-      setSemana(Array.from({ length: 7 }, (_, i) => addDays(subDays(d, 3), i)));
+      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
   }
 
   // ── Clientes do dia (agrupados)

@@ -94,7 +94,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   useEffect(() => {
     Promise.all([
       supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
-        .eq('empresa_id', empresaId).eq('role', 'profissional').eq('ativo', true),
+        .eq('empresa_id', empresaId).in('role', ['gestor', 'profissional']).eq('ativo', true),
       supabase.from('servicos').select('id, nome, preco, duracao_minutos')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
     ]).then(([p, s]) => {
