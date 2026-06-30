@@ -541,7 +541,7 @@ export default function ServicosPage() {
   const [loading,     setLoading]     = useState(true);
   const [empresaId,   setEmpresaId]   = useState<string | null>(null);
   const [modal,       setModal]       = useState<ModalState | null>(null);
-  const [colapsos,    setColapsos]    = useState<Set<CategoriaKey>>(new Set());
+  const [colapsos,    setColapsos]    = useState<Set<CategoriaKey>>(new Set(CATEGORIAS.map(c => c.key)));
   const [excluindoId,   setExcluindoId]   = useState<string | null>(null);
   const [toastErro,     setToastErro]     = useState('');
   const [toastSucesso,  setToastSucesso]  = useState('');

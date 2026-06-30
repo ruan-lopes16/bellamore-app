@@ -730,6 +730,11 @@ export default function RelatoriosPage() {
         <KpiCard icon={Scissors}   label="Atendimentos"         value={String(concluidos.length)}   sub="concluídos" cor="#D4608A" loading={loading} />
         <KpiCard icon={Target}     label="Ticket médio"         value={fmtBRL(ticket)}              cor="#B45309" loading={loading} />
         <KpiCard icon={Users}      label="Taxa comparecimento"  value={`${taxa.toFixed(1)}%`}       cor="#1D4ED8" loading={loading} />
+        <KpiCard icon={DollarSign} label="Total comissões"      value={fmtBRL(comTot)}
+          sub={comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0) > 0
+            ? `${fmtBRL(comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0))} pendentes`
+            : 'Em dia'}
+          cor="#D97706" loading={loading} />
       </div>
 
       {/* ── Abas ── */}
