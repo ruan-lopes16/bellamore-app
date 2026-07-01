@@ -7,10 +7,10 @@ import Tilt from '@/components/Tilt';
 import {
   TrendingUp, CalendarDays, Users, Wallet,
   AlertTriangle, ShoppingBag, Clock, ArrowUp, ArrowDown,
-  CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, Target,
+  CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, ChevronLeft, Target,
   UserMinus, Cake,
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, subMonths, differenceInDays } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths, addMonths, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 function fmt(v: number) {
@@ -55,7 +55,7 @@ function StatusChip({ status }: { status: string }) {
   );
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ mes?: string }> }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
@@ -68,13 +68,27 @@ export default async function DashboardPage() {
   const empresaId = membro.empresa_id;
 
   // Brazil is UTC-3 (no DST since 2019). Shift so getUTC* returns Brazil local values.
-  const hoje         = new Date(Date.now() - 3 * 60 * 60 * 1000);
-  const mesLabel     = format(hoje, "MMMM 'de' yyyy", { locale: ptBR });
-  const diaLabel     = format(hoje, "EEEE, d 'de' MMMM", { locale: ptBR });
-  const inicioMes    = startOfMonth(hoje).toISOString();
-  const fimMes       = endOfMonth(hoje).toISOString();
-  const inicioMesAnt = startOfMonth(subMonths(hoje, 1)).toISOString();
-  const fimMesAnt    = endOfMonth(subMonths(hoje, 1)).toISOString();
+  const hoje     = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const diaLabel = format(hoje, "EEEE, d 'de' MMMM", { locale: ptBR });
+
+  // Mês em exibição (financeiro): navegável via ?mes=yyyy-MM, padrão = mês atual, sem ir ao futuro
+  const { mes: mesParam } = await searchParams;
+  const mesAtualRef = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  let mesRef = mesAtualRef;
+  if (mesParam && /^\d{4}-\d{2}$/.test(mesParam)) {
+    const [anoP, mesP] = mesParam.split('-').map(Number);
+    const candidato = new Date(anoP, mesP - 1, 1);
+    if (candidato <= mesAtualRef) mesRef = candidato;
+  }
+  const isMesAtual   = mesRef.getTime() === mesAtualRef.getTime();
+  const mesRefLabel  = format(mesRef, "MMMM 'de' yyyy", { locale: ptBR });
+  const paramAnterior = format(subMonths(mesRef, 1), 'yyyy-MM');
+  const paramSeguinte = format(addMonths(mesRef, 1), 'yyyy-MM');
+
+  const inicioMes    = startOfMonth(mesRef).toISOString();
+  const fimMes       = endOfMonth(mesRef).toISOString();
+  const inicioMesAnt = startOfMonth(subMonths(mesRef, 1)).toISOString();
+  const fimMesAnt    = endOfMonth(subMonths(mesRef, 1)).toISOString();
   // "Today" in Brazil: midnight BRT = 03:00 UTC, 23:59:59 BRT = next day 02:59:59 UTC
   const brYear  = hoje.getUTCFullYear();
   const brMonth = hoje.getUTCMonth();
@@ -204,8 +218,8 @@ export default async function DashboardPage() {
     .sort((a, b) => a.diasAte - b.diasAte)
     .slice(0, 8);
 
-  // Receita diária acumulada para o sparkline
-  const todayDay = hoje.getDate();
+  // Receita diária acumulada para o sparkline (mês atual: até hoje · mês passado: completo)
+  const diasNoPeriodo = isMesAtual ? hoje.getDate() : endOfMonth(mesRef).getDate();
   const dailyMap: Record<number, number> = {};
   (agsMes.data ?? []).forEach(a => {
     const d = new Date(a.data_hora_inicio).getDate();
@@ -217,7 +231,7 @@ export default async function DashboardPage() {
   });
   const sparkData: number[] = [];
   let acc = 0;
-  for (let d = 1; d <= todayDay; d++) {
+  for (let d = 1; d <= diasNoPeriodo; d++) {
     acc += dailyMap[d] ?? 0;
     sparkData.push(acc);
   }
@@ -227,9 +241,31 @@ export default async function DashboardPage() {
 
       {/* ── Header ── */}
       <div className="mb-6">
-        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>
-          {mesLabel}
-        </p>
+        <div className="flex items-center gap-1 mb-1">
+          <Link href={`/dashboard?mes=${paramAnterior}`} aria-label="Mês anterior"
+            className="flex items-center justify-center rounded-md transition-colors hover:bg-[var(--color-bg2)]"
+            style={{ width: 22, height: 22, color: 'var(--color-ink4)' }}>
+            <ChevronLeft size={12} strokeWidth={2.4} />
+          </Link>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+            {mesRefLabel}
+          </p>
+          {!isMesAtual ? (
+            <Link href={`/dashboard?mes=${paramSeguinte}`} aria-label="Próximo mês"
+              className="flex items-center justify-center rounded-md transition-colors hover:bg-[var(--color-bg2)]"
+              style={{ width: 22, height: 22, color: 'var(--color-ink4)' }}>
+              <ChevronRight size={12} strokeWidth={2.4} />
+            </Link>
+          ) : (
+            <span style={{ width: 22, height: 22 }} />
+          )}
+          {!isMesAtual && (
+            <Link href="/dashboard"
+              style={{ fontFamily: 'var(--font-sans)', fontSize: 9.5, fontWeight: 700, color: 'var(--color-accent)', background: 'var(--color-accent-soft)', borderRadius: 999, padding: '2px 8px', marginLeft: 2 }}>
+              Hoje
+            </Link>
+          )}
+        </div>
         <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
           Dashboard
         </h1>
@@ -247,7 +283,7 @@ export default async function DashboardPage() {
 
         <div className="relative" style={{ zIndex: 1 }}>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.48)', textTransform: 'uppercase', letterSpacing: '0.13em', marginBottom: 8 }}>
-            Receita - {format(hoje, 'MMMM yyyy', { locale: ptBR }).toUpperCase()}
+            Receita - {format(mesRef, 'MMMM yyyy', { locale: ptBR }).toUpperCase()}
           </p>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 'clamp(28px, 8vw, 38px)', fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
             <span style={{ fontSize: 16, fontWeight: 500, opacity: 0.6, marginRight: 4 }}>R$</span>
