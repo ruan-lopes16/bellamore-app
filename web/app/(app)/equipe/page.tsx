@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog,
+  Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog, ChevronDown, CheckCircle2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -27,6 +27,7 @@ type Profissional = {
   user: { id: string; nome: string; telefone?: string; email?: string };
   total_mes: number;
   atendimentos_mes: number;
+  comissao_pendente: number;
 };
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -238,34 +239,49 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
 
 // ── Card profissional ─────────────────────────────────────────
 
-function ProfCard({ prof, onEditInfo, onToggle }: {
+function ProfCard({ prof, onEditInfo, onToggle, onPagar }: {
   prof: Profissional;
   onEditInfo: () => void;
   onToggle: () => void;
+  onPagar: () => void;
 }) {
-  const [c1, c2] = prof.ativo ? avatarCor(prof.user.nome) : ['#9CA3AF', '#6B7280'];
+  const [expandido, setExpandido] = useState(false);
+  const [pagando,   setPagando]   = useState(false);
 
   let hue = 0;
   for (let i = 0; i < prof.user.nome.length; i++) hue = (hue * 31 + prof.user.nome.charCodeAt(i)) % 360;
 
+  const temPendente = prof.comissao_pendente > 0;
+
+  async function handlePagar() {
+    setPagando(true);
+    await onPagar();
+    setPagando(false);
+  }
+
   return (
-    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', opacity: prof.ativo ? 1 : 0.6, transition: 'opacity 0.2s' }}>
-      {/* Topo: avatar + info */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', opacity: prof.ativo ? 1 : 0.6, transition: 'opacity 0.2s' }}>
+
+      {/* ── Cabeçalho (sempre visível, clicável para expandir) */}
+      <button onClick={() => setExpandido(v => !v)}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: 20, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+        {/* Avatar */}
         <div style={{ width: 48, height: 48, borderRadius: 16, background: prof.ativo ? `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))` : 'linear-gradient(140deg, #9CA3AF, #6B7280)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }}>
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 15, fontFamily: 'var(--font-sans)' }}>{iniciais(prof.user.nome)}</span>
         </div>
+
+        {/* Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <p style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prof.user.nome}</p>
-            <button onClick={onEditInfo} title="Editar informações"
+            <button onClick={e => { e.stopPropagation(); onEditInfo(); }} title="Editar informações"
               style={{ width: 20, height: 20, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-ink4)', background: 'transparent', border: 'none', cursor: 'pointer', flexShrink: 0 }}
               className="hover:text-accent transition">
               <Edit3 size={11} strokeWidth={2}/>
             </button>
           </div>
           {prof.user.telefone && (
-            <a href={`tel:${prof.user.telefone}`}
+            <a href={`tel:${prof.user.telefone}`} onClick={e => e.stopPropagation()}
               style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--color-ink3)', textDecoration: 'none', marginTop: 2 }}
               className="hover:text-primary transition">
               <Phone size={10} strokeWidth={2}/>{prof.user.telefone}
@@ -278,42 +294,74 @@ function ProfCard({ prof, onEditInfo, onToggle }: {
             <span style={{ display: 'inline-flex', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: roleBadge(prof.role).bg, color: roleBadge(prof.role).color }}>
               {roleBadge(prof.role).label}
             </span>
+            {temPendente && !expandido && (
+              <span style={{ display: 'inline-flex', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: 'rgba(217,119,6,0.12)', color: '#B45309' }}>
+                {fmtBRL(prof.comissao_pendente)} pendente
+              </span>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* Stats do mês */}
-      {prof.ativo && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-          <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
-            <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{prof.atendimentos_mes}</p>
-            <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Atendimentos</p>
-          </div>
-          <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{fmtBRL(prof.total_mes)}</p>
-            <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Faturado · mês</p>
-          </div>
-        </div>
-      )}
-
-      {/* Comissão */}
-      {prof.ativo && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 14, background: 'var(--color-primary-soft)', marginBottom: 12 }}>
-          <Percent size={14} strokeWidth={2} style={{ color: 'var(--color-primary)', flexShrink: 0 }}/>
-          <span style={{ fontSize: 11.5, color: 'var(--color-ink3)', flex: 1 }}>Comissão por atendimento</span>
-          <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)' }}>{prof.percentual_comissao}%</span>
-        </div>
-      )}
-
-      {/* Botão de ativar / desativar */}
-      <button onClick={onToggle}
-        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 36, borderRadius: 14, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', border: prof.ativo ? '1px solid rgba(201,82,127,0.3)' : '1px solid rgba(21,122,91,0.3)', background: 'transparent', color: prof.ativo ? 'var(--color-rose)' : 'var(--color-green)', fontFamily: 'var(--font-sans)' }}
-        className={prof.ativo ? 'hover:bg-red-soft' : 'hover:bg-green-soft'}>
-        {prof.ativo
-          ? <><PowerOff size={13} strokeWidth={2}/> Desativar profissional</>
-          : <><Power     size={13} strokeWidth={2}/> Reativar profissional</>
-        }
+        {/* Chevron */}
+        <ChevronDown size={16} strokeWidth={2}
+          style={{ color: 'var(--color-ink4)', flexShrink: 0, transition: 'transform 0.2s', transform: expandido ? 'rotate(180deg)' : 'rotate(0deg)' }}/>
       </button>
+
+      {/* ── Conteúdo expandido */}
+      {expandido && (
+        <div style={{ padding: '0 20px 20px', borderTop: '1px solid var(--color-border)' }}>
+
+          {/* Stats do mês */}
+          {prof.ativo && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14, marginTop: 16 }}>
+              <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
+                <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{prof.atendimentos_mes}</p>
+                <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Atendimentos</p>
+              </div>
+              <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
+                <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{fmtBRL(prof.total_mes)}</p>
+                <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Faturado · mês</p>
+              </div>
+            </div>
+          )}
+
+          {/* Comissão % */}
+          {prof.ativo && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 14, background: 'var(--color-primary-soft)', marginBottom: 12 }}>
+              <Percent size={14} strokeWidth={2} style={{ color: 'var(--color-primary)', flexShrink: 0 }}/>
+              <span style={{ fontSize: 11.5, color: 'var(--color-ink3)', flex: 1 }}>Comissão por atendimento</span>
+              <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)' }}>{prof.percentual_comissao}%</span>
+            </div>
+          )}
+
+          {/* Pagar comissão */}
+          {prof.ativo && temPendente && (
+            <button onClick={handlePagar} disabled={pagando}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, height: 40, borderRadius: 14, fontSize: 12, fontWeight: 700, cursor: pagando ? 'default' : 'pointer', transition: 'all 0.15s', border: 'none', background: pagando ? 'var(--color-bg2)' : '#B45309', color: pagando ? 'var(--color-ink4)' : '#fff', fontFamily: 'var(--font-sans)', marginBottom: 10, opacity: pagando ? 0.7 : 1 }}>
+              <CheckCircle2 size={14} strokeWidth={2.5}/>
+              {pagando ? 'Registrando...' : `Pagar ${fmtBRL(prof.comissao_pendente)}`}
+            </button>
+          )}
+
+          {/* Comissão em dia */}
+          {prof.ativo && !temPendente && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 14, background: 'var(--color-green-soft)', marginBottom: 12, fontSize: 11.5, color: 'var(--color-green)', fontWeight: 600 }}>
+              <CheckCircle2 size={13} strokeWidth={2.5}/>
+              Comissão em dia
+            </div>
+          )}
+
+          {/* Ativar / desativar */}
+          <button onClick={onToggle}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 36, borderRadius: 14, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', border: prof.ativo ? '1px solid rgba(201,82,127,0.3)' : '1px solid rgba(21,122,91,0.3)', background: 'transparent', color: prof.ativo ? 'var(--color-rose)' : 'var(--color-green)', fontFamily: 'var(--font-sans)' }}
+            className={prof.ativo ? 'hover:bg-red-soft' : 'hover:bg-green-soft'}>
+            {prof.ativo
+              ? <><PowerOff size={13} strokeWidth={2}/> Desativar profissional</>
+              : <><Power     size={13} strokeWidth={2}/> Reativar profissional</>
+            }
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -354,13 +402,18 @@ export default function EquipePage() {
     const inicio = startOfMonth(new Date()).toISOString();
     const fim    = endOfMonth(new Date()).toISOString();
 
-    const { data: ags } = await supabase
-      .from('agendamentos')
-      .select('profissional_id, valor')
-      .eq('empresa_id', empId)
-      .eq('status', 'concluido')
-      .gte('data_hora_inicio', inicio)
-      .lte('data_hora_inicio', fim);
+    const [{ data: ags }, { data: comsPend }] = await Promise.all([
+      supabase.from('agendamentos')
+        .select('profissional_id, valor')
+        .eq('empresa_id', empId)
+        .eq('status', 'concluido')
+        .gte('data_hora_inicio', inicio)
+        .lte('data_hora_inicio', fim),
+      supabase.from('comissoes')
+        .select('profissional_id, valor_comissao')
+        .eq('empresa_id', empId)
+        .eq('status', 'pendente'),
+    ]);
 
     const stats: Record<string, { total: number; count: number }> = {};
     ((ags ?? []) as { profissional_id: string; valor: number }[]).forEach(a => {
@@ -369,10 +422,16 @@ export default function EquipePage() {
       stats[a.profissional_id].count += 1;
     });
 
+    const pendMap: Record<string, number> = {};
+    ((comsPend ?? []) as { profissional_id: string; valor_comissao: number }[]).forEach(c => {
+      pendMap[c.profissional_id] = (pendMap[c.profissional_id] ?? 0) + Number(c.valor_comissao);
+    });
+
     setProfs(((membros ?? []) as any[]).map(m => ({
       ...m,
-      total_mes:        stats[m.user_id]?.total ?? 0,
-      atendimentos_mes: stats[m.user_id]?.count ?? 0,
+      total_mes:         stats[m.user_id]?.total ?? 0,
+      atendimentos_mes:  stats[m.user_id]?.count ?? 0,
+      comissao_pendente: pendMap[m.user_id]   ?? 0,
     })));
     setLoading(false);
   }
@@ -402,6 +461,17 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
       } : p
     ));
     setEditandoInfo(null);
+  }
+
+  async function pagarComissoes(profUserId: string) {
+    if (!empresaId) return;
+    setProfs(prev => prev.map(p => p.user_id === profUserId ? { ...p, comissao_pendente: 0 } : p));
+    const { error } = await supabase.from('comissoes')
+      .update({ status: 'pago' })
+      .eq('empresa_id', empresaId)
+      .eq('profissional_id', profUserId)
+      .eq('status', 'pendente');
+    if (error) await carregarEquipe(empresaId);
   }
 
   function onProfSalva(nova: Profissional) {
@@ -504,7 +574,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
             {profs.map((p, i) => (
               <div key={p.id} className="bm-stagger"
                 style={{ '--bm-i': i, '--bm-step': '60ms' } as React.CSSProperties}>
-                <ProfCard prof={p} onEditInfo={() => setEditandoInfo(p)} onToggle={() => toggleAtivo(p)}/>
+                <ProfCard prof={p} onEditInfo={() => setEditandoInfo(p)} onToggle={() => toggleAtivo(p)} onPagar={() => pagarComissoes(p.user_id)}/>
               </div>
             ))}
           </div>
