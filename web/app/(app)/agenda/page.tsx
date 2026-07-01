@@ -219,7 +219,7 @@ function NovoAgModal({
       supabase.from('clientes').select('id, nome, telefone')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
-        .eq('empresa_id', empresaId).in('role', ['gestor', 'profissional']).eq('ativo', true),
+        .eq('empresa_id', empresaId).in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true),
       supabase.from('servicos').select('id, nome, preco, duracao_minutos')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
     ]).then(([c, p, s]) => {
