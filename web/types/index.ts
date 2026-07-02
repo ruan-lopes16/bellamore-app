@@ -63,7 +63,7 @@ export interface Pacote {
   empresa_id: string;
   nome: string;
   preco: number;
-  validade_dias: number;
+  validade_dias: number | null;
   ativo: boolean;
 }
 
@@ -203,7 +203,7 @@ export interface PacoteCliente {
   pacote_id: string;
   cliente_id: string;
   data_inicio: string;
-  data_validade: string;
+  data_validade: string | null;
   valor_pago?: number;
   status: 'ativo' | 'concluido' | 'expirado' | 'cancelado';
   observacao?: string;
