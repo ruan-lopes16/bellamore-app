@@ -64,6 +64,8 @@ export interface Pacote {
   nome: string;
   preco: number;
   validade_dias: number | null;
+  /** false = pacote "combo" — agrupa serviços sem rastrear sessões restantes */
+  controla_sessoes: boolean;
   ativo: boolean;
 }
 
