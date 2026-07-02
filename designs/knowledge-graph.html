@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Bellamore — Knowledge Graph</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0d0f1a; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+#graph { width:100vw; height:100vh; display:block; }
+
+.link { stroke-opacity:.35; transition:stroke-opacity .15s, stroke-width .15s; }
+.link.dim   { stroke-opacity:.04; }
+.link.hot   { stroke-opacity:.9; stroke-width:2.5px; }
+
+.node { cursor:grab; }
+.node:active { cursor:grabbing; }
+.node circle { transition:r .2s, opacity .15s; }
+.node text   { transition:opacity .15s; pointer-events:none; user-select:none;
+               paint-order:stroke; stroke:#0d0f1a; stroke-width:3px;
+               fill:rgba(226,232,240,.85); text-anchor:middle; }
+.node.dim circle, .node.dim text { opacity:.08; }
+.node.hot circle { filter:brightness(1.6) drop-shadow(0 0 6px currentColor); }
+
+/* ── Toolbar ── */
+.ui {
+  position:fixed; top:20px; left:20px;
+  display:flex; flex-direction:column; gap:10px; z-index:10;
+}
+.brand {
+  display:flex; align-items:center; gap:10px;
+}
+.logo {
+  width:34px; height:34px; border-radius:9px;
+  background:linear-gradient(135deg,#818cf8,#f472b6);
+  display:flex; align-items:center; justify-content:center;
+  font-weight:900; font-size:17px; color:#fff; flex-shrink:0;
+}
+.brand-title { font-size:14px; font-weight:700; color:#e2e8f0; line-height:1.2; }
+.brand-sub   { font-size:11px; color:#3d4a6b; }
+
+.card {
+  background:rgba(13,15,26,.88);
+  border:1px solid #1e2240;
+  border-radius:11px; padding:12px 14px;
+  backdrop-filter:blur(14px);
+}
+.card-label {
+  font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.1em; color:#3d4a6b; margin-bottom:8px;
+}
+.stats { display:flex; gap:14px; font-size:12px; }
+.stats span strong { color:#818cf8; }
+
+.filter {
+  display:flex; align-items:center; gap:8px;
+  padding:4px 0; cursor:pointer; border:none;
+  background:transparent; font:12px inherit; color:#c8d0e0;
+  text-align:left; width:100%; border-radius:5px;
+  transition:opacity .15s;
+}
+.filter:hover { opacity:.8; }
+.filter.off { opacity:.28; }
+.dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.count { margin-left:auto; color:#3d4a6b; font-size:10px; }
+
+/* ── Legend — link types ── */
+.legend-link { display:flex; align-items:center; gap:8px; font-size:11px; color:#5a6380; padding:2px 0; }
+.legend-line { width:24px; height:2px; border-radius:1px; flex-shrink:0; }
+
+/* ── Tooltip ── */
+#tip {
+  position:fixed; display:none; pointer-events:none;
+  background:rgba(13,15,26,.96); border:1px solid #1e2240;
+  border-radius:12px; padding:13px 16px; z-index:99;
+  max-width:230px; backdrop-filter:blur(12px);
+}
+#tip-name { font-size:14px; font-weight:700; color:#e2e8f0; margin-bottom:5px; }
+#tip-badge {
+  display:inline-block; padding:2px 9px; border-radius:100px;
+  font-size:10px; font-weight:700; margin-bottom:8px;
+}
+#tip-info { font-size:12px; color:#4a5580; line-height:1.7; }
+
+.help {
+  position:fixed; bottom:18px; right:20px;
+  font-size:11px; color:#272e4a; text-align:right; line-height:1.9;
+}
+</style>
+</head>
+<body>
+
+<svg id="graph"></svg>
+
+<div class="ui">
+  <div class="brand">
+    <div class="logo">B</div>
+    <div>
+      <div class="brand-title">Knowledge Graph</div>
+      <div class="brand-sub">Bellamore · App de Estética</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="stats">
+      <span><strong id="sn">0</strong> nós</span>
+      <span><strong id="sl">0</strong> arestas</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Tipos de nó</div>
+    <button class="filter" id="f-page"      onclick="toggle('page',this)">      <span class="dot" style="background:#818cf8"></span>Páginas       <span class="count" id="c-page"></span></button>
+    <button class="filter" id="f-auth"      onclick="toggle('auth',this)">      <span class="dot" style="background:#f87171"></span>Auth          <span class="count" id="c-auth"></span></button>
+    <button class="filter" id="f-component" onclick="toggle('component',this)"> <span class="dot" style="background:#34d399"></span>Componentes   <span class="count" id="c-component"></span></button>
+    <button class="filter" id="f-table"     onclick="toggle('table',this)">     <span class="dot" style="background:#fb923c"></span>Tabelas       <span class="count" id="c-table"></span></button>
+    <button class="filter" id="f-lib"       onclick="toggle('lib',this)">       <span class="dot" style="background:#60a5fa"></span>Lib / Utils   <span class="count" id="c-lib"></span></button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Tipos de aresta</div>
+    <div class="legend-link"><div class="legend-line" style="background:#6d5ef3"></div>layout (AppLayout)</div>
+    <div class="legend-link"><div class="legend-line" style="background:#22a865"></div>uses (componente/lib)</div>
+    <div class="legend-link"><div class="legend-line" style="background:#c4580c"></div>queries (tabela)</div>
+    <div class="legend-link"><div class="legend-line" style="background:#b97d10"></div>FK (banco)</div>
+  </div>
+</div>
+
+<div id="tip">
+  <div id="tip-name"></div>
+  <div id="tip-badge"></div>
+  <div id="tip-info"></div>
+</div>
+
+<div class="help">
+  Scroll — zoom &nbsp;·&nbsp; Arrastar — mover<br>
+  Hover — destacar &nbsp;·&nbsp; Clique fundo — soltar
+</div>
+
+<script>
+// ─── palettes ────────────────────────────────────────────────────────────────
+const C = {
+  page:'#818cf8', auth:'#f87171', component:'#34d399',
+  table:'#fb923c', lib:'#60a5fa'
+};
+const CL = {
+  layout:'#6d5ef3', uses:'#22a865', queries:'#c4580c', fk:'#b97d10'
+};
+const LABEL = {
+  page:'Página', auth:'Auth', component:'Componente', table:'Tabela', lib:'Lib'
+};
+
+// ─── nodes ───────────────────────────────────────────────────────────────────
+const RAW_NODES = [
+  // pages (protected)
+  {id:'dashboard',      label:'dashboard',      type:'page'},
+  {id:'agenda',         label:'agenda',          type:'page'},
+  {id:'clientes',       label:'clientes',        type:'page'},
+  {id:'clientes_id',    label:'clientes/[id]',   type:'page'},
+  {id:'financeiro',     label:'financeiro',      type:'page'},
+  {id:'relatorios',     label:'relatorios',      type:'page'},
+  {id:'equipe',         label:'equipe',          type:'page'},
+  {id:'estoque',        label:'estoque',         type:'page'},
+  {id:'comanda',        label:'comanda',         type:'page'},
+  {id:'servicos_pg',    label:'servicos',        type:'page'},
+  {id:'pacotes',        label:'pacotes',         type:'page'},
+  {id:'vendas_pg',      label:'vendas',          type:'page'},
+  {id:'comissoes_pg',   label:'comissoes',       type:'page'},
+  {id:'notificacoes_pg',label:'notificacoes',    type:'page'},
+  {id:'configuracoes',  label:'configuracoes',   type:'page'},
+  // auth
+  {id:'login',          label:'/login',          type:'auth'},
+  {id:'cadastro',       label:'/cadastro',       type:'auth'},
+  {id:'criar_empresa',  label:'/criar-empresa',  type:'auth'},
+  // components
+  {id:'AppLayout',      label:'AppLayout',       type:'component'},
+  {id:'Sidebar',        label:'Sidebar',         type:'component'},
+  {id:'Skeleton',       label:'Skeleton',        type:'component'},
+  {id:'ExportButton',   label:'ExportButton',    type:'component'},
+  {id:'SearchSelect',   label:'SearchSelect',    type:'component'},
+  {id:'ConfirmDialog',  label:'ConfirmDialog',   type:'component'},
+  {id:'CountUp',        label:'CountUp',         type:'component'},
+  {id:'SparkBars',      label:'SparkBars',       type:'component'},
+  {id:'Tilt',           label:'Tilt',            type:'component'},
+  {id:'SwRegister',     label:'SwRegister',      type:'component'},
+  // tables
+  {id:'auth_users',           label:'auth.users',            type:'table'},
+  {id:'users',                label:'users',                 type:'table'},
+  {id:'empresas',             label:'empresas',              type:'table'},
+  {id:'empresa_membros',      label:'empresa_membros',       type:'table'},
+  {id:'clientes_t',           label:'clientes',              type:'table'},
+  {id:'servicos_t',           label:'servicos',              type:'table'},
+  {id:'produtos',             label:'produtos',              type:'table'},
+  {id:'agendamentos',         label:'agendamentos',          type:'table'},
+  {id:'agendamento_servicos', label:'agendamento_servicos',  type:'table'},
+  {id:'comandas',             label:'comandas',              type:'table'},
+  {id:'comanda_itens',        label:'comanda_itens',         type:'table'},
+  {id:'pagamentos',           label:'pagamentos',            type:'table'},
+  {id:'comissoes_t',          label:'comissoes',             type:'table'},
+  {id:'despesas',             label:'despesas',              type:'table'},
+  {id:'vendas_t',             label:'vendas',                type:'table'},
+  {id:'venda_itens',          label:'venda_itens',           type:'table'},
+  {id:'estoque_movimentos',   label:'estoque_movimentos',    type:'table'},
+  {id:'servico_produtos',     label:'servico_produtos',      type:'table'},
+  {id:'pacotes_t',            label:'pacotes',               type:'table'},
+  {id:'pacote_servicos',      label:'pacote_servicos',       type:'table'},
+  {id:'pacote_clientes',      label:'pacote_clientes',       type:'table'},
+  {id:'avaliacoes',           label:'avaliacoes',            type:'table'},
+  {id:'notificacoes_t',       label:'notificacoes',          type:'table'},
+  {id:'web_push',             label:'web_push_subscriptions',type:'table'},
+  // lib
+  {id:'lib_client', label:'supabase/client',  type:'lib'},
+  {id:'lib_server', label:'supabase/server',  type:'lib'},
+  {id:'lib_export', label:'lib/export',       type:'lib'},
+  {id:'lib_masks',  label:'lib/masks',        type:'lib'},
+  {id:'lib_taxas',  label:'lib/taxas-cartao', type:'lib'},
+  {id:'types',      label:'types/index',      type:'lib'},
+];
+
+// ─── links ───────────────────────────────────────────────────────────────────
+const PROTECTED = ['dashboard','agenda','clientes','clientes_id','financeiro','relatorios',
+  'equipe','estoque','comanda','servicos_pg','pacotes','vendas_pg',
+  'comissoes_pg','notificacoes_pg','configuracoes'];
+const CLIENT_PG = PROTECTED.filter(p => p !== 'dashboard');
+
+function q(src, targets, type='queries') {
+  return targets.map(t => ({source:src, target:t, type}));
+}
+
+const RAW_LINKS = [
+  // layout
+  ...PROTECTED.map(p => ({source:p, target:'AppLayout', type:'layout'})),
+  {source:'AppLayout', target:'Sidebar', type:'uses'},
+
+  // pages → components
+  {source:'dashboard',      target:'CountUp',      type:'uses'},
+  {source:'dashboard',      target:'SparkBars',    type:'uses'},
+  {source:'dashboard',      target:'Tilt',         type:'uses'},
+  {source:'agenda',         target:'ExportButton', type:'uses'},
+  {source:'agenda',         target:'SearchSelect', type:'uses'},
+  {source:'agenda',         target:'Skeleton',     type:'uses'},
+  {source:'clientes',       target:'ExportButton', type:'uses'},
+  {source:'clientes',       target:'Skeleton',     type:'uses'},
+  {source:'clientes_id',    target:'SearchSelect', type:'uses'},
+  {source:'financeiro',     target:'ExportButton', type:'uses'},
+  {source:'financeiro',     target:'Skeleton',     type:'uses'},
+  {source:'relatorios',     target:'ExportButton', type:'uses'},
+  {source:'relatorios',     target:'Skeleton',     type:'uses'},
+  {source:'equipe',         target:'ExportButton', type:'uses'},
+  {source:'equipe',         target:'Skeleton',     type:'uses'},
+  {source:'equipe',         target:'ConfirmDialog',type:'uses'},
+  {source:'estoque',        target:'Skeleton',     type:'uses'},
+  {source:'comanda',        target:'SearchSelect', type:'uses'},
+  {source:'comanda',        target:'Skeleton',     type:'uses'},
+  {source:'servicos_pg',    target:'Skeleton',     type:'uses'},
+  {source:'pacotes',        target:'Skeleton',     type:'uses'},
+  {source:'vendas_pg',      target:'ExportButton', type:'uses'},
+  {source:'vendas_pg',      target:'Skeleton',     type:'uses'},
+  {source:'comissoes_pg',   target:'ExportButton', type:'uses'},
+  {source:'comissoes_pg',   target:'Skeleton',     type:'uses'},
+  {source:'notificacoes_pg',target:'Skeleton',     type:'uses'},
+  {source:'configuracoes',  target:'Skeleton',     type:'uses'},
+
+  // pages → tables
+  ...q('dashboard',      ['agendamentos','empresa_membros','comissoes_t','despesas','vendas_t','clientes_t','produtos','empresas']),
+  ...q('agenda',         ['agendamentos','clientes_t','servicos_t','empresa_membros','agendamento_servicos','avaliacoes']),
+  ...q('clientes',       ['empresa_membros','clientes_t','agendamentos']),
+  ...q('clientes_id',    ['clientes_t','agendamentos','vendas_t','pacote_clientes']),
+  ...q('financeiro',     ['agendamentos','despesas','comissoes_t','pagamentos','vendas_t','empresa_membros']),
+  ...q('relatorios',     ['agendamentos','despesas','comissoes_t','estoque_movimentos','vendas_t','pagamentos','avaliacoes','empresa_membros']),
+  ...q('equipe',         ['empresa_membros','agendamentos','users']),
+  ...q('estoque',        ['produtos','estoque_movimentos','servico_produtos','empresa_membros']),
+  ...q('comanda',        ['agendamentos','clientes_t','servicos_t','produtos','comandas','comanda_itens','pagamentos','vendas_t','venda_itens','estoque_movimentos','empresa_membros']),
+  ...q('servicos_pg',    ['servicos_t','servico_produtos','produtos','empresa_membros']),
+  ...q('pacotes',        ['pacotes_t','pacote_servicos','pacote_clientes','servicos_t','clientes_t','empresa_membros']),
+  ...q('vendas_pg',      ['produtos','clientes_t','vendas_t','venda_itens','estoque_movimentos','pagamentos','empresa_membros']),
+  ...q('comissoes_pg',   ['empresa_membros','comissoes_t']),
+  ...q('notificacoes_pg',['agendamentos','produtos','despesas','comissoes_t','clientes_t','notificacoes_t','web_push','empresa_membros']),
+  ...q('configuracoes',  ['empresa_membros','empresas','users']),
+
+  // auth → tables
+  {source:'login',        target:'auth_users', type:'queries'},
+  {source:'cadastro',     target:'auth_users', type:'queries'},
+  {source:'criar_empresa',target:'empresas',   type:'queries'},
+
+  // FK relationships (banco)
+  {source:'auth_users',         target:'users',                type:'fk'},
+  {source:'auth_users',         target:'empresa_membros',      type:'fk'},
+  {source:'users',              target:'empresas',             type:'fk'},
+  {source:'empresas',           target:'empresa_membros',      type:'fk'},
+  {source:'empresas',           target:'clientes_t',           type:'fk'},
+  {source:'empresas',           target:'servicos_t',           type:'fk'},
+  {source:'empresas',           target:'produtos',             type:'fk'},
+  {source:'agendamentos',       target:'agendamento_servicos', type:'fk'},
+  {source:'agendamentos',       target:'comissoes_t',          type:'fk'},
+  {source:'comandas',           target:'comanda_itens',        type:'fk'},
+  {source:'vendas_t',           target:'venda_itens',          type:'fk'},
+  {source:'pacotes_t',          target:'pacote_servicos',      type:'fk'},
+  {source:'pacotes_t',          target:'pacote_clientes',      type:'fk'},
+  {source:'servicos_t',         target:'servico_produtos',     type:'fk'},
+  {source:'produtos',           target:'servico_produtos',     type:'fk'},
+  {source:'produtos',           target:'estoque_movimentos',   type:'fk'},
+
+  // lib
+  {source:'ExportButton', target:'lib_export', type:'uses'},
+  {source:'dashboard',    target:'lib_server', type:'uses'},
+  ...CLIENT_PG.map(p => ({source:p, target:'lib_client', type:'uses'})),
+  {source:'configuracoes',target:'lib_masks',  type:'uses'},
+  {source:'comanda',      target:'lib_taxas',  type:'uses'},
+  {source:'financeiro',   target:'lib_taxas',  type:'uses'},
+  ...PROTECTED.map(p => ({source:p, target:'types', type:'uses'})),
+];
+
+// ─── degree (for node sizing) ─────────────────────────────────────────────────
+const deg = {};
+RAW_LINKS.forEach(l => {
+  deg[l.source] = (deg[l.source]||0) + 1;
+  deg[l.target] = (deg[l.target]||0) + 1;
+});
+function radius(d) {
+  return Math.max(4, Math.min(24, 3 + Math.sqrt(deg[d.id]||1) * 2.8));
+}
+
+// ─── stats ───────────────────────────────────────────────────────────────────
+document.getElementById('sn').textContent = RAW_NODES.length;
+document.getElementById('sl').textContent = RAW_LINKS.length;
+['page','auth','component','table','lib'].forEach(t => {
+  document.getElementById('c-'+t).textContent =
+    RAW_NODES.filter(n => n.type === t).length;
+});
+
+// ─── D3 setup ────────────────────────────────────────────────────────────────
+const W = window.innerWidth, H = window.innerHeight;
+const svg = d3.select('#graph').attr('width', W).attr('height', H);
+const g   = svg.append('g');
+
+// glow filters
+const defs = svg.append('defs');
+Object.entries(C).forEach(([type, color]) => {
+  const f = defs.append('filter').attr('id','glow-'+type)
+    .attr('x','-60%').attr('y','-60%').attr('width','220%').attr('height','220%');
+  f.append('feGaussianBlur').attr('in','SourceGraphic').attr('stdDeviation',4).attr('result','b');
+  const m = f.append('feMerge');
+  m.append('feMergeNode').attr('in','b');
+  m.append('feMergeNode').attr('in','SourceGraphic');
+});
+
+// zoom + pan
+const zoom = d3.zoom().scaleExtent([.05, 10])
+  .on('zoom', e => g.attr('transform', e.transform));
+svg.call(zoom);
+svg.call(zoom.transform, d3.zoomIdentity.translate(W/2, H/2).scale(0.65));
+svg.on('click', () => unhighlight());
+
+// clone data for D3 mutation
+const nodes = RAW_NODES.map(d => ({...d}));
+const links = RAW_LINKS.map(d => ({...d}));
+
+// force simulation
+const sim = d3.forceSimulation(nodes)
+  .force('link',      d3.forceLink(links).id(d=>d.id).distance(d => {
+    const base = {layout:90, uses:70, queries:100, fk:65};
+    return base[d.type] || 80;
+  }).strength(0.25))
+  .force('charge',    d3.forceManyBody().strength(-280).distanceMax(500))
+  .force('center',    d3.forceCenter(0,0).strength(0.04))
+  .force('collision', d3.forceCollide().radius(d => radius(d)+14));
+
+// ─── draw links ──────────────────────────────────────────────────────────────
+const linkSel = g.append('g').selectAll('line')
+  .data(links).join('line')
+  .attr('class','link')
+  .attr('stroke', d => CL[d.type] || '#ffffff22')
+  .attr('stroke-width', d => d.type==='fk' ? 1.8 : 1);
+
+// ─── draw nodes ──────────────────────────────────────────────────────────────
+const nodeSel = g.append('g').selectAll('g')
+  .data(nodes).join('g')
+  .attr('class','node')
+  .call(d3.drag()
+    .on('start', (e,d) => { if(!e.active) sim.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+    .on('end',   (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }))
+  .on('mouseenter', onEnter)
+  .on('mousemove',  onMove)
+  .on('mouseleave', onLeave);
+
+nodeSel.append('circle')
+  .attr('r', d => radius(d))
+  .attr('fill', d => C[d.type])
+  .attr('fill-opacity', .82)
+  .attr('filter', d => `url(#glow-${d.type})`);
+
+nodeSel.append('text')
+  .attr('dy', d => radius(d) + 11)
+  .style('font-size', d => radius(d)>13 ? '11px' : '9.5px')
+  .text(d => d.label);
+
+// ─── simulation tick ──────────────────────────────────────────────────────────
+sim.on('tick', () => {
+  linkSel
+    .attr('x1', d=>d.source.x).attr('y1', d=>d.source.y)
+    .attr('x2', d=>d.target.x).attr('y2', d=>d.target.y);
+  nodeSel.attr('transform', d=>`translate(${d.x},${d.y})`);
+});
+
+// ─── hover highlight ─────────────────────────────────────────────────────────
+const tip   = document.getElementById('tip');
+const tipNm = document.getElementById('tip-name');
+const tipBg = document.getElementById('tip-badge');
+const tipIf = document.getElementById('tip-info');
+
+function id(n) { return typeof n==='object' ? n.id : n; }
+
+function onEnter(event, d) {
+  const neighbors = new Set([d.id]);
+  links.forEach(l => {
+    if (id(l.source)===d.id) neighbors.add(id(l.target));
+    if (id(l.target)===d.id) neighbors.add(id(l.source));
+  });
+
+  nodeSel.classed('dim', n => !neighbors.has(n.id))
+         .classed('hot', n => n.id === d.id);
+  linkSel.classed('dim', l => id(l.source)!==d.id && id(l.target)!==d.id)
+         .classed('hot', l => id(l.source)===d.id || id(l.target)===d.id);
+
+  tipNm.textContent = d.label;
+  tipBg.textContent = LABEL[d.type];
+  tipBg.style.background = C[d.type]+'28';
+  tipBg.style.color = C[d.type];
+  tipIf.innerHTML = `${deg[d.id]||0} conexões`;
+  tip.style.display = 'block';
+  positionTip(event);
+}
+function onMove(event) { positionTip(event); }
+function onLeave() {
+  tip.style.display='none';
+  unhighlight();
+}
+function positionTip(e) {
+  tip.style.left = (e.clientX+16)+'px';
+  tip.style.top  = (Math.min(e.clientY-10, window.innerHeight-100))+'px';
+}
+function unhighlight() {
+  nodeSel.classed('dim',false).classed('hot',false);
+  linkSel.classed('dim',false).classed('hot',false);
+}
+
+// ─── filter toggle ───────────────────────────────────────────────────────────
+const active = new Set(['page','auth','component','table','lib']);
+function toggle(type, btn) {
+  active.has(type) ? active.delete(type) : active.add(type);
+  btn.classList.toggle('off');
+  nodeSel.style('display', d => active.has(d.type) ? null : 'none');
+  linkSel.style('display', l => {
+    const sn = nodes.find(n=>n.id===id(l.source));
+    const tn = nodes.find(n=>n.id===id(l.target));
+    return active.has(sn?.type) && active.has(tn?.type) ? null : 'none';
+  });
+}
+
+// ─── resize ──────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () =>
+  svg.attr('width',window.innerWidth).attr('height',window.innerHeight)
+);
+</script>
+</body>
+</html>
