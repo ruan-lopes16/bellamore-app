@@ -24,7 +24,7 @@ import {
   format, addDays, addMonths, subMonths,
   startOfDay, endOfDay, startOfMonth, endOfMonth,
   startOfWeek, eachDayOfInterval,
-  isSameDay, isSameMonth, isToday, addMinutes, parseISO,
+  isSameDay, isSameMonth, isToday, addMinutes, parseISO, isPast,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -44,11 +44,13 @@ type AgServico = { servico_id: string; servico: { id: string; nome: string } | n
 type Ag = {
   id: string; data_hora_inicio: string; data_hora_fim: string;
   status: string; valor: number; observacao?: string;
+  pacote_cliente_id?: string | null;
   cliente: { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico: { id: string; nome: string; duracao_minutos: number } | null;
   agendamento_servicos: AgServico[];
 };
+type PacoteClienteOpt = { id: string; nome: string; restantes: number | null };
 type ClienteOpt = { id: string; nome: string; telefone?: string };
 type Servico    = { id: string; nome: string; preco: number; duracao_minutos: number };
 type Bloqueio   = {
@@ -197,6 +199,10 @@ function NovoAgModal({
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
 
+  // Pacote do cliente a consumir neste agendamento (opcional)
+  const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
+  const [pacoteClienteId, setPacoteClienteId] = useState(() => agEditar?.pacote_cliente_id ?? '');
+
   const [linhas, setLinhas] = useState<ServicoLinha[]>(() => {
     if (agEditar && (agEditar.agendamento_servicos ?? []).length > 0) {
       return [...(agEditar.agendamento_servicos ?? [])]
@@ -229,6 +235,30 @@ function NovoAgModal({
     });
   }, [empresaId]);
 
+  // Pacotes ativos do cliente selecionado (para vincular ao agendamento)
+  useEffect(() => {
+    if (!clienteId) { setPacotesCliente([]); return; }
+    supabase.from('pacote_clientes')
+      .select('id, data_validade, pacote:pacotes(nome, servicos:pacote_servicos(quantidade)), uso:pacote_uso(id)')
+      .eq('empresa_id', empresaId)
+      .eq('cliente_id', clienteId)
+      .eq('status', 'ativo')
+      .then((res: { data: any[] | null }) => {
+        const opts = ((res.data ?? []) as any[])
+          .filter(pc => !pc.data_validade || !isPast(parseISO(pc.data_validade)))
+          .map(pc => {
+            const servicosPac = (pc.pacote?.servicos ?? []) as { quantidade: number | null }[];
+            const ilimitado = servicosPac.some(s => s.quantidade == null);
+            const total = ilimitado ? null : servicosPac.reduce((s, x) => s + (x.quantidade ?? 0), 0);
+            const restantes = total != null ? total - (pc.uso ?? []).length : null;
+            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes };
+          })
+          .filter(p => p.restantes === null || p.restantes > 0);
+        setPacotesCliente(opts);
+        setPacoteClienteId(prev => opts.some(o => o.id === prev) ? prev : '');
+      });
+  }, [empresaId, clienteId]);
+
   function onServicoChange(uid: string, id: string) {
     const s = servicos.find(x => x.id === id);
     setLinhas(prev => prev.map(l =>
@@ -253,28 +283,30 @@ function NovoAgModal({
 
     if (agEditar) {
       const { error } = await supabase.from('agendamentos').update({
-        cliente_id:       clienteId,
-        profissional_id:  profId,
-        servico_id:       filled[0]?.servico_id ?? null,
-        data_hora_inicio: inicio.toISOString(),
-        data_hora_fim:    fim.toISOString(),
-        valor:            filled.reduce((s, l) => s + l.valor, 0),
-        observacao:       obs.trim() || null,
+        cliente_id:        clienteId,
+        profissional_id:   profId,
+        servico_id:        filled[0]?.servico_id ?? null,
+        data_hora_inicio:  inicio.toISOString(),
+        data_hora_fim:     fim.toISOString(),
+        valor:             filled.reduce((s, l) => s + l.valor, 0),
+        observacao:        obs.trim() || null,
+        pacote_cliente_id: pacoteClienteId || null,
       }).eq('id', agEditar.id);
       if (error) { setSalvando(false); setErro(error.message); return; }
       await supabase.from('agendamento_servicos').delete().eq('agendamento_id', agEditar.id);
       agId = agEditar.id;
     } else {
       const { data: ag, error } = await supabase.from('agendamentos').insert({
-        empresa_id:       empresaId,
-        cliente_id:       clienteId,
-        profissional_id:  profId,
-        servico_id:       filled[0].servico_id,
-        data_hora_inicio: inicio.toISOString(),
-        data_hora_fim:    fim.toISOString(),
-        status:           'agendado',
-        valor:            filled.reduce((s, l) => s + l.valor, 0),
-        observacao:       obs.trim() || null,
+        empresa_id:        empresaId,
+        cliente_id:        clienteId,
+        profissional_id:   profId,
+        servico_id:        filled[0].servico_id,
+        data_hora_inicio:  inicio.toISOString(),
+        data_hora_fim:     fim.toISOString(),
+        status:            'agendado',
+        valor:             filled.reduce((s, l) => s + l.valor, 0),
+        observacao:        obs.trim() || null,
+        pacote_cliente_id: pacoteClienteId || null,
       }).select().single();
       if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
       agId = ag.id;
@@ -390,6 +422,31 @@ function NovoAgModal({
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Cliente</label>
             <SearchSelect options={clienteOpts} value={clienteId} onChange={setClienteId} placeholder="Buscar cliente..." required />
           </div>
+
+          {clienteId && pacotesCliente.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">
+                Pacote <span className="text-text-4 normal-case font-normal">(opcional — consome 1 sessão ao concluir)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <SearchSelect
+                    options={pacotesCliente.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
+                    value={pacoteClienteId}
+                    onChange={setPacoteClienteId}
+                    placeholder="Pagar avulso (sem pacote)"
+                  />
+                </div>
+                {pacoteClienteId && (
+                  <button type="button" onClick={() => setPacoteClienteId('')}
+                    title="Não usar pacote"
+                    className="w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                    <X size={13} strokeWidth={2.5}/>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Lista de serviços (multi) */}
           <div>
@@ -1157,7 +1214,7 @@ export default function AgendaPage() {
     const [{ data: rows }, { data: blRows }] = await Promise.all([
       supabase
         .from('agendamentos')
-        .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,
+        .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,
           cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
           profissional:users!agendamentos_profissional_id_fkey(id,nome),
           servico:servicos(id,nome,duracao_minutos),

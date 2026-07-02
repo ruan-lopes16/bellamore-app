@@ -68,7 +68,7 @@ type AgDia = {
 /** Item dentro da comanda (agendamento ou extra) */
 type ComandaItem = {
   uid:            string;       // id temporário único
-  tipo:           'agendamento' | 'servico' | 'produto';
+  tipo:           'agendamento' | 'servico' | 'produto' | 'pacote';
   descricao:      string;
   profissional?:  string;
   valor:          number;       // valor unitário
@@ -76,6 +76,7 @@ type ComandaItem = {
   agendamento_id?: string;
   servico_id?:    string;
   produto_id?:    string;
+  pacote_id?:     string;
   profissional_id?: string;
 };
 
@@ -194,6 +195,7 @@ export default function ComandaPage() {
   const [servicos,  setServicos]    = useState<{ id: string; nome: string; preco: number }[]>([]);
   const [produtos,  setProdutos]    = useState<{ id: string; nome: string; preco_venda: number }[]>([]);
   const [membros,   setMembros]     = useState<{ id: string; nome: string }[]>([]);
+  const [pacotesCat, setPacotesCat] = useState<{ id: string; nome: string; preco: number; validade_dias: number | null }[]>([]);
 
   // Comanda em aberto
   const [clienteSel, setClienteSel] = useState<ClienteComanda | null>(null);
@@ -242,13 +244,15 @@ export default function ComandaPage() {
       supabase.from('empresa_membros')
         .select('user_id, users:users!empresa_membros_user_id_fkey(nome)')
         .eq('empresa_id', empresaId).eq('ativo', true),
-    ]).then(([rAgs, rServs, rProds, rMembros]) => {
+      supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
+    ]).then(([rAgs, rServs, rProds, rMembros, rPacotes]) => {
       setAgDia((rAgs.data ?? []) as unknown as AgDia[]);
       setServicos((rServs.data ?? []) as { id: string; nome: string; preco: number }[]);
       setProdutos((rProds.data ?? []) as { id: string; nome: string; preco_venda: number }[]);
       setMembros((rMembros.data ?? []).map((m: any) => ({
         id: m.user_id, nome: m.users?.nome ?? 'Profissional',
       })));
+      setPacotesCat((rPacotes.data ?? []) as { id: string; nome: string; preco: number; validade_dias: number | null }[]);
       setLoading(false);
     });
   }, [empresaId, dataComanda]);
@@ -388,18 +392,19 @@ export default function ComandaPage() {
 
     const [{ data: cmd }, { data: extraItems }, { data: pags }] = await Promise.all([
       supabase.from('comandas').select('desconto').eq('id', comandaId).single(),
-      supabase.from('comanda_itens').select('tipo,descricao,servico_id,produto_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId),
+      supabase.from('comanda_itens').select('tipo,descricao,servico_id,produto_id,pacote_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId),
       supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas').eq('comanda_id', comandaId),
     ]);
 
     setDescontoPct('');
 
     const extras: ComandaItem[] = (extraItems ?? []).map((item: any) => ({
-      uid: uid(), tipo: item.tipo as 'servico' | 'produto',
+      uid: uid(), tipo: item.tipo as 'servico' | 'produto' | 'pacote',
       descricao: item.descricao ?? '—',
       valor: item.valor_unit, quantidade: item.quantidade,
       servico_id: item.servico_id ?? undefined,
       produto_id: item.produto_id ?? undefined,
+      pacote_id: item.pacote_id ?? undefined,
       profissional_id: item.profissional_id ?? undefined,
     }));
 
@@ -431,6 +436,7 @@ export default function ComandaPage() {
           tipo: i.tipo, descricao: i.descricao,
           servico_id: i.servico_id ?? null,
           produto_id: i.produto_id ?? null,
+          pacote_id: i.pacote_id ?? null,
           profissional_id: i.profissional_id ?? null,
           quantidade: i.quantidade, valor_unit: i.valor,
         }))
@@ -479,6 +485,13 @@ export default function ComandaPage() {
     if (!s) return;
     setItens(prev => [...prev, {
       uid: uid(), tipo: 'servico', descricao: s.nome, valor: s.preco, quantidade: 1, servico_id: s.id,
+    }]);
+  }
+  function adicionarPacote(pacoteId: string) {
+    const p = pacotesCat.find(x => x.id === pacoteId);
+    if (!p) return;
+    setItens(prev => [...prev, {
+      uid: uid(), tipo: 'pacote', descricao: p.nome, valor: p.preco, quantidade: 1, pacote_id: p.id,
     }]);
   }
   function adicionarProduto(prodId: string) {
@@ -580,12 +593,40 @@ export default function ComandaPage() {
           descricao:       i.descricao,
           servico_id:      i.servico_id ?? null,
           produto_id:      i.produto_id ?? null,
+          pacote_id:       i.pacote_id ?? null,
           profissional_id: i.profissional_id ?? null,
           quantidade:      i.quantidade,
           valor_unit:      i.valor,
         }))
       );
       if (errItens) { setErro(errItens.message); setFechando(false); return; }
+    }
+
+    // 3d. Vender pacotes adicionados na comanda (gera pacote_clientes para o cliente)
+    const extrasPacotes = extras.filter(i => i.tipo === 'pacote' && i.pacote_id);
+    if (extrasPacotes.length > 0 && clienteSel.id !== '__sem__') {
+      const hoje = new Date();
+      const dataInicio = format(hoje, 'yyyy-MM-dd');
+      const novasVendas = extrasPacotes.flatMap(i => {
+        const pacoteInfo = pacotesCat.find(p => p.id === i.pacote_id);
+        if (!pacoteInfo) return [];
+        const dataValidade = pacoteInfo.validade_dias != null
+          ? format(addDays(hoje, pacoteInfo.validade_dias), 'yyyy-MM-dd')
+          : null;
+        return Array.from({ length: Math.max(1, Math.round(i.quantidade)) }, () => ({
+          empresa_id:    empresaId,
+          pacote_id:     i.pacote_id!,
+          cliente_id:    clienteSel.id,
+          data_inicio:   dataInicio,
+          data_validade: dataValidade,
+          valor_pago:    i.valor,
+          status:        'ativo',
+        }));
+      });
+      if (novasVendas.length > 0) {
+        const { error: errPac } = await supabase.from('pacote_clientes').insert(novasVendas);
+        if (errPac) { setErro(errPac.message); setFechando(false); return; }
+      }
     }
 
     // 3b. Descontar estoque dos produtos extras
@@ -934,6 +975,8 @@ export default function ComandaPage() {
                             ? 'bg-primary-soft border-primary/20'
                             : item.tipo === 'produto'
                             ? 'bg-amber-soft border-amber/20'
+                            : item.tipo === 'pacote'
+                            ? 'bg-green-soft border-green/20'
                             : 'bg-bg border-border'
                         }`}
                       >
@@ -1008,6 +1051,15 @@ export default function ComandaPage() {
                       onChange={adicionarProduto}
                       placeholder="+ Adicionar produto / bebida..."
                     />
+                    {/* Vender pacote (requer cliente cadastrado) */}
+                    {clienteSel && clienteSel.id !== '__sem__' && (
+                      <SearchSelect
+                        options={pacotesCat.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
+                        value=""
+                        onChange={adicionarPacote}
+                        placeholder="+ Vender pacote..."
+                      />
+                    )}
                   </div>
                 </section>
 
