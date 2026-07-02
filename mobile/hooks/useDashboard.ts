@@ -87,7 +87,7 @@ export function useDashboard() {
 
   // Comissões pendentes
   const comissoesPendentes = useQuery({
-    queryKey: ['comissoes-pendentes', empresaId],
+    queryKey: ['comissoes-pendentes', empresaId, format(hoje, 'yyyy-MM')],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
@@ -95,7 +95,9 @@ export function useDashboard() {
         .from('comissoes')
         .select('valor_comissao')
         .eq('empresa_id', empresaId!)
-        .eq('status', 'pendente');
+        .eq('status', 'pendente')
+        .gte('created_at', inicioMes)
+        .lte('created_at', fimMes);
 
       if (error) throw error;
       return {
