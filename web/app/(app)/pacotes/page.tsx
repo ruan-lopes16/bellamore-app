@@ -49,19 +49,21 @@ type ServicoItem = { servico_id: string; nome: string; quantidade: number | null
 type Pacote = {
   id: string; nome: string; preco: number;
   validade_dias: number | null; ativo: boolean;
+  /** false = combo — agrupa serviços sem rastrear sessões restantes */
+  controla_sessoes: boolean;
   servicos: ServicoItem[];
 };
 
 type PacoteCliente = {
   id: string;
-  pacote:  { id: string; nome: string; preco: number; validade_dias: number | null };
+  pacote:  { id: string; nome: string; preco: number; validade_dias: number | null; controla_sessoes: boolean; servicos: ServicoItem[] };
   cliente: { id: string; nome: string };
   data_inicio:   string;
   data_validade: string | null;
   valor_pago:    number | null;
   status:        string;
   observacao:    string | null;
-  total_sessoes: number | null;   // calculado; null = ilimitado
+  total_sessoes: number | null;   // calculado; null = ilimitado (combo não usa este campo)
   usadas:        number;          // calculado de pacote_uso
 };
 
@@ -104,6 +106,7 @@ function PacoteModal({
   const [nome,          setNome]          = useState(pacote?.nome ?? '');
   const [preco,         setPreco]         = useState(pacote?.preco.toFixed(2).replace('.', ',') ?? '');
   const [validade,      setValidade]      = useState(pacote ? (pacote.validade_dias != null ? String(pacote.validade_dias) : '') : '90');
+  const [controlaSessoes, setControlaSessoes] = useState(pacote?.controla_sessoes ?? true);
   const [itensList,     setItensList]     = useState<ServicoItem[]>(pacote?.servicos ?? []);
   const [addServId,     setAddServId]     = useState('');
   const [addindoServico,setAddindoServico]= useState(false);
@@ -138,7 +141,7 @@ function PacoteModal({
     if (pacote) {
       // Atualizar dados do pacote
       const { error: e1 } = await supabase.from('pacotes').update({
-        nome: nome.trim(), preco: precoN, validade_dias: validadeN,
+        nome: nome.trim(), preco: precoN, validade_dias: validadeN, controla_sessoes: controlaSessoes,
       }).eq('id', pacote.id).eq('empresa_id', empresaId);
       if (e1) { setErro(e1.message); setSalvando(false); return; }
       pacoteId = pacote.id;
@@ -146,7 +149,7 @@ function PacoteModal({
       // Criar novo pacote
       const { data: novo, error: e1 } = await supabase.from('pacotes').insert({
         empresa_id: empresaId, nome: nome.trim(),
-        preco: precoN, validade_dias: validadeN,
+        preco: precoN, validade_dias: validadeN, controla_sessoes: controlaSessoes,
       }).select('id').single();
       if (e1 || !novo) { setErro(e1?.message ?? 'Erro ao criar pacote'); setSalvando(false); return; }
       pacoteId = novo.id;
@@ -165,9 +168,11 @@ function PacoteModal({
     }
 
     if (itensList.length > 0) {
+      // Combo não tem conceito de sessão ilimitada — força quantidade concreta
+      const itensSalvar = controlaSessoes ? itensList : itensList.map(i => ({ ...i, quantidade: i.quantidade ?? 1 }));
       // Upsert: insere ou atualiza quantidade se já existir
       const { error: e2 } = await supabase.from('pacote_servicos').upsert(
-        itensList.map(i => ({ pacote_id: pacoteId, servico_id: i.servico_id, quantidade: i.quantidade })),
+        itensSalvar.map(i => ({ pacote_id: pacoteId, servico_id: i.servico_id, quantidade: i.quantidade })),
         { onConflict: 'pacote_id,servico_id' }
       );
       if (e2) { setErro(e2.message); setSalvando(false); return; }
@@ -192,6 +197,25 @@ function PacoteModal({
             <input value={nome} onChange={e => setNome(e.target.value)} required placeholder="Ex: Pacote Escova Mensal" className={inputCls}/>
           </div>
 
+          <div>
+            <label className={labelCls}>Tipo de pacote</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setControlaSessoes(true)}
+                className={`h-10 rounded-xl text-xs font-semibold border transition ${controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
+                Com sessões
+              </button>
+              <button type="button" onClick={() => setControlaSessoes(false)}
+                className={`h-10 rounded-xl text-xs font-semibold border transition ${!controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
+                Combo
+              </button>
+            </div>
+            <p className="text-[11px] text-text-4 mt-1">
+              {controlaSessoes
+                ? 'Rastreia sessões restantes por atendimento (ex: 10 sessões de manicure)'
+                : 'Só agrupa serviços para um mesmo atendimento, sem controle de sessões (ex: spa dos lábios + design + buço)'}
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Preço *</label>
@@ -214,25 +238,27 @@ function PacoteModal({
               {itensList.map(item => (
                 <div key={item.servico_id} className="flex items-center gap-2 bg-bg rounded-xl px-3 py-2">
                   <span className="flex-1 text-sm text-text truncate">{item.nome}</span>
-                  {item.quantidade == null ? (
+                  {controlaSessoes && item.quantidade == null ? (
                     <span className="text-xs font-semibold text-primary">Ilimitado</span>
                   ) : (
                     <>
                       <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => atualizarQtd(item.servico_id, item.quantidade! - 1)}
+                        <button type="button" onClick={() => atualizarQtd(item.servico_id, (item.quantidade ?? 1) - 1)}
                           className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">−</button>
-                        <span className="w-8 text-center text-sm font-semibold text-text">{item.quantidade}</span>
-                        <button type="button" onClick={() => atualizarQtd(item.servico_id, item.quantidade! + 1)}
+                        <span className="w-8 text-center text-sm font-semibold text-text">{item.quantidade ?? 1}</span>
+                        <button type="button" onClick={() => atualizarQtd(item.servico_id, (item.quantidade ?? 1) + 1)}
                           className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">+</button>
                       </div>
-                      <span className="text-xs text-text-4">sessões</span>
+                      <span className="text-xs text-text-4">{controlaSessoes ? 'sessões' : '×'}</span>
                     </>
                   )}
-                  <button type="button" onClick={() => toggleIlimitado(item.servico_id)}
-                    title={item.quantidade == null ? 'Definir quantidade' : 'Tornar ilimitado'}
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${item.quantidade == null ? 'text-primary bg-primary-soft' : 'text-text-4 hover:text-primary hover:bg-primary-soft'}`}>
-                    ∞
-                  </button>
+                  {controlaSessoes && (
+                    <button type="button" onClick={() => toggleIlimitado(item.servico_id)}
+                      title={item.quantidade == null ? 'Definir quantidade' : 'Tornar ilimitado'}
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${item.quantidade == null ? 'text-primary bg-primary-soft' : 'text-text-4 hover:text-primary hover:bg-primary-soft'}`}>
+                      ∞
+                    </button>
+                  )}
                   <button type="button" onClick={() => removerItem(item.servico_id)}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
                     <Trash2 size={12}/>
@@ -526,14 +552,14 @@ export default function PacotesPage() {
     const [rPacotes, rVendidos, rServicos, rClientes] = await Promise.all([
       // Pacotes com serviços
       supabase.from('pacotes')
-        .select(`id, nome, preco, validade_dias, ativo,
+        .select(`id, nome, preco, validade_dias, ativo, controla_sessoes,
           servicos:pacote_servicos(servico_id, quantidade, servico:servicos(nome))`)
         .eq('empresa_id', empId).order('nome'),
 
       // Pacotes vendidos com uso
       supabase.from('pacote_clientes')
         .select(`id, data_inicio, data_validade, valor_pago, status, observacao,
-          pacote:pacotes(id, nome, preco, validade_dias),
+          pacote:pacotes(id, nome, preco, validade_dias, controla_sessoes),
           cliente:clientes(id, nome),
           uso:pacote_uso(id)`)
         .eq('empresa_id', empId)
@@ -547,6 +573,7 @@ export default function PacotesPage() {
     setPacotes(((rPacotes.data ?? []) as any[]).map(p => ({
       id: p.id, nome: p.nome, preco: p.preco,
       validade_dias: p.validade_dias, ativo: p.ativo,
+      controla_sessoes: p.controla_sessoes ?? true,
       servicos: (p.servicos ?? []).map((s: any) => ({
         servico_id: s.servico_id,
         nome:       s.servico?.nome ?? 'Serviço',
@@ -560,6 +587,7 @@ export default function PacotesPage() {
       pacotesMap[p.id] = {
         id: p.id, nome: p.nome, preco: p.preco,
         validade_dias: p.validade_dias, ativo: p.ativo,
+        controla_sessoes: p.controla_sessoes ?? true,
         servicos: (p.servicos ?? []).map((s: any) => ({
           servico_id: s.servico_id, nome: s.servico?.nome ?? '', quantidade: s.quantidade,
         })),
@@ -568,19 +596,24 @@ export default function PacotesPage() {
 
     setVendidos(((rVendidos.data ?? []) as any[]).map(v => {
       const pac = pacotesMap[v.pacote?.id] ?? v.pacote;
+      const controlaSessoesPac = pac?.controla_sessoes ?? true;
       const servicosPac = (pac?.servicos ?? []) as ServicoItem[];
       const temIlimitado = servicosPac.some(i => i.quantidade == null);
-      const totalSessoes = temIlimitado ? null : servicosPac.reduce((s: number, i) => s + (i.quantidade ?? 0), 0);
+      const totalSessoes = !controlaSessoesPac || temIlimitado ? null : servicosPac.reduce((s: number, i) => s + (i.quantidade ?? 0), 0);
       const usadas = (v.uso ?? []).length;
-      // Auto-status
+      // Auto-status (combo não conclui por sessão — só por vencimento ou ação manual)
       let status = v.status;
       if (status === 'ativo') {
-        if (totalSessoes !== null && usadas >= totalSessoes && totalSessoes > 0) status = 'concluido';
+        if (controlaSessoesPac && totalSessoes !== null && usadas >= totalSessoes && totalSessoes > 0) status = 'concluido';
         else if (v.data_validade && isPast(parseISO(v.data_validade))) status = 'expirado';
       }
       return {
         id:            v.id,
-        pacote:        { id: v.pacote?.id, nome: v.pacote?.nome ?? '—', preco: v.pacote?.preco ?? 0, validade_dias: v.pacote?.validade_dias ?? 0 },
+        pacote:        {
+          id: v.pacote?.id, nome: v.pacote?.nome ?? '—', preco: v.pacote?.preco ?? 0,
+          validade_dias: v.pacote?.validade_dias ?? 0, controla_sessoes: controlaSessoesPac,
+          servicos: servicosPac,
+        },
         cliente:       { id: v.cliente?.id, nome: v.cliente?.nome ?? '—' },
         data_inicio:   v.data_inicio,
         data_validade: v.data_validade,
@@ -618,10 +651,10 @@ export default function PacotesPage() {
     const aproveitamento = totalSessoes > 0 ? Math.round((sessoesUsadas / totalSessoes) * 100) : 0;
     const receitaTotal   = vendidos.reduce((s, v) => s + (v.valor_pago ?? v.pacote.preco), 0);
 
-    const porPacote: Record<string, { nome: string; vendas: number; totalSessoes: number; sessoesUsadas: number; receita: number }> = {};
+    const porPacote: Record<string, { nome: string; vendas: number; totalSessoes: number; sessoesUsadas: number; receita: number; combo: boolean }> = {};
     vendidos.forEach(v => {
       const id = v.pacote.id;
-      if (!porPacote[id]) porPacote[id] = { nome: v.pacote.nome, vendas: 0, totalSessoes: 0, sessoesUsadas: 0, receita: 0 };
+      if (!porPacote[id]) porPacote[id] = { nome: v.pacote.nome, vendas: 0, totalSessoes: 0, sessoesUsadas: 0, receita: 0, combo: !v.pacote.controla_sessoes };
       porPacote[id].vendas++;
       porPacote[id].totalSessoes  += v.total_sessoes ?? 0;
       porPacote[id].sessoesUsadas += v.usadas;
@@ -660,6 +693,15 @@ export default function PacotesPage() {
     if (error) { showToast(`Erro ao excluir: ${error.message}`, 'rose'); return; }
     showToast('Pacote excluído.');
     carregar(empresaId);
+  }
+
+  // ── Marcar combo como utilizado (sem controle de sessão, então é ação manual)
+  async function marcarComboUtilizado(pcId: string) {
+    if (!empresaId) return;
+    setVendidos(prev => prev.map(v => v.id === pcId ? { ...v, status: 'concluido' } : v));
+    const { error } = await supabase.from('pacote_clientes')
+      .update({ status: 'concluido' }).eq('id', pcId).eq('empresa_id', empresaId);
+    if (error) { showToast(`Erro ao atualizar: ${error.message}`, 'rose'); carregar(empresaId); }
   }
 
   // ── Render
@@ -799,9 +841,14 @@ export default function PacotesPage() {
                       <h3 className="font-semibold text-text">{p.nome}</h3>
                       <p className="text-xs text-text-3 mt-0.5">{p.validade_dias != null ? `${p.validade_dias} dias de validade` : 'Sem validade'}</p>
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${p.ativo ? 'bg-green-soft text-green' : 'bg-bg text-text-4'}`}>
-                      {p.ativo ? 'Ativo' : 'Inativo'}
-                    </span>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${p.ativo ? 'bg-green-soft text-green' : 'bg-bg text-text-4'}`}>
+                        {p.ativo ? 'Ativo' : 'Inativo'}
+                      </span>
+                      {!p.controla_sessoes && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent-soft text-accent">Combo</span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Preço */}
@@ -818,7 +865,7 @@ export default function PacotesPage() {
                         <span className="text-xs text-text-4 ml-auto flex-shrink-0">{s.quantidade ?? '∞'}×</span>
                       </div>
                     ))}
-                    {temIlimitado ? (
+                    {!p.controla_sessoes ? null : temIlimitado ? (
                       <p className="text-xs font-semibold text-primary mt-1">Sessões ilimitadas</p>
                     ) : totalSessoes > 0 && (
                       <p className="text-xs font-semibold text-text-3 mt-1">{totalSessoes} sessões no total</p>
@@ -911,39 +958,55 @@ export default function PacotesPage() {
                       </span>
                     </div>
 
-                    {/* Progresso de sessões */}
-                    <div>
-                      <div className="flex items-end justify-between mb-2">
-                        <div>
-                          <span className="text-3xl font-bold text-text">{v.usadas}</span>
-                          <span className="text-lg text-text-3">/{ilimitado ? '∞' : v.total_sessoes}</span>
-                          <span className="text-xs text-text-3 ml-1.5">sessões</span>
+                    {/* Combo: lista de serviços inclusos (sem progresso de sessão) */}
+                    {!v.pacote.controla_sessoes ? (
+                      <div className="flex flex-col gap-1">
+                        <span className="inline-flex self-start text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent-soft text-accent mb-1">Combo</span>
+                        {v.pacote.servicos.length === 0 ? (
+                          <p className="text-xs text-text-4">Nenhum serviço vinculado</p>
+                        ) : v.pacote.servicos.map(s => (
+                          <div key={s.servico_id} className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0"/>
+                            <span className="text-xs text-text-2 truncate">{s.nome}</span>
+                            <span className="text-xs text-text-4 ml-auto flex-shrink-0">{s.quantidade ?? '∞'}×</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      /* Progresso de sessões */
+                      <div>
+                        <div className="flex items-end justify-between mb-2">
+                          <div>
+                            <span className="text-3xl font-bold text-text">{v.usadas}</span>
+                            <span className="text-lg text-text-3">/{ilimitado ? '∞' : v.total_sessoes}</span>
+                            <span className="text-xs text-text-3 ml-1.5">sessões</span>
+                          </div>
+                          {ilimitado && v.status === 'ativo' && (
+                            <span className="text-xs font-semibold text-primary">Ilimitado</span>
+                          )}
+                          {restantes !== null && restantes > 0 && v.status === 'ativo' && (
+                            <span className="text-xs font-semibold text-text-3">
+                              {restantes} restante{restantes !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {!ilimitado && pct >= 100 && (
+                            <span className="text-xs font-bold text-green flex items-center gap-1">
+                              <Check size={11} strokeWidth={3}/>Concluído
+                            </span>
+                          )}
                         </div>
-                        {ilimitado && v.status === 'ativo' && (
-                          <span className="text-xs font-semibold text-primary">Ilimitado</span>
-                        )}
-                        {restantes !== null && restantes > 0 && v.status === 'ativo' && (
-                          <span className="text-xs font-semibold text-text-3">
-                            {restantes} restante{restantes !== 1 ? 's' : ''}
-                          </span>
-                        )}
-                        {!ilimitado && pct >= 100 && (
-                          <span className="text-xs font-bold text-green flex items-center gap-1">
-                            <Check size={11} strokeWidth={3}/>Concluído
-                          </span>
+                        {ilimitado ? (
+                          <div className="h-2.5 rounded-full" style={{ background: 'var(--color-primary-soft)' }}/>
+                        ) : v.total_sessoes! > 0 ? (
+                          <div className="h-2.5 bg-bg rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(pct, 100)}%`, background: corBarra }}/>
+                          </div>
+                        ) : (
+                          <div className="h-2.5 bg-bg rounded-full"/>
                         )}
                       </div>
-                      {ilimitado ? (
-                        <div className="h-2.5 rounded-full" style={{ background: 'var(--color-primary-soft)' }}/>
-                      ) : v.total_sessoes! > 0 ? (
-                        <div className="h-2.5 bg-bg rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all duration-500"
-                            style={{ width: `${Math.min(pct, 100)}%`, background: corBarra }}/>
-                        </div>
-                      ) : (
-                        <div className="h-2.5 bg-bg rounded-full"/>
-                      )}
-                    </div>
+                    )}
 
                     {/* Info: datas + valor */}
                     <div className="grid grid-cols-2 gap-2">
@@ -958,7 +1021,13 @@ export default function PacotesPage() {
                     </div>
 
                     {/* Ação */}
-                    {v.status === 'ativo' && (ilimitado || (restantes !== null && restantes > 0)) && (
+                    {v.status === 'ativo' && !v.pacote.controla_sessoes && (
+                      <button onClick={() => marcarComboUtilizado(v.id)}
+                        className="w-full h-9 rounded-xl bg-green text-white text-xs font-bold hover:opacity-90 transition">
+                        Marcar como utilizado
+                      </button>
+                    )}
+                    {v.status === 'ativo' && v.pacote.controla_sessoes && (ilimitado || (restantes !== null && restantes > 0)) && (
                       <div className="flex flex-col gap-1.5">
                         <p className="text-[10px] text-text-4 text-center">
                           Sessões são registradas automaticamente ao concluir agendamentos.
@@ -1044,15 +1113,17 @@ export default function PacotesPage() {
                           <p className="text-sm font-semibold text-text truncate">{p.nome}</p>
                           <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(p.receita)}</span>
                         </div>
-                        <div className="h-2 bg-bg rounded-full overflow-hidden mb-1.5">
-                          <div className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${pct}%`,
-                              background: pct >= 80 ? '#16A34A' : pct >= 50 ? '#D97706' : '#7C3AED',
-                            }}/>
-                        </div>
+                        {!p.combo && (
+                          <div className="h-2 bg-bg rounded-full overflow-hidden mb-1.5">
+                            <div className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${pct}%`,
+                                background: pct >= 80 ? '#16A34A' : pct >= 50 ? '#D97706' : '#7C3AED',
+                              }}/>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between text-[10px] text-text-4">
-                          <span>{p.sessoesUsadas}/{p.totalSessoes} sessões · {pct}% aproveitamento</span>
+                          <span>{p.combo ? 'Combo · sem controle de sessões' : `${p.sessoesUsadas}/${p.totalSessoes} sessões · ${pct}% aproveitamento`}</span>
                           <span>{p.vendas} venda{p.vendas !== 1 ? 's' : ''}</span>
                         </div>
                       </div>

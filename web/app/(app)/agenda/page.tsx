@@ -239,13 +239,13 @@ function NovoAgModal({
   useEffect(() => {
     if (!clienteId) { setPacotesCliente([]); return; }
     supabase.from('pacote_clientes')
-      .select('id, data_validade, pacote:pacotes(nome, servicos:pacote_servicos(quantidade)), uso:pacote_uso(id)')
+      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(quantidade)), uso:pacote_uso(id)')
       .eq('empresa_id', empresaId)
       .eq('cliente_id', clienteId)
       .eq('status', 'ativo')
       .then((res: { data: any[] | null }) => {
         const opts = ((res.data ?? []) as any[])
-          .filter(pc => !pc.data_validade || !isPast(parseISO(pc.data_validade)))
+          .filter(pc => (pc.pacote?.controla_sessoes ?? true) && (!pc.data_validade || !isPast(parseISO(pc.data_validade))))
           .map(pc => {
             const servicosPac = (pc.pacote?.servicos ?? []) as { quantidade: number | null }[];
             const ilimitado = servicosPac.some(s => s.quantidade == null);
