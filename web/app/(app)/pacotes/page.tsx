@@ -35,6 +35,7 @@ import type { Cliente as ClienteBase, Servico as ServicoBase } from '@/types';
 import { ExportButton } from '@/components/ExportButton';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { format, addDays, parseISO, isPast } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -46,16 +47,16 @@ type ServicoItem = { servico_id: string; nome: string; quantidade: number };
 
 type Pacote = {
   id: string; nome: string; preco: number;
-  validade_dias: number; ativo: boolean;
+  validade_dias: number | null; ativo: boolean;
   servicos: ServicoItem[];
 };
 
 type PacoteCliente = {
   id: string;
-  pacote:  { id: string; nome: string; preco: number; validade_dias: number };
+  pacote:  { id: string; nome: string; preco: number; validade_dias: number | null };
   cliente: { id: string; nome: string };
   data_inicio:   string;
-  data_validade: string;
+  data_validade: string | null;
   valor_pago:    number | null;
   status:        string;
   observacao:    string | null;
@@ -73,6 +74,9 @@ function fmtBRL(v: number) {
 }
 function fmtData(d: string) {
   return format(parseISO(d), 'dd/MM/yyyy');
+}
+function fmtValidade(d: string | null) {
+  return d ? fmtData(d) : 'Sem validade';
 }
 
 const STATUS_CFG: Record<string, { label: string; cls: string }> = {
@@ -98,9 +102,10 @@ function PacoteModal({
 }) {
   const [nome,          setNome]          = useState(pacote?.nome ?? '');
   const [preco,         setPreco]         = useState(pacote?.preco.toFixed(2).replace('.', ',') ?? '');
-  const [validade,      setValidade]      = useState(String(pacote?.validade_dias ?? 90));
+  const [validade,      setValidade]      = useState(pacote ? (pacote.validade_dias != null ? String(pacote.validade_dias) : '') : '90');
   const [itensList,     setItensList]     = useState<ServicoItem[]>(pacote?.servicos ?? []);
   const [addServId,     setAddServId]     = useState('');
+  const [addindoServico,setAddindoServico]= useState(false);
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
 
@@ -122,7 +127,7 @@ function PacoteModal({
     e.preventDefault(); setSalvando(true); setErro('');
 
     const precoN    = parseFloat(preco.replace(',', '.')) || 0;
-    const validadeN = parseInt(validade) || 90;
+    const validadeN = validade.trim() === '' ? null : (parseInt(validade, 10) || null);
 
     let pacoteId: string;
 
@@ -171,7 +176,7 @@ function PacoteModal({
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
+      <div className={`relative bg-surface rounded-2xl shadow-xl w-full flex flex-col transition-all duration-200 ${addindoServico ? 'max-w-lg max-h-[94vh]' : 'max-w-md max-h-[90vh]'}`}>
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
           <h2 className="font-serif text-xl text-text">{pacote ? 'Editar pacote' : 'Novo pacote'}</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
@@ -193,14 +198,15 @@ function PacoteModal({
             </div>
             <div>
               <label className={labelCls}>Validade (dias)</label>
-              <input value={validade} onChange={e => setValidade(e.target.value)} inputMode="numeric" placeholder="90" className={inputCls}/>
+              <input value={validade} onChange={e => setValidade(e.target.value)} inputMode="numeric" placeholder="Sem validade" className={inputCls}/>
+              <p className="text-[11px] text-text-4 mt-1">Deixe em branco para pacote sem validade</p>
             </div>
           </div>
 
           {/* Serviços do pacote — scroll interno limitado a 4 itens */}
           <div>
             <label className={labelCls}>Serviços incluídos</label>
-            <div className="flex flex-col gap-2 mb-2 max-h-48 overflow-y-auto pr-0.5">
+            <div className={`flex flex-col gap-2 mb-2 overflow-y-auto pr-0.5 transition-all duration-200 ${addindoServico ? 'max-h-64' : 'max-h-48'}`}>
               {itensList.map(item => (
                 <div key={item.servico_id} className="flex items-center gap-2 bg-bg rounded-xl px-3 py-2">
                   <span className="flex-1 text-sm text-text truncate">{item.nome}</span>
@@ -225,6 +231,7 @@ function PacoteModal({
                 .map(s => ({ value: s.id, label: s.nome, sub: fmtBRL(s.preco) }))}
               value={addServId}
               onChange={id => { setAddServId(id); adicionarServico(id); }}
+              onOpenChange={setAddindoServico}
               placeholder="+ Adicionar serviço..."
             />
           </div>
@@ -272,7 +279,9 @@ function VenderModal({
     if (!clienteId) { setErro('Selecione um cliente'); setSalvando(false); return; }
 
     const inicio    = parseISO(dataInicio);
-    const validade  = format(addDays(inicio, pacote.validade_dias), 'yyyy-MM-dd');
+    const validade  = pacote.validade_dias != null
+      ? format(addDays(inicio, pacote.validade_dias), 'yyyy-MM-dd')
+      : null;
     const valorN    = parseFloat(valorPago.replace(',', '.')) || 0;
 
     const { error } = await supabase.from('pacote_clientes').insert({
@@ -336,9 +345,15 @@ function VenderModal({
           <div className="bg-bg rounded-xl px-4 py-3 flex items-center gap-2 border border-border">
             <Clock size={14} className="text-text-3 flex-shrink-0"/>
             <span className="text-xs text-text-3">
-              Válido até <strong className="text-text">
-                {format(addDays(parseISO(dataInicio || format(new Date(), 'yyyy-MM-dd')), pacote.validade_dias), 'dd/MM/yyyy')}
-              </strong> · {pacote.validade_dias} dias
+              {pacote.validade_dias != null ? (
+                <>
+                  Válido até <strong className="text-text">
+                    {format(addDays(parseISO(dataInicio || format(new Date(), 'yyyy-MM-dd')), pacote.validade_dias), 'dd/MM/yyyy')}
+                  </strong> · {pacote.validade_dias} dias
+                </>
+              ) : (
+                <>Pacote <strong className="text-text">sem validade</strong> — vale enquanto houver sessões</>
+              )}
             </span>
           </div>
 
@@ -468,6 +483,15 @@ export default function PacotesPage() {
   const modalPacoteAberto = modalPacote !== null;
   const [modalVender,  setModalVender]  = useState<Pacote | null>(null);
   const [modalSessao,  setModalSessao]  = useState<PacoteCliente | null>(null);
+  const [confirmExcluir, setConfirmExcluir] = useState<Pacote | null>(null);
+  const [excluindo,      setExcluindo]      = useState(false);
+
+  // Toast de feedback
+  const [toast, setToast] = useState<{ msg: string; tone: 'green' | 'rose' } | null>(null);
+  function showToast(msg: string, tone: 'green' | 'rose' = 'green') {
+    setToast({ msg, tone });
+    setTimeout(() => setToast(null), 3500);
+  }
 
   // ── Carregar empresa
   useEffect(() => {
@@ -535,7 +559,7 @@ export default function PacotesPage() {
       let status = v.status;
       if (status === 'ativo') {
         if (usadas >= totalSessoes && totalSessoes > 0) status = 'concluido';
-        else if (isPast(parseISO(v.data_validade))) status = 'expirado';
+        else if (v.data_validade && isPast(parseISO(v.data_validade))) status = 'expirado';
       }
       return {
         id:            v.id,
@@ -600,9 +624,37 @@ export default function PacotesPage() {
     if (empresaId) carregar(empresaId);
   }
 
+  // ── Excluir pacote do catálogo
+  function pedirExclusao(p: Pacote) {
+    const jaVendido = vendidos.some(v => v.pacote.id === p.id);
+    if (jaVendido) {
+      showToast('Pacote já foi vendido — desative em vez de excluir.', 'rose');
+      return;
+    }
+    setConfirmExcluir(p);
+  }
+  async function excluirPacote() {
+    if (!empresaId || !confirmExcluir) return;
+    setExcluindo(true);
+    const { error } = await supabase.from('pacotes')
+      .delete().eq('id', confirmExcluir.id).eq('empresa_id', empresaId);
+    setExcluindo(false);
+    setConfirmExcluir(null);
+    if (error) { showToast(`Erro ao excluir: ${error.message}`, 'rose'); return; }
+    showToast('Pacote excluído.');
+    carregar(empresaId);
+  }
+
   // ── Render
   return (
     <div className="bm-page">
+      {/* Toast de feedback */}
+      {toast && (
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none ${toast.tone === 'green' ? 'bg-green' : 'bg-red'}`}>
+          {toast.tone === 'green' ? <Check size={16} strokeWidth={2.5}/> : <AlertCircle size={16} strokeWidth={2.5}/>} {toast.msg}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
@@ -617,7 +669,7 @@ export default function PacotesPage() {
               columns={[
                 { header: 'Nome',            accessor: (p: Pacote) => p.nome,                                                                                      width: 28 },
                 { header: 'Preço',           accessor: (p: Pacote) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.preco),      width: 14 },
-                { header: 'Validade (dias)', accessor: (p: Pacote) => p.validade_dias,                                                                              width: 14 },
+                { header: 'Validade (dias)', accessor: (p: Pacote) => p.validade_dias ?? 'Sem validade',                                                            width: 14 },
                 { header: 'Serviços',        accessor: (p: Pacote) => p.servicos.map(s => `${s.nome} ×${s.quantidade}`).join(', '),                                 width: 40 },
                 { header: 'Status',          accessor: (p: Pacote) => p.ativo ? 'Ativo' : 'Inativo',                                                               width: 10 },
               ]}
@@ -634,7 +686,7 @@ export default function PacotesPage() {
                 { header: 'Sessões usadas',   accessor: (v: PacoteCliente) => `${v.usadas}/${v.total_sessoes}`,                                                          width: 14 },
                 { header: 'Valor pago',       accessor: (v: PacoteCliente) => v.valor_pago != null ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v.valor_pago) : '—', width: 14 },
                 { header: 'Início',           accessor: (v: PacoteCliente) => fmtData(v.data_inicio),                                                                   width: 12 },
-                { header: 'Válido até',       accessor: (v: PacoteCliente) => fmtData(v.data_validade),                                                                  width: 12 },
+                { header: 'Válido até',       accessor: (v: PacoteCliente) => fmtValidade(v.data_validade),                                                              width: 12 },
                 { header: 'Status',           accessor: (v: PacoteCliente) => STATUS_CFG[v.status]?.label ?? v.status,                                                   width: 12 },
               ]}
               getData={() => vendidosFiltrados}
@@ -727,7 +779,7 @@ export default function PacotesPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h3 className="font-semibold text-text">{p.nome}</h3>
-                      <p className="text-xs text-text-3 mt-0.5">{p.validade_dias} dias de validade</p>
+                      <p className="text-xs text-text-3 mt-0.5">{p.validade_dias != null ? `${p.validade_dias} dias de validade` : 'Sem validade'}</p>
                     </div>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${p.ativo ? 'bg-green-soft text-green' : 'bg-bg text-text-4'}`}>
                       {p.ativo ? 'Ativo' : 'Inativo'}
@@ -770,6 +822,11 @@ export default function PacotesPage() {
                       title={p.ativo ? 'Desativar' : 'Reativar'}
                       className="w-8 h-8 rounded-lg border border-border hover:bg-bg flex items-center justify-center text-text-3 transition">
                       {p.ativo ? <X size={13}/> : <Check size={13}/>}
+                    </button>
+                    <button onClick={() => pedirExclusao(p)}
+                      title="Excluir pacote"
+                      className="w-8 h-8 rounded-lg border border-border hover:bg-red-soft hover:border-red/30 flex items-center justify-center text-text-3 hover:text-red transition">
+                      <Trash2 size={13}/>
                     </button>
                   </div>
                 </div>
@@ -866,7 +923,7 @@ export default function PacotesPage() {
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-bg rounded-xl p-3">
                         <p className="text-[10px] text-text-3 uppercase tracking-wide mb-0.5">Válido até</p>
-                        <p className="text-sm font-semibold text-text">{fmtData(v.data_validade)}</p>
+                        <p className="text-sm font-semibold text-text">{fmtValidade(v.data_validade)}</p>
                       </div>
                       <div className="bg-bg rounded-xl p-3">
                         <p className="text-[10px] text-text-3 uppercase tracking-wide mb-0.5">Valor pago</p>
@@ -1013,6 +1070,17 @@ export default function PacotesPage() {
           onSalvo={() => { setModalSessao(null); if (empresaId) carregar(empresaId); }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmExcluir !== null}
+        title="Excluir pacote?"
+        message={`"${confirmExcluir?.nome}" será removido permanentemente do catálogo. Essa ação não pode ser desfeita.`}
+        confirmLabel="Excluir"
+        variant="danger"
+        loading={excluindo}
+        onConfirm={excluirPacote}
+        onCancel={() => setConfirmExcluir(null)}
+      />
     </div>
   );
 }

@@ -48,6 +48,8 @@ interface Props {
   /** Se true, injeta <input hidden required> para validação nativa de form */
   required?: boolean;
   className?: string;
+  /** Notifica o pai quando o dropdown abre/fecha (ex: para expandir um modal ao redor) */
+  onOpenChange?: (aberto: boolean) => void;
 }
 
 export function SearchSelect({
@@ -57,6 +59,7 @@ export function SearchSelect({
   placeholder = 'Selecionar...',
   required,
   className = '',
+  onOpenChange,
 }: Props) {
   const [busca,  setBusca]  = useState('');
   const [aberto, setAberto] = useState(false);
@@ -80,6 +83,7 @@ export function SearchSelect({
   function abrir() {
     setBusca('');
     setAberto(true);
+    onOpenChange?.(true);
     setTimeout(() => inputRef.current?.focus(), 0);
   }
 
@@ -92,6 +96,7 @@ export function SearchSelect({
     if (e && containerRef.current?.contains(e.relatedTarget as Node)) return;
     setAberto(false);
     setBusca('');
+    onOpenChange?.(false);
   }
 
   /** Seleciona uma opção e fecha o dropdown */
@@ -99,6 +104,7 @@ export function SearchSelect({
     onChange(opt.value);
     setAberto(false);
     setBusca('');
+    onOpenChange?.(false);
   }
 
   // Classes base do campo visível
