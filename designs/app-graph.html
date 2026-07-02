@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bellamore — Grafo da Aplicação</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0c0e1a;
+      --surface: #13172a;
+      --surface2: #1a1f36;
+      --border: #252a45;
+      --text: #e2e8f0;
+      --muted: #5a6380;
+      --accent: #818cf8;
+      --accent2: #a78bfa;
+      --green: #34d399;
+      --orange: #fb923c;
+      --pink: #f472b6;
+      --blue: #60a5fa;
+      --red: #f87171;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    /* ── Header ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, #818cf8, #f472b6);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 20px; color: white;
+      flex-shrink: 0;
+    }
+    .header-title { font-size: 16px; font-weight: 700; }
+    .header-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .header-badges { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* ── Nav ── */
+    nav {
+      padding: 0 32px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      gap: 0;
+      overflow-x: auto;
+    }
+    nav::-webkit-scrollbar { display: none; }
+    .tab {
+      padding: 13px 22px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Main ── */
+    main { padding: 32px; max-width: 1400px; margin: 0 auto; }
+    /* Todas as sections visíveis no load para o Mermaid renderizar;
+       JS oculta as inativas após o render estar completo */
+    .section { display: block; }
+    .section.hidden { display: none; }
+    .section.active { animation: fadein 0.2s ease; }
+    @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    .section-header { margin-bottom: 28px; }
+    .section-title {
+      font-size: 24px; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--pink));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 6px;
+    }
+    .section-desc { font-size: 14px; color: var(--muted); }
+
+    /* ── Cards ── */
+    .diagram-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px 28px;
+      margin-bottom: 20px;
+    }
+    .diagram-label {
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 18px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .diagram-label::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+    .mermaid { display: flex; justify-content: center; overflow-x: auto; }
+    .mermaid svg { max-width: 100%; height: auto !important; }
+
+    /* ── Grid ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+    @media (max-width: 1000px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+    /* ── Stats ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px; margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 20px;
+      text-align: center;
+    }
+    .stat-number {
+      font-size: 34px; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--pink));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; line-height: 1;
+    }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+    /* ── Table ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left; padding: 10px 14px;
+      color: var(--muted); font-weight: 700;
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(129, 140, 248, 0.04); }
+    code {
+      background: rgba(129, 140, 248, 0.12); color: var(--accent);
+      padding: 2px 6px; border-radius: 5px; font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .badge {
+      display: inline-block; padding: 2px 9px; border-radius: 100px;
+      font-size: 11px; font-weight: 600; white-space: nowrap;
+    }
+    .badge-blue   { background: rgba(96,165,250,.15);  color: var(--blue); }
+    .badge-green  { background: rgba(52,211,153,.15);  color: var(--green); }
+    .badge-pink   { background: rgba(244,114,182,.15); color: var(--pink); }
+    .badge-orange { background: rgba(251,146,60,.15);  color: var(--orange); }
+    .badge-purple { background: rgba(167,139,250,.15); color: var(--accent2); }
+    .badge-red    { background: rgba(248,113,113,.15); color: var(--red); }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">B</div>
+  <div>
+    <div class="header-title">Bellamore — App de Estética</div>
+    <div class="header-sub">Grafo completo da aplicação · 2026-06-27</div>
+  </div>
+  <div class="header-badges">
+    <span class="badge badge-blue">Next.js 15</span>
+    <span class="badge badge-green">Supabase</span>
+    <span class="badge badge-purple">TypeScript</span>
+    <span class="badge badge-pink">PWA</span>
+  </div>
+</header>
+
+<nav>
+  <div class="tab active" data-tab="overview">🗺 Visão Geral</div>
+  <div class="tab" data-tab="routes">🗂 Rotas</div>
+  <div class="tab" data-tab="database">🗃 Banco de Dados</div>
+  <div class="tab" data-tab="dependencies">🔗 Dependências</div>
+  <div class="tab" data-tab="flows">⚡ Fluxos</div>
+</nav>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════
+     1. VISÃO GERAL
+════════════════════════════════════════════════════════════ -->
+<div class="section active" id="tab-overview">
+  <div class="section-header">
+    <div class="section-title">Visão Geral da Arquitetura</div>
+    <div class="section-desc">Stack técnico, camadas da aplicação e principais integrações.</div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-number">14</div><div class="stat-label">Páginas protegidas</div></div>
+    <div class="stat-card"><div class="stat-number">6</div><div class="stat-label">Rotas públicas</div></div>
+    <div class="stat-card"><div class="stat-number">12</div><div class="stat-label">Componentes</div></div>
+    <div class="stat-card"><div class="stat-number">22</div><div class="stat-label">Tabelas no banco</div></div>
+    <div class="stat-card"><div class="stat-number">31</div><div class="stat-label">Migrations</div></div>
+    <div class="stat-card"><div class="stat-number">4</div><div class="stat-label">Lib / utilities</div></div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Arquitetura em Camadas</div>
+    <div class="mermaid">
+graph TB
+    subgraph Browser["🌐 Browser / PWA"]
+        CLIENT["Client Components\n'use client'\n(React hooks, estado local)"]
+        SW["Service Worker\n(SwRegister — offline + push)"]
+    end
+
+    subgraph Next["⚡ Next.js 15 App Router"]
+        AUTH_LAYOUT["(auth) layout\n/login /cadastro /criar-empresa"]
+        APP_LAYOUT["(app) layout + AppLayout\nSidebar + Navbar + Bottom Nav"]
+        RSC["Server Components\n(dashboard — SSR/RSC)"]
+        API["API Routes\n/api/push/subscribe\n/api/cron/lembretes"]
+    end
+
+    subgraph Supa["🔐 Supabase (Backend)"]
+        SB_AUTH["Auth\nJWT + Sessions"]
+        SB_DB["PostgreSQL\nRLS em todas tabelas\nminha_empresas()"]
+        SB_STOR["Storage\nbucket: logos"]
+        SB_RT["Realtime\n(opcional)"]
+    end
+
+    Browser -->|"HTTPS"| Next
+    AUTH_LAYOUT -->|"createClient server"| SB_AUTH
+    APP_LAYOUT -->|"Middleware"| SB_AUTH
+    RSC -->|"createClient server"| SB_DB
+    CLIENT -->|"createClient browser"| SB_DB
+    API -->|"createClient server"| SB_DB
+    API -->|"Web Push"| SW
+    CLIENT -->|"Upload"| SB_STOR
+
+    style Browser fill:#1a1533,stroke:#6d28d9
+    style Next fill:#0f2e1a,stroke:#16a34a
+    style Supa fill:#2d1404,stroke:#ea580c
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="diagram-card">
+      <div class="diagram-label">Camada de Dados — lib/</div>
+      <div class="mermaid">
+graph LR
+    P["Páginas\n(Client + Server)"]
+
+    P --> SC["lib/supabase/client.ts\nsingleton browser"]
+    P --> SS["lib/supabase/server.ts\nawait SSR"]
+    P --> EX["lib/export.ts\nExcel · PDF"]
+    P --> MK["lib/masks.ts\nCPF · CNPJ · Tel"]
+    P --> TX["lib/taxas-cartao.ts\nBandeiras · Parcelas"]
+    P --> TY["types/index.ts\nTipos TypeScript"]
+
+    style P fill:#1a1533,stroke:#6d28d9
+    style SC fill:#0f2e1a,stroke:#16a34a
+    style SS fill:#0f2e1a,stroke:#16a34a
+      </div>
+    </div>
+
+    <div class="diagram-card">
+      <div class="diagram-label">Multi-tenancy com RLS</div>
+      <div class="mermaid">
+graph TD
+    L["/login"] -->|"signIn"| A["auth.users\n(Supabase Auth)"]
+    A -->|"trigger auto"| EM["empresa_membros\n(user_id, role, empresa_id)"]
+    EM -->|"SECURITY DEFINER"| FN["minha_empresas()\nretorna empresa_ids"]
+    FN -->|"policy"| ALL["TODAS as tabelas\nempresa_id = ANY(minha_empresas())"]
+
+    style L fill:#1a1533,stroke:#6d28d9
+    style A fill:#2d1404,stroke:#ea580c
+    style FN fill:#2d1a04,stroke:#d97706
+    style ALL fill:#0f2e1a,stroke:#16a34a
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     2. ROTAS
+════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-routes">
+  <div class="section-header">
+    <div class="section-title">Rotas da Aplicação</div>
+    <div class="section-desc">Hierarquia completa de rotas Next.js App Router com layout, tipo de render e componentes.</div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Árvore de Rotas</div>
+    <div class="mermaid">
+graph TD
+    ROOT["/ (raiz)"]
+
+    ROOT --> AUTH["(auth)\nlayout público"]
+    ROOT --> APP["(app)\nlayout protegido"]
+    ROOT --> OFF["/offline\nPWA fallback"]
+
+    AUTH --> LG["/login"]
+    AUTH --> CAD["/cadastro"]
+    AUTH --> CE["/criar-empresa"]
+    AUTH --> VE["/verificar-email"]
+
+    APP --> AL["AppLayout\nSidebar + Navbar"]
+    AL --> DASH["/dashboard\nServer RSC"]
+    AL --> AGN["/agenda"]
+    AL --> CLI["/clientes"]
+    CLI --> CLID["/clientes/[id]"]
+    AL --> FIN["/financeiro"]
+    AL --> REL["/relatorios"]
+    AL --> EQ["/equipe"]
+    AL --> EST["/estoque"]
+    AL --> COM["/comanda"]
+    AL --> SRV["/servicos"]
+    AL --> PAC["/pacotes"]
+    AL --> VND["/vendas"]
+    AL --> CMS["/comissoes"]
+    AL --> NOT["/notificacoes"]
+    AL --> CFG["/configuracoes"]
+
+    style ROOT fill:#252a45,stroke:#4338ca
+    style AUTH fill:#2d0a0a,stroke:#b91c1c
+    style APP fill:#0a2d1a,stroke:#16a34a
+    style AL fill:#1a1f36,stroke:#4338ca
+    style DASH fill:#0f2e1a,stroke:#16a34a
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Detalhes por rota</div>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Rota</th>
+          <th>Render</th>
+          <th>loading.tsx</th>
+          <th>Componentes</th>
+          <th>Observação</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>/login</code></td><td><span class="badge badge-orange">Public</span></td><td>—</td><td>Supabase Auth UI</td><td>Redirect se autenticado</td></tr>
+        <tr><td><code>/cadastro</code></td><td><span class="badge badge-orange">Public</span></td><td>—</td><td>Supabase Auth</td><td></td></tr>
+        <tr><td><code>/criar-empresa</code></td><td><span class="badge badge-orange">Public</span></td><td>—</td><td>—</td><td>fn_criar_empresa_completo()</td></tr>
+        <tr><td><code>/verificar-email</code></td><td><span class="badge badge-orange">Public</span></td><td>—</td><td>—</td><td></td></tr>
+        <tr><td><code>/dashboard</code></td><td><span class="badge badge-blue">Server RSC</span></td><td>✅</td><td>CountUp, SparkBars, Tilt</td><td>Único Server Component</td></tr>
+        <tr><td><code>/agenda</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>ExportButton, SearchSelect, Sk</td><td>Optimistic UI no status</td></tr>
+        <tr><td><code>/clientes</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>ExportButton, Sk</td><td></td></tr>
+        <tr><td><code>/clientes/[id]</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>SearchSelect</td><td>Anamnese + histórico</td></tr>
+        <tr><td><code>/financeiro</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>ExportButton, Sk</td><td>6 queries paralelas; lucro real</td></tr>
+        <tr><td><code>/relatorios</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>ExportButton, Sk</td><td>7 abas · 7 queries paralelas</td></tr>
+        <tr><td><code>/equipe</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>ExportButton, Sk, ConfirmDialog</td><td></td></tr>
+        <tr><td><code>/estoque</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>Sk</td><td>Trigger alerta estoque baixo</td></tr>
+        <tr><td><code>/comanda</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>SearchSelect, Sk</td><td>Venda rápida; desconto; taxas</td></tr>
+        <tr><td><code>/servicos</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>Sk</td><td>Insumos por serviço</td></tr>
+        <tr><td><code>/pacotes</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>Sk</td><td>Sessões usadas / total</td></tr>
+        <tr><td><code>/vendas</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>ExportButton, Sk</td><td>Saída automática de estoque</td></tr>
+        <tr><td><code>/comissoes</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>ExportButton, Sk</td><td>Marcar como paga</td></tr>
+        <tr><td><code>/notificacoes</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>Sk</td><td>Push + in-app</td></tr>
+        <tr><td><code>/configuracoes</code></td><td><span class="badge badge-green">Client</span></td><td>✅</td><td>Sk</td><td>Logo upload; CNPJ/tel masks</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     3. BANCO DE DADOS
+════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-database">
+  <div class="section-header">
+    <div class="section-title">Schema do Banco de Dados</div>
+    <div class="section-desc">22 tabelas PostgreSQL + auth.users · RLS em todas · Função minha_empresas() como anchor de segurança.</div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">ERD — Domínio Core (usuários, empresa, clientes, serviços)</div>
+    <div class="mermaid">
+erDiagram
+    auth_users {
+        uuid id PK
+        string email
+        timestamp created_at
+    }
+    users {
+        uuid id PK
+        string nome
+        string telefone
+        string foto_url
+    }
+    empresas {
+        uuid id PK
+        uuid owner_id FK
+        string nome
+        string cnpj
+        string segmento
+        float meta_mensal
+        jsonb horarios
+        string logo_url
+    }
+    empresa_membros {
+        uuid id PK
+        uuid empresa_id FK
+        uuid user_id FK
+        string role
+        bool ativo
+        float percentual_comissao
+        timestamp created_at
+    }
+    clientes {
+        uuid id PK
+        uuid empresa_id FK
+        string nome
+        string telefone
+        string email
+        date data_nascimento
+        bool ativo
+    }
+    servicos {
+        uuid id PK
+        uuid empresa_id FK
+        string nome
+        float preco
+        int duracao_min
+        bool ativo
+    }
+    produtos {
+        uuid id PK
+        uuid empresa_id FK
+        string nome
+        string tipo
+        int estoque_atual
+        int estoque_minimo
+        float preco_custo
+        float preco_venda
+    }
+
+    auth_users ||--|| users : "perfil"
+    auth_users ||--o{ empresa_membros : "é membro via"
+    empresas ||--o{ empresa_membros : "tem membros"
+    empresas }o--|| users : "owner_id"
+    empresas ||--o{ clientes : "tem"
+    empresas ||--o{ servicos : "oferece"
+    empresas ||--o{ produtos : "estoca"
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">ERD — Agendamentos, Comandas e Finanças</div>
+    <div class="mermaid">
+erDiagram
+    agendamentos {
+        uuid id PK
+        uuid empresa_id FK
+        uuid profissional_id FK
+        uuid cliente_id FK
+        uuid comanda_id FK
+        string status
+        float valor
+        timestamp data_hora_inicio
+        timestamp data_hora_fim
+    }
+    agendamento_servicos {
+        uuid id PK
+        uuid agendamento_id FK
+        uuid servico_id FK
+        float preco
+    }
+    comandas {
+        uuid id PK
+        uuid empresa_id FK
+        uuid clientes_id FK
+        string status
+        float total
+    }
+    comanda_itens {
+        uuid id PK
+        uuid comanda_id FK
+        string tipo
+        uuid referencia_id
+        float preco
+        int quantidade
+    }
+    pagamentos {
+        uuid id PK
+        uuid empresa_id FK
+        float valor
+        float valor_liquido
+        string metodo
+        string bandeira
+        int parcelas
+        string status
+    }
+    comissoes {
+        uuid id PK
+        uuid empresa_id FK
+        uuid profissional_id FK
+        uuid agendamento_id FK
+        float valor_servico
+        float percentual
+        float valor_comissao
+        string status
+    }
+    despesas {
+        uuid id PK
+        uuid empresa_id FK
+        string descricao
+        string categoria
+        float valor
+        bool recorrente
+        string periodicidade
+        date data_vencimento
+        string status
+    }
+
+    agendamentos ||--o{ agendamento_servicos : "inclui serviços"
+    agendamentos ||--o{ comissoes : "gera (trigger)"
+    agendamentos }o--o| comandas : "vincula"
+    comandas ||--o{ comanda_itens : "tem itens"
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">ERD — Vendas, Estoque, Pacotes e Notificações</div>
+    <div class="mermaid">
+erDiagram
+    vendas {
+        uuid id PK
+        uuid empresa_id FK
+        uuid cliente_id FK
+        float total
+        float valor_final
+        timestamp created_at
+    }
+    venda_itens {
+        uuid id PK
+        uuid venda_id FK
+        uuid produto_id FK
+        int quantidade
+        float preco_unitario
+    }
+    estoque_movimentos {
+        uuid id PK
+        uuid empresa_id FK
+        uuid produto_id FK
+        string tipo
+        int quantidade
+        timestamp created_at
+    }
+    servico_produtos {
+        uuid id PK
+        uuid servico_id FK
+        uuid produto_id FK
+        float quantidade
+    }
+    pacotes {
+        uuid id PK
+        uuid empresa_id FK
+        string nome
+        float preco
+        int validade_dias
+        bool ativo
+    }
+    pacote_servicos {
+        uuid id PK
+        uuid pacote_id FK
+        uuid servico_id FK
+    }
+    pacote_clientes {
+        uuid id PK
+        uuid pacote_id FK
+        uuid cliente_id FK
+        int sessoes_total
+        int sessoes_usadas
+    }
+    avaliacoes {
+        uuid id PK
+        uuid empresa_id FK
+        uuid profissional_id FK
+        uuid cliente_id FK
+        int nota
+        text comentario
+        timestamp created_at
+    }
+    notificacoes {
+        uuid id PK
+        uuid empresa_id FK
+        string tipo
+        string titulo
+        string mensagem
+        bool lida
+        timestamp created_at
+    }
+    web_push_subscriptions {
+        uuid id PK
+        uuid user_id FK
+        jsonb subscription
+    }
+
+    vendas ||--o{ venda_itens : "tem"
+    pacotes ||--o{ pacote_servicos : "inclui"
+    pacotes ||--o{ pacote_clientes : "atribuído a"
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="diagram-card">
+      <div class="diagram-label">Triggers automáticos</div>
+      <table>
+        <thead><tr><th>Trigger</th><th>Quando dispara</th><th>Efeito</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>gerar_comissao()</code></td>
+            <td>agendamentos.status → <em>concluido</em></td>
+            <td>INSERT comissoes (valor × percentual)</td>
+          </tr>
+          <tr>
+            <td><code>notif_estoque_baixo()</code></td>
+            <td>produtos.estoque_atual &lt; estoque_minimo</td>
+            <td>INSERT notificacoes tipo=estoque</td>
+          </tr>
+          <tr>
+            <td><code>auto_create_user_profile()</code></td>
+            <td>auth.users INSERT</td>
+            <td>INSERT users (perfil público)</td>
+          </tr>
+          <tr>
+            <td><code>pacote_uso_automatico()</code></td>
+            <td>agendamentos INSERT</td>
+            <td>Detecta pacote ativo → decrementa sessão</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="diagram-card">
+      <div class="diagram-label">Migrations — linha do tempo</div>
+      <table>
+        <thead><tr><th>#</th><th>Grupo</th><th>O que fez</th></tr></thead>
+        <tbody>
+          <tr><td><code>001–005</code></td><td><span class="badge badge-blue">Foundation</span></td><td>Schema inicial, usuários, RLS base</td></tr>
+          <tr><td><code>006–008</code></td><td><span class="badge badge-green">Core</span></td><td>Clientes, produtos, insumos por serviço</td></tr>
+          <tr><td><code>009–011</code></td><td><span class="badge badge-purple">Commerce</span></td><td>Comanda, pacotes, uso automático</td></tr>
+          <tr><td><code>012–014</code></td><td><span class="badge badge-purple">Commerce</span></td><td>Vendas avulsas, storage logos, tipo produto</td></tr>
+          <tr><td><code>015–018</code></td><td><span class="badge badge-orange">Automation</span></td><td>Comissões, triggers, criar empresa, segmento</td></tr>
+          <tr><td><code>019–021</code></td><td><span class="badge badge-pink">Features</span></td><td>Push notifications, multi-serviço, bandeira</td></tr>
+          <tr><td><code>022–026</code></td><td><span class="badge badge-orange">Hotfix</span></td><td>Fix trigger comissão, backfill, taxas cartão</td></tr>
+          <tr><td><code>027–031</code></td><td><span class="badge badge-red">Recovery</span></td><td>Cascade delete → rollback disaster → índices</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     4. DEPENDÊNCIAS
+════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-dependencies">
+  <div class="section-header">
+    <div class="section-title">Grafo de Dependências</div>
+    <div class="section-desc">Quais páginas consomem quais componentes compartilhados e quais tabelas do banco.</div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Páginas → Componentes Compartilhados</div>
+    <div class="mermaid">
+graph LR
+    subgraph Pags["Páginas"]
+        direction TB
+        DASH["dashboard"]
+        AGENDA["agenda"]
+        CLI["clientes"]
+        FIN["financeiro"]
+        REL["relatorios"]
+        EQ["equipe"]
+        EST["estoque"]
+        COM["comanda"]
+        SERV["servicos"]
+        VEND["vendas"]
+        COMIS["comissoes"]
+        NOT["notificacoes"]
+        CFG["configuracoes"]
+    end
+
+    subgraph Comp["Componentes"]
+        direction TB
+        SK["🦴 Skeleton (Sk)\n13 páginas"]
+        EXP["📤 ExportButton\nagenda·cli·fin·rel·eq·vend·comis"]
+        SS["🔍 SearchSelect\nagenda·clientes/id·comanda"]
+        CD["⚠️ ConfirmDialog\nequipe"]
+        CU["🔢 CountUp\ndashboard"]
+        SB["📊 SparkBars\ndashboard"]
+        TI["🌀 Tilt\ndashboard"]
+    end
+
+    DASH --> CU
+    DASH --> SB
+    DASH --> TI
+    AGENDA --> EXP
+    AGENDA --> SS
+    AGENDA --> SK
+    CLI --> EXP
+    CLI --> SK
+    FIN --> EXP
+    FIN --> SK
+    REL --> EXP
+    REL --> SK
+    EQ --> EXP
+    EQ --> SK
+    EQ --> CD
+    EST --> SK
+    COM --> SS
+    COM --> SK
+    SERV --> SK
+    VEND --> EXP
+    VEND --> SK
+    COMIS --> EXP
+    COMIS --> SK
+    NOT --> SK
+    CFG --> SK
+
+    style Pags fill:#1a1533,stroke:#6d28d9
+    style Comp fill:#0f2e1a,stroke:#16a34a
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Páginas → Tabelas do banco (principais)</div>
+    <div class="mermaid">
+graph LR
+    subgraph Pages["Páginas"]
+        direction TB
+        D["dashboard"]
+        A["agenda"]
+        F["financeiro"]
+        R["relatorios"]
+        C["comanda"]
+        E["estoque"]
+        V["vendas"]
+        N["notificacoes"]
+    end
+
+    subgraph Tables["Tabelas"]
+        direction TB
+        AG["agendamentos"]
+        EM["empresa_membros"]
+        CL["clientes"]
+        SV["servicos"]
+        PR["produtos"]
+        PA["pagamentos"]
+        DS["despesas"]
+        CO["comissoes"]
+        ES["estoque_movimentos"]
+        VN["vendas"]
+        AV["avaliacoes"]
+    end
+
+    D --> AG
+    D --> EM
+    D --> CO
+    D --> DS
+    D --> VN
+    A --> AG
+    A --> CL
+    A --> SV
+    A --> EM
+    A --> AV
+    F --> AG
+    F --> DS
+    F --> CO
+    F --> PA
+    F --> VN
+    F --> EM
+    R --> AG
+    R --> DS
+    R --> CO
+    R --> ES
+    R --> VN
+    R --> PA
+    R --> AV
+    C --> AG
+    C --> CL
+    C --> SV
+    C --> PR
+    C --> PA
+    C --> ES
+    C --> VN
+    E --> PR
+    E --> ES
+    V --> PR
+    V --> VN
+    V --> PA
+    V --> ES
+    N --> AG
+    N --> PR
+    N --> DS
+    N --> CO
+
+    style Pages fill:#1a1533,stroke:#6d28d9
+    style Tables fill:#2d1404,stroke:#ea580c
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Tabelas mais referenciadas</div>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Tabela</th><th>Páginas que usam</th><th>Operações</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>empresa_membros</code></td><td><span class="badge badge-red">TODAS (16)</span></td><td>SELECT role, user_id, percentual_comissao</td></tr>
+        <tr><td><code>agendamentos</code></td><td><span class="badge badge-pink">10 páginas</span></td><td>SELECT, INSERT, UPDATE (status, valor)</td></tr>
+        <tr><td><code>clientes</code></td><td><span class="badge badge-purple">8 páginas</span></td><td>SELECT, INSERT, UPDATE, COUNT</td></tr>
+        <tr><td><code>pagamentos</code></td><td><span class="badge badge-blue">5 páginas</span></td><td>SELECT, INSERT (comanda, vendas)</td></tr>
+        <tr><td><code>despesas</code></td><td><span class="badge badge-blue">4 páginas</span></td><td>SELECT, INSERT, UPDATE status</td></tr>
+        <tr><td><code>comissoes</code></td><td><span class="badge badge-blue">5 páginas</span></td><td>SELECT, UPDATE (status=paga)</td></tr>
+        <tr><td><code>estoque_movimentos</code></td><td><span class="badge badge-green">4 páginas</span></td><td>SELECT, INSERT (saida automática)</td></tr>
+        <tr><td><code>vendas</code></td><td><span class="badge badge-green">5 páginas</span></td><td>SELECT, INSERT</td></tr>
+        <tr><td><code>servicos</code></td><td><span class="badge badge-green">4 páginas</span></td><td>SELECT, INSERT, UPDATE</td></tr>
+        <tr><td><code>produtos</code></td><td><span class="badge badge-green">4 páginas</span></td><td>SELECT, INSERT, UPDATE</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     5. FLUXOS
+════════════════════════════════════════════════════════════ -->
+<div class="section" id="tab-flows">
+  <div class="section-header">
+    <div class="section-title">Fluxos de Dados</div>
+    <div class="section-desc">Como os dados transitam entre UI, banco e triggers nos principais fluxos de negócio.</div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Fluxo — Agendamento completo (status machine)</div>
+    <div class="mermaid">
+sequenceDiagram
+    actor Prof as Profissional
+    participant UI as Agenda UI
+    participant DB as Supabase DB
+    participant TG as Trigger SQL
+
+    Prof->>UI: Abre modal de novo agendamento
+    UI->>DB: Promise.all(clientes, servicos, empresa_membros)
+    DB-->>UI: Dados para SearchSelect
+
+    Prof->>UI: Preenche e confirma
+    UI->>DB: INSERT agendamentos (status=agendado)
+    UI->>DB: INSERT agendamento_servicos[]
+    DB-->>UI: id do agendamento
+
+    Note over UI,DB: Dia do atendimento
+
+    Prof->>UI: Drag ou clique → status=concluido
+    UI->>DB: UPDATE agendamentos SET status='concluido' (optimistic UI)
+    DB->>TG: gerar_comissao() dispara
+    TG->>DB: SELECT empresa_membros WHERE user_id = profissional_id
+    TG->>DB: INSERT comissoes (valor × percentual_comissao / 100)
+
+    Prof->>UI: Clica em "Avaliar"
+    UI->>DB: INSERT avaliacoes (nota, comentario)
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Fluxo — Comanda / Venda Rápida</div>
+    <div class="mermaid">
+sequenceDiagram
+    actor At as Atendente
+    participant C as Comanda UI
+    participant DB as Supabase DB
+
+    At->>C: Seleciona cliente (SearchSelect)
+    C->>DB: SELECT agendamentos concluídos sem comanda + servicos + produtos
+    DB-->>C: Itens disponíveis
+
+    At->>C: Adiciona serviços e/ou produtos
+    At->>C: Define desconto (%)
+    At->>C: Escolhe pagamento (dinheiro/pix/cartão + bandeira + parcelas)
+
+    C->>DB: INSERT comandas {clientes_id, total}
+    C->>DB: INSERT comanda_itens[] {tipo, referencia_id, preco, qtd}
+    C->>DB: INSERT pagamentos {valor, valor_liquido, metodo, bandeira, parcelas}
+    C->>DB: INSERT vendas + venda_itens[] (se houver produtos)
+    C->>DB: INSERT estoque_movimentos {tipo=saida, produto_id, quantidade}
+    C->>DB: UPDATE agendamentos SET comanda_id (vincula agendamento)
+
+    DB-->>C: ✅ Toast de confirmação
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Fluxo — Cálculo de Lucro Real (Financeiro)</div>
+    <div class="mermaid">
+graph TD
+    SEL["Período selecionado\n(mês, semana, intervalo)"]
+    SEL --> PA["Promise.all\n6 queries paralelas"]
+
+    PA --> Q1["agendamentos concluídos\n.select profissional_id, valor"]
+    PA --> Q2["pagamentos\n.select valor, valor_liquido, metodo"]
+    PA --> Q3["despesas pagas\n.select valor"]
+    PA --> Q4["empresa_membros ativos\n.select user_id, percentual_comissao"]
+    PA --> Q5["vendas\n.select valor_final"]
+    PA --> Q6["comissoes (relatórios)\n.select valor_comissao"]
+
+    Q4 --> CM["comMap: Map\nuser_id → percentual"]
+    Q1 --> BR["Receita Bruta\n= Σ ag.valor + Σ vendas.valor_final"]
+    Q2 --> TX["Taxas de Cartão\n= Σ (valor - valor_liquido)"]
+    CM --> CO["Comissões On-the-fly\n= Σ ag.valor × comMap[profissional_id] / 100"]
+    Q1 --> CO
+    Q3 --> DE["Despesas\n= Σ despesas.valor"]
+
+    BR --> LQ["Receita Líquida\n= Bruto − Taxas"]
+    TX --> LQ
+    LQ --> LR["💰 Lucro Real\n= Líquido − Comissões − Despesas"]
+    CO --> LR
+    DE --> LR
+
+    style LR fill:#0f2e1a,stroke:#16a34a,color:#e2e8f0
+    style BR fill:#1a1533,stroke:#6d28d9,color:#e2e8f0
+    style TX fill:#2d0a0a,stroke:#b91c1c,color:#e2e8f0
+    style CO fill:#2d1404,stroke:#ea580c,color:#e2e8f0
+    style DE fill:#2d1404,stroke:#ea580c,color:#e2e8f0
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <div class="diagram-label">Fluxo — Notificações e Push (PWA)</div>
+    <div class="mermaid">
+graph LR
+    subgraph Auto["Automático (SQL Triggers)"]
+        T1["Estoque baixo\nestoque_atual < mínimo"]
+        T2["Trigger notif_estoque_baixo()"]
+    end
+
+    subgraph Cron["Cron Job (/api/cron/lembretes)"]
+        C1["Busca agendamentos\nnas próximas 24h"]
+        C2["Cria notificação\nin-app"]
+        C3["Envia Web Push\nvia web_push_subscriptions"]
+    end
+
+    subgraph App["Notificacoes UI"]
+        N["notificacoes table\n(tipo, titulo, lida)"]
+        BD["Badge sidebar\n(count não lidas)"]
+    end
+
+    subgraph Dispositivo["Dispositivo (PWA)"]
+        SW2["Service Worker"]
+        PUSH["Push Notification"]
+    end
+
+    T1 --> T2
+    T2 --> N
+    C1 --> C2
+    C1 --> C3
+    C2 --> N
+    C3 --> SW2
+    SW2 --> PUSH
+    N --> BD
+    N --> App
+    </div>
+  </div>
+</div>
+
+</main>
+
+<script>
+  const mermaidConfig = {
+    startOnLoad: false,
+    theme: 'dark',
+    securityLevel: 'loose',
+    themeVariables: {
+      primaryColor: '#1e1b4b',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#4338ca',
+      lineColor: '#5a6380',
+      secondaryColor: '#14532d',
+      tertiaryColor: '#2d1a0a',
+      background: '#0c0e1a',
+      mainBkg: '#13172a',
+      nodeBorder: '#4338ca',
+      clusterBkg: '#13172a',
+      clusterBorder: '#252a45',
+      edgeLabelBackground: '#13172a',
+      attributeBackgroundColorEven: '#13172a',
+      attributeBackgroundColorOdd: '#0c0e1a',
+      fillType0: '#1e1b4b', fillType1: '#14532d', fillType2: '#2d1404',
+      fillType3: '#2d1a04', fillType4: '#1a1533', fillType5: '#2d0a0a',
+      fillType6: '#0f2e1a', fillType7: '#1a1f36',
+      labelBoxBkgColor: '#13172a', labelTextColor: '#e2e8f0',
+      loopTextColor: '#e2e8f0', noteBorderColor: '#4338ca',
+      noteBkgColor: '#1e1b4b', noteTextColor: '#e2e8f0',
+      activationBorderColor: '#818cf8', activationBkgColor: '#1e1b4b',
+      sequenceNumberColor: '#818cf8', actorBorder: '#4338ca',
+      actorBkg: '#1e1b4b', actorTextColor: '#e2e8f0',
+      actorLineColor: '#5a6380', signalColor: '#818cf8', signalTextColor: '#e2e8f0',
+    },
+    flowchart: { curve: 'basis', htmlLabels: true, padding: 20 },
+    sequence: { actorMargin: 60, mirrorActors: false, useMaxWidth: true, boxTextMargin: 5 },
+    er: { useMaxWidth: true, diagramPadding: 20 }
+  };
+
+  mermaid.initialize(mermaidConfig);
+
+  // Renderiza todos os diagramas com as sections visíveis (sem display:none)
+  mermaid.run({ querySelector: '.mermaid' }).then(() => {
+    // Após renderizar tudo, oculta as sections inativas
+    document.querySelectorAll('.section:not(.active)').forEach(s => s.classList.add('hidden'));
+  }).catch(e => console.warn('Mermaid render error:', e));
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const id = tab.dataset.tab;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.section').forEach(s => {
+        s.classList.remove('active');
+        s.classList.add('hidden');
+      });
+      tab.classList.add('active');
+      const section = document.getElementById('tab-' + id);
+      section.classList.add('active');
+      section.classList.remove('hidden');
+    });
+  });
+</script>
+</body>
+</html>
