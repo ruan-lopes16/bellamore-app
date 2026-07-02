@@ -43,7 +43,8 @@ const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-type ServicoItem = { servico_id: string; nome: string; quantidade: number };
+/** quantidade null = sessões ilimitadas para este serviço */
+type ServicoItem = { servico_id: string; nome: string; quantidade: number | null };
 
 type Pacote = {
   id: string; nome: string; preco: number;
@@ -60,8 +61,8 @@ type PacoteCliente = {
   valor_pago:    number | null;
   status:        string;
   observacao:    string | null;
-  total_sessoes: number;   // calculado
-  usadas:        number;   // calculado de pacote_uso
+  total_sessoes: number | null;   // calculado; null = ilimitado
+  usadas:        number;          // calculado de pacote_uso
 };
 
 type Servico = Pick<ServicoBase, 'id' | 'nome' | 'preco'>;
@@ -118,6 +119,9 @@ function PacoteModal({
   }
   function atualizarQtd(id: string, qtd: number) {
     setItensList(prev => prev.map(i => i.servico_id === id ? { ...i, quantidade: Math.max(1, qtd) } : i));
+  }
+  function toggleIlimitado(id: string) {
+    setItensList(prev => prev.map(i => i.servico_id === id ? { ...i, quantidade: i.quantidade == null ? 1 : null } : i));
   }
   function removerItem(id: string) {
     setItensList(prev => prev.filter(i => i.servico_id !== id));
@@ -210,14 +214,25 @@ function PacoteModal({
               {itensList.map(item => (
                 <div key={item.servico_id} className="flex items-center gap-2 bg-bg rounded-xl px-3 py-2">
                   <span className="flex-1 text-sm text-text truncate">{item.nome}</span>
-                  <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => atualizarQtd(item.servico_id, item.quantidade - 1)}
-                      className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">−</button>
-                    <span className="w-8 text-center text-sm font-semibold text-text">{item.quantidade}</span>
-                    <button type="button" onClick={() => atualizarQtd(item.servico_id, item.quantidade + 1)}
-                      className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">+</button>
-                  </div>
-                  <span className="text-xs text-text-4">sessões</span>
+                  {item.quantidade == null ? (
+                    <span className="text-xs font-semibold text-primary">Ilimitado</span>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => atualizarQtd(item.servico_id, item.quantidade! - 1)}
+                          className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">−</button>
+                        <span className="w-8 text-center text-sm font-semibold text-text">{item.quantidade}</span>
+                        <button type="button" onClick={() => atualizarQtd(item.servico_id, item.quantidade! + 1)}
+                          className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">+</button>
+                      </div>
+                      <span className="text-xs text-text-4">sessões</span>
+                    </>
+                  )}
+                  <button type="button" onClick={() => toggleIlimitado(item.servico_id)}
+                    title={item.quantidade == null ? 'Definir quantidade' : 'Tornar ilimitado'}
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${item.quantidade == null ? 'text-primary bg-primary-soft' : 'text-text-4 hover:text-primary hover:bg-primary-soft'}`}>
+                    ∞
+                  </button>
                   <button type="button" onClick={() => removerItem(item.servico_id)}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
                     <Trash2 size={12}/>
@@ -430,7 +445,7 @@ function SessaoModal({
         <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
           <div className="bg-bg rounded-xl p-3 flex items-center justify-between border border-border">
             <span className="text-sm text-text-2">Sessões restantes</span>
-            <span className="text-lg font-bold text-text">{pc.total_sessoes - pc.usadas}</span>
+            <span className="text-lg font-bold text-text">{pc.total_sessoes != null ? pc.total_sessoes - pc.usadas : 'Ilimitado'}</span>
           </div>
 
           <div>
@@ -451,7 +466,7 @@ function SessaoModal({
 
           <div className="flex gap-3">
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
-            <button type="submit" disabled={salvando || pc.usadas >= pc.total_sessoes}
+            <button type="submit" disabled={salvando || (pc.total_sessoes !== null && pc.usadas >= pc.total_sessoes)}
               className="flex-1 h-10 rounded-xl bg-green text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50">
               {salvando ? 'Salvando...' : '+ Marcar sessão'}
             </button>
@@ -553,12 +568,14 @@ export default function PacotesPage() {
 
     setVendidos(((rVendidos.data ?? []) as any[]).map(v => {
       const pac = pacotesMap[v.pacote?.id] ?? v.pacote;
-      const totalSessoes = (pac?.servicos ?? []).reduce((s: number, i: ServicoItem) => s + i.quantidade, 0);
+      const servicosPac = (pac?.servicos ?? []) as ServicoItem[];
+      const temIlimitado = servicosPac.some(i => i.quantidade == null);
+      const totalSessoes = temIlimitado ? null : servicosPac.reduce((s: number, i) => s + (i.quantidade ?? 0), 0);
       const usadas = (v.uso ?? []).length;
       // Auto-status
       let status = v.status;
       if (status === 'ativo') {
-        if (usadas >= totalSessoes && totalSessoes > 0) status = 'concluido';
+        if (totalSessoes !== null && usadas >= totalSessoes && totalSessoes > 0) status = 'concluido';
         else if (v.data_validade && isPast(parseISO(v.data_validade))) status = 'expirado';
       }
       return {
@@ -596,7 +613,7 @@ export default function PacotesPage() {
   // ── Relatório de utilização
   const relatorio = useMemo(() => {
     if (vendidos.length === 0) return null;
-    const totalSessoes   = vendidos.reduce((s, v) => s + v.total_sessoes, 0);
+    const totalSessoes   = vendidos.reduce((s, v) => s + (v.total_sessoes ?? 0), 0);
     const sessoesUsadas  = vendidos.reduce((s, v) => s + v.usadas, 0);
     const aproveitamento = totalSessoes > 0 ? Math.round((sessoesUsadas / totalSessoes) * 100) : 0;
     const receitaTotal   = vendidos.reduce((s, v) => s + (v.valor_pago ?? v.pacote.preco), 0);
@@ -606,7 +623,7 @@ export default function PacotesPage() {
       const id = v.pacote.id;
       if (!porPacote[id]) porPacote[id] = { nome: v.pacote.nome, vendas: 0, totalSessoes: 0, sessoesUsadas: 0, receita: 0 };
       porPacote[id].vendas++;
-      porPacote[id].totalSessoes  += v.total_sessoes;
+      porPacote[id].totalSessoes  += v.total_sessoes ?? 0;
       porPacote[id].sessoesUsadas += v.usadas;
       porPacote[id].receita       += v.valor_pago ?? v.pacote.preco;
     });
@@ -670,7 +687,7 @@ export default function PacotesPage() {
                 { header: 'Nome',            accessor: (p: Pacote) => p.nome,                                                                                      width: 28 },
                 { header: 'Preço',           accessor: (p: Pacote) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.preco),      width: 14 },
                 { header: 'Validade (dias)', accessor: (p: Pacote) => p.validade_dias ?? 'Sem validade',                                                            width: 14 },
-                { header: 'Serviços',        accessor: (p: Pacote) => p.servicos.map(s => `${s.nome} ×${s.quantidade}`).join(', '),                                 width: 40 },
+                { header: 'Serviços',        accessor: (p: Pacote) => p.servicos.map(s => `${s.nome} ×${s.quantidade ?? '∞'}`).join(', '),                          width: 40 },
                 { header: 'Status',          accessor: (p: Pacote) => p.ativo ? 'Ativo' : 'Inativo',                                                               width: 10 },
               ]}
               getData={() => pacotes}
@@ -683,7 +700,7 @@ export default function PacotesPage() {
               columns={[
                 { header: 'Cliente',          accessor: (v: PacoteCliente) => v.cliente.nome,                                                                           width: 26 },
                 { header: 'Pacote',           accessor: (v: PacoteCliente) => v.pacote.nome,                                                                            width: 26 },
-                { header: 'Sessões usadas',   accessor: (v: PacoteCliente) => `${v.usadas}/${v.total_sessoes}`,                                                          width: 14 },
+                { header: 'Sessões usadas',   accessor: (v: PacoteCliente) => `${v.usadas}/${v.total_sessoes ?? '∞'}`,                                                    width: 14 },
                 { header: 'Valor pago',       accessor: (v: PacoteCliente) => v.valor_pago != null ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v.valor_pago) : '—', width: 14 },
                 { header: 'Início',           accessor: (v: PacoteCliente) => fmtData(v.data_inicio),                                                                   width: 12 },
                 { header: 'Válido até',       accessor: (v: PacoteCliente) => fmtValidade(v.data_validade),                                                              width: 12 },
@@ -771,7 +788,8 @@ export default function PacotesPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {pacotes.map((p, idx) => {
-              const totalSessoes = p.servicos.reduce((s, i) => s + i.quantidade, 0);
+              const temIlimitado = p.servicos.some(i => i.quantidade == null);
+              const totalSessoes = p.servicos.reduce((s, i) => s + (i.quantidade ?? 0), 0);
               return (
                 <div key={p.id} className={`bm-stagger bg-surface border rounded-2xl p-5 shadow-sm flex flex-col gap-3 transition ${!p.ativo ? 'opacity-60 border-border' : 'border-border hover:border-accent/40'}`}
                   style={{ '--bm-i': idx, '--bm-step': '60ms' } as React.CSSProperties}>
@@ -797,10 +815,12 @@ export default function PacotesPage() {
                       <div key={s.servico_id} className="flex items-center gap-1.5">
                         <div className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0"/>
                         <span className="text-xs text-text-2 truncate">{s.nome}</span>
-                        <span className="text-xs text-text-4 ml-auto flex-shrink-0">{s.quantidade}×</span>
+                        <span className="text-xs text-text-4 ml-auto flex-shrink-0">{s.quantidade ?? '∞'}×</span>
                       </div>
                     ))}
-                    {totalSessoes > 0 && (
+                    {temIlimitado ? (
+                      <p className="text-xs font-semibold text-primary mt-1">Sessões ilimitadas</p>
+                    ) : totalSessoes > 0 && (
                       <p className="text-xs font-semibold text-text-3 mt-1">{totalSessoes} sessões no total</p>
                     )}
                   </div>
@@ -871,9 +891,10 @@ export default function PacotesPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {vendidosFiltrados.map((v, idx) => {
-                const pct       = v.total_sessoes > 0 ? (v.usadas / v.total_sessoes) * 100 : 0;
+                const ilimitado = v.total_sessoes === null;
+                const pct       = v.total_sessoes != null && v.total_sessoes > 0 ? (v.usadas / v.total_sessoes) * 100 : 0;
                 const statusCfg = STATUS_CFG[v.status] ?? STATUS_CFG.cancelado;
-                const restantes = v.total_sessoes - v.usadas;
+                const restantes = v.total_sessoes != null ? v.total_sessoes - v.usadas : null;
                 const corBarra  = pct >= 100 ? '#16A34A' : pct >= 70 ? '#D97706' : '#7C3AED';
 
                 return (
@@ -895,21 +916,26 @@ export default function PacotesPage() {
                       <div className="flex items-end justify-between mb-2">
                         <div>
                           <span className="text-3xl font-bold text-text">{v.usadas}</span>
-                          <span className="text-lg text-text-3">/{v.total_sessoes}</span>
+                          <span className="text-lg text-text-3">/{ilimitado ? '∞' : v.total_sessoes}</span>
                           <span className="text-xs text-text-3 ml-1.5">sessões</span>
                         </div>
-                        {restantes > 0 && v.status === 'ativo' && (
+                        {ilimitado && v.status === 'ativo' && (
+                          <span className="text-xs font-semibold text-primary">Ilimitado</span>
+                        )}
+                        {restantes !== null && restantes > 0 && v.status === 'ativo' && (
                           <span className="text-xs font-semibold text-text-3">
                             {restantes} restante{restantes !== 1 ? 's' : ''}
                           </span>
                         )}
-                        {pct >= 100 && (
+                        {!ilimitado && pct >= 100 && (
                           <span className="text-xs font-bold text-green flex items-center gap-1">
                             <Check size={11} strokeWidth={3}/>Concluído
                           </span>
                         )}
                       </div>
-                      {v.total_sessoes > 0 ? (
+                      {ilimitado ? (
+                        <div className="h-2.5 rounded-full" style={{ background: 'var(--color-primary-soft)' }}/>
+                      ) : v.total_sessoes! > 0 ? (
                         <div className="h-2.5 bg-bg rounded-full overflow-hidden">
                           <div className="h-full rounded-full transition-all duration-500"
                             style={{ width: `${Math.min(pct, 100)}%`, background: corBarra }}/>
@@ -932,7 +958,7 @@ export default function PacotesPage() {
                     </div>
 
                     {/* Ação */}
-                    {v.status === 'ativo' && restantes > 0 && (
+                    {v.status === 'ativo' && (ilimitado || (restantes !== null && restantes > 0)) && (
                       <div className="flex flex-col gap-1.5">
                         <p className="text-[10px] text-text-4 text-center">
                           Sessões são registradas automaticamente ao concluir agendamentos.
@@ -975,7 +1001,7 @@ export default function PacotesPage() {
               {[
                 { label: 'Total de sessões',     value: String(relatorio.totalSessoes),  sub: 'incluindo todos os pacotes' },
                 { label: 'Sessões realizadas',   value: String(relatorio.sessoesUsadas), sub: `${relatorio.aproveitamento}% de aproveitamento` },
-                { label: 'Sessões restantes',    value: String(vendidos.filter(v => v.status === 'ativo').reduce((s, v) => s + (v.total_sessoes - v.usadas), 0)), sub: 'em pacotes ativos' },
+                { label: 'Sessões restantes',    value: String(vendidos.filter(v => v.status === 'ativo').reduce((s, v) => s + (v.total_sessoes != null ? v.total_sessoes - v.usadas : 0), 0)), sub: 'em pacotes ativos' },
                 { label: 'Receita com pacotes',  value: fmtBRL(relatorio.receitaTotal),  sub: `${totalVendidos} venda${totalVendidos !== 1 ? 's' : ''}` },
               ].map(({ label, value, sub }) => (
                 <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">

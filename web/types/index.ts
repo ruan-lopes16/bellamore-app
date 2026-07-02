@@ -74,6 +74,8 @@ export interface Agendamento {
   cliente_id: string;
   servico_id: string;
   comanda_id?: string;
+  /** Pacote do cliente vinculado explicitamente a este agendamento (consome sessão ao concluir) */
+  pacote_cliente_id?: string | null;
   data_hora_inicio: string;
   data_hora_fim: string;
   status: AgendamentoStatus;
@@ -193,7 +195,8 @@ export interface Cliente {
 export interface PacoteServico {
   pacote_id: string;
   servico_id: string;
-  quantidade: number;
+  /** null = sessões ilimitadas para este serviço */
+  quantidade: number | null;
   servico?: Pick<Servico, 'nome'>;
 }
 
