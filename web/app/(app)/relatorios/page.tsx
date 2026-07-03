@@ -30,6 +30,7 @@ import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   format, startOfMonth, endOfMonth, startOfYear, endOfYear,
   subMonths, parseISO, eachMonthOfInterval, eachWeekOfInterval, endOfWeek,
@@ -714,19 +715,13 @@ export default function RelatoriosPage() {
       </div>
 
       {/* Seletor de período — tabs */}
-      <div className="flex gap-1 mb-6 p-1 rounded-2xl overflow-x-auto w-fit" style={{ background: 'var(--color-bg2)' }}>
-        {PERIODOS.map(p => (
-          <button key={p.key}
-            onClick={() => setPeriodo(p.key)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-              periodo === p.key
-                ? 'bg-surface text-primary border border-border shadow-sm'
-                : 'text-text-3 hover:text-text-2'
-            }`}>
-            {p.label}
-          </button>
-        ))}
-      </div>
+      <SmoothTabs
+        variant="pill"
+        className="mb-6"
+        tabs={PERIODOS}
+        active={periodo}
+        onChange={key => setPeriodo(key as Periodo)}
+      />
 
       {/* ── KPIs ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -749,19 +744,13 @@ export default function RelatoriosPage() {
       </div>
 
       {/* ── Abas ── */}
-      <div className="flex gap-0 border-b border-border mb-6 overflow-x-auto" style={{ touchAction: 'pan-x', overscrollBehaviorX: 'contain' }}>
-        {ABA_OPTS.map(({ key, label, icon: Icon }) => (
-          <button key={key} onClick={() => setAba(key)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition border-b-2 -mb-px ${
-              aba === key
-                ? 'border-accent text-accent'
-                : 'border-transparent text-text-3 hover:text-text'
-            }`}
-          >
-            <Icon size={14} />{label}
-          </button>
-        ))}
-      </div>
+      <SmoothTabs
+        variant="underline"
+        className="mb-6"
+        tabs={ABA_OPTS}
+        active={aba}
+        onChange={key => setAba(key as Aba)}
+      />
 
       {/* ════════════════════════════════════════════════════════
           TAB: FINANCEIRO

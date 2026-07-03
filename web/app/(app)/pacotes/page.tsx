@@ -36,6 +36,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, addDays, parseISO, isPast } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -798,19 +799,17 @@ export default function PacotesPage() {
       </div>
 
       {/* Abas */}
-      <div className="flex gap-0 border-b border-border mb-6">
-        {([
+      <SmoothTabs
+        variant="underline"
+        className="mb-6"
+        tabs={[
           { key: 'catalogo',  label: 'Catálogo' },
           { key: 'vendidos',  label: `Vendidos (${totalVendidos})` },
           { key: 'relatorio', label: 'Relatório' },
-        ] as const).map(({ key, label }) => (
-          <button key={key} onClick={() => setAba(key)}
-            className={`px-5 py-2.5 text-sm font-semibold border-b-2 -mb-px transition ${
-              aba === key ? 'border-accent text-accent' : 'border-transparent text-text-3 hover:text-text'
-            }`}>{label}
-          </button>
-        ))}
-      </div>
+        ]}
+        active={aba}
+        onChange={key => setAba(key as typeof aba)}
+      />
 
       {/* ══════════ TAB: CATÁLOGO ══════════ */}
       {aba === 'catalogo' && (
@@ -907,21 +906,18 @@ export default function PacotesPage() {
       {aba === 'vendidos' && (
         <div>
           {/* Filtros */}
-          <div className="flex gap-2 flex-wrap mb-4">
-            {[
-              { key: 'todos',     label: `Todos (${vendidos.length})`                                           },
-              { key: 'ativo',     label: `Ativos (${vendidos.filter(v => v.status === 'ativo').length})`         },
-              { key: 'concluido', label: `Concluídos (${vendidos.filter(v => v.status === 'concluido').length})` },
-              { key: 'expirado',  label: `Expirados (${vendidos.filter(v => v.status === 'expirado').length})`   },
-            ].map(({ key, label }) => (
-              <button key={key} onClick={() => setFiltroStatus(key)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-                  filtroStatus === key
-                    ? 'bg-primary text-white border-primary'
-                    : 'bg-surface border-border text-text-3 hover:border-accent'
-                }`}>{label}
-              </button>
-            ))}
+          <div className="overflow-x-auto mb-4 -mx-1 px-1">
+            <SmoothTabs
+              variant="pill"
+              tabs={[
+                { key: 'todos',     label: `Todos (${vendidos.length})`                                           },
+                { key: 'ativo',     label: `Ativos (${vendidos.filter(v => v.status === 'ativo').length})`         },
+                { key: 'concluido', label: `Concluídos (${vendidos.filter(v => v.status === 'concluido').length})` },
+                { key: 'expirado',  label: `Expirados (${vendidos.filter(v => v.status === 'expirado').length})`   },
+              ]}
+              active={filtroStatus}
+              onChange={setFiltroStatus}
+            />
           </div>
 
           {loading ? (

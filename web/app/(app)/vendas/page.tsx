@@ -31,6 +31,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { Cliente as ClienteBase } from '@/types';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
@@ -344,20 +345,13 @@ export default function VendasPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 border-b border-border mb-6">
-        {([
-          { key: 'pdv',       label: 'PDV'       },
-          { key: 'historico', label: 'Histórico' },
-        ] as const).map(({ key, label }) => (
-          <button key={key} onClick={() => setAba(key)}
-            className={`px-5 py-2.5 text-sm font-semibold border-b-2 -mb-px transition ${
-              aba === key
-                ? 'border-accent text-accent'
-                : 'border-transparent text-text-3 hover:text-text'
-            }`}>{label}
-          </button>
-        ))}
-      </div>
+      <SmoothTabs
+        variant="underline"
+        className="mb-6"
+        tabs={[{ key: 'pdv', label: 'PDV' }, { key: 'historico', label: 'Histórico' }]}
+        active={aba}
+        onChange={key => setAba(key as 'pdv' | 'historico')}
+      />
 
       {/* ══════════ TAB: PDV ══════════ */}
       {aba === 'pdv' && (
