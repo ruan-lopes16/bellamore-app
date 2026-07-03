@@ -28,6 +28,7 @@ import {
   type ServicoRelatorio, type ProfissionalRelatorio,
 } from '@/hooks/useRelatorios';
 import { CategoriaIcon } from '@/components/CategoriaIcon';
+import { SmoothTabs } from '@/components/SmoothTabs';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -283,28 +284,18 @@ export default function Relatorios() {
             </View>
 
             {/* Seletor de período */}
-            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 20 }}>
-              {PERIODOS.map(({ key, label }) => (
-                <TouchableOpacity
-                  key={key}
-                  onPress={() => setPeriodo(key)}
-                  style={{
-                    flex: 1, paddingVertical: 7, borderRadius: 10,
-                    backgroundColor: periodo === key ? '#fff' : 'rgba(255,255,255,0.1)',
-                    borderWidth: 1,
-                    borderColor: periodo === key ? '#fff' : 'rgba(255,255,255,0.1)',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Text style={{
-                    fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11,
-                    color: periodo === key ? C.primary : 'rgba(255,255,255,0.5)',
-                  }}>
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <SmoothTabs
+              variant="segmented"
+              tabs={PERIODOS}
+              active={periodo}
+              onChange={key => setPeriodo(key as Periodo)}
+              activeColor="#fff"
+              activeTextColor={C.primary}
+              inactiveTextColor="rgba(255,255,255,0.5)"
+              trackBg="rgba(255,255,255,0.1)"
+              trackBorder="rgba(255,255,255,0.1)"
+              style={{ marginBottom: 20 }}
+            />
 
             {/* Faturamento */}
             <View style={{

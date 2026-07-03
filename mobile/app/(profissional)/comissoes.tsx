@@ -21,6 +21,7 @@ import { addMonths, subMonths, format, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   useComissoesProfissional, useResumoComissoes,
   type ComissaoItem,
@@ -277,23 +278,16 @@ export default function Comissoes() {
         </MotiView>
 
         {/* ── Filtros ── */}
-        <View style={{ marginHorizontal: 24, marginBottom: 16, flexDirection: 'row', gap: 6 }}>
-          {FILTROS.map((f) => (
-            <TouchableOpacity
-              key={f.key}
-              onPress={() => setFiltro(f.key)}
-              style={{
-                paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20,
-                backgroundColor: filtro === f.key ? C.primary : C.surface,
-                borderWidth: 1, borderColor: filtro === f.key ? C.primary : C.border,
-              }}
-            >
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: filtro === f.key ? '#fff' : C.text3 }}>
-                {f.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <SmoothTabs
+          tabs={FILTROS}
+          active={filtro}
+          onChange={key => setFiltro(key as Filtro)}
+          activeColor={C.primary}
+          trackBg={C.surface}
+          trackBorder={C.border}
+          inactiveTextColor={C.text3}
+          style={{ marginHorizontal: 24, marginBottom: 16 }}
+        />
 
         {/* ── Lista ── */}
         <View style={{ paddingHorizontal: 24 }}>

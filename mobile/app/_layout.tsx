@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
 import { registrarPushToken, rotaParaNotificacao } from '@/lib/notifications';
+import { TapSpark } from '@/components/TapSpark';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -72,7 +73,9 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Stack screenOptions={{ headerShown: false }} />
+      <TapSpark>
+        <Stack screenOptions={{ headerShown: false }} />
+      </TapSpark>
     </QueryClientProvider>
   );
 }
