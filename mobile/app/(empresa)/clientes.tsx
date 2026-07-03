@@ -25,6 +25,7 @@ import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import { useClientes, useClientesStats, type ClienteResumo, type FiltroClientes } from '@/hooks/useClientes';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -328,32 +329,17 @@ export default function Clientes() {
               from={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ type: 'timing', duration: 350, delay: 80 }}
-              style={{
-                marginHorizontal: 24, marginBottom: 16,
-                flexDirection: 'row', gap: 6,
-              }}
+              style={{ marginHorizontal: 24, marginBottom: 16 }}
             >
-              {FILTROS.map((f) => (
-                <TouchableOpacity
-                  key={f.key}
-                  onPress={() => setFiltro(f.key)}
-                  style={{
-                    paddingHorizontal: 16, paddingVertical: 7,
-                    borderRadius: 20,
-                    backgroundColor: filtro === f.key ? C.primary : C.surface,
-                    borderWidth: 1,
-                    borderColor: filtro === f.key ? C.primary : C.border,
-                  }}
-                >
-                  <Text style={{
-                    fontFamily: 'PlusJakartaSans_600SemiBold',
-                    fontSize: 12,
-                    color: filtro === f.key ? '#fff' : C.text3,
-                  }}>
-                    {f.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              <SmoothTabs
+                tabs={FILTROS}
+                active={filtro}
+                onChange={key => setFiltro(key as FiltroClientes)}
+                activeColor={C.primary}
+                trackBg={C.surface}
+                trackBorder={C.border}
+                inactiveTextColor={C.text3}
+              />
             </MotiView>
 
             {/* Stats */}
