@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target } from 'lucide-react';
 import { validaCNPJ } from '@/lib/masks';
 import Image from 'next/image';
@@ -410,18 +411,13 @@ export default function ConfiguracoesPage() {
         </button>
       </div>
 
-      <div className="flex gap-0 border-b border-border mb-8">
-        {([
-          { key: 'empresa', label: 'Empresa'    },
-          { key: 'perfil',  label: 'Meu perfil' },
-        ] as const).map(({ key, label }) => (
-          <button key={key} onClick={() => { setAba(key); setErro(''); }}
-            className={`px-5 py-2.5 text-sm font-semibold border-b-2 -mb-px transition ${
-              aba === key ? 'border-accent text-accent' : 'border-transparent text-text-3 hover:text-text'
-            }`}>{label}
-          </button>
-        ))}
-      </div>
+      <SmoothTabs
+        variant="underline"
+        className="mb-8"
+        tabs={[{ key: 'empresa', label: 'Empresa' }, { key: 'perfil', label: 'Meu perfil' }]}
+        active={aba}
+        onChange={key => { setAba(key as 'empresa' | 'perfil'); setErro(''); }}
+      />
 
       {/* ══ TAB: EMPRESA ══ */}
       {aba === 'empresa' && (

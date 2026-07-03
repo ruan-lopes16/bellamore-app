@@ -35,6 +35,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO,
 } from 'date-fns';
@@ -701,23 +702,16 @@ export default function EstoquePage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-border mb-6">
-        {([
-          { key: 'produtos',        label: 'Produtos',        icon: Package2    },
-          { key: 'movimentacoes',   label: 'Movimentações',   icon: List        },
-        ] as const).map(({ key, label, icon: Icon }) => (
-          <button key={key}
-            onClick={() => key === 'movimentacoes' ? abrirAbaMovimentacoes() : setAba(key)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition ${
-              aba === key
-                ? 'border-primary text-primary'
-                : 'border-transparent text-text-3 hover:text-text-2'
-            }`}>
-            <Icon size={14} strokeWidth={2}/>
-            {label}
-          </button>
-        ))}
-      </div>
+      <SmoothTabs
+        variant="underline"
+        className="mb-6"
+        tabs={[
+          { key: 'produtos',      label: 'Produtos',      icon: Package2, activeColor: 'var(--color-primary)' },
+          { key: 'movimentacoes', label: 'Movimentações', icon: List,     activeColor: 'var(--color-primary)' },
+        ]}
+        active={aba}
+        onChange={key => key === 'movimentacoes' ? abrirAbaMovimentacoes() : setAba(key as 'produtos' | 'movimentacoes')}
+      />
 
       {/* ── ABA: PRODUTOS ──────────────────────────────────────── */}
       {/* Banner de alertas */}
@@ -780,27 +774,17 @@ export default function EstoquePage() {
 
       {/* Filtro por tipo — Material vs Venda */}
       {!loading && (produtos.some(p => p.tipo === 'venda') || produtos.some(p => p.tipo === 'material')) && (
-        <div className="flex items-center gap-2 mb-4 overflow-x-auto">
-          {([
-            { key: 'todos',    label: 'Todos',              count: produtos.length },
-            { key: 'material', label: 'Materiais / Insumos', count: produtos.filter(p => p.tipo === 'material').length },
-            { key: 'venda',    label: 'Para venda (PDV)',    count: produtos.filter(p => p.tipo === 'venda').length },
-          ] as const).map(({ key, label, count }) => (
-            <button key={key} onClick={() => { setFiltroPorTipo(key); setFiltroCat(null); }}
-              className={`flex items-center gap-2 h-9 px-4 rounded-xl text-xs font-semibold border transition flex-shrink-0 ${
-                filtroPorTipo === key
-                  ? key === 'venda'
-                    ? 'bg-green/10 border-green/30 text-green'
-                    : 'bg-primary-soft border-primary/30 text-primary'
-                  : 'bg-surface border-border text-text-3 hover:border-accent'
-              }`}>
-              {label}
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                filtroPorTipo === key ? 'bg-current/10' : 'bg-bg'
-              }`}>{count}</span>
-            </button>
-          ))}
-        </div>
+        <SmoothTabs
+          variant="pill"
+          className="mb-4"
+          tabs={[
+            { key: 'todos',    label: <>Todos <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/10">{produtos.length}</span></>, activeColor: 'var(--color-primary)' },
+            { key: 'material', label: <>Materiais / Insumos <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/10">{produtos.filter(p => p.tipo === 'material').length}</span></>, activeColor: 'var(--color-primary)' },
+            { key: 'venda',    label: <>Para venda (PDV) <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/10">{produtos.filter(p => p.tipo === 'venda').length}</span></>, activeColor: 'var(--color-green)' },
+          ]}
+          active={filtroPorTipo}
+          onChange={key => { setFiltroPorTipo(key as 'todos' | 'material' | 'venda'); setFiltroCat(null); }}
+        />
       )}
 
       {/* Busca + filtro status */}
@@ -813,28 +797,27 @@ export default function EstoquePage() {
         </div>
 
         {/* Toggle Todos / Alertas */}
-        <div className="flex rounded-xl border border-border overflow-hidden bg-surface text-sm flex-shrink-0">
-          <button onClick={() => setFiltroSt('todos')}
-            className={`px-3.5 h-10 font-semibold transition ${
-              filtroSt === 'todos' ? 'bg-primary text-white' : 'text-text-3 hover:text-text-2'
-            }`}>
-            Todos
-          </button>
-          <button onClick={() => setFiltroSt('alertas')}
-            className={`px-3.5 h-10 font-semibold flex items-center gap-1.5 border-l border-border transition ${
-              filtroSt === 'alertas' ? 'bg-amber-500 text-white' : 'text-text-3 hover:text-text-2'
-            }`}>
-            <AlertTriangle size={13} strokeWidth={2}/>
-            Alertas
-            {alertas.length > 0 && (
-              <span className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${
-                filtroSt === 'alertas' ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-700'
-              }`}>
-                {alertas.length}
-              </span>
-            )}
-          </button>
-        </div>
+        <SmoothTabs
+          variant="pill"
+          className="flex-shrink-0"
+          tabs={[
+            { key: 'todos', label: 'Todos', activeColor: 'var(--color-primary)' },
+            {
+              key: 'alertas',
+              label: (
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle size={13} strokeWidth={2}/> Alertas
+                  {alertas.length > 0 && (
+                    <span className="rounded-full px-1.5 py-0.5 text-[10px] font-bold bg-black/10">{alertas.length}</span>
+                  )}
+                </span>
+              ),
+              activeColor: '#D97706',
+            },
+          ]}
+          active={filtroSt}
+          onChange={key => setFiltroSt(key as 'todos' | 'alertas')}
+        />
       </div>
 
       {/* Filtro por categoria */}

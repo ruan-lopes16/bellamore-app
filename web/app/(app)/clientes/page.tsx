@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { Cliente } from '@/types';
 import { format, startOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import { maskPhone } from '@/lib/masks';
 import { ExportButton } from '@/components/ExportButton';
 
@@ -285,29 +286,18 @@ export default function ClientesPage() {
 
       {/* Filter pills */}
       {!loading && (
-        <div
-          className="no-scrollbar flex gap-2 mb-5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap"
-          style={{ WebkitOverflowScrolling: 'touch' }}>
-          {([
-            { key: 'todas'     as const, label: 'Todas' },
-            { key: 'novas'     as const, label: 'Novas' },
-            { key: 'aniver'    as const, label: 'Aniversariantes' },
-            { key: 'segmentos' as const, label: 'Segmentos' },
-          ]).map(f => (
-            <button key={f.key} onClick={() => setFiltro(f.key)}
-              className="press flex-shrink-0"
-              style={{
-                fontFamily: 'var(--font-sans)', fontSize: 12.5, fontWeight: 700,
-                padding: '6px 14px', borderRadius: 999, transition: 'all 150ms',
-                background: filtro === f.key ? 'var(--color-primary)' : 'var(--color-surface)',
-                color: filtro === f.key ? '#fff' : 'var(--color-ink3)',
-                border: `1px solid ${filtro === f.key ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                whiteSpace: 'nowrap',
-              }}>
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <SmoothTabs
+          variant="pill"
+          className="mb-5 -mx-4 px-4 sm:mx-0 sm:px-0"
+          tabs={[
+            { key: 'todas',     label: 'Todas' },
+            { key: 'novas',     label: 'Novas' },
+            { key: 'aniver',    label: 'Aniversariantes' },
+            { key: 'segmentos', label: 'Segmentos' },
+          ]}
+          active={filtro}
+          onChange={key => setFiltro(key as typeof filtro)}
+        />
       )}
 
       {/* Segmentos */}

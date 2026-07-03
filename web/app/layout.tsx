@@ -5,6 +5,7 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 import { Providers } from './providers';
 import { SwRegister } from '@/components/SwRegister';
+import { ClickSpark } from '@/components/ClickSpark';
 
 const cormorant = Cormorant_Garamond({
   variable: '--font-cormorant',
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR" className={`${cormorant.variable} ${jakarta.variable} h-full`}>
       <body className="min-h-full">
         <Providers>{children}</Providers>
+        <ClickSpark />
         <SwRegister />
         <Analytics />
         <SpeedInsights />

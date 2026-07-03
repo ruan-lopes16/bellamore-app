@@ -36,6 +36,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
+import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   format, startOfDay, endOfDay, parseISO,
   addDays, addMonths, subMonths, isToday, isSameDay, isSameMonth,
@@ -726,16 +727,12 @@ export default function ComandaPage() {
               </p>
               <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Comanda</h1>
             </div>
-            <div style={{ display: 'flex', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
-              {(['semana', 'mes'] as const).map(v => (
-                <button key={v} onClick={() => setView(v)}
-                  style={view === v
-                    ? { background: 'var(--color-primary)', color: '#fff', fontWeight: 700, fontFamily: 'var(--font-sans)', fontSize: 11, padding: '6px 10px' }
-                    : { color: 'var(--color-ink3)', fontWeight: 600, fontFamily: 'var(--font-sans)', fontSize: 11, padding: '6px 10px' }}>
-                  {v === 'semana' ? 'Semana' : 'Mês'}
-                </button>
-              ))}
-            </div>
+            <SmoothTabs
+              variant="pill"
+              tabs={[{ key: 'semana', label: 'Semana' }, { key: 'mes', label: 'Mês' }]}
+              active={view}
+              onChange={key => setView(key as 'semana' | 'mes')}
+            />
           </div>
 
           {/* Week strip — só visível no modo Semana */}
