@@ -318,10 +318,9 @@ export default function FinanceiroPage() {
       supabase.from('agendamentos').select('profissional_id, valor, data_hora_inicio')
         .eq('empresa_id', empId).eq('status', 'concluido')
         .gte('data_hora_inicio', ini6).lte('data_hora_inicio', fim),
-      // Membros ativos → percentual de comissão (inclui gestores que também atendem)
+      // Membros ativos → percentual de comissão (inclui owner/gestor que também atendem)
       supabase.from('empresa_membros').select('user_id, percentual_comissao')
-        .eq('empresa_id', empId).eq('ativo', true)
-        .in('role', ['gestor', 'profissional']),
+        .eq('empresa_id', empId).eq('ativo', true),
       // Despesas pagas no mês
       supabase.from('despesas').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')

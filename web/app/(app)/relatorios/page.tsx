@@ -296,7 +296,6 @@ export default function RelatoriosPage() {
   const [vendas,     setVendas]     = useState<Venda[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
   const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null }[]>([]);
-  const [ownerIds,   setOwnerIds]   = useState<Set<string>>(new Set());
 
   // ── Buscar empresaId ao montar
   useEffect(() => {
@@ -323,7 +322,7 @@ export default function RelatoriosPage() {
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rMovs, rVendas, rAvals, rPags, rOwners] = await Promise.all([
+    const [rAgs, rDesp, rCom, rMovs, rVendas, rAvals, rPags] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       supabase.from('agendamentos')
         .select(`id, valor, status, data_hora_inicio, servico_id, profissional_id, cliente_id,
@@ -387,12 +386,6 @@ export default function RelatoriosPage() {
         .eq('status', 'pago')
         .gte('created_at', isoIni)
         .lte('created_at', isoFim),
-
-      // 8. Owners da empresa (excluídos do total de comissões — custo do salão)
-      supabase.from('empresa_membros')
-        .select('user_id')
-        .eq('empresa_id', empId)
-        .eq('role', 'owner'),
     ]);
 
     setAgs((rAgs.data     ?? []) as unknown as Ag[]);
@@ -402,7 +395,6 @@ export default function RelatoriosPage() {
     setVendas((rVendas.data ?? []) as Venda[]);
     setAvaliacoes((rAvals.data ?? []) as unknown as Avaliacao[]);
     setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null }[]);
-    setOwnerIds(new Set((rOwners.data ?? []).map((m: any) => m.user_id)));
     setLoading(false);
   }, [supabase]);
 
@@ -422,8 +414,8 @@ export default function RelatoriosPage() {
   const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
   const bruto           = brutoServicos + brutoVendas;
   const comTot          = useMemo(
-    () => comissoes.filter(c => !ownerIds.has(c.profissional_id)).reduce((s, c) => s + c.valor_comissao, 0),
-    [comissoes, ownerIds],
+    () => comissoes.reduce((s, c) => s + c.valor_comissao, 0),
+    [comissoes],
   );
   const despTot         = useMemo(() => despesas.reduce((s, d) => s + d.valor, 0), [despesas]);
   const taxasCartao     = useMemo(() =>

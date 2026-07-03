@@ -119,8 +119,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       .eq('empresa_id', empresaId).eq('status', 'concluido')
       .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
     supabase.from('empresa_membros').select('user_id,percentual_comissao')
-      .eq('empresa_id', empresaId).eq('ativo', true)
-      .in('role', ['gestor', 'profissional']),
+      .eq('empresa_id', empresaId).eq('ativo', true),
     supabase.from('despesas').select('valor')
       .eq('empresa_id', empresaId).eq('status', 'pago')
       .gte('data_pagamento', inicioMes.slice(0,10)).lte('data_pagamento', fimMes.slice(0,10)),
