@@ -11,9 +11,9 @@ import {
 } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-  CormorantGaramond_700Bold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -98,8 +98,8 @@ export default function ClienteInicio() {
   const { data: servicos = [] } = useServicosEmpresa();
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_700Bold,
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -179,7 +179,7 @@ export default function ClienteInicio() {
               marginBottom: 14,
             }}>
               <Text style={{
-                fontFamily: 'CormorantGaramond_700Bold',
+                fontFamily: 'Fraunces_700Bold',
                 fontSize: 26, color: '#fff',
               }}>
                 {empresaIniciais}
@@ -187,7 +187,7 @@ export default function ClienteInicio() {
             </View>
 
             <Text style={{
-              fontFamily: 'CormorantGaramond_600SemiBold',
+              fontFamily: 'Fraunces_600SemiBold',
               fontSize: 26, color: '#fff', marginBottom: 4,
             }}>
               {empresa?.nome}
@@ -317,7 +317,7 @@ export default function ClienteInicio() {
           transition={{ type: 'timing', duration: 350, delay: 100 }}
         >
           <Text style={{
-            fontFamily: 'CormorantGaramond_600SemiBold',
+            fontFamily: 'Fraunces_600SemiBold',
             fontSize: 18, color: C.text,
             paddingHorizontal: 24, marginBottom: 10,
           }}>
@@ -385,7 +385,7 @@ export default function ClienteInicio() {
             transition={{ type: 'timing', duration: 350, delay: 130 }}
           >
             <Text style={{
-              fontFamily: 'CormorantGaramond_600SemiBold',
+              fontFamily: 'Fraunces_600SemiBold',
               fontSize: 18, color: C.text,
               paddingHorizontal: 24, marginBottom: 10,
             }}>
@@ -457,7 +457,7 @@ export default function ClienteInicio() {
             transition={{ type: 'timing', duration: 350, delay: 160 }}
           >
             <Text style={{
-              fontFamily: 'CormorantGaramond_600SemiBold',
+              fontFamily: 'Fraunces_600SemiBold',
               fontSize: 18, color: C.text,
               paddingHorizontal: 24, marginBottom: 10,
             }}>

@@ -13,9 +13,9 @@ import {
 } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-  CormorantGaramond_700Bold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -227,8 +227,8 @@ export default function Relatorios() {
   const { resumo, clientes, servicos, profissionais, isLoading, refetch } = useRelatorios(periodo);
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_700Bold,
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -268,7 +268,7 @@ export default function Relatorios() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
                   Análise
                 </Text>
-                <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 26, color: '#fff' }}>
+                <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: '#fff' }}>
                   Relatórios
                 </Text>
               </View>
@@ -378,7 +378,7 @@ export default function Relatorios() {
           transition={{ type: 'timing', duration: 380, delay: 140 }}
           style={{ marginHorizontal: 24, marginBottom: 20 }}
         >
-          <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
             Por Serviço
           </Text>
           <View style={{
@@ -407,7 +407,7 @@ export default function Relatorios() {
           transition={{ type: 'timing', duration: 380, delay: 200 }}
           style={{ marginHorizontal: 24, marginBottom: 20 }}
         >
-          <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
             Por Profissional
           </Text>
           <View style={{
@@ -436,7 +436,7 @@ export default function Relatorios() {
           transition={{ type: 'timing', duration: 380, delay: 260 }}
           style={{ marginHorizontal: 24 }}
         >
-          <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
             Clientes
           </Text>
           <View style={{

@@ -14,10 +14,10 @@ import {
 } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_400Regular,
-  CormorantGaramond_600SemiBold,
-  CormorantGaramond_700Bold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_400Regular,
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -116,9 +116,9 @@ export default function Dashboard() {
   const { countNaoLidas: countNotifNaoLidas } = useNotificacoes();
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_400Regular,
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_700Bold,
+    Fraunces_400Regular,
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -171,7 +171,7 @@ export default function Dashboard() {
               Bom dia
             </Text>
             <Text style={{
-              fontFamily: 'CormorantGaramond_600SemiBold',
+              fontFamily: 'Fraunces_600SemiBold',
               fontSize: 28,
               color: C.text,
               lineHeight: 32,
@@ -653,7 +653,7 @@ export default function Dashboard() {
             marginBottom: 12,
           }}>
             <Text style={{
-              fontFamily: 'CormorantGaramond_600SemiBold',
+              fontFamily: 'Fraunces_600SemiBold',
               fontSize: 20,
               color: C.text,
             }}>
@@ -842,7 +842,7 @@ export default function Dashboard() {
               marginBottom: 12,
             }}>
               <Text style={{
-                fontFamily: 'CormorantGaramond_600SemiBold',
+                fontFamily: 'Fraunces_600SemiBold',
                 fontSize: 20,
                 color: C.text,
               }}>

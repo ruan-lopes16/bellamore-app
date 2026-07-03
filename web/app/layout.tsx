@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Cormorant_Garamond, Plus_Jakarta_Sans } from 'next/font/google';
+import { Fraunces, Plus_Jakarta_Sans } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
@@ -7,10 +7,10 @@ import { Providers } from './providers';
 import { SwRegister } from '@/components/SwRegister';
 import { ClickSpark } from '@/components/ClickSpark';
 
-const cormorant = Cormorant_Garamond({
-  variable: '--font-cormorant',
+const fraunces = Fraunces({
+  variable: '--font-fraunces',
   subsets: ['latin'],
-  weight: ['300', '400', '700'],
+  weight: ['300', '400', '500', '600', '700'],
   display: 'swap',
 });
 
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className={`${cormorant.variable} ${jakarta.variable} h-full`}>
+    <html lang="pt-BR" className={`${fraunces.variable} ${jakarta.variable} h-full`}>
       <body className="min-h-full">
         <Providers>{children}</Providers>
         <ClickSpark />

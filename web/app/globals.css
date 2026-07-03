@@ -46,12 +46,12 @@
   --color-red-soft:     #FBECF2;
 
   /* Fontes */
-  --font-serif: var(--font-cormorant), "Georgia", serif;
+  --font-serif: var(--font-fraunces), "Georgia", serif;
   --font-sans:  var(--font-jakarta), system-ui, sans-serif;
 
   /* ── Escala tipográfica — mobile first (≤ 767px) ──────────
      Pesos semânticos:
-       300 (light)   → subtítulos suaves, Cormorant decorativo
+       300 (light)   → subtítulos suaves, Fraunces decorativo
        400 (regular) → corpo de texto
        500 (medium)  → labels, metadados, botões secundários
        600 (semibold)→ botões primários, itens de lista com destaque
@@ -130,10 +130,10 @@ html, body {
   max-width: 100vw;
 }
 
-/* Garante que Cormorant Garamond carregue via next/font — a classe Tailwind
+/* Garante que Fraunces carregue via next/font — a classe Tailwind
    font-serif não resolve a CSS var corretamente em todos os contextos */
 .font-serif {
-  font-family: var(--font-cormorant), Georgia, serif;
+  font-family: var(--font-fraunces), Georgia, serif;
 }
 
 /* Scrollbar discreta */

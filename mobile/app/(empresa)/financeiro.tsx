@@ -20,9 +20,9 @@ import {
 } from 'react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-  CormorantGaramond_700Bold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -314,7 +314,7 @@ function ModalMarcarPago({
                   <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4 }}>
                     Confirmar pagamento
                   </Text>
-                  <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 22, color: C.text }}>
+                  <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text }}>
                     {item?.descricao}
                   </Text>
                 </View>
@@ -405,8 +405,8 @@ export default function Financeiro() {
   }
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_700Bold,
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -449,7 +449,7 @@ export default function Financeiro() {
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
               Visão Geral
             </Text>
-            <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 26, color: C.text }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>
               Financeiro
             </Text>
           </View>
@@ -579,7 +579,7 @@ export default function Financeiro() {
           transition={{ type: 'timing', duration: 380, delay: 140 }}
           style={{ marginHorizontal: 24, marginBottom: 20 }}
         >
-          <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
             Evolução Mensal
           </Text>
           <View style={{
@@ -615,7 +615,7 @@ export default function Financeiro() {
           transition={{ type: 'timing', duration: 380, delay: 180 }}
           style={{ marginHorizontal: 24, marginBottom: 20 }}
         >
-          <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
             Formas de Pagamento
           </Text>
           <View style={{
@@ -660,7 +660,7 @@ export default function Financeiro() {
           style={{ marginHorizontal: 24, marginBottom: 20 }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 18, color: C.text }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>
               Top Serviços
             </Text>
             <TouchableOpacity onPress={() => router.push('/(empresa)/servicos' as any)}>
@@ -734,7 +734,7 @@ export default function Financeiro() {
           style={{ marginHorizontal: 24 }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 18, color: C.text }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>
               Despesas
             </Text>
             <TouchableOpacity

@@ -43,7 +43,7 @@
     "react-native-chart-kit": "^6.12.0",
     "react-native-calendars": "^1.1305.0",
     "lucide-react-native": "^0.363.0",
-    "@expo-google-fonts/cormorant-garamond": "^0.2.3",
+    "@expo-google-fonts/fraunces": "^0.2.3",
     "@expo-google-fonts/plus-jakarta-sans": "^0.2.3",
     "expo-font": "~12.0.7"
   },

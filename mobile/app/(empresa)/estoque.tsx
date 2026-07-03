@@ -15,9 +15,9 @@ import {
 } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-  CormorantGaramond_700Bold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -92,7 +92,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
           {/* Header */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <View>
-              <Text style={{ fontFamily: 'CormorantGaramond_700Bold', fontSize: 20, color: C.text }}>
+              <Text style={{ fontFamily: 'Fraunces_700Bold', fontSize: 20, color: C.text }}>
                 Movimentação
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, marginTop: 2 }}>
@@ -286,8 +286,8 @@ export default function EstoqueScreen() {
   const { produtos, criticos, baixos, normais, totalCriticos, totalAtencao, isLoading, refetch, registrarMovimento } = useEstoque();
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_700Bold,
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -332,7 +332,7 @@ export default function EstoqueScreen() {
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
               Estoque
             </Text>
-            <Text style={{ fontFamily: 'CormorantGaramond_700Bold', fontSize: 26, color: C.text }}>
+            <Text style={{ fontFamily: 'Fraunces_700Bold', fontSize: 26, color: C.text }}>
               Produtos
             </Text>
           </View>

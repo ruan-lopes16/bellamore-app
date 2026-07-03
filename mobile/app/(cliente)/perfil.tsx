@@ -12,9 +12,9 @@ import {
 } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-  CormorantGaramond_700Bold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -146,8 +146,8 @@ export default function ClientePerfil() {
   const { data: anamneseData } = useAnamneseCliente();
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_700Bold,
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -230,7 +230,7 @@ export default function ClientePerfil() {
 
             <View style={{ flex: 1 }}>
               <Text style={{
-                fontFamily: 'CormorantGaramond_600SemiBold',
+                fontFamily: 'Fraunces_600SemiBold',
                 fontSize: 22, color: '#fff', lineHeight: 26, marginBottom: 3,
               }}>
                 {user?.nome}

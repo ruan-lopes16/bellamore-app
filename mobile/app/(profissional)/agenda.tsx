@@ -10,8 +10,8 @@ import { MotiView } from 'moti';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -189,7 +189,7 @@ export default function AgendaProfissional() {
   const { data: diasComAg } = useDiasProfissional(mesRef);
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
+    Fraunces_600SemiBold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -242,7 +242,7 @@ export default function AgendaProfissional() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 2 }}>
                   Bom dia
                 </Text>
-                <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 22, color: '#fff', lineHeight: 26 }}>
+                <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: '#fff', lineHeight: 26 }}>
                   {user?.nome?.split(' ')[0]}
                 </Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
@@ -343,7 +343,7 @@ export default function AgendaProfissional() {
 
         {/* ── Timeline ── */}
         <View style={{ paddingHorizontal: 24 }}>
-          <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
             Minha Agenda · {format(diaSelecionado, "EEEE',' d", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
           </Text>
 

@@ -13,9 +13,9 @@ import {
 } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-  CormorantGaramond_700Bold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -109,8 +109,8 @@ export default function AgendamentoProfissional() {
   const { data: ag, isLoading }       = useAgendamento(id);
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
-    CormorantGaramond_700Bold,
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -200,7 +200,7 @@ export default function AgendamentoProfissional() {
               </Text>
             </LinearGradient>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'CormorantGaramond_700Bold', fontSize: 22, color: '#fff', lineHeight: 26, marginBottom: 3 }}>
+              <Text style={{ fontFamily: 'Fraunces_700Bold', fontSize: 22, color: '#fff', lineHeight: 26, marginBottom: 3 }}>
                 {ag.cliente?.nome}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 6 }}>
