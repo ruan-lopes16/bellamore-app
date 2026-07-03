@@ -100,22 +100,30 @@ function ProfCard({
             {initials(item.nome)}
           </Text>
         </LinearGradient>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text, marginBottom: 2 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text, marginBottom: 2 }} numberOfLines={1}>
             {item.nome}
           </Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
-            {item.percentual}% de comissão
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }} numberOfLines={1}>
+            {item.percentual}% de comissão · {item.totalAtendimentos} atend.
           </Text>
         </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.text, letterSpacing: -0.3 }}>
-            {formatBRL(item.total)}
-          </Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 2 }}>
-            {item.totalAtendimentos} atend.
-          </Text>
-        </View>
+
+        {/* Pagar — visível direto no cabeçalho, sem precisar rolar até o rodapé */}
+        {temPendente ? (
+          <TouchableOpacity
+            onPress={onPagar}
+            style={{ backgroundColor: C.green, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}
+          >
+            <Banknote size={12} color="#fff" strokeWidth={2} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: '#fff' }}>Pagar</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ backgroundColor: C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <CircleCheck size={12} color={C.green} strokeWidth={2} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.green }}>Pago</Text>
+          </View>
+        )}
       </View>
 
       {/* Lista de comissões */}
@@ -170,21 +178,6 @@ function ProfCard({
             {formatBRL(temPendente ? item.totalPendente : item.totalPago)}
           </Text>
         </View>
-
-        {temPendente ? (
-          <TouchableOpacity
-            onPress={onPagar}
-            style={{ backgroundColor: C.green, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 5 }}
-          >
-            <Banknote size={13} color="#fff" strokeWidth={2} />
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Pagar</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={{ backgroundColor: C.greenSoft, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-            <CircleCheck size={13} color={C.green} strokeWidth={2} />
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.green }}>Pago</Text>
-          </View>
-        )}
       </View>
     </MotiView>
   );
