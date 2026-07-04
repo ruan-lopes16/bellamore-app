@@ -11,8 +11,8 @@ import { MotiView } from 'moti';
 import { Eye, EyeOff, Mail, Lock } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_700Bold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -91,7 +91,7 @@ export default function Login() {
   const [loading, setLoading]      = useState(false);
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_700Bold,
+    Fraunces_700Bold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -151,12 +151,12 @@ export default function Login() {
               borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.2)',
               alignItems: 'center', justifyContent: 'center', marginBottom: 20,
             }}>
-              <Text style={{ fontFamily: 'CormorantGaramond_700Bold', fontSize: 26, color: '#fff' }}>
+              <Text style={{ fontFamily: 'Fraunces_700Bold', fontSize: 26, color: '#fff' }}>
                 ✦
               </Text>
             </View>
             <Text style={{
-              fontFamily: 'CormorantGaramond_700Bold',
+              fontFamily: 'Fraunces_700Bold',
               fontSize: 34, color: '#fff', lineHeight: 40, marginBottom: 8,
             }}>
               Bem-vinda de{'\n'}volta

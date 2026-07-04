@@ -10,8 +10,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ChevronLeft, ChevronRight, Banknote, CircleCheck } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -215,7 +215,7 @@ function ModalPagamento({
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 36, width: 390 }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 20 }} />
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4 }}>Confirmar pagamento</Text>
-            <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 22, color: C.text, marginBottom: 20 }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, marginBottom: 20 }}>
               {profissional?.nome}
             </Text>
             <View style={{ backgroundColor: C.amberSoft, borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 24 }}>
@@ -249,7 +249,7 @@ export default function Comissoes() {
   const { profissionais, resumo, isLoading, refetch, marcarPago } = useComissoesGestor(mesRef);
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
+    Fraunces_600SemiBold,
     PlusJakartaSans_400Regular, PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold,
   });
@@ -276,7 +276,7 @@ export default function Comissoes() {
           style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 16 }}
         >
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>Equipe</Text>
-          <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 26, color: C.text }}>Comissões</Text>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>Comissões</Text>
         </MotiView>
 
         {/* Seletor de mês */}
@@ -329,7 +329,7 @@ export default function Comissoes() {
         {profissionais.length === 0
           ? (
             <View style={{ alignItems: 'center', paddingTop: 60 }}>
-              <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 20, color: C.text3 }}>Sem comissões</Text>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text3 }}>Sem comissões</Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, marginTop: 6 }}>Nenhum atendimento concluído no período.</Text>
             </View>
           )

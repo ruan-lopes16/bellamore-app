@@ -9,8 +9,8 @@ import { MotiView } from 'moti';
 import { ChevronLeft, ChevronRight, TrendingUp, Clock } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -130,7 +130,7 @@ export default function Comissoes() {
   const { data: resumo } = useResumoComissoes(mesRef);
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
+    Fraunces_600SemiBold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -166,7 +166,7 @@ export default function Comissoes() {
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
             {user?.nome?.split(' ')[0]}
           </Text>
-          <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 26, color: C.text }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>
             Comissões
           </Text>
         </MotiView>

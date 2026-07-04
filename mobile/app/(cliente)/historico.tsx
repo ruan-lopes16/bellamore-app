@@ -9,8 +9,8 @@ import { MotiView } from 'moti';
 import { CheckCircle, Calendar } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -187,7 +187,7 @@ export default function ClienteHistorico() {
   const { data: historico, isLoading, refetch } = useHistoricoCliente();
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
+    Fraunces_600SemiBold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -226,7 +226,7 @@ export default function ClienteHistorico() {
             {user?.nome}
           </Text>
           <Text style={{
-            fontFamily: 'CormorantGaramond_600SemiBold',
+            fontFamily: 'Fraunces_600SemiBold',
             fontSize: 26, color: C.text,
           }}>
             Meu Histórico
@@ -249,7 +249,7 @@ export default function ClienteHistorico() {
           >
             <Calendar size={36} color={C.text4} strokeWidth={1.5} />
             <Text style={{
-              fontFamily: 'CormorantGaramond_600SemiBold',
+              fontFamily: 'Fraunces_600SemiBold',
               fontSize: 20, color: C.text,
             }}>
               Nenhum atendimento
@@ -367,7 +367,7 @@ export default function ClienteHistorico() {
                 >
                   {/* Label do mês */}
                   <Text style={{
-                    fontFamily: 'CormorantGaramond_600SemiBold',
+                    fontFamily: 'Fraunces_600SemiBold',
                     fontSize: 16, color: C.text2,
                     marginBottom: 10,
                     paddingLeft: 44,

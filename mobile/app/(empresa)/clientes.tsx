@@ -13,8 +13,8 @@ import {
 } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -202,7 +202,7 @@ export default function Clientes() {
   const { data: stats } = useClientesStats();
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
+    Fraunces_600SemiBold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -261,7 +261,7 @@ export default function Clientes() {
                   {empresaAtiva?.nome}
                 </Text>
                 <Text style={{
-                  fontFamily: 'CormorantGaramond_600SemiBold',
+                  fontFamily: 'Fraunces_600SemiBold',
                   fontSize: 26, color: C.text,
                 }}>
                   Clientes

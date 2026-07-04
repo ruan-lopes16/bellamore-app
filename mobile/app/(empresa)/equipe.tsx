@@ -13,8 +13,8 @@ import { Phone, Calendar, Edit3, Plus, RotateCcw, Percent } from 'lucide-react-n
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -350,7 +350,7 @@ export default function Equipe() {
   const [editando, setEditando] = useState<MembroEquipe | null>(null);
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
+    Fraunces_600SemiBold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -403,7 +403,7 @@ export default function Equipe() {
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
                 {empresaAtiva?.nome}
               </Text>
-              <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 26, color: '#fff' }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: '#fff' }}>
                 Equipe
               </Text>
             </View>

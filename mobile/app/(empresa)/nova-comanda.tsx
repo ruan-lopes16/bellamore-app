@@ -17,8 +17,8 @@ import { ptBR } from 'date-fns/locale';
 
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -124,7 +124,7 @@ export default function NovaComandaScreen() {
   const [showExtras, setShowExtras] = useState(false);
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
+    Fraunces_600SemiBold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -297,7 +297,7 @@ export default function NovaComandaScreen() {
           </View>
           <MotiView from={{ translateY: 16, opacity: 0 }} animate={{ translateY: 0, opacity: 1 }}
             transition={{ type: 'timing', duration: 400, delay: 200 }}>
-            <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 28, color: C.text, textAlign: 'center' }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 28, color: C.text, textAlign: 'center' }}>
               Comanda fechada!
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2, textAlign: 'center', marginTop: 8 }}>
@@ -326,7 +326,7 @@ export default function NovaComandaScreen() {
           </TouchableOpacity>
           <View>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2 }}>Comanda</Text>
-            <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 20, color: C.text }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text }}>
               {format(new Date(), "EEEE, d 'de' MMM", { locale: ptBR })}
             </Text>
           </View>
@@ -530,7 +530,7 @@ export default function NovaComandaScreen() {
             )}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.text }}>Total</Text>
-              <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 24, color: C.text }}>{fmtBRL(total)}</Text>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 24, color: C.text }}>{fmtBRL(total)}</Text>
             </View>
           </View>
 

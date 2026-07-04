@@ -12,8 +12,8 @@ import {
 } from 'lucide-react-native';
 import {
   useFonts,
-  CormorantGaramond_600SemiBold,
-} from '@expo-google-fonts/cormorant-garamond';
+  Fraunces_600SemiBold,
+} from '@expo-google-fonts/fraunces';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -161,7 +161,7 @@ export default function Notificacoes() {
   const { notificacoes, naoLidas, countNaoLidas, isLoading, refetch, marcarLida, marcarTodasLidas } = useNotificacoes();
 
   const [fontsLoaded] = useFonts({
-    CormorantGaramond_600SemiBold,
+    Fraunces_600SemiBold,
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
@@ -198,7 +198,7 @@ export default function Notificacoes() {
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
               Central de
             </Text>
-            <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 26, color: C.text }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>
               Notificações
             </Text>
           </View>
@@ -259,7 +259,7 @@ export default function Notificacoes() {
             <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: C.border, alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
               <Bell size={28} color={C.text4} strokeWidth={1.5} />
             </View>
-            <Text style={{ fontFamily: 'CormorantGaramond_600SemiBold', fontSize: 20, color: C.text3, marginBottom: 6 }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text3, marginBottom: 6 }}>
               Tudo em dia
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, textAlign: 'center', lineHeight: 18 }}>
