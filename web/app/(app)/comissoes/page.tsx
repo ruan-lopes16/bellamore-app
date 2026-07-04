@@ -451,39 +451,52 @@ export default function ComissoesPage() {
                 style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
 
                 {/* Card colapsado */}
-                <button
-                  onClick={() => toggleExpand(prof.profissional_id)}
-                  className="w-full flex items-center gap-3 p-4 text-left transition hover:bg-bg/50">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                    style={{ background: avatarGradient(prof.nome) }}>
-                    {iniciais(prof.nome)}
-                  </div>
+                <div className="w-full flex items-center gap-3 p-4">
+                  <button
+                    onClick={() => toggleExpand(prof.profissional_id)}
+                    className="flex-1 min-w-0 flex items-center gap-3 text-left transition hover:opacity-80">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                      style={{ background: avatarGradient(prof.nome) }}>
+                      {iniciais(prof.nome)}
+                    </div>
 
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold truncate" style={{ color: 'var(--color-ink)' }}>{prof.nome}</p>
-                    <p className="text-xs" style={{ color: 'var(--color-ink3)' }}>{prof.totalAtendimentos} atend.</p>
-                  </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold truncate" style={{ color: 'var(--color-ink)' }}>{prof.nome}</p>
+                      <p className="text-xs" style={{ color: 'var(--color-ink3)' }}>{prof.totalAtendimentos} atend.</p>
+                    </div>
 
-                  {/* % */}
-                  <div className="text-center flex-shrink-0 px-2">
-                    <p className="text-base font-bold" style={{ color: 'var(--color-primary)' }}>{prof.percentual}%</p>
-                    <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-ink4)' }}>comissão</p>
-                  </div>
+                    {/* % */}
+                    <div className="text-center flex-shrink-0 px-2">
+                      <p className="text-base font-bold" style={{ color: 'var(--color-primary)' }}>{prof.percentual}%</p>
+                      <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-ink4)' }}>comissão</p>
+                    </div>
 
-                  {/* Valor R$ */}
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-base font-bold"
-                      style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>
-                      {fmtBRL(prof.total)}
-                    </p>
-                    <p className="text-[10px]"
-                      style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>
-                      {temPendente ? 'pendente' : 'pago'}
-                    </p>
-                  </div>
+                    {/* Valor R$ */}
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-base font-bold"
+                        style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>
+                        {fmtBRL(prof.total)}
+                      </p>
+                      <p className="text-[10px]"
+                        style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>
+                        {temPendente ? 'pendente' : 'pago'}
+                      </p>
+                    </div>
+                  </button>
 
-                  <ChevronDown size={16} style={{ color: 'var(--color-ink4)', flexShrink: 0, transition: 'transform 0.2s', transform: expanded ? 'rotate(180deg)' : 'none' }}/>
-                </button>
+                  {/* Pagar — visível direto no cabeçalho, sem precisar expandir */}
+                  {temPendente && (
+                    <button onClick={() => setPagando(prof.profissional_id)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-white text-xs font-bold hover:opacity-90 transition flex-shrink-0"
+                      style={{ background: 'var(--color-green)' }}>
+                      <Banknote size={13} strokeWidth={2}/>Pagar
+                    </button>
+                  )}
+
+                  <button onClick={() => toggleExpand(prof.profissional_id)} className="flex-shrink-0 p-1">
+                    <ChevronDown size={16} style={{ color: 'var(--color-ink4)', transition: 'transform 0.2s', transform: expanded ? 'rotate(180deg)' : 'none' }}/>
+                  </button>
+                </div>
 
                 {/* Detalhe expandido */}
                 <div style={{ display: 'grid', gridTemplateRows: expanded ? '1fr' : '0fr', transition: 'grid-template-rows 0.22s ease' }}>
@@ -540,7 +553,7 @@ export default function ComissoesPage() {
                       </div>
                     ))}
 
-                    {/* Rodapé com ação de pagamento */}
+                    {/* Rodapé — resumo do repasse (ação "Pagar" já fica no cabeçalho do card) */}
                     <div className="flex items-center justify-between px-4 py-3 border-t border-border" style={{ background: 'var(--color-bg)' }}>
                       <div>
                         <p className="text-[10px]" style={{ color: 'var(--color-ink3)' }}>
@@ -550,13 +563,7 @@ export default function ComissoesPage() {
                           {fmtBRL(temPendente ? prof.pendente : prof.pago)}
                         </p>
                       </div>
-                      {temPendente ? (
-                        <button onClick={() => setPagando(prof.profissional_id)}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold hover:opacity-90 transition"
-                          style={{ background: 'var(--color-green)' }}>
-                          <Banknote size={13} strokeWidth={2}/>Pagar
-                        </button>
-                      ) : (
+                      {!temPendente && (
                         <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold"
                           style={{ background: 'var(--color-green-soft)', color: 'var(--color-green)' }}>
                           <CircleCheck size={13} strokeWidth={2}/>Pago
