@@ -1009,12 +1009,11 @@ export default function ComandaPage() {
                               className="w-20 h-8 px-2 text-sm text-right font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition"
                             />
                           </div>
-                          {item.tipo !== 'agendamento' && (
-                            <button onClick={() => removerItem(item.uid)}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
-                              <Trash2 size={13}/>
-                            </button>
-                          )}
+                          <button onClick={() => removerItem(item.uid)}
+                            title={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : 'Remover'}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
+                            <Trash2 size={13}/>
+                          </button>
                         </div>
                         {/* Seletor de profissional para serviços extras */}
                         {item.tipo === 'servico' && (

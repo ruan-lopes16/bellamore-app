@@ -50,7 +50,8 @@ type Ag = {
   servico: { id: string; nome: string; duracao_minutos: number } | null;
   agendamento_servicos: AgServico[];
 };
-type PacoteClienteOpt = { id: string; nome: string; restantes: number | null };
+type PacoteClienteOpt = { id: string; nome: string; restantes: number | null; servicos: { servico_id: string }[] };
+type PacoteCatalogoOpt = { id: string; nome: string; preco: number; validade_dias: number | null; servicos: { servico_id: string }[] };
 type ClienteOpt = { id: string; nome: string; telefone?: string };
 type Servico    = { id: string; nome: string; preco: number; duracao_minutos: number };
 type Bloqueio   = {
@@ -203,6 +204,10 @@ function NovoAgModal({
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
   const [pacoteClienteId, setPacoteClienteId] = useState(() => agEditar?.pacote_cliente_id ?? '');
 
+  // Vender um pacote novo do catálogo direto neste agendamento (opcional)
+  const [pacotesCatalogo, setPacotesCatalogo] = useState<PacoteCatalogoOpt[]>([]);
+  const [pacoteVenderId,  setPacoteVenderId]  = useState('');
+
   const [linhas, setLinhas] = useState<ServicoLinha[]>(() => {
     if (agEditar && (agEditar.agendamento_servicos ?? []).length > 0) {
       return [...(agEditar.agendamento_servicos ?? [])]
@@ -228,10 +233,17 @@ function NovoAgModal({
         .eq('empresa_id', empresaId).in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true),
       supabase.from('servicos').select('id, nome, preco, duracao_minutos')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
-    ]).then(([c, p, s]) => {
+      supabase.from('pacotes')
+        .select('id, nome, preco, validade_dias, servicos:pacote_servicos(servico_id)')
+        .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
+    ]).then(([c, p, s, pac]) => {
       setClientes((c.data ?? []) as ClienteOpt[]);
       setProfissionais((p.data ?? []).map((m: any) => ({ id: m.user.id, nome: m.user.nome })));
       setServicos((s.data ?? []) as Servico[]);
+      setPacotesCatalogo(((pac.data ?? []) as any[]).map(p => ({
+        id: p.id, nome: p.nome, preco: p.preco, validade_dias: p.validade_dias,
+        servicos: (p.servicos ?? []).map((x: any) => ({ servico_id: x.servico_id })),
+      })));
     });
   }, [empresaId]);
 
@@ -239,7 +251,7 @@ function NovoAgModal({
   useEffect(() => {
     if (!clienteId) { setPacotesCliente([]); return; }
     supabase.from('pacote_clientes')
-      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(quantidade)), uso:pacote_uso(id)')
+      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id)')
       .eq('empresa_id', empresaId)
       .eq('cliente_id', clienteId)
       .eq('status', 'ativo')
@@ -247,11 +259,11 @@ function NovoAgModal({
         const opts = ((res.data ?? []) as any[])
           .filter(pc => (pc.pacote?.controla_sessoes ?? true) && (!pc.data_validade || !isPast(parseISO(pc.data_validade))))
           .map(pc => {
-            const servicosPac = (pc.pacote?.servicos ?? []) as { quantidade: number | null }[];
+            const servicosPac = (pc.pacote?.servicos ?? []) as { servico_id: string; quantidade: number | null }[];
             const ilimitado = servicosPac.some(s => s.quantidade == null);
             const total = ilimitado ? null : servicosPac.reduce((s, x) => s + (x.quantidade ?? 0), 0);
             const restantes = total != null ? total - (pc.uso ?? []).length : null;
-            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes };
+            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes, servicos: servicosPac.map(s => ({ servico_id: s.servico_id })) };
           })
           .filter(p => p.restantes === null || p.restantes > 0);
         setPacotesCliente(opts);
@@ -268,6 +280,40 @@ function NovoAgModal({
     ));
   }
 
+  /** Preenche as linhas de serviço com os serviços inclusos num pacote (sem duplicar já adicionados) */
+  function preencherServicosDoPacote(servicosPac: { servico_id: string }[]) {
+    setLinhas(prev => {
+      const jaTem = new Set(prev.map(l => l.servico_id).filter(Boolean));
+      const novas = servicosPac
+        .filter(s => !jaTem.has(s.servico_id))
+        .map(s => {
+          const info = servicos.find(x => x.id === s.servico_id);
+          return { uid: crypto.randomUUID(), servico_id: s.servico_id, duracao: info?.duracao_minutos ?? 60, valor: info?.preco ?? 0 };
+        });
+      if (novas.length === 0) return prev;
+      const base = prev.filter(l => l.servico_id); // descarta a linha em branco inicial
+      return [...base, ...novas];
+    });
+  }
+
+  function onPacoteClienteChange(id: string) {
+    setPacoteClienteId(id);
+    if (id) {
+      setPacoteVenderId('');
+      const pac = pacotesCliente.find(p => p.id === id);
+      if (pac) preencherServicosDoPacote(pac.servicos);
+    }
+  }
+
+  function onPacoteVenderChange(id: string) {
+    setPacoteVenderId(id);
+    if (id) {
+      setPacoteClienteId('');
+      const pac = pacotesCatalogo.find(p => p.id === id);
+      if (pac) preencherServicosDoPacote(pac.servicos);
+    }
+  }
+
   function addLinha() {
     setLinhas(prev => [...prev, { uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 }]);
   }
@@ -281,6 +327,27 @@ function NovoAgModal({
     const filled = linhas.filter(l => l.servico_id);
     let agId = '';
 
+    // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo
+    let pacoteClienteIdFinal = pacoteClienteId || null;
+    if (pacoteVenderId) {
+      const pacote = pacotesCatalogo.find(p => p.id === pacoteVenderId);
+      if (pacote) {
+        const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
+          empresa_id:    empresaId,
+          pacote_id:     pacote.id,
+          cliente_id:    clienteId,
+          data_inicio:   format(new Date(), 'yyyy-MM-dd'),
+          data_validade: pacote.validade_dias != null
+            ? format(addDays(new Date(), pacote.validade_dias), 'yyyy-MM-dd')
+            : null,
+          valor_pago:    pacote.preco,
+          status:        'ativo',
+        }).select('id').single();
+        if (errVenda || !novaVenda) { setSalvando(false); setErro(errVenda?.message ?? 'Erro ao vender pacote'); return; }
+        pacoteClienteIdFinal = novaVenda.id;
+      }
+    }
+
     if (agEditar) {
       const { error } = await supabase.from('agendamentos').update({
         cliente_id:        clienteId,
@@ -290,7 +357,7 @@ function NovoAgModal({
         data_hora_fim:     fim.toISOString(),
         valor:             filled.reduce((s, l) => s + l.valor, 0),
         observacao:        obs.trim() || null,
-        pacote_cliente_id: pacoteClienteId || null,
+        pacote_cliente_id: pacoteClienteIdFinal,
       }).eq('id', agEditar.id);
       if (error) { setSalvando(false); setErro(error.message); return; }
       await supabase.from('agendamento_servicos').delete().eq('agendamento_id', agEditar.id);
@@ -306,7 +373,7 @@ function NovoAgModal({
         status:            'agendado',
         valor:             filled.reduce((s, l) => s + l.valor, 0),
         observacao:        obs.trim() || null,
-        pacote_cliente_id: pacoteClienteId || null,
+        pacote_cliente_id: pacoteClienteIdFinal,
       }).select().single();
       if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
       agId = ag.id;
@@ -426,20 +493,45 @@ function NovoAgModal({
           {clienteId && pacotesCliente.length > 0 && (
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">
-                Pacote <span className="text-text-4 normal-case font-normal">(opcional — consome 1 sessão ao concluir)</span>
+                Pacote do cliente <span className="text-text-4 normal-case font-normal">(opcional — consome 1 sessão ao concluir)</span>
               </label>
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
                   <SearchSelect
                     options={pacotesCliente.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
                     value={pacoteClienteId}
-                    onChange={setPacoteClienteId}
+                    onChange={onPacoteClienteChange}
                     placeholder="Pagar avulso (sem pacote)"
                   />
                 </div>
                 {pacoteClienteId && (
                   <button type="button" onClick={() => setPacoteClienteId('')}
                     title="Não usar pacote"
+                    className="w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                    <X size={13} strokeWidth={2.5}/>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {clienteId && !pacoteClienteId && pacotesCatalogo.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">
+                Vender pacote agora <span className="text-text-4 normal-case font-normal">(opcional — preenche os serviços e vende na hora)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <SearchSelect
+                    options={pacotesCatalogo.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
+                    value={pacoteVenderId}
+                    onChange={onPacoteVenderChange}
+                    placeholder="Nenhum pacote novo"
+                  />
+                </div>
+                {pacoteVenderId && (
+                  <button type="button" onClick={() => setPacoteVenderId('')}
+                    title="Não vender pacote"
                     className="w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
                     <X size={13} strokeWidth={2.5}/>
                   </button>
@@ -1356,7 +1448,7 @@ export default function AgendaPage() {
             className="press flex items-center gap-2 px-3 h-10 rounded-2xl text-sm font-bold border border-border transition hover:bg-bg"
             style={{ fontFamily: 'var(--font-sans)', color: 'var(--color-rose)' }}
             title="Bloquear horário">
-            <Ban size={14} strokeWidth={2}/><span className="hidden sm:inline">Bloquear</span>
+            <Ban size={14} strokeWidth={2}/><span>Bloquear</span>
           </button>
           <button onClick={() => { setModalParams({}); setModal(true); }} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
             style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
