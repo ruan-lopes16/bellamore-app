@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StatusBar, Alert, ActivityIndicator, Modal, FlatList,
@@ -72,6 +72,9 @@ function formatBRL(v: number) {
   }).format(v);
 }
 
+type PacoteClienteOpt  = { id: string; nome: string; restantes: number | null; servicoIds: string[] };
+type PacoteCatalogoOpt = { id: string; nome: string; preco: number; validade_dias: number | null; servicoIds: string[] };
+
 // ── Seção do formulário ───────────────────────────────────────
 
 function Secao({ numero, titulo, completo, children }: {
@@ -125,6 +128,12 @@ export default function NovoAgendamento() {
   const [obs, setObs]           = useState('');
   const [salvando, setSalvando] = useState(false);
 
+  // Pacote do cliente (vincular sessão existente) ou vender um pacote novo agora
+  const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
+  const [pacoteClienteId, setPacoteClienteId] = useState('');
+  const [pacotesCatalogo, setPacotesCatalogo] = useState<PacoteCatalogoOpt[]>([]);
+  const [pacoteVenderId,  setPacoteVenderId]  = useState('');
+
   // Modal de busca de cliente
   const [modalCliente, setModalCliente] = useState(false);
   const [buscaCliente, setBuscaCliente] = useState('');
@@ -133,6 +142,63 @@ export default function NovoAgendamento() {
   const { data: clientes = [] }     = useClientes('todas', buscaCliente);
   const { data: profissionais = [] } = useProfissionais();
   const { data: servicos = [] }     = useServicosEmpresa();
+
+  // Catálogo de pacotes (uma vez, por empresa)
+  useEffect(() => {
+    if (!empresaAtiva?.id) return;
+    supabase.from('pacotes')
+      .select('id, nome, preco, validade_dias, servicos:pacote_servicos(servico_id)')
+      .eq('empresa_id', empresaAtiva.id).eq('ativo', true)
+      .then(({ data }) => {
+        setPacotesCatalogo(((data ?? []) as any[]).map(p => ({
+          id: p.id, nome: p.nome, preco: p.preco, validade_dias: p.validade_dias,
+          servicoIds: (p.servicos ?? []).map((s: any) => s.servico_id),
+        })));
+      });
+  }, [empresaAtiva?.id]);
+
+  // Pacotes ativos do cliente selecionado
+  useEffect(() => {
+    if (!clienteSelecionado || !empresaAtiva?.id) { setPacotesCliente([]); return; }
+    supabase.from('pacote_clientes')
+      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id)')
+      .eq('empresa_id', empresaAtiva.id)
+      .eq('cliente_id', clienteSelecionado.id)
+      .eq('status', 'ativo')
+      .then(({ data }) => {
+        const hoje = new Date();
+        const opts = ((data ?? []) as any[])
+          .filter(pc => (pc.pacote?.controla_sessoes ?? true) && (!pc.data_validade || new Date(pc.data_validade) >= hoje))
+          .map(pc => {
+            const servicosPac = (pc.pacote?.servicos ?? []) as { servico_id: string; quantidade: number | null }[];
+            const ilimitado = servicosPac.some(s => s.quantidade == null);
+            const total = ilimitado ? null : servicosPac.reduce((s, x) => s + (x.quantidade ?? 0), 0);
+            const restantes = total != null ? total - (pc.uso ?? []).length : null;
+            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes, servicoIds: servicosPac.map(s => s.servico_id) };
+          })
+          .filter(p => p.restantes === null || p.restantes > 0);
+        setPacotesCliente(opts);
+        setPacoteClienteId(prev => opts.some(o => o.id === prev) ? prev : '');
+      });
+  }, [clienteSelecionado?.id, empresaAtiva?.id]);
+
+  /** Pré-seleciona o serviço principal do pacote (mobile só suporta 1 serviço por agendamento) */
+  function preencherServicoDoPacote(servicoIds: string[]) {
+    const s = servicos.find(x => servicoIds.includes(x.id));
+    if (s) selecionarServico(s);
+  }
+
+  function onPacoteClienteChange(opt: PacoteClienteOpt) {
+    const novo = opt.id === pacoteClienteId ? '' : opt.id;
+    setPacoteClienteId(novo);
+    if (novo) { setPacoteVenderId(''); preencherServicoDoPacote(opt.servicoIds); }
+  }
+
+  function onPacoteVenderChange(opt: PacoteCatalogoOpt) {
+    const novo = opt.id === pacoteVenderId ? '' : opt.id;
+    setPacoteVenderId(novo);
+    if (novo) { setPacoteClienteId(''); preencherServicoDoPacote(opt.servicoIds); }
+  }
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -175,16 +241,42 @@ export default function NovoAgendamento() {
     const fim    = addMinutes(inicio, servicoSelecionado!.duracao_minutos);
     const valorFinal = parseFloat(valor.replace(',', '.')) || servicoSelecionado!.preco;
 
+    // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo
+    let pacoteClienteIdFinal: string | null = pacoteClienteId || null;
+    if (pacoteVenderId) {
+      const pacote = pacotesCatalogo.find(p => p.id === pacoteVenderId);
+      if (pacote) {
+        const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
+          empresa_id:    empresaAtiva.id,
+          pacote_id:     pacote.id,
+          cliente_id:    clienteSelecionado!.id,
+          data_inicio:   format(new Date(), 'yyyy-MM-dd'),
+          data_validade: pacote.validade_dias != null
+            ? format(addDays(new Date(), pacote.validade_dias), 'yyyy-MM-dd')
+            : null,
+          valor_pago:    pacote.preco,
+          status:        'ativo',
+        }).select('id').single();
+        if (errVenda || !novaVenda) {
+          setSalvando(false);
+          Alert.alert('Erro ao vender pacote', errVenda?.message ?? 'Tente novamente.');
+          return;
+        }
+        pacoteClienteIdFinal = novaVenda.id;
+      }
+    }
+
     const { error } = await supabase.from('agendamentos').insert({
-      empresa_id:       empresaAtiva.id,
-      profissional_id:  profSelecionado!.id,
-      cliente_id:       clienteSelecionado!.id,
-      servico_id:       servicoSelecionado!.id,
-      data_hora_inicio: inicio.toISOString(),
-      data_hora_fim:    fim.toISOString(),
-      valor:            valorFinal,
-      observacao:       obs || null,
-      status:           'agendado',
+      empresa_id:        empresaAtiva.id,
+      profissional_id:   profSelecionado!.id,
+      cliente_id:        clienteSelecionado!.id,
+      servico_id:        servicoSelecionado!.id,
+      data_hora_inicio:  inicio.toISOString(),
+      data_hora_fim:     fim.toISOString(),
+      valor:             valorFinal,
+      observacao:        obs || null,
+      status:            'agendado',
+      pacote_cliente_id: pacoteClienteIdFinal,
     });
 
     setSalvando(false);
@@ -287,8 +379,79 @@ export default function NovoAgendamento() {
           </TouchableOpacity>
         </Secao>
 
-        {/* ── 2. Serviço ── */}
-        <Secao numero={2} titulo="Serviço" completo={!!servicoSelecionado}>
+        {/* ── 2. Pacote (opcional) ── */}
+        {clienteSelecionado && (pacotesCliente.length > 0 || pacotesCatalogo.length > 0) && (
+          <Secao numero={2} titulo="Pacote (opcional)">
+            {pacotesCliente.length > 0 && (
+              <View style={{ marginBottom: pacotesCatalogo.length > 0 ? 12 : 0 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Pacote do cliente — consome 1 sessão
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {pacotesCliente.map(p => {
+                    const ativo = pacoteClienteId === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => onPacoteClienteChange(p)}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 6,
+                          backgroundColor: ativo ? C.primarySoft : C.surface,
+                          borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                          borderRadius: 20, paddingVertical: 8, paddingHorizontal: 12,
+                        }}
+                      >
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text2 }}>
+                          {p.nome}
+                        </Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: ativo ? C.primary : C.text4 }}>
+                          {p.restantes == null ? 'ilimitado' : `${p.restantes} rest.`}
+                        </Text>
+                        {ativo && <Check size={12} color={C.primary} strokeWidth={2.5} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {!pacoteClienteId && pacotesCatalogo.length > 0 && (
+              <View>
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Vender pacote agora
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {pacotesCatalogo.map(p => {
+                    const ativo = pacoteVenderId === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => onPacoteVenderChange(p)}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 6,
+                          backgroundColor: ativo ? C.greenSoft : C.surface,
+                          borderWidth: 1, borderColor: ativo ? C.green : C.border,
+                          borderRadius: 20, paddingVertical: 8, paddingHorizontal: 12,
+                        }}
+                      >
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.green : C.text2 }}>
+                          {p.nome}
+                        </Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: ativo ? C.green : C.text4 }}>
+                          {formatBRL(p.preco)}
+                        </Text>
+                        {ativo && <Check size={12} color={C.green} strokeWidth={2.5} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+          </Secao>
+        )}
+
+        {/* ── 3. Serviço ── */}
+        <Secao numero={3} titulo="Serviço" completo={!!servicoSelecionado}>
           <View style={{ gap: 6 }}>
             {servicos.map((s) => {
               const ativo = servicoSelecionado?.id === s.id;
@@ -327,8 +490,8 @@ export default function NovoAgendamento() {
           </View>
         </Secao>
 
-        {/* ── 3. Profissional ── */}
-        <Secao numero={3} titulo="Profissional" completo={!!profSelecionado}>
+        {/* ── 4. Profissional ── */}
+        <Secao numero={4} titulo="Profissional" completo={!!profSelecionado}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {profissionais.map((p) => {
               const ativo = profSelecionado?.id === p.id;
@@ -366,8 +529,8 @@ export default function NovoAgendamento() {
           </View>
         </Secao>
 
-        {/* ── 4. Data ── */}
-        <Secao numero={4} titulo="Data e Horário" completo={!!horaSelecionada}>
+        {/* ── 5. Data ── */}
+        <Secao numero={5} titulo="Data e Horário" completo={!!horaSelecionada}>
           {/* Nav semana */}
           <View style={{
             backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -463,8 +626,8 @@ export default function NovoAgendamento() {
           )}
         </Secao>
 
-        {/* ── 5. Valor ── */}
-        <Secao numero={5} titulo="Valor" completo={!!valor}>
+        {/* ── 6. Valor ── */}
+        <Secao numero={6} titulo="Valor" completo={!!valor}>
           <View style={{
             backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
             borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -494,8 +657,8 @@ export default function NovoAgendamento() {
           </View>
         </Secao>
 
-        {/* ── 6. Observação ── */}
-        <Secao numero={6} titulo="Observação (opcional)">
+        {/* ── 7. Observação ── */}
+        <Secao numero={7} titulo="Observação (opcional)">
           <View style={{
             backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
             borderRadius: 14, paddingHorizontal: 14, paddingTop: 12,
