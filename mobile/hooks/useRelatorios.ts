@@ -45,6 +45,27 @@ export interface ProfissionalRelatorio {
   faturamento: number;
 }
 
+/**
+ * Busca todas as páginas de uma query (o PostgREST limita a 1000 linhas por
+ * requisição por padrão) — evita truncar silenciosamente relatórios de
+ * empresas com muito movimento no período selecionado (ex: período "1y").
+ */
+async function buscarTodasPaginas<T>(
+  montarQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  tamanhoPagina = 1000,
+): Promise<T[]> {
+  const todas: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data } = await montarQuery(from, from + tamanhoPagina - 1);
+    const linhas = data ?? [];
+    todas.push(...linhas);
+    if (linhas.length < tamanhoPagina) break;
+    from += tamanhoPagina;
+  }
+  return todas;
+}
+
 // ── Helpers de range ─────────────────────────────────────────
 
 export function getRanges(periodo: Periodo, ref = new Date()) {
@@ -99,24 +120,36 @@ export function useRelatorios(periodo: Periodo) {
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
       const [pagAtual, pagAnt, agAtual, agAnt] = await Promise.all([
-        supabase.from('pagamentos').select('valor')
-          .eq('empresa_id', empresaId!).eq('status', 'pago')
-          .gte('created_at', iniISO).lte('created_at', fimISO),
-        supabase.from('pagamentos').select('valor')
-          .eq('empresa_id', empresaId!).eq('status', 'pago')
-          .gte('created_at', iniAntISO).lte('created_at', fimAntISO),
-        supabase.from('agendamentos').select('id')
-          .eq('empresa_id', empresaId!).eq('status', 'concluido')
-          .gte('data_hora_inicio', iniISO).lte('data_hora_inicio', fimISO),
-        supabase.from('agendamentos').select('id')
-          .eq('empresa_id', empresaId!).eq('status', 'concluido')
-          .gte('data_hora_inicio', iniAntISO).lte('data_hora_inicio', fimAntISO),
+        buscarTodasPaginas<{ valor: number }>((from, to) =>
+          supabase.from('pagamentos').select('valor')
+            .eq('empresa_id', empresaId!).eq('status', 'pago')
+            .gte('created_at', iniISO).lte('created_at', fimISO)
+            .range(from, to)
+        ),
+        buscarTodasPaginas<{ valor: number }>((from, to) =>
+          supabase.from('pagamentos').select('valor')
+            .eq('empresa_id', empresaId!).eq('status', 'pago')
+            .gte('created_at', iniAntISO).lte('created_at', fimAntISO)
+            .range(from, to)
+        ),
+        buscarTodasPaginas<{ id: string }>((from, to) =>
+          supabase.from('agendamentos').select('id')
+            .eq('empresa_id', empresaId!).eq('status', 'concluido')
+            .gte('data_hora_inicio', iniISO).lte('data_hora_inicio', fimISO)
+            .range(from, to)
+        ),
+        buscarTodasPaginas<{ id: string }>((from, to) =>
+          supabase.from('agendamentos').select('id')
+            .eq('empresa_id', empresaId!).eq('status', 'concluido')
+            .gte('data_hora_inicio', iniAntISO).lte('data_hora_inicio', fimAntISO)
+            .range(from, to)
+        ),
       ]);
 
-      const fat    = (pagAtual.data ?? []).reduce((s, p) => s + Number(p.valor), 0);
-      const fatAnt = (pagAnt.data   ?? []).reduce((s, p) => s + Number(p.valor), 0);
-      const atend    = agAtual.data?.length ?? 0;
-      const atendAnt = agAnt.data?.length   ?? 0;
+      const fat    = pagAtual.reduce((s, p) => s + Number(p.valor), 0);
+      const fatAnt = pagAnt.reduce((s, p) => s + Number(p.valor), 0);
+      const atend    = agAtual.length;
+      const atendAnt = agAnt.length;
 
       return {
         faturamento:        fat,
@@ -136,40 +169,49 @@ export function useRelatorios(periodo: Periodo) {
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
       // Clientes únicos atendidos no período atual
-      const { data: agAtual } = await supabase
-        .from('agendamentos')
-        .select('cliente_id, data_hora_inicio')
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'concluido')
-        .gte('data_hora_inicio', iniISO)
-        .lte('data_hora_inicio', fimISO);
+      const agAtual = await buscarTodasPaginas<{ cliente_id: string; data_hora_inicio: string }>((from, to) =>
+        supabase
+          .from('agendamentos')
+          .select('cliente_id, data_hora_inicio')
+          .eq('empresa_id', empresaId!)
+          .eq('status', 'concluido')
+          .gte('data_hora_inicio', iniISO)
+          .lte('data_hora_inicio', fimISO)
+          .range(from, to)
+      );
 
-      const idsAtual = [...new Set((agAtual ?? []).map((a) => a.cliente_id))];
+      const idsAtual = [...new Set(agAtual.map((a) => a.cliente_id))];
 
       // Clientes que JÁ tinham histórico antes do período (retornaram)
-      const { data: agAntes } = await supabase
-        .from('agendamentos')
-        .select('cliente_id')
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'concluido')
-        .lt('data_hora_inicio', iniISO)
-        .in('cliente_id', idsAtual.length > 0 ? idsAtual : ['00000000-0000-0000-0000-000000000000']);
+      const agAntes = await buscarTodasPaginas<{ cliente_id: string }>((from, to) =>
+        supabase
+          .from('agendamentos')
+          .select('cliente_id')
+          .eq('empresa_id', empresaId!)
+          .eq('status', 'concluido')
+          .lt('data_hora_inicio', iniISO)
+          .in('cliente_id', idsAtual.length > 0 ? idsAtual : ['00000000-0000-0000-0000-000000000000'])
+          .range(from, to)
+      );
 
-      const idsAntes = new Set((agAntes ?? []).map((a) => a.cliente_id));
+      const idsAntes = new Set(agAntes.map((a) => a.cliente_id));
       const novos      = idsAtual.filter((id) => !idsAntes.has(id)).length;
       const retornaram = idsAtual.filter((id) => idsAntes.has(id)).length;
 
       // Clientes sumidos: último atendimento há +60 dias e antes do período
-      const { data: ultimosAg } = await supabase
-        .from('agendamentos')
-        .select('cliente_id, data_hora_inicio')
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'concluido')
-        .lt('data_hora_inicio', iniISO)
-        .order('data_hora_inicio', { ascending: false });
+      const ultimosAg = await buscarTodasPaginas<{ cliente_id: string; data_hora_inicio: string }>((from, to) =>
+        supabase
+          .from('agendamentos')
+          .select('cliente_id, data_hora_inicio')
+          .eq('empresa_id', empresaId!)
+          .eq('status', 'concluido')
+          .lt('data_hora_inicio', iniISO)
+          .order('data_hora_inicio', { ascending: false })
+          .range(from, to)
+      );
 
       const ultimoPorCliente: Record<string, Date> = {};
-      (ultimosAg ?? []).forEach((a) => {
+      ultimosAg.forEach((a) => {
         if (!ultimoPorCliente[a.cliente_id]) {
           ultimoPorCliente[a.cliente_id] = new Date(a.data_hora_inicio);
         }
@@ -193,16 +235,19 @@ export function useRelatorios(periodo: Periodo) {
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('agendamentos')
-        .select('servico_id, valor, servico:servicos(nome)')
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'concluido')
-        .gte('data_hora_inicio', iniISO)
-        .lte('data_hora_inicio', fimISO);
+      const data = await buscarTodasPaginas<any>((from, to) =>
+        supabase
+          .from('agendamentos')
+          .select('servico_id, valor, servico:servicos(nome)')
+          .eq('empresa_id', empresaId!)
+          .eq('status', 'concluido')
+          .gte('data_hora_inicio', iniISO)
+          .lte('data_hora_inicio', fimISO)
+          .range(from, to)
+      );
 
       const map: Record<string, { nome: string; qtd: number; receita: number }> = {};
-      (data ?? []).forEach((a: any) => {
+      data.forEach((a: any) => {
         const id = a.servico_id;
         const nome = a.servico?.nome ?? 'Serviço';
         if (!map[id]) map[id] = { nome, qtd: 0, receita: 0 };
@@ -226,20 +271,23 @@ export function useRelatorios(periodo: Periodo) {
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('agendamentos')
-        .select('profissional_id, valor, profissional:users(nome, foto_url), servico:servicos(categoria)')
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'concluido')
-        .gte('data_hora_inicio', iniISO)
-        .lte('data_hora_inicio', fimISO);
+      const data = await buscarTodasPaginas<any>((from, to) =>
+        supabase
+          .from('agendamentos')
+          .select('profissional_id, valor, profissional:users(nome, foto_url), servico:servicos(categoria)')
+          .eq('empresa_id', empresaId!)
+          .eq('status', 'concluido')
+          .gte('data_hora_inicio', iniISO)
+          .lte('data_hora_inicio', fimISO)
+          .range(from, to)
+      );
 
       const map: Record<string, {
         nome: string; foto_url?: string;
         cats: Set<string>; atend: number; fat: number;
       }> = {};
 
-      (data ?? []).forEach((a: any) => {
+      data.forEach((a: any) => {
         const id = a.profissional_id;
         const nome = a.profissional?.nome ?? 'Profissional';
         if (!map[id]) map[id] = { nome, foto_url: a.profissional?.foto_url, cats: new Set(), atend: 0, fat: 0 };

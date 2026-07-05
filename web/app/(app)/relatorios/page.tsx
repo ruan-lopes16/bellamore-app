@@ -12,10 +12,15 @@
  * - Taxa Comparecimento: concluídos / (concluídos + faltou)
  *
  * ## Queries (single range, sem N+1)
- * 1. agendamentos (todos os status) + joins servicos / users / clientes
+ * 1. agendamentos (todos os status) + joins servicos / users / clientes — paginado
  * 2. despesas     (filtro por data_vencimento)
- * 3. comissoes    (filtro por created_at)
- * 4. estoque_movimentos saídas (filtro por created_at)
+ * 3. comissoes    (filtro por created_at) — paginado
+ * 4. estoque_movimentos saídas (filtro por created_at) — lazy, só ao abrir a aba Estoque
+ * 5. avaliacoes   (filtro por created_at) — lazy, só ao abrir a aba Avaliações
+ *
+ * Paginação via `.range()` evita o limite padrão de 1000 linhas por
+ * requisição do PostgREST truncar relatórios de empresas com muito
+ * movimento no período selecionado.
  *
  * ## Rankings gerados
  * Serviços · Equipe · Top clientes · Insumos consumidos
@@ -297,6 +302,12 @@ export default function RelatoriosPage() {
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
   const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null }[]>([]);
 
+  // Abas de baixo uso (Estoque/Avaliações) carregam sob demanda — evita buscar
+  // dados que a maioria das visitas ao relatório nunca chega a abrir.
+  const [loadingAba,   setLoadingAba]   = useState(false);
+  const [estoqueChave, setEstoqueChave] = useState('');    // `${empId}-${periodo}` já carregado
+  const [avalChave,    setAvalChave]    = useState('');
+
   // ── Buscar empresaId ao montar
   useEffect(() => {
     (async () => {
@@ -310,9 +321,30 @@ export default function RelatoriosPage() {
   }, []);
 
   /**
-   * Carrega todos os dados do período em 4 queries paralelas.
-   * Agendamentos trazem joins de serviço, profissional e cliente.
-   * Nenhuma query N+1: rankings são calculados em memória.
+   * Busca todas as páginas de uma query (o PostgREST limita a 1000 linhas por
+   * requisição por padrão) — evita truncar silenciosamente relatórios de
+   * empresas com muito movimento no período selecionado.
+   */
+  async function buscarTodasPaginas<T>(
+    montarQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+    tamanhoPagina = 1000,
+  ): Promise<T[]> {
+    const todas: T[] = [];
+    let from = 0;
+    for (;;) {
+      const { data } = await montarQuery(from, from + tamanhoPagina - 1);
+      const linhas = data ?? [];
+      todas.push(...linhas);
+      if (linhas.length < tamanhoPagina) break;
+      from += tamanhoPagina;
+    }
+    return todas;
+  }
+
+  /**
+   * Carrega os dados do período em paralelo. Agendamentos e comissões são
+   * paginados (podem ultrapassar o limite padrão de linhas por requisição).
+   * Estoque e Avaliações ficam de fora — carregam sob demanda ao abrir a aba.
    */
   const carregar = useCallback(async (empId: string, per: Periodo) => {
     setLoading(true);
@@ -322,16 +354,19 @@ export default function RelatoriosPage() {
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rMovs, rVendas, rAvals, rPags] = await Promise.all([
+    const [rAgs, rDesp, rCom, rVendas, rPags] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
-      supabase.from('agendamentos')
-        .select(`id, valor, status, data_hora_inicio, servico_id, profissional_id, cliente_id,
-          servico:servicos(nome),
-          profissional:users!agendamentos_profissional_id_fkey(nome),
-          cliente:clientes!agendamentos_cliente_id_fkey(nome)`)
-        .eq('empresa_id', empId)
-        .gte('data_hora_inicio', isoIni)
-        .lte('data_hora_inicio', isoFim),
+      buscarTodasPaginas<Ag>((from, to) =>
+        supabase.from('agendamentos')
+          .select(`id, valor, status, data_hora_inicio, servico_id, profissional_id, cliente_id,
+            servico:servicos(nome),
+            profissional:users!agendamentos_profissional_id_fkey(nome),
+            cliente:clientes!agendamentos_cliente_id_fkey(nome)`)
+          .eq('empresa_id', empId)
+          .gte('data_hora_inicio', isoIni)
+          .lte('data_hora_inicio', isoFim)
+          .range(from, to)
+      ),
 
       // 2. Despesas do período (filtro por data de vencimento)
       supabase.from('despesas')
@@ -341,45 +376,30 @@ export default function RelatoriosPage() {
         .lte('data_vencimento', dateFim),
 
       // 3. Comissões geradas no período (com detalhes para o relatório)
-      supabase.from('comissoes')
-        .select(`id, profissional_id, valor_comissao, status, percentual, created_at,
-          profissional:users!comissoes_profissional_id_fkey(nome),
-          agendamento:agendamentos(
-            data_hora_inicio, valor,
-            servico:servicos(nome),
-            cliente:clientes!agendamentos_cliente_id_fkey(nome)
-          )`)
-        .eq('empresa_id', empId)
-        .gte('created_at', isoIni)
-        .lte('created_at', isoFim)
-        .order('created_at'),
+      buscarTodasPaginas<Comissao>((from, to) =>
+        supabase.from('comissoes')
+          .select(`id, profissional_id, valor_comissao, status, percentual, created_at,
+            profissional:users!comissoes_profissional_id_fkey(nome),
+            agendamento:agendamentos(
+              data_hora_inicio, valor,
+              servico:servicos(nome),
+              cliente:clientes!agendamentos_cliente_id_fkey(nome)
+            )`)
+          .eq('empresa_id', empId)
+          .gte('created_at', isoIni)
+          .lte('created_at', isoFim)
+          .order('created_at')
+          .range(from, to)
+      ),
 
-      // 4. Saídas de estoque (para ranking de insumos)
-      supabase.from('estoque_movimentos')
-        .select('produto_id, quantidade, produto:produtos(nome, preco_custo)')
-        .eq('empresa_id', empId)
-        .eq('tipo', 'saida')
-        .gte('created_at', isoIni)
-        .lte('created_at', isoFim),
-
-      // 5. Vendas avulsas do período
+      // 4. Vendas avulsas do período
       supabase.from('vendas')
         .select('valor_final, created_at')
         .eq('empresa_id', empId)
         .gte('created_at', isoIni)
         .lte('created_at', isoFim),
 
-      // 6. Avaliações do período
-      supabase.from('avaliacoes')
-        .select(`nota, comentario, created_at, profissional_id,
-          profissional:empresa_membros!avaliacoes_profissional_id_fkey(nome),
-          cliente:clientes!avaliacoes_cliente_id_fkey(nome)`)
-        .eq('empresa_id', empId)
-        .gte('created_at', isoIni)
-        .lte('created_at', isoFim)
-        .order('created_at', { ascending: false }),
-
-      // 7. Pagamentos do período (para cálculo de taxas de cartão)
+      // 5. Pagamentos do período (para cálculo de taxas de cartão)
       supabase.from('pagamentos')
         .select('valor, valor_liquido')
         .eq('empresa_id', empId)
@@ -388,12 +408,10 @@ export default function RelatoriosPage() {
         .lte('created_at', isoFim),
     ]);
 
-    setAgs((rAgs.data     ?? []) as unknown as Ag[]);
+    setAgs(rAgs as unknown as Ag[]);
     setDespesas((rDesp.data  ?? []) as Despesa[]);
-    setComissoes((rCom.data  ?? []) as unknown as Comissao[]);
-    setMovs((rMovs.data    ?? []) as unknown as MovEstoque[]);
+    setComissoes(rCom as unknown as Comissao[]);
     setVendas((rVendas.data ?? []) as Venda[]);
-    setAvaliacoes((rAvals.data ?? []) as unknown as Avaliacao[]);
     setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null }[]);
     setLoading(false);
   }, [supabase]);
@@ -401,6 +419,48 @@ export default function RelatoriosPage() {
   useEffect(() => {
     if (empresaId) carregar(empresaId, periodo);
   }, [empresaId, periodo, carregar]);
+
+  // ── Aba Estoque: carrega sob demanda (sai da query principal)
+  useEffect(() => {
+    if (aba !== 'estoque' || !empresaId) return;
+    const chave = `${empresaId}-${periodo}`;
+    if (estoqueChave === chave) return;
+    (async () => {
+      setLoadingAba(true);
+      const { inicio, fim } = periodoParaDatas(periodo);
+      const { data } = await supabase.from('estoque_movimentos')
+        .select('produto_id, quantidade, produto:produtos(nome, preco_custo)')
+        .eq('empresa_id', empresaId)
+        .eq('tipo', 'saida')
+        .gte('created_at', inicio.toISOString())
+        .lte('created_at', fim.toISOString());
+      setMovs((data ?? []) as unknown as MovEstoque[]);
+      setEstoqueChave(chave);
+      setLoadingAba(false);
+    })();
+  }, [aba, empresaId, periodo, estoqueChave]);
+
+  // ── Aba Avaliações: carrega sob demanda (sai da query principal)
+  useEffect(() => {
+    if (aba !== 'avaliacoes' || !empresaId) return;
+    const chave = `${empresaId}-${periodo}`;
+    if (avalChave === chave) return;
+    (async () => {
+      setLoadingAba(true);
+      const { inicio, fim } = periodoParaDatas(periodo);
+      const { data } = await supabase.from('avaliacoes')
+        .select(`nota, comentario, created_at, profissional_id,
+          profissional:empresa_membros!avaliacoes_profissional_id_fkey(nome),
+          cliente:clientes!avaliacoes_cliente_id_fkey(nome)`)
+        .eq('empresa_id', empresaId)
+        .gte('created_at', inicio.toISOString())
+        .lte('created_at', fim.toISOString())
+        .order('created_at', { ascending: false });
+      setAvaliacoes((data ?? []) as unknown as Avaliacao[]);
+      setAvalChave(chave);
+      setLoadingAba(false);
+    })();
+  }, [aba, empresaId, periodo, avalChave]);
 
   // ── Label do período selecionado
   const { labelPeriodo, inicio, fim } = useMemo(() => periodoParaDatas(periodo), [periodo]);
@@ -1033,7 +1093,7 @@ export default function RelatoriosPage() {
           </div>
           <p className="text-xs text-text-3 mb-4">Saídas de estoque (consumo via atendimentos)</p>
 
-          {loading ? (
+          {loading || loadingAba ? (
             <div className="flex flex-col gap-3">
               {[1, 2, 3, 4, 5].map(i => <Sk key={i} className="h-14 rounded-xl" />)}
             </div>
@@ -1258,12 +1318,12 @@ export default function RelatoriosPage() {
 
           {/* KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <KpiCard loading={loading} icon={Star} label="Nota média geral" cor="#D97706"
+            <KpiCard loading={loading || loadingAba} icon={Star} label="Nota média geral" cor="#D97706"
               value={notaMedia > 0 ? notaMedia.toFixed(1) : '—'}
               sub={avaliacoes.length > 0 ? `${avaliacoes.length} avaliação${avaliacoes.length !== 1 ? 'ões' : ''}` : 'Nenhuma ainda'}/>
-            <KpiCard loading={loading} icon={Users} label="Profissionais avaliados" cor="#7C3AED"
+            <KpiCard loading={loading || loadingAba} icon={Users} label="Profissionais avaliados" cor="#7C3AED"
               value={String(rankAvaliacoes.length)}/>
-            <KpiCard loading={loading} icon={TrendingUp} label="Com nota 5" cor="#0D7E5F"
+            <KpiCard loading={loading || loadingAba} icon={TrendingUp} label="Com nota 5" cor="#0D7E5F"
               value={String(avaliacoes.filter(a => a.nota === 5).length)}
               sub={avaliacoes.length > 0 ? `${((avaliacoes.filter(a => a.nota === 5).length / avaliacoes.length) * 100).toFixed(0)}% das avaliações` : undefined}/>
           </div>
@@ -1331,7 +1391,7 @@ export default function RelatoriosPage() {
                 ))}
               </div>
             </div>
-          ) : !loading ? (
+          ) : !loading && !loadingAba ? (
             <div className="bg-surface border border-border rounded-2xl p-10 text-center">
               <Star size={28} className="mx-auto mb-2 text-text-4" strokeWidth={1.5}/>
               <p className="text-sm text-text-3">Nenhuma avaliação registrada neste período.</p>
