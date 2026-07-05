@@ -113,7 +113,9 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
   return (
     <>
     <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
-      className="hover:border-accent/40 transition-colors">
+      className="hover:border-accent/40 transition-colors"
+      onDoubleClick={() => onEditar?.(ag)}
+      title={onEditar ? 'Clique duas vezes para editar' : undefined}>
       <div className="flex items-start gap-3">
         <div style={{ width: 36, height: 36, borderRadius: 12, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <span style={{ color: '#fff', fontWeight: 700, fontSize: 12, fontFamily: 'var(--font-sans)' }}>{initsAg}</span>
@@ -1052,6 +1054,7 @@ function TimelineView({
                       <button
                         key={ag.id}
                         onClick={e => { e.stopPropagation(); setAgSel(selecionado ? null : ag); }}
+                        onDoubleClick={e => { e.stopPropagation(); onEditar?.(ag); }}
                         style={{
                           top:         top + 2,
                           height:      h - 4,
