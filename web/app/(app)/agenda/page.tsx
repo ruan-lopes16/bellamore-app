@@ -29,12 +29,13 @@ import {
 import { ptBR } from 'date-fns/locale';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, X,
-  CalendarPlus, AlertTriangle, Pencil, Star, Ban, Trash2,
+  CalendarPlus, AlertTriangle, Pencil, Star, Ban, Trash2, UserPlus,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
+import { maskPhone } from '@/lib/masks';
 
 const supabase = createClient();
 
@@ -210,6 +211,13 @@ function NovoAgModal({
   const [pacotesCatalogo, setPacotesCatalogo] = useState<PacoteCatalogoOpt[]>([]);
   const [pacoteVenderId,  setPacoteVenderId]  = useState('');
 
+  // Cadastro rápido de cliente novo, sem sair do modal de agendamento
+  const [criandoCliente,      setCriandoCliente]      = useState(false);
+  const [novoClienteNome,     setNovoClienteNome]     = useState('');
+  const [novoClienteTelefone, setNovoClienteTelefone] = useState('');
+  const [salvandoCliente,     setSalvandoCliente]     = useState(false);
+  const [erroCliente,         setErroCliente]         = useState('');
+
   const [linhas, setLinhas] = useState<ServicoLinha[]>(() => {
     if (agEditar && (agEditar.agendamento_servicos ?? []).length > 0) {
       return [...(agEditar.agendamento_servicos ?? [])]
@@ -314,6 +322,24 @@ function NovoAgModal({
       const pac = pacotesCatalogo.find(p => p.id === id);
       if (pac) preencherServicosDoPacote(pac.servicos);
     }
+  }
+
+  async function salvarNovoCliente() {
+    if (!novoClienteNome.trim()) return;
+    setErroCliente('');
+    setSalvandoCliente(true);
+    const { data, error } = await supabase.from('clientes').insert({
+      empresa_id: empresaId,
+      nome: novoClienteNome.trim(),
+      telefone: novoClienteTelefone.trim() || null,
+    }).select('id, nome, telefone').single();
+    setSalvandoCliente(false);
+    if (error || !data) { setErroCliente(error?.message ?? 'Erro ao cadastrar cliente'); return; }
+    setClientes(prev => [...prev, data as ClienteOpt].sort((a, b) => a.nome.localeCompare(b.nome)));
+    setClienteId(data.id);
+    setCriandoCliente(false);
+    setNovoClienteNome('');
+    setNovoClienteTelefone('');
   }
 
   function addLinha() {
@@ -488,8 +514,53 @@ function NovoAgModal({
         {/* Form */}
         <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
           <div>
-            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Cliente</label>
-            <SearchSelect options={clienteOpts} value={clienteId} onChange={setClienteId} placeholder="Buscar cliente..." required />
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">Cliente</label>
+              {!criandoCliente && (
+                <button type="button"
+                  onClick={() => { setCriandoCliente(true); setErroCliente(''); }}
+                  className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent-dark transition">
+                  <UserPlus size={13} strokeWidth={2.5}/>
+                  Novo cliente
+                </button>
+              )}
+            </div>
+
+            {!criandoCliente ? (
+              <SearchSelect options={clienteOpts} value={clienteId} onChange={setClienteId} placeholder="Buscar cliente..." required />
+            ) : (
+              <div className="rounded-xl border border-accent/30 bg-accent/5 p-3 flex flex-col gap-2.5">
+                <input
+                  autoFocus
+                  value={novoClienteNome}
+                  onChange={e => setNovoClienteNome(e.target.value)}
+                  placeholder="Nome completo *"
+                  className="w-full h-9 px-3 rounded-lg border border-border bg-surface text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
+                />
+                <input
+                  value={novoClienteTelefone}
+                  onChange={e => setNovoClienteTelefone(maskPhone(e.target.value))}
+                  placeholder="Telefone (opcional)"
+                  type="tel"
+                  maxLength={15}
+                  className="w-full h-9 px-3 rounded-lg border border-border bg-surface text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
+                />
+                {erroCliente && <p className="text-red text-xs">{erroCliente}</p>}
+                <div className="flex gap-2">
+                  <button type="button"
+                    onClick={() => { setCriandoCliente(false); setNovoClienteNome(''); setNovoClienteTelefone(''); setErroCliente(''); }}
+                    className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold hover:bg-bg transition">
+                    Cancelar
+                  </button>
+                  <button type="button"
+                    disabled={salvandoCliente || !novoClienteNome.trim()}
+                    onClick={salvarNovoCliente}
+                    className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-dark transition disabled:opacity-50">
+                    {salvandoCliente ? 'Cadastrando...' : 'Cadastrar e selecionar'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {clienteId && pacotesCliente.length > 0 && (

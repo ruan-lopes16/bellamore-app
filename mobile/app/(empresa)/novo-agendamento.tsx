@@ -4,12 +4,13 @@ import {
   StatusBar, Alert, ActivityIndicator, Modal, FlatList,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
   ChevronLeft, User, Scissors, Users, Calendar,
-  Clock, DollarSign, FileText, Check, Search, X,
+  Clock, DollarSign, FileText, Check, Search, X, UserPlus,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -138,6 +139,13 @@ export default function NovoAgendamento() {
   const [modalCliente, setModalCliente] = useState(false);
   const [buscaCliente, setBuscaCliente] = useState('');
 
+  // Cadastro rápido de cliente novo, sem sair do modal de agendamento
+  const [criandoCliente, setCriandoCliente]         = useState(false);
+  const [novoClienteNome, setNovoClienteNome]       = useState('');
+  const [novoClienteTelefone, setNovoClienteTelefone] = useState('');
+  const [salvandoCliente, setSalvandoCliente]       = useState(false);
+  const queryClient = useQueryClient();
+
   // Dados
   const { data: clientes = [] }     = useClientes('todas', buscaCliente);
   const { data: profissionais = [] } = useProfissionais();
@@ -198,6 +206,48 @@ export default function NovoAgendamento() {
     const novo = opt.id === pacoteVenderId ? '' : opt.id;
     setPacoteVenderId(novo);
     if (novo) { setPacoteClienteId(''); preencherServicoDoPacote(opt.servicoIds); }
+  }
+
+  async function salvarNovoCliente() {
+    if (!novoClienteNome.trim() || !empresaAtiva?.id) return;
+    setSalvandoCliente(true);
+
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .insert({
+        id: crypto.randomUUID(),
+        nome: novoClienteNome.trim(),
+        telefone: novoClienteTelefone.trim() || null,
+      })
+      .select('id, nome, telefone')
+      .single();
+
+    if (userError || !userData) {
+      setSalvandoCliente(false);
+      Alert.alert('Erro', userError?.message ?? 'Não foi possível cadastrar a cliente.');
+      return;
+    }
+
+    const { error: membroError } = await supabase.from('empresa_membros').insert({
+      empresa_id: empresaAtiva.id,
+      user_id:    userData.id,
+      role:       'cliente',
+    });
+
+    setSalvandoCliente(false);
+
+    if (membroError) {
+      Alert.alert('Erro ao vincular', membroError.message);
+      return;
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['clientes'] });
+    setClienteSelecionado({ id: userData.id, nome: userData.nome, telefone: userData.telefone });
+    setCriandoCliente(false);
+    setNovoClienteNome('');
+    setNovoClienteTelefone('');
+    setModalCliente(false);
+    setBuscaCliente('');
   }
 
   const [fontsLoaded] = useFonts({
@@ -740,34 +790,124 @@ export default function NovoAgendamento() {
             padding: 20, paddingTop: 24,
             borderBottomWidth: 1, borderBottomColor: C.border,
           }}>
-            <View style={{
-              flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-              borderRadius: 12, flexDirection: 'row', alignItems: 'center',
-              paddingHorizontal: 12, gap: 8,
-            }}>
-              <Search size={15} color={C.text4} strokeWidth={1.8} />
-              <TextInput
-                value={buscaCliente}
-                onChangeText={setBuscaCliente}
-                placeholder="Buscar cliente…"
-                placeholderTextColor={C.text4}
-                autoFocus
-                style={{
-                  flex: 1, paddingVertical: 11,
-                  fontFamily: 'PlusJakartaSans_400Regular',
-                  fontSize: 14, color: C.text,
-                }}
-              />
-            </View>
-            <TouchableOpacity onPress={() => { setModalCliente(false); setBuscaCliente(''); }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.accent }}>
-                Cancelar
-              </Text>
-            </TouchableOpacity>
+            {!criandoCliente ? (
+              <>
+                <View style={{
+                  flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+                  borderRadius: 12, flexDirection: 'row', alignItems: 'center',
+                  paddingHorizontal: 12, gap: 8,
+                }}>
+                  <Search size={15} color={C.text4} strokeWidth={1.8} />
+                  <TextInput
+                    value={buscaCliente}
+                    onChangeText={setBuscaCliente}
+                    placeholder="Buscar cliente…"
+                    placeholderTextColor={C.text4}
+                    autoFocus
+                    style={{
+                      flex: 1, paddingVertical: 11,
+                      fontFamily: 'PlusJakartaSans_400Regular',
+                      fontSize: 14, color: C.text,
+                    }}
+                  />
+                </View>
+                <TouchableOpacity onPress={() => { setModalCliente(false); setBuscaCliente(''); }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.accent }}>
+                    Cancelar
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.text }}>
+                  Nova cliente
+                </Text>
+                <TouchableOpacity onPress={() => { setCriandoCliente(false); setNovoClienteNome(''); setNovoClienteTelefone(''); }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.accent }}>
+                    Cancelar
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
 
+          {criandoCliente ? (
+            <View style={{ padding: 20, gap: 12 }}>
+              <View style={{
+                backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+                borderRadius: 14, paddingHorizontal: 14,
+              }}>
+                <TextInput
+                  value={novoClienteNome}
+                  onChangeText={setNovoClienteNome}
+                  placeholder="Nome completo *"
+                  placeholderTextColor={C.text4}
+                  autoCapitalize="words"
+                  autoFocus
+                  style={{
+                    paddingVertical: 14, fontFamily: 'PlusJakartaSans_400Regular',
+                    fontSize: 14, color: C.text,
+                  }}
+                />
+              </View>
+              <View style={{
+                backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+                borderRadius: 14, paddingHorizontal: 14,
+              }}>
+                <TextInput
+                  value={novoClienteTelefone}
+                  onChangeText={setNovoClienteTelefone}
+                  placeholder="Telefone (opcional)"
+                  placeholderTextColor={C.text4}
+                  keyboardType="phone-pad"
+                  style={{
+                    paddingVertical: 14, fontFamily: 'PlusJakartaSans_400Regular',
+                    fontSize: 14, color: C.text,
+                  }}
+                />
+              </View>
+              <TouchableOpacity
+                onPress={salvarNovoCliente}
+                disabled={!novoClienteNome.trim() || salvandoCliente}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={novoClienteNome.trim() ? ['#2C1654', '#4A2480'] : ['#C4BAD4', '#C4BAD4']}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                  style={{ borderRadius: 14, paddingVertical: 15, alignItems: 'center' }}
+                >
+                  {salvandoCliente
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>
+                        Cadastrar e selecionar
+                      </Text>
+                  }
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          ) : (
           <FlatList
             data={clientes}
+            ListHeaderComponent={() => (
+              <TouchableOpacity
+                onPress={() => setCriandoCliente(true)}
+                style={{
+                  backgroundColor: C.accentSoft, borderWidth: 1, borderColor: C.accent,
+                  borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10,
+                  marginBottom: 10,
+                }}
+              >
+                <View style={{
+                  width: 40, height: 40, borderRadius: 12, backgroundColor: C.accent,
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <UserPlus size={18} color="#fff" strokeWidth={2} />
+                </View>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primary }}>
+                  Cadastrar nova cliente
+                </Text>
+              </TouchableOpacity>
+            )}
             keyExtractor={(item) => item.id}
             contentContainerStyle={{ padding: 16, gap: 6 }}
             renderItem={({ item }) => {
@@ -814,6 +954,7 @@ export default function NovoAgendamento() {
               </View>
             )}
           />
+          )}
         </View>
       </Modal>
     </View>
