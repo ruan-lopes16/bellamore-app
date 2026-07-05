@@ -122,6 +122,8 @@ export default function NovaComandaScreen() {
   const [fechando, setFechando] = useState(false);
   const [sucessoData, setSucessoData] = useState<{ nome: string; valor: number } | null>(null);
   const [showExtras, setShowExtras] = useState(false);
+  // Próximo cliente da fila (comanda aberta + horário já passou) — avança sem precisar voltar
+  const [proximoCliente, setProximoCliente] = useState<ClienteComanda | null>(null);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -164,6 +166,27 @@ export default function NovaComandaScreen() {
     }
     return Object.values(map).sort((a, b) => (a.agendamentos[0]?.data_hora_inicio ?? '').localeCompare(b.agendamentos[0]?.data_hora_inicio ?? ''));
   }, [agDia]);
+
+  /** Próximo cliente da fila: comanda ainda aberta e horário do atendimento já passou */
+  function proximoClienteAberto(excluirId: string): ClienteComanda | null {
+    const agora = new Date();
+    return clientesDia.find(c =>
+      c.id !== excluirId &&
+      c.agendamentos.some(a => a.status !== 'concluido') &&
+      c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
+    ) ?? null;
+  }
+
+  // Avança automaticamente para a próxima comanda em aberto após fechar a atual
+  useEffect(() => {
+    if (etapa !== 'sucesso' || !proximoCliente) return;
+    const t = setTimeout(() => {
+      abrirComanda(proximoCliente);
+      setSucessoData(null);
+      setProximoCliente(null);
+    }, 1800);
+    return () => clearTimeout(t);
+  }, [etapa, proximoCliente]);
 
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
@@ -280,6 +303,7 @@ export default function NovaComandaScreen() {
 
     setFechando(false);
     setAgDia(prev => prev.map(ag => agIds.includes(ag.id) ? { ...ag, status: 'concluido' } : ag));
+    setProximoCliente(proximoClienteAberto(clienteSel.id));
     setSucessoData({ nome: clienteSel.nome, valor: total });
     setEtapa('sucesso');
   }
@@ -303,12 +327,28 @@ export default function NovaComandaScreen() {
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2, textAlign: 'center', marginTop: 8 }}>
               {sucessoData.nome} · {fmtBRL(sucessoData.valor)}
             </Text>
+            {proximoCliente && (
+              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, textAlign: 'center', marginTop: 10 }}>
+                Indo para a comanda de {proximoCliente.nome}...
+              </Text>
+            )}
           </MotiView>
-          <TouchableOpacity onPress={() => { setEtapa('lista'); setClienteSel(null); setSucessoData(null); }}
-            activeOpacity={0.8}
-            style={{ marginTop: 32, backgroundColor: C.green, borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>Voltar</Text>
-          </TouchableOpacity>
+          {proximoCliente ? (
+            <TouchableOpacity
+              onPress={() => { abrirComanda(proximoCliente); setSucessoData(null); setProximoCliente(null); }}
+              activeOpacity={0.8}
+              style={{ marginTop: 32, backgroundColor: C.green, borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>
+                Ir agora para {proximoCliente.nome}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={() => { setEtapa('lista'); setClienteSel(null); setSucessoData(null); }}
+              activeOpacity={0.8}
+              style={{ marginTop: 32, backgroundColor: C.green, borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>Voltar</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );

@@ -207,6 +207,19 @@ export default function ComandaPage() {
   const [toast,      setToast]      = useState('');
   const [sucesso,    setSucesso]    = useState<SucessoRecibo | null>(null);
   const [erro,       setErro]       = useState('');
+  // Próximo cliente da fila (comanda aberta + horário já passou) — para avançar sem precisar voltar
+  const [proximoCliente, setProximoCliente] = useState<ClienteComanda | null>(null);
+
+  // Avança automaticamente para a próxima comanda em aberto após fechar a atual
+  useEffect(() => {
+    if (!sucesso || !proximoCliente) return;
+    const t = setTimeout(() => {
+      abrirComanda(proximoCliente);
+      setSucesso(null);
+      setProximoCliente(null);
+    }, 1800);
+    return () => clearTimeout(t);
+  }, [sucesso, proximoCliente]);
 
   // ── Carregar empresaId
   useEffect(() => {
@@ -316,6 +329,16 @@ export default function ComandaPage() {
       return ha.localeCompare(hb);
     });
   }, [agDia]);
+
+  /** Próximo cliente da fila: comanda ainda aberta e horário do atendimento já passou */
+  function proximoClienteAberto(excluirId: string): ClienteComanda | null {
+    const agora = new Date();
+    return clientesDia.find(c =>
+      c.id !== excluirId &&
+      c.agendamentos.some(a => a.status !== 'concluido') &&
+      c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
+    ) ?? null;
+  }
 
   // ── Abrir comanda para um cliente (nova)
   function abrirComanda(cliente: ClienteComanda) {
@@ -706,6 +729,7 @@ export default function ComandaPage() {
     const reciboItens = [...itens];
     const reciboSplits = [...splits];
     const reciboDesconto = descontoN;
+    setProximoCliente(proximoClienteAberto(clienteSel.id));
     setClienteSel(null);
     setSucesso({ nome: nomeCliente, valor: subtotal - descontoN, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
   }
@@ -897,6 +921,11 @@ export default function ComandaPage() {
             <p className="text-text-2 text-sm text-center">
               {sucesso.nome} · {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.valor)}
             </p>
+            {proximoCliente && (
+              <p className="text-xs text-text-3 text-center -mt-2">
+                Indo para a comanda de <strong>{proximoCliente.nome}</strong>...
+              </p>
+            )}
             <div className="flex flex-col items-center gap-2 mt-2 w-full max-w-xs">
               {sucesso.telefone && (
                 <button
@@ -911,10 +940,18 @@ export default function ComandaPage() {
                   Compartilhar recibo
                 </button>
               )}
-              <button onClick={() => setSucesso(null)}
-                className="press w-full px-8 py-3.5 rounded-2xl text-sm font-bold border border-border text-text-2">
-                Voltar
-              </button>
+              {proximoCliente ? (
+                <button
+                  onClick={() => { abrirComanda(proximoCliente); setSucesso(null); setProximoCliente(null); }}
+                  className="press w-full px-8 py-3.5 rounded-2xl text-sm font-bold border border-border text-text-2">
+                  Ir agora para {proximoCliente.nome}
+                </button>
+              ) : (
+                <button onClick={() => setSucesso(null)}
+                  className="press w-full px-8 py-3.5 rounded-2xl text-sm font-bold border border-border text-text-2">
+                  Voltar
+                </button>
+              )}
             </div>
           </div>
         )}
