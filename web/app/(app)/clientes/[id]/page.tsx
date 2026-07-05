@@ -20,6 +20,27 @@ function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
 }
 
+/**
+ * Busca todas as páginas de uma query (o PostgREST limita a 1000 linhas por
+ * requisição por padrão) — evita truncar silenciosamente o histórico de
+ * clientes muito antigos/frequentes.
+ */
+async function buscarTodasPaginas<T>(
+  montarQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  tamanhoPagina = 1000,
+): Promise<T[]> {
+  const todas: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data } = await montarQuery(from, from + tamanhoPagina - 1);
+    const linhas = data ?? [];
+    todas.push(...linhas);
+    if (linhas.length < tamanhoPagina) break;
+    from += tamanhoPagina;
+  }
+  return todas;
+}
+
 function parseEndereco(raw?: string): Endereco {
   if (!raw) return { logradouro: '', numero: '', bairro: '', complemento: '' };
   try {
@@ -255,20 +276,23 @@ export default function ClientePerfilPage() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: clienteData }, { data: agsStats }, { data: { user } }] = await Promise.all([
+      const [{ data: clienteData }, agsStats, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
-        supabase.from('agendamentos')
-          .select('valor, data_hora_inicio, servico:servicos(nome)')
-          .eq('cliente_id', id)
-          .eq('status', 'concluido')
-          .order('data_hora_inicio', { ascending: false }),
+        buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null }>((from, to) =>
+          supabase.from('agendamentos')
+            .select('valor, data_hora_inicio, servico:servicos(nome)')
+            .eq('cliente_id', id)
+            .eq('status', 'concluido')
+            .order('data_hora_inicio', { ascending: false })
+            .range(from, to)
+        ),
         supabase.auth.getUser(),
       ]);
 
       setCliente(clienteData as Cliente);
       setLoading(false);
 
-      const rows = (agsStats ?? []) as { valor: number | null; data_hora_inicio: string; servico: { nome: string } | null }[];
+      const rows = agsStats;
       const totalVisitas = rows.length;
       const totalGasto = rows.reduce((s, a) => s + Number(a.valor ?? 0), 0);
       const ultimaVisita = rows[0]?.data_hora_inicio ?? null;
@@ -317,23 +341,29 @@ export default function ClientePerfilPage() {
   async function carregarHistorico() {
     if (histCarregado) return;
     setLoadingHist(true);
-    const [{ data: ags }, { data: vds }] = await Promise.all([
-      supabase
-        .from('agendamentos')
-        .select(`id, data_hora_inicio, data_hora_fim, status, valor, observacao,
-          servico:servicos(nome),
-          profissional:users!agendamentos_profissional_id_fkey(nome)`)
-        .eq('cliente_id', id)
-        .order('data_hora_inicio', { ascending: false }),
-      supabase
-        .from('vendas')
-        .select(`id, created_at, valor_final, observacao,
-          venda_itens(quantidade, preco_unitario, produto:produtos(nome))`)
-        .eq('cliente_id', id)
-        .order('created_at', { ascending: false }),
+    const [ags, vds] = await Promise.all([
+      buscarTodasPaginas<HistAg>((from, to) =>
+        supabase
+          .from('agendamentos')
+          .select(`id, data_hora_inicio, data_hora_fim, status, valor, observacao,
+            servico:servicos(nome),
+            profissional:users!agendamentos_profissional_id_fkey(nome)`)
+          .eq('cliente_id', id)
+          .order('data_hora_inicio', { ascending: false })
+          .range(from, to) as unknown as PromiseLike<{ data: HistAg[] | null; error: unknown }>
+      ),
+      buscarTodasPaginas<HistVenda>((from, to) =>
+        supabase
+          .from('vendas')
+          .select(`id, created_at, valor_final, observacao,
+            venda_itens(quantidade, preco_unitario, produto:produtos(nome))`)
+          .eq('cliente_id', id)
+          .order('created_at', { ascending: false })
+          .range(from, to) as unknown as PromiseLike<{ data: HistVenda[] | null; error: unknown }>
+      ),
     ]);
-    setHistorico((ags ?? []) as unknown as HistAg[]);
-    setVendas((vds ?? []) as unknown as HistVenda[]);
+    setHistorico(ags);
+    setVendas(vds);
     setLoadingHist(false);
     setHistCarregado(true);
   }
