@@ -281,9 +281,12 @@ export default function ComandaPage() {
   }, [view, dataComanda, empresaId, fetchMes]);
 
   // ── Navegação
-  function navSemana(dir: number) {
-    setSemana(s => s.map(d => addDays(d, dir * 7)));
-    setDataComanda(d => addDays(d, dir * 7));
+  /** Move a seleção um dia por vez; realoca a faixa da semana quando o dia sai da semana visível */
+  function navDia(dir: number) {
+    const novaData = addDays(dataComanda, dir);
+    setDataComanda(novaData);
+    if (!semana.some(s => isSameDay(s, novaData)))
+      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(novaData, { weekStartsOn: 0 }), i)));
   }
   function navMes(dir: number) {
     setDataComanda(d => dir > 0 ? addMonths(d, 1) : subMonths(d, 1));
@@ -738,7 +741,7 @@ export default function ComandaPage() {
           {/* Week strip — só visível no modo Semana */}
           {view === 'semana' && <div className="overflow-x-auto">
             <div className="flex items-center gap-0.5">
-              <button onClick={() => navSemana(-1)}
+              <button onClick={() => navDia(-1)}
                 className="w-7 h-7 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-surface flex-shrink-0 transition">
                 <ChevronLeft size={14}/>
               </button>
@@ -756,7 +759,7 @@ export default function ComandaPage() {
                   );
                 })}
               </div>
-              <button onClick={() => navSemana(1)}
+              <button onClick={() => navDia(1)}
                 className="w-7 h-7 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-surface flex-shrink-0 transition">
                 <ChevronRight size={14}/>
               </button>

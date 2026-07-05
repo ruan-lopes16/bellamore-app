@@ -229,10 +229,12 @@ export default function ComissoesPage() {
     return { total, pendente, pago };
   }, [comissoes]);
 
-  function navSemana(dir: 1 | -1) {
-    const nova = semana.map(d => addDays(d, dir * 7));
-    setSemana(nova);
-    setRefDate(d => addDays(d, dir * 7));
+  /** Move a seleção um dia por vez; realoca a faixa da semana quando o dia sai da semana visível */
+  function navDia(dir: 1 | -1) {
+    const novaData = addDays(refDate, dir);
+    setRefDate(novaData);
+    if (!semana.some(s => isSameDay(s, novaData)))
+      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(novaData, { weekStartsOn: 0 }), i)));
   }
 
   function selecionarDia(d: Date) {
@@ -331,7 +333,7 @@ export default function ComissoesPage() {
         <div className="flex justify-center mb-5">
           <div className="bg-surface border border-border rounded-[20px] py-3 px-2 sm:px-4 overflow-x-auto">
             <div className="flex items-center gap-1 sm:gap-1.5">
-              <button onClick={() => navSemana(-1)}
+              <button onClick={() => navDia(-1)}
                 className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0">
                 <ChevronLeft size={16}/>
               </button>
@@ -356,8 +358,8 @@ export default function ComissoesPage() {
                   );
                 })}
               </div>
-              <button onClick={() => navSemana(1)}
-                disabled={semana[6] >= new Date()}
+              <button onClick={() => navDia(1)}
+                disabled={isToday(refDate)}
                 className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0 disabled:opacity-30">
                 <ChevronRight size={16}/>
               </button>
