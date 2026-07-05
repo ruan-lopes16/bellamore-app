@@ -1265,7 +1265,7 @@ function MesView({
 export default function AgendaPage() {
 
 
-  const [view,      setView]      = useState<'semana' | 'mes' | 'timeline'>('semana');
+  const [view,      setView]      = useState<'semana' | 'mes' | 'timeline'>('timeline');
   const [dataSel,   setDataSel]   = useState(new Date());
   const [semana,    setSemana]    = useState(() =>
     Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
