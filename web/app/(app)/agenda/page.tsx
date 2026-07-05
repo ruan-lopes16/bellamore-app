@@ -1424,9 +1424,12 @@ export default function AgendaPage() {
     if (view === 'mes') fetchMes(dataSel, empresaId);
   }, [dataSel, empresaId, view]);
 
-  function navSemana(dir: number) {
-    setSemana(s => s.map(d => addDays(d, dir * 7)));
-    setDataSel(d => addDays(d, dir * 7));
+  /** Move a seleção um dia por vez; realoca a faixa da semana quando o dia sai da semana visível */
+  function navDia(dir: number) {
+    const novaData = addDays(dataSel, dir);
+    setDataSel(novaData);
+    if (!semana.some(s => isSameDay(s, novaData)))
+      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(novaData, { weekStartsOn: 0 }), i)));
   }
 
   function navMes(dir: number) {
@@ -1536,7 +1539,7 @@ export default function AgendaPage() {
         <div className="flex justify-center mb-6">
           <div className="bg-surface border border-border rounded-[20px] py-3 px-2 sm:px-4 max-w-full overflow-x-auto">
             <div className="flex items-center gap-1 sm:gap-1.5">
-              <button onClick={() => navSemana(-1)}
+              <button onClick={() => navDia(-1)}
                 className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0">
                 <ChevronLeft size={16}/>
               </button>
@@ -1557,7 +1560,7 @@ export default function AgendaPage() {
                   );
                 })}
               </div>
-              <button onClick={() => navSemana(1)}
+              <button onClick={() => navDia(1)}
                 className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0">
                 <ChevronRight size={16}/>
               </button>
