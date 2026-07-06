@@ -475,7 +475,7 @@ function ServicoCard({ servico, onToggle, onEdit, onDelete, onCancelDelete, excl
 
         {/* Preço/duração + ações — hugam a direita, sem espaco morto no meio */}
         <div className="flex items-center justify-between sm:justify-end gap-4 pt-3 sm:pt-0 sm:pl-4 border-t sm:border-t-0 sm:border-l border-[var(--color-border-soft)]">
-          <div className="flex flex-col items-start sm:items-end gap-0.5 flex-shrink-0">
+          <div className="flex flex-col items-start sm:items-end gap-0.5 flex-shrink-0 sm:min-w-[92px]">
             <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>
               {fmtBRL(servico.preco)}
             </span>
