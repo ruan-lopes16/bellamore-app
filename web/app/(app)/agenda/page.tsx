@@ -29,28 +29,37 @@ import {
 import { ptBR } from 'date-fns/locale';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, X,
-  CalendarPlus, AlertTriangle, Pencil, Star, Ban, Trash2, UserPlus,
+  CalendarPlus, AlertTriangle, Pencil, Star, Ban, Trash2, UserPlus, Check,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { maskPhone } from '@/lib/masks';
+import { CATEGORIA_COR, CATEGORIA_BG, CATEGORIA_LABEL, type CategoriaServico } from '@shared/categorias';
 
 const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-type AgServico = { servico_id: string; servico: { id: string; nome: string } | null; valor: number; duracao_minutos: number; ordem: number };
+type AgServico = { servico_id: string; servico: { id: string; nome: string; categoria: CategoriaServico | null } | null; valor: number; duracao_minutos: number; ordem: number };
 type Ag = {
   id: string; data_hora_inicio: string; data_hora_fim: string;
   status: string; valor: number; observacao?: string;
   pacote_cliente_id?: string | null;
   cliente: { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
-  servico: { id: string; nome: string; duracao_minutos: number } | null;
+  servico: { id: string; nome: string; duracao_minutos: number; categoria: CategoriaServico | null } | null;
   agendamento_servicos: AgServico[];
 };
+
+/** Categorias distintas dos serviços de um agendamento (agendamento_servicos, com fallback pro serviço legado único) */
+function categoriasDoAg(ag: Ag): CategoriaServico[] {
+  const lista = (ag.agendamento_servicos ?? []).length > 0
+    ? ag.agendamento_servicos.map(s => s.servico?.categoria)
+    : [ag.servico?.categoria];
+  return Array.from(new Set(lista.filter((c): c is CategoriaServico => !!c)));
+}
 type PacoteClienteOpt = { id: string; nome: string; restantes: number | null; servicos: { servico_id: string }[] };
 type PacoteCatalogoOpt = { id: string; nome: string; preco: number; validade_dias: number | null; servicos: { servico_id: string }[] };
 type ClienteOpt = { id: string; nome: string; telefone?: string };
@@ -963,6 +972,13 @@ function TimelineView({
     return map;
   }, [ags, profissionais]);
 
+  // Categorias de serviço presentes no dia (para a legenda de cores)
+  const categoriasPresentes = useMemo(() => {
+    const set = new Set<CategoriaServico>();
+    for (const ag of ags) categoriasDoAg(ag).forEach(c => set.add(c));
+    return Array.from(set);
+  }, [ags]);
+
   // Linha de "agora"
   const agora       = new Date();
   const ehHoje      = isSameDay(dataSel, agora);
@@ -986,7 +1002,20 @@ function TimelineView({
   }
 
   return (
-    <div className="flex gap-4 items-start min-w-0">
+    <div className="flex flex-col gap-2 min-w-0">
+      {/* Legenda de cores por tipo de serviço */}
+      {categoriasPresentes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
+          {categoriasPresentes.map(c => (
+            <div key={c} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: CATEGORIA_COR[c] }}/>
+              <span className="text-[10.5px] font-semibold text-text-3">{CATEGORIA_LABEL[c]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-4 items-start min-w-0">
 
       {/* ── Grid de timeline ── */}
       <div className="flex-1 border border-border rounded-2xl overflow-x-auto bg-surface min-w-0 w-full">
@@ -1112,13 +1141,16 @@ function TimelineView({
                       );
                     })}
 
-                  {/* Blocos de agendamento */}
+                  {/* Blocos de agendamento — cor por tipo de serviço, status via borda/ícone */}
                   {colAgs.map(ag => {
                     const { lane, totalLanes } = laneMap.get(ag.id) ?? { lane: 0, totalLanes: 1 };
                     const pct      = 100 / totalLanes;
                     const top      = tlTop(ag);
                     const h        = tlHeight(ag);
-                    const st       = STATUS[ag.status] ?? STATUS.agendado;
+                    const cats     = categoriasDoAg(ag);
+                    const corCat   = CATEGORIA_COR[cats[0] ?? 'outros'];
+                    const bgCat    = CATEGORIA_BG[cats[0] ?? 'outros'];
+                    const inativo  = ag.status === 'faltou' || ag.status === 'cancelado';
                     const selecionado = agSel?.id === ag.id;
 
                     return (
@@ -1132,18 +1164,34 @@ function TimelineView({
                           left:        `calc(${lane * pct}% + 3px)`,
                           width:       `calc(${pct}% - 6px)`,
                           borderRadius: 5,
-                          borderColor:  st.bdr,
+                          borderLeft:  `3px solid ${corCat}`,
+                          borderTop:    '1px solid rgba(0,0,0,0.06)',
+                          borderRight:  '1px solid rgba(0,0,0,0.06)',
+                          borderBottom: '1px solid rgba(0,0,0,0.06)',
+                          background: inativo
+                            ? 'repeating-linear-gradient(-45deg, rgba(148,163,184,0.12), rgba(148,163,184,0.12) 5px, rgba(148,163,184,0.05) 5px, rgba(148,163,184,0.05) 10px)'
+                            : bgCat,
+                          opacity: inativo ? 0.7 : 1,
                         }}
-                        className={`absolute overflow-hidden text-left border transition-all
-                          ${selecionado
-                            ? 'ring-2 ring-accent shadow-lg z-10'
-                            : 'hover:shadow-sm hover:brightness-95 z-0'
-                          } ${st.bg}`}
+                        className={`absolute overflow-hidden text-left transition-all
+                          ${selecionado ? 'ring-2 ring-accent shadow-lg z-10' : 'hover:shadow-sm hover:brightness-95 z-0'}`}
                       >
                         <div className="px-1.5 py-1 h-full flex flex-col justify-start">
-                          <p className={`text-[11px] font-bold leading-tight truncate ${st.text}`}>
-                            {ag.cliente?.nome ?? '—'}
-                          </p>
+                          <div className="flex items-center gap-1 min-w-0">
+                            <p className={`text-[11px] font-bold leading-tight truncate flex-1 ${inativo ? 'text-text-3 line-through' : 'text-text'}`}>
+                              {ag.cliente?.nome ?? '—'}
+                            </p>
+                            {ag.status === 'concluido' && (
+                              <Check size={10} strokeWidth={3} className="flex-shrink-0" style={{ color: 'var(--color-green)' }}/>
+                            )}
+                            {cats.length > 1 && (
+                              <div className="flex gap-0.5 flex-shrink-0">
+                                {cats.slice(0, 3).map(c => (
+                                  <span key={c} className="w-1.5 h-1.5 rounded-full" style={{ background: CATEGORIA_COR[c] }}/>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                           {h >= 38 && (
                             <p className="text-[10px] text-text-3 leading-tight truncate mt-0.5">
                               {ag.servico?.nome ?? '—'}
@@ -1205,6 +1253,7 @@ function TimelineView({
         </>
       )}
 
+      </div>
     </div>
   );
 }
@@ -1383,8 +1432,8 @@ export default function AgendaPage() {
         .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,
           cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
           profissional:users!agendamentos_profissional_id_fkey(id,nome),
-          servico:servicos(id,nome,duracao_minutos),
-          agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome))`)
+          servico:servicos(id,nome,duracao_minutos,categoria),
+          agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria))`)
         .eq('empresa_id', empId)
         .gte('data_hora_inicio', iniDia)
         .lte('data_hora_inicio', fimDia)
