@@ -457,71 +457,73 @@ function ServicoCard({ servico, onToggle, onEdit, onDelete, onCancelDelete, excl
 
   return (
     <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', opacity: servico.ativo ? 1 : 0.5, transition: 'opacity 0.2s' }}>
-      {/* Linha 1: ícone + nome/descrição + preço/duração */}
-      <div className="flex items-start gap-3">
-        {/* Ícone categoria */}
-        <div style={{ width: 36, height: 36, borderRadius: 12, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Icon size={15} strokeWidth={2} color="white"/>
+      {/* Uma única linha a partir de sm — em telas largas nao sobra vao vazio; empilha só no mobile */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+
+        {/* Ícone + nome/descrição */}
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <div style={{ width: 36, height: 36, borderRadius: 12, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Icon size={15} strokeWidth={2} color="white"/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{servico.nome}</p>
+            {servico.descricao && (
+              <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' } as React.CSSProperties}>{servico.descricao}</p>
+            )}
+          </div>
         </div>
 
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{servico.nome}</p>
-          {servico.descricao && (
-            <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' } as React.CSSProperties}>{servico.descricao}</p>
-          )}
-        </div>
+        {/* Preço/duração + ações — hugam a direita, sem espaco morto no meio */}
+        <div className="flex items-center justify-between sm:justify-end gap-4 pt-3 sm:pt-0 sm:pl-4 border-t sm:border-t-0 sm:border-l border-[var(--color-border-soft)]">
+          <div className="flex flex-col items-start sm:items-end gap-0.5 flex-shrink-0">
+            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>
+              {fmtBRL(servico.preco)}
+            </span>
+            <span className="flex items-center gap-1" style={{ fontSize: 11, color: 'var(--color-ink4)', whiteSpace: 'nowrap' }}>
+              <Clock size={10} strokeWidth={2}/> {fmtDuracao(servico.duracao_minutos)}
+              {servico.custo > 0 && <> · Custo {fmtBRL(servico.custo)}</>}
+            </span>
+          </div>
 
-        {/* Preço + duração (e custo, se houver) */}
-        <div className="flex-shrink-0 flex flex-col items-end gap-0.5">
-          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>
-            {fmtBRL(servico.preco)}
-          </span>
-          <span className="flex items-center gap-1" style={{ fontSize: 11, color: 'var(--color-ink4)', whiteSpace: 'nowrap' }}>
-            <Clock size={10} strokeWidth={2}/> {fmtDuracao(servico.duracao_minutos)}
-            {servico.custo > 0 && <> · Custo {fmtBRL(servico.custo)}</>}
-          </span>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {excluindo ? (
+              <>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-rose)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>Excluir?</span>
+                <button onClick={onDelete} aria-label="Confirmar exclusão"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center transition"
+                  style={{ background: 'var(--color-rose)', color: '#fff' }}>
+                  <Trash2 size={13} strokeWidth={2.5}/>
+                </button>
+                <button onClick={onCancelDelete} aria-label="Cancelar"
+                  className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg flex items-center justify-center transition">
+                  <X size={13} strokeWidth={2.5}/>
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={onEdit} aria-label="Editar serviço"
+                  className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg hover:text-text-2 flex items-center justify-center transition">
+                  <Edit3 size={13} strokeWidth={2}/>
+                </button>
+                <button onClick={onDelete} aria-label="Excluir serviço"
+                  className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-rose-soft hover:text-rose flex items-center justify-center transition">
+                  <Trash2 size={13} strokeWidth={2}/>
+                </button>
+                <button
+                  onClick={onToggle}
+                  aria-label={servico.ativo ? 'Desativar serviço' : 'Ativar serviço'}
+                  title={servico.ativo ? 'Desativar' : 'Ativar'}
+                  className={`relative w-9 h-5 rounded-full transition-colors duration-200 flex-shrink-0 ml-1 ${
+                    servico.ativo ? 'bg-green' : 'bg-border'
+                  }`}>
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${
+                    servico.ativo ? 'left-[18px]' : 'left-0.5'
+                  }`}/>
+                </button>
+              </>
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* Linha 2: ações */}
-      <div className="flex items-center justify-end gap-1.5 mt-3 pt-3" style={{ borderTop: '1px solid var(--color-border-soft)' }}>
-        {excluindo ? (
-          <>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-rose)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>Excluir?</span>
-            <button onClick={onDelete} aria-label="Confirmar exclusão"
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition"
-              style={{ background: 'var(--color-rose)', color: '#fff' }}>
-              <Trash2 size={13} strokeWidth={2.5}/>
-            </button>
-            <button onClick={onCancelDelete} aria-label="Cancelar"
-              className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg flex items-center justify-center transition">
-              <X size={13} strokeWidth={2.5}/>
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={onEdit} aria-label="Editar serviço"
-              className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-bg hover:text-text-2 flex items-center justify-center transition">
-              <Edit3 size={13} strokeWidth={2}/>
-            </button>
-            <button onClick={onDelete} aria-label="Excluir serviço"
-              className="w-8 h-8 rounded-lg border border-border text-text-4 hover:bg-rose-soft hover:text-rose flex items-center justify-center transition">
-              <Trash2 size={13} strokeWidth={2}/>
-            </button>
-            <button
-              onClick={onToggle}
-              aria-label={servico.ativo ? 'Desativar serviço' : 'Ativar serviço'}
-              title={servico.ativo ? 'Desativar' : 'Ativar'}
-              className={`relative w-9 h-5 rounded-full transition-colors duration-200 flex-shrink-0 ml-1 ${
-                servico.ativo ? 'bg-green' : 'bg-border'
-              }`}>
-              <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200 ${
-                servico.ativo ? 'left-[18px]' : 'left-0.5'
-              }`}/>
-            </button>
-          </>
-        )}
       </div>
     </div>
   );
