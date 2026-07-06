@@ -257,14 +257,18 @@ export default function Servicos() {
               style={{ marginHorizontal: 24, marginBottom: 20 }}
             >
               {/* Header da categoria */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
-                  <CategoriaIcon categoria={catKey} size={15} color={cor} />
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10,
+                backgroundColor: bg, borderWidth: 1, borderColor: `${cor}30`,
+                borderRadius: 14, paddingHorizontal: 10, paddingVertical: 8,
+              }}>
+                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: cor, alignItems: 'center', justifyContent: 'center' }}>
+                  <CategoriaIcon categoria={catKey} size={16} color="#fff" />
                 </View>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: cor }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: cor }}>
                   {cfg.label}
                 </Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text4, marginLeft: 'auto' as any }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, marginLeft: 'auto' as any }}>
                   {items.length} {items.length === 1 ? 'serviço' : 'serviços'}
                 </Text>
               </View>
