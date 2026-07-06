@@ -541,7 +541,7 @@ export default function ServicosPage() {
   const [loading,     setLoading]     = useState(true);
   const [empresaId,   setEmpresaId]   = useState<string | null>(null);
   const [modal,       setModal]       = useState<ModalState | null>(null);
-  const [colapsos,    setColapsos]    = useState<Set<CategoriaKey>>(new Set(CATEGORIAS.map(c => c.key)));
+  const [colapsos,    setColapsos]    = useState<Set<CategoriaKey>>(new Set());
   const [excluindoId,   setExcluindoId]   = useState<string | null>(null);
   const [toastErro,     setToastErro]     = useState('');
   const [toastSucesso,  setToastSucesso]  = useState('');
@@ -682,9 +682,9 @@ export default function ServicosPage() {
           {[1,2].map(group => (
             <div key={group}>
               {/* Cabeçalho da categoria */}
-              <div className="flex items-center gap-2.5 mb-3">
-                <Sk className="w-7 h-7 rounded-lg flex-shrink-0"/>
-                <Sk className="h-3 w-20"/>
+              <div className="flex items-center gap-2.5 mb-3 rounded-2xl px-2.5 py-2 border border-border">
+                <Sk className="w-9 h-9 rounded-xl flex-shrink-0"/>
+                <Sk className="h-3.5 w-20"/>
                 <Sk className="h-3 w-14 ml-auto"/>
               </div>
               {/* Cards */}
@@ -723,28 +723,30 @@ export default function ServicosPage() {
             return (
               <div key={cat.key}>
                 {/* Header da categoria */}
-                <div className="flex items-center gap-2.5 mb-3">
+                <div className="flex items-center gap-2.5 mb-3 rounded-2xl pl-2.5 pr-2 py-2"
+                  style={{ background: cat.bg, border: `1px solid ${cat.cor}30` }}>
                   <button
                     onClick={() => toggleColapso(cat.key)}
                     className="flex items-center gap-2.5 flex-1 min-w-0 group"
                     title={colapsado ? 'Expandir' : 'Colapsar'}>
-                    <div className="w-8 h-8 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: cat.bg }}>
-                      <Icon size={15} strokeWidth={1.8} style={{ color: cat.cor }}/>
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm" style={{ background: cat.cor }}>
+                      <Icon size={17} strokeWidth={2} style={{ color: '#fff' }}/>
                     </div>
-                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: cat.cor }}>
+                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 800, letterSpacing: '0.02em', color: cat.cor }}>
                       {cat.label}
                     </span>
-                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink4)' }}>
+                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-ink3)' }}>
                       {items.length} {items.length === 1 ? 'serviço' : 'serviços'}
                     </span>
                     <ChevronDown
-                      size={14} strokeWidth={2}
+                      size={15} strokeWidth={2.5}
                       style={{ color: cat.cor, transition: 'transform 0.2s', transform: colapsado ? 'rotate(-90deg)' : 'rotate(0deg)', flexShrink: 0 }}/>
                   </button>
                   <button
                     onClick={() => setModal({ modo: 'criar', categoria: cat.key })}
                     title={`Novo serviço em ${cat.label}`}
-                    className="w-7 h-7 rounded-xl flex items-center justify-center border border-border text-text-4 hover:text-text-2 hover:bg-bg transition flex-shrink-0">
+                    className="w-7 h-7 rounded-xl flex items-center justify-center border transition flex-shrink-0"
+                    style={{ borderColor: `${cat.cor}40`, color: cat.cor, background: 'var(--color-surface)' }}>
                     <Plus size={13} strokeWidth={2.5}/>
                   </button>
                 </div>
