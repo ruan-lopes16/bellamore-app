@@ -26,6 +26,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useEstoque, type Produto, type MovimentoTipo } from '@/hooks/useEstoque';
+import SuccessCheck from '@/components/SuccessCheck';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
   const [quantidade, setQuantidade] = useState('');
   const [motivo, setMotivo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sucesso, setSucesso] = useState<{ tipo: MovimentoTipo; qtd: number } | null>(null);
 
   if (!produto) return null;
 
@@ -66,12 +68,41 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
     setLoading(true);
     try {
       await onConfirmar(tipo, qtd, motivo);
-      onClose();
-    } catch {
-      Alert.alert('Erro', 'Não foi possível registrar a movimentação.');
-    } finally {
       setLoading(false);
+      setSucesso({ tipo, qtd });
+      setTimeout(onClose, 1300);
+    } catch {
+      setLoading(false);
+      Alert.alert('Erro', 'Não foi possível registrar a movimentação.');
     }
+  }
+
+  if (sucesso) {
+    const isEntrada = sucesso.tipo === 'entrada';
+    const cor = isEntrada ? C.green : C.red;
+    const bgCor = isEntrada ? C.greenSoft : C.redSoft;
+    const novoEstoque = isEntrada ? produto.estoque_atual + sucesso.qtd : produto.estoque_atual - sucesso.qtd;
+    return (
+      <Modal visible transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <MotiView
+            from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'timing', duration: 250 }}
+            style={{ backgroundColor: C.surface, borderRadius: 20, padding: 32, alignItems: 'center', gap: 10, width: '100%', maxWidth: 320 }}>
+            <SuccessCheck size={64} color={cor} bg={bgCor} />
+            <Text style={{ fontFamily: 'Fraunces_700Bold', fontSize: 17, color: C.text, marginTop: 6 }}>
+              {isEntrada ? 'Entrada registrada!' : 'Saída registrada!'}
+            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text2 }} numberOfLines={1}>
+              {produto.nome}
+            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, textAlign: 'center' }}>
+              {isEntrada ? '+' : '−'}{sucesso.qtd} {produto.unidade} · Novo estoque: {novoEstoque % 1 === 0 ? novoEstoque : novoEstoque.toFixed(2)} {produto.unidade}
+            </Text>
+          </MotiView>
+        </View>
+      </Modal>
+    );
   }
 
   return (
