@@ -102,6 +102,7 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
   const [minutosInput,      setMinutosInput]      = useState(String(duracaoInicial % 60));
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
+  const [sucesso,   setSucesso]   = useState<Servico | null>(null);
 
   // ── Insumos ────────────────────────────────────────────────
   const [produtos,    setProdutos]    = useState<{ id: string; nome: string; unidade: string }[]>([]);
@@ -185,18 +186,47 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
       if (error) { setSalvando(false); setErro(error.message); return; }
       await sincronizarInsumos(editando.id);
       setSalvando(false);
-      onSalvo(data as Servico);
+      setSucesso(data as Servico);
     } else {
       const { data, error } = await supabase
         .from('servicos').insert(payload).select().single();
       if (error) { setSalvando(false); setErro(error.message); return; }
       await sincronizarInsumos((data as Servico).id);
       setSalvando(false);
-      onSalvo(data as Servico);
+      setSucesso(data as Servico);
     }
   }
 
+  useEffect(() => {
+    if (!sucesso) return;
+    const t = setTimeout(() => onSalvo(sucesso), 1300);
+    return () => clearTimeout(t);
+  }, [sucesso]);
+
   const catAtual = CAT_MAP[categoria];
+
+  if (sucesso) {
+    const catSucesso = CAT_MAP[sucesso.categoria] ?? CAT_MAP.outros;
+    return (
+      <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+        <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm flex flex-col items-center text-center gap-2.5 py-10 px-6">
+          <div className="relative flex items-center justify-center" style={{ width: 64, height: 64 }}>
+            <div className="bm-glow absolute inset-0 rounded-full blur-lg" style={{ background: 'var(--color-green-soft)' }}/>
+            <div className="relative flex items-center justify-center rounded-full"
+              style={{ width: 64, height: 64, background: 'var(--color-green-soft)', animation: 'bm-pop .5s cubic-bezier(.2,.9,.3,1) both' }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6L9 17l-5-5" style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'bm-draw .55s .3s ease forwards' }}/>
+              </svg>
+            </div>
+          </div>
+          <p className="font-serif text-lg text-text">{editando ? 'Serviço atualizado!' : 'Serviço criado!'}</p>
+          <p className="text-sm text-text-2 truncate max-w-full">{sucesso.nome}</p>
+          <p className="text-xs text-text-4">{catSucesso.label} · {fmtBRL(sucesso.preco)}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
