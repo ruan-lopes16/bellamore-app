@@ -38,6 +38,7 @@ function NovoClienteModal({ empresaId, onClose }: {
   const [nascDia,  setNascDia]  = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
+  const [sucesso,  setSucesso]  = useState<{ nome: string; id: string } | null>(null);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro(''); setSalvando(true);
@@ -52,7 +53,35 @@ function NovoClienteModal({ empresaId, onClose }: {
     }).select().single();
     setSalvando(false);
     if (error) { setErro(error.message); return; }
-    router.push(`/clientes/${(data as Cliente).id}?aba=anamnese&editar=1`);
+    setSucesso({ nome: (data as Cliente).nome, id: (data as Cliente).id });
+  }
+
+  useEffect(() => {
+    if (!sucesso) return;
+    const t = setTimeout(() => router.push(`/clientes/${sucesso.id}?aba=anamnese&editar=1`), 900);
+    return () => clearTimeout(t);
+  }, [sucesso]);
+
+  if (sucesso) {
+    return (
+      <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+        <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm flex flex-col items-center text-center gap-2.5 py-10 px-6">
+          <div className="relative flex items-center justify-center" style={{ width: 64, height: 64 }}>
+            <div className="bm-glow absolute inset-0 rounded-full blur-lg" style={{ background: 'var(--color-green-soft)' }}/>
+            <div className="relative flex items-center justify-center rounded-full"
+              style={{ width: 64, height: 64, background: 'var(--color-green-soft)', animation: 'bm-pop .5s cubic-bezier(.2,.9,.3,1) both' }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6L9 17l-5-5" style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'bm-draw .55s .3s ease forwards' }}/>
+              </svg>
+            </div>
+          </div>
+          <p className="font-serif text-lg text-text">Cliente cadastrada!</p>
+          <p className="text-sm text-text-2 truncate max-w-full">{sucesso.nome}</p>
+          <p className="text-xs text-text-4">Indo para a ficha de anamnese...</p>
+        </div>
+      </div>
+    );
   }
 
   return (

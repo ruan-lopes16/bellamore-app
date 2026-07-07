@@ -146,6 +146,7 @@ export default function NovoAgendamento() {
   const [novoClienteNome, setNovoClienteNome]       = useState('');
   const [novoClienteTelefone, setNovoClienteTelefone] = useState('');
   const [salvandoCliente, setSalvandoCliente]       = useState(false);
+  const [clienteCriadoFlash, setClienteCriadoFlash] = useState(false);
   const queryClient = useQueryClient();
 
   // Dados
@@ -250,6 +251,8 @@ export default function NovoAgendamento() {
     setNovoClienteTelefone('');
     setModalCliente(false);
     setBuscaCliente('');
+    setClienteCriadoFlash(true);
+    setTimeout(() => setClienteCriadoFlash(false), 2000);
   }
 
   const [fontsLoaded] = useFonts({
@@ -441,7 +444,15 @@ export default function NovoAgendamento() {
                   <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>
                     {clienteSelecionado.nome}
                   </Text>
-                  {clienteSelecionado.telefone && (
+                  {clienteCriadoFlash ? (
+                    <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 200 }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                      <Check size={11} color={C.green} strokeWidth={3} />
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.green }}>
+                        Cadastrada agora
+                      </Text>
+                    </MotiView>
+                  ) : clienteSelecionado.telefone && (
                     <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
                       {clienteSelecionado.telefone}
                     </Text>
