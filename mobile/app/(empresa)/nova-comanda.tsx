@@ -120,7 +120,10 @@ export default function NovaComandaScreen() {
   const [desconto, setDesconto] = useState('');
   const [splits, setSplits] = useState<Split[]>([]);
   const [fechando, setFechando] = useState(false);
-  const [sucessoData, setSucessoData] = useState<{ nome: string; valor: number } | null>(null);
+  const [sucessoData, setSucessoData] = useState<{
+    nome: string; valor: number; telefone?: string;
+    splits: Split[]; itensCount: number; desconto: number;
+  } | null>(null);
   const [showExtras, setShowExtras] = useState(false);
   // Próximo cliente da fila (comanda aberta + horário já passou) — avança sem precisar voltar
   const [proximoCliente, setProximoCliente] = useState<ClienteComanda | null>(null);
@@ -304,7 +307,10 @@ export default function NovaComandaScreen() {
     setFechando(false);
     setAgDia(prev => prev.map(ag => agIds.includes(ag.id) ? { ...ag, status: 'concluido' } : ag));
     setProximoCliente(proximoClienteAberto(clienteSel.id));
-    setSucessoData({ nome: clienteSel.nome, valor: total });
+    setSucessoData({
+      nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
+      splits: splitsValidos, itensCount: itens.length, desconto: descontoN,
+    });
     setEtapa('sucesso');
   }
 
@@ -315,17 +321,82 @@ export default function NovaComandaScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: C.surface, paddingTop: insets.top }}>
         <StatusBar barStyle="dark-content" />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
-          <View style={{ marginBottom: 20 }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, paddingVertical: 24 }}>
+          <View style={{ marginBottom: 16 }}>
             <SuccessCheck size={84} />
           </View>
           <MotiView from={{ translateY: 16, opacity: 0 }} animate={{ translateY: 0, opacity: 1 }}
-            transition={{ type: 'timing', duration: 400, delay: 200 }}>
-            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 28, color: C.text, textAlign: 'center' }}>
+            transition={{ type: 'timing', duration: 400, delay: 200 }}
+            style={{ alignItems: 'center' }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text, textAlign: 'center' }}>
               Comanda fechada!
             </Text>
-            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2, textAlign: 'center', marginTop: 8 }}>
-              {sucessoData.nome} · {fmtBRL(sucessoData.valor)}
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.green, textAlign: 'center', marginTop: 4 }}>
+              {fmtBRL(sucessoData.valor)}
+            </Text>
+          </MotiView>
+
+          {/* Cards conectados: Cliente → Pagamento */}
+          <MotiView
+            from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 350, delay: 320 }}
+            style={{ width: '100%', maxWidth: 320, marginTop: 20 }}>
+            <View style={{
+              backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderBottomWidth: 0,
+              borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 12,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 }}>
+                <User size={11} color={C.text3} strokeWidth={2.5} />
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10.5, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                  Cliente
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <LinearGradient
+                  colors={[`hsl(${avatarHue(sucessoData.nome)},60%,50%)`, `hsl(${avatarHue(sucessoData.nome)},50%,35%)`]}
+                  style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: '#fff', fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11 }}>{iniciais(sucessoData.nome)}</Text>
+                </LinearGradient>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }} numberOfLines={1}>
+                    {sucessoData.nome}
+                  </Text>
+                  {sucessoData.telefone && (
+                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>{sucessoData.telefone}</Text>
+                  )}
+                </View>
+              </View>
+            </View>
+            <View style={{
+              backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderTopWidth: 0,
+              borderBottomLeftRadius: 16, borderBottomRightRadius: 16, padding: 12,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 }}>
+                <ChevronRight size={11} color={C.text3} strokeWidth={2.5} />
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10.5, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                  Pagamento
+                </Text>
+              </View>
+              <View style={{ gap: 6 }}>
+                {sucessoData.splits.map((s, i) => {
+                  const m = METODOS.find(x => x.key === s.metodo) ?? METODOS[0];
+                  return (
+                    <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: m.bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, gap: 8 }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>{m.label}</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>
+                        {fmtBRL(parseFloat(s.valor.replace(',', '.')) || 0)}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          </MotiView>
+
+          <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300, delay: 450 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, textAlign: 'center', marginTop: 10 }}>
+              {sucessoData.itensCount} {sucessoData.itensCount === 1 ? 'item' : 'itens'}
+              {sucessoData.desconto > 0 && ` · Desconto ${fmtBRL(sucessoData.desconto)}`}
             </Text>
             {proximoCliente && (
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, textAlign: 'center', marginTop: 10 }}>
@@ -333,11 +404,12 @@ export default function NovaComandaScreen() {
               </Text>
             )}
           </MotiView>
+
           {proximoCliente ? (
             <TouchableOpacity
               onPress={() => { abrirComanda(proximoCliente); setSucessoData(null); setProximoCliente(null); }}
               activeOpacity={0.8}
-              style={{ marginTop: 32, backgroundColor: C.green, borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14 }}>
+              style={{ marginTop: 24, backgroundColor: C.green, borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>
                 Ir agora para {proximoCliente.nome}
               </Text>
@@ -345,11 +417,11 @@ export default function NovaComandaScreen() {
           ) : (
             <TouchableOpacity onPress={() => { setEtapa('lista'); setClienteSel(null); setSucessoData(null); }}
               activeOpacity={0.8}
-              style={{ marginTop: 32, backgroundColor: C.green, borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14 }}>
+              style={{ marginTop: 24, backgroundColor: C.green, borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>Voltar</Text>
             </TouchableOpacity>
           )}
-        </View>
+        </ScrollView>
       </View>
     );
   }

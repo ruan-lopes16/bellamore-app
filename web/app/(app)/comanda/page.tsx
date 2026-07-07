@@ -31,7 +31,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Clock, User, Plus, Trash2, X, Check, ChevronRight, ChevronLeft,
   Banknote, Zap, CreditCard, Gift, Receipt, Tag, Pencil,
-  AlertCircle, Share2,
+  AlertCircle, Share2, Info, ArrowRight,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
@@ -910,26 +910,89 @@ export default function ComandaPage() {
           </div>
         )}
 
-        {/* Tela de sucesso — checkmark desenhado (design Bellamore) */}
+        {/* Tela de sucesso — inspirada em cards de transferência, adaptada para o fechamento de comanda */}
         {sucesso && (
-          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-5 bg-surface"
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-surface px-6 py-6 overflow-y-auto"
             style={{ animation: 'bm-screen .35s cubic-bezier(.2,.85,.3,1)' }}>
-            <div className="flex items-center justify-center rounded-full"
-              style={{ width: 84, height: 84, background: 'var(--color-green-soft)', boxShadow: '0 6px 20px rgba(44,23,80,0.09)', animation: 'bm-pop .5s cubic-bezier(.2,.9,.3,1) both' }}>
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--color-green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 6L9 17l-5-5" style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'bm-draw .55s .3s ease forwards' }}/>
-              </svg>
+
+            {/* Ícone com glow de fundo */}
+            <div className="relative flex items-center justify-center" style={{ width: 84, height: 84 }}>
+              <div className="bm-glow absolute inset-0 rounded-full blur-xl" style={{ background: 'var(--color-green-soft)' }}/>
+              <div className="relative flex items-center justify-center rounded-full"
+                style={{ width: 84, height: 84, background: 'var(--color-green-soft)', boxShadow: '0 6px 20px rgba(44,23,80,0.09)', animation: 'bm-pop .5s cubic-bezier(.2,.9,.3,1) both' }}>
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--color-green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6L9 17l-5-5" style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'bm-draw .55s .3s ease forwards' }}/>
+                </svg>
+              </div>
             </div>
-            <h2 className="text-3xl text-text text-center" style={{ fontFamily: 'var(--font-serif)' }}>Comanda fechada!</h2>
-            <p className="text-text-2 text-sm text-center">
-              {sucesso.nome} · {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.valor)}
-            </p>
+
+            <div className="text-center">
+              <h2 className="text-2xl text-text" style={{ fontFamily: 'var(--font-serif)' }}>Comanda fechada!</h2>
+              <p className="text-green text-xs font-semibold mt-0.5">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.valor)}
+              </p>
+            </div>
+
+            {/* Cards conectados: Cliente → Pagamento */}
+            <div className="w-full max-w-xs flex flex-col" style={{ gap: 0 }}>
+              <div className="bm-stagger rounded-2xl rounded-b-none border border-b-0 border-border bg-bg px-3.5 py-2.5"
+                style={{ '--bm-i': 0, '--bm-step': '80ms' } as React.CSSProperties}>
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-text-3 uppercase tracking-wide mb-1">
+                  <User size={11} strokeWidth={2.5}/> Cliente
+                </span>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+                    style={{ background: avatarGradient(sucesso.nome) }}>
+                    {iniciais(sucesso.nome)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-text truncate">{sucesso.nome}</p>
+                    {sucesso.telefone && <p className="text-xs text-text-4">{sucesso.telefone}</p>}
+                  </div>
+                </div>
+              </div>
+              <div className="bm-stagger rounded-2xl rounded-t-none border border-t-0 border-border bg-bg px-3.5 py-2.5"
+                style={{ '--bm-i': 1, '--bm-step': '80ms' } as React.CSSProperties}>
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-text-3 uppercase tracking-wide mb-1">
+                  <ArrowRight size={11} strokeWidth={2.5}/> Pagamento
+                </span>
+                <div className="flex flex-col gap-1">
+                  {sucesso.splits.map((s, i) => {
+                    const m = METODOS_PAG.find(x => x.key === s.metodo) ?? METODOS_PAG[0];
+                    const MIcon = m.icon;
+                    return (
+                      <div key={i} className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: m.bg }}>
+                          <MIcon size={13} style={{ color: m.cor }}/>
+                        </div>
+                        <span className="text-sm font-semibold text-text">{m.label}</span>
+                        <span className="text-xs text-text-4 ml-auto">
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parseFloat(s.valor.replace(',', '.')) || 0)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Rodapé: itens + desconto, com tooltip nativo */}
+            <div className="flex items-center gap-1.5 text-xs text-text-3">
+              <span>
+                {sucesso.itens.length} {sucesso.itens.length === 1 ? 'item' : 'itens'}
+                {sucesso.desconto > 0 && ` · Desconto ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.desconto)}`}
+              </span>
+              <span title={`Fechada em ${format(sucesso.data, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}`}>
+                <Info size={12} className="text-text-4"/>
+              </span>
+            </div>
+
             {proximoCliente && (
-              <p className="text-xs text-text-3 text-center -mt-2">
+              <p className="text-xs text-text-3 text-center">
                 Indo para a comanda de <strong>{proximoCliente.nome}</strong>...
               </p>
             )}
-            <div className="flex flex-col items-center gap-2 mt-2 w-full max-w-xs">
+            <div className="flex flex-col items-center gap-2 w-full max-w-xs">
               {sucesso.telefone && (
                 <button
                   onClick={() => {
