@@ -27,6 +27,7 @@ import {
   CATEGORIA_COR, CATEGORIA_BG,
   type CategoriaServico,
 } from '@/components/CategoriaIcon';
+import SuccessCheck from '@/components/SuccessCheck';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -91,6 +92,7 @@ export default function NovoServico() {
   const [custo,     setCusto]     = useState('');
   const [duracao,   setDuracao]   = useState(60);
   const [salvando,  setSalvando]  = useState(false);
+  const [sucesso,   setSucesso]   = useState(false);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -126,9 +128,27 @@ export default function NovoServico() {
 
     qc.invalidateQueries({ queryKey: ['servicos-gestao'] });
     qc.invalidateQueries({ queryKey: ['servicos-empresa'] });
-    Alert.alert('Serviço criado!', nome, [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+    setSucesso(true);
+    setTimeout(() => router.back(), 1300);
+  }
+
+  if (sucesso) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: insets.top }}>
+        <StatusBar barStyle="dark-content" />
+        <SuccessCheck size={72} />
+        <MotiView from={{ translateY: 12, opacity: 0 }} animate={{ translateY: 0, opacity: 1 }}
+          transition={{ type: 'timing', duration: 350, delay: 150 }}
+          style={{ alignItems: 'center', marginTop: 16 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, textAlign: 'center' }}>
+            Serviço criado!
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text3, textAlign: 'center', marginTop: 6 }}>
+            {nome}
+          </Text>
+        </MotiView>
+      </View>
+    );
   }
 
   const catCor = CATEGORIA_COR[categoria];
