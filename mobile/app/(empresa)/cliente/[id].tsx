@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StatusBar, Linking, Alert,
+  StatusBar, Linking, Alert, Modal,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
   ChevronLeft, Phone, MessageCircle, CalendarPlus,
   MoreHorizontal, Edit3, AlertTriangle, Camera,
+  Archive, Trash2, X,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -26,6 +28,7 @@ import { format, differenceInDays, differenceInYears } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useClienteDetalhe, type ClienteTag } from '@/hooks/useClientes';
+import { supabase } from '@/lib/supabase';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -149,8 +152,63 @@ export default function ClientePerfil() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const [aba, setAba] = useState<Aba>('perfil');
+  const qc = useQueryClient();
 
   const { data: cliente, isLoading } = useClienteDetalhe(id);
+
+  const [modalRemover, setModalRemover] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+
+  async function arquivar() {
+    setModalRemover(false);
+    const { error } = await supabase.from('clientes').update({ ativo: false }).eq('id', id);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    qc.invalidateQueries({ queryKey: ['clientes'] });
+    router.back();
+  }
+
+  async function temHistorico(): Promise<boolean> {
+    const [ags, comandas, vendas, pacotes, avals] = await Promise.all([
+      supabase.from('agendamentos').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
+      supabase.from('comandas').select('id', { count: 'exact', head: true }).eq('clientes_id', id),
+      supabase.from('vendas').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
+      supabase.from('pacote_clientes').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
+      supabase.from('avaliacoes').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
+    ]);
+    return [ags, comandas, vendas, pacotes, avals].some(r => (r.count ?? 0) > 0);
+  }
+
+  async function pedirExclusao() {
+    setModalRemover(false);
+    if (await temHistorico()) {
+      Alert.alert(
+        'Não é possível excluir',
+        'Esta cliente tem histórico de agendamentos, comandas, vendas, pacotes ou avaliações e não pode ser excluída definitivamente — os registros seriam perdidos. Arquive em vez disso.',
+      );
+      return;
+    }
+    Alert.alert(
+      'Excluir permanentemente',
+      `"${cliente?.nome}" será excluída para sempre — essa ação não pode ser desfeita.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Excluir para sempre', style: 'destructive', onPress: confirmarExcluir },
+      ],
+    );
+  }
+
+  async function confirmarExcluir() {
+    setExcluindo(true);
+    const { data, error } = await supabase.from('clientes').delete().eq('id', id).select('id');
+    setExcluindo(false);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    if (!data || data.length === 0) {
+      Alert.alert('Sem permissão', 'Você não tem permissão para excluir clientes definitivamente — apenas a dona da conta pode.');
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ['clientes'] });
+    router.back();
+  }
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -268,7 +326,7 @@ export default function ClientePerfil() {
               { icon: <Phone size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => cliente.telefone && Linking.openURL(`tel:${cliente.telefone}`) },
               { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => cliente.telefone && Linking.openURL(`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`) },
               { icon: <CalendarPlus size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Agendar', onPress: () => router.push(`/(empresa)/novo-agendamento?clienteId=${id}` as any) },
-              { icon: <MoreHorizontal size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mais', onPress: () => {} },
+              { icon: <MoreHorizontal size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mais', onPress: () => setModalRemover(true) },
             ].map((a) => (
               <TouchableOpacity
                 key={a.label}
@@ -587,6 +645,48 @@ export default function ClientePerfil() {
         )}
 
       </ScrollView>
+
+      {/* Modal de escolha: arquivar ou excluir */}
+      <Modal visible={modalRemover} transparent animationType="fade" onRequestClose={() => setModalRemover(false)}>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setModalRemover(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}
+            style={{ backgroundColor: C.surface, borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>Remover cliente</Text>
+              <TouchableOpacity onPress={() => setModalRemover(false)}>
+                <X size={18} color={C.text4} />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, marginBottom: 14 }}>
+              O que você deseja fazer com "{cliente?.nome}"?
+            </Text>
+            <TouchableOpacity onPress={arquivar}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.amberSoft, alignItems: 'center', justifyContent: 'center' }}>
+                <Archive size={16} color={C.amber} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>Arquivar</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>Some das listas, mas o histórico é mantido</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={pedirExclusao} disabled={excluindo}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, opacity: excluindo ? 0.6 : 1 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.roseSoft, alignItems: 'center', justifyContent: 'center' }}>
+                <Trash2 size={16} color={C.rose} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>Excluir permanentemente</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>Apaga para sempre — só é possível sem histórico</Text>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
