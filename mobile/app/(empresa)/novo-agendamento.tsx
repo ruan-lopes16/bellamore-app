@@ -33,6 +33,7 @@ import { useProfissionais } from '@/hooks/useAgenda';
 import { useServicosEmpresa } from '@/hooks/useCliente';
 import { useClientes } from '@/hooks/useClientes';
 import { supabase } from '@/lib/supabase';
+import SuccessCheck from '@/components/SuccessCheck';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ export default function NovoAgendamento() {
   const [valor, setValor]       = useState('');
   const [obs, setObs]           = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [sucesso, setSucesso] = useState<{ clienteNome: string; servicoNome: string; profNome: string; inicio: Date; fim: Date } | null>(null);
 
   // Pacote do cliente (vincular sessão existente) ou vender um pacote novo agora
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
@@ -340,9 +342,43 @@ export default function NovoAgendamento() {
       return;
     }
 
-    Alert.alert('Agendamento criado!', `${clienteSelecionado!.nome} · ${format(inicio, "dd/MM 'às' HH:mm")}`, [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+    setSucesso({
+      clienteNome: clienteSelecionado!.nome,
+      servicoNome: servicoSelecionado!.nome,
+      profNome: profSelecionado!.nome,
+      inicio, fim,
+    });
+  }
+
+  useEffect(() => {
+    if (!sucesso) return;
+    const t = setTimeout(() => router.back(), 1500);
+    return () => clearTimeout(t);
+  }, [sucesso]);
+
+  if (sucesso) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: insets.top }}>
+        <StatusBar barStyle="dark-content" />
+        <SuccessCheck size={72} />
+        <MotiView from={{ translateY: 12, opacity: 0 }} animate={{ translateY: 0, opacity: 1 }}
+          transition={{ type: 'timing', duration: 350, delay: 150 }}
+          style={{ alignItems: 'center', marginTop: 16 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, textAlign: 'center' }}>
+            Agendamento criado!
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text2, textAlign: 'center', marginTop: 6 }}>
+            {sucesso.clienteNome}
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, textAlign: 'center', marginTop: 2 }}>
+            {sucesso.servicoNome} · {sucesso.profNome}
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, textAlign: 'center', marginTop: 2 }}>
+            {format(sucesso.inicio, 'HH:mm')}–{format(sucesso.fim, 'HH:mm')}
+          </Text>
+        </MotiView>
+      </View>
+    );
   }
 
   return (

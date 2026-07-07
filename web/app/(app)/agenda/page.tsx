@@ -211,6 +211,7 @@ function NovoAgModal({
   const [obs,       setObs]       = useState(() => agEditar?.observacao ?? '');
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
+  const [sucesso,   setSucesso]   = useState<{ clienteNome: string; profNome: string; servicosNomes: string[]; inicio: Date; fim: Date } | null>(null);
 
   // Pacote do cliente a consumir neste agendamento (opcional)
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
@@ -427,8 +428,19 @@ function NovoAgModal({
       }))
     );
     setSalvando(false);
-    onSalvo();
+    setSucesso({
+      clienteNome:   clientes.find(c => c.id === clienteId)?.nome ?? 'Cliente',
+      profNome:      profissionais.find(p => p.id === profId)?.nome ?? 'Profissional',
+      servicosNomes: filled.map(l => servicos.find(s => s.id === l.servico_id)?.nome ?? 'Serviço'),
+      inicio, fim,
+    });
   }
+
+  useEffect(() => {
+    if (!sucesso) return;
+    const t = setTimeout(onSalvo, 1300);
+    return () => clearTimeout(t);
+  }, [sucesso]);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
@@ -474,6 +486,31 @@ function NovoAgModal({
   const clienteOpts = clientes.map(c => ({ value: c.id, label: c.nome, sub: c.telefone }));
   const profOpts    = profissionais.map(p => ({ value: p.id, label: p.nome }));
   const servicoOpts = servicos.map(s => ({ value: s.id, label: s.nome }));
+
+  if (sucesso) {
+    return (
+      <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+        <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm flex flex-col items-center text-center gap-2.5 py-10 px-6">
+          <div className="relative flex items-center justify-center" style={{ width: 64, height: 64 }}>
+            <div className="bm-glow absolute inset-0 rounded-full blur-lg" style={{ background: 'var(--color-green-soft)' }}/>
+            <div className="relative flex items-center justify-center rounded-full"
+              style={{ width: 64, height: 64, background: 'var(--color-green-soft)', animation: 'bm-pop .5s cubic-bezier(.2,.9,.3,1) both' }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6L9 17l-5-5" style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'bm-draw .55s .3s ease forwards' }}/>
+              </svg>
+            </div>
+          </div>
+          <p className="font-serif text-lg text-text">{agEditar ? 'Agendamento atualizado!' : 'Agendamento criado!'}</p>
+          <p className="text-sm text-text-2 truncate max-w-full">{sucesso.clienteNome}</p>
+          <p className="text-xs text-text-4">{sucesso.servicosNomes.join(' + ')} · {sucesso.profNome}</p>
+          <p className="text-xs text-text-4">
+            {format(sucesso.inicio, 'HH:mm')}–{format(sucesso.fim, 'HH:mm')}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
