@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle } from 'lucide-react';
+import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle, Archive } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { Cliente } from '@/types';
 import { format, differenceInYears, differenceInDays, addMinutes, parseISO } from 'date-fns';
@@ -273,6 +273,10 @@ export default function ClientePerfilPage() {
   const [empresaId,       setEmpresaId]       = useState<string | null>(null);
   const [modalAg,         setModalAg]         = useState(false);
   const [confirmArquivar, setConfirmArquivar] = useState(false);
+  const [modalRemover,    setModalRemover]    = useState(false);
+  const [confirmExcluir,  setConfirmExcluir]  = useState(false);
+  const [excluindo,       setExcluindo]       = useState(false);
+  const [erroExcluir,     setErroExcluir]     = useState('');
 
   useEffect(() => {
     (async () => {
@@ -403,13 +407,53 @@ export default function ClientePerfilPage() {
     setEditInfo(false);
   }
 
-  async function desativar() {
-    setConfirmArquivar(true);
+  function desativar() {
+    setErroExcluir('');
+    setModalRemover(true);
   }
 
   async function confirmarArquivar() {
     await supabase.from('clientes').update({ ativo: false }).eq('id', id);
     setConfirmArquivar(false);
+    router.push('/clientes');
+  }
+
+  /** Verifica se a cliente tem qualquer histórico vinculado (bloqueia exclusão definitiva) */
+  async function temHistorico(): Promise<boolean> {
+    const [ags, comandas, vendas, pacotes, avals] = await Promise.all([
+      supabase.from('agendamentos').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
+      supabase.from('comandas').select('id', { count: 'exact', head: true }).eq('clientes_id', id),
+      supabase.from('vendas').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
+      supabase.from('pacote_clientes').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
+      supabase.from('avaliacoes').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
+    ]);
+    return [ags, comandas, vendas, pacotes, avals].some(r => (r.count ?? 0) > 0);
+  }
+
+  async function pedirExclusao() {
+    setModalRemover(false);
+    setErroExcluir('');
+    if (await temHistorico()) {
+      setErroExcluir('Esta cliente tem histórico de agendamentos, comandas, vendas, pacotes ou avaliações e não pode ser excluída definitivamente — os registros seriam perdidos. Arquive em vez disso.');
+      return;
+    }
+    setConfirmExcluir(true);
+  }
+
+  async function confirmarExcluir() {
+    setExcluindo(true);
+    // .select() após o delete: RLS restringe exclusão ao owner da empresa —
+    // sem select() um delete bloqueado por RLS retorna sucesso com 0 linhas,
+    // dando falsa impressão de que funcionou.
+    const { data, error } = await supabase.from('clientes').delete().eq('id', id).select('id');
+    setExcluindo(false);
+    if (error) { setConfirmExcluir(false); setErroExcluir(error.message); return; }
+    if (!data || data.length === 0) {
+      setConfirmExcluir(false);
+      setErroExcluir('Você não tem permissão para excluir clientes definitivamente — apenas a dona da conta pode.');
+      return;
+    }
+    setConfirmExcluir(false);
     router.push('/clientes');
   }
 
@@ -1135,6 +1179,65 @@ export default function ClientePerfilPage() {
         onConfirm={confirmarArquivar}
         onCancel={() => setConfirmArquivar(false)}
       />
+
+      <ConfirmDialog
+        open={confirmExcluir}
+        title="Excluir permanentemente"
+        message={`"${cliente?.nome}" será excluída para sempre — essa ação não pode ser desfeita.`}
+        confirmLabel="Excluir para sempre"
+        variant="danger"
+        loading={excluindo}
+        onConfirm={confirmarExcluir}
+        onCancel={() => setConfirmExcluir(false)}
+      />
+
+      {/* Modal de escolha: arquivar ou excluir */}
+      {modalRemover && (
+        <div className="bm-modal fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setModalRemover(false)} />
+          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm border border-border">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <h3 className="font-serif text-lg text-text">Remover cliente</h3>
+              <button onClick={() => setModalRemover(false)}
+                className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
+                <X size={15}/>
+              </button>
+            </div>
+            <div className="p-5 flex flex-col gap-3">
+              <p className="text-sm text-text-3">O que você deseja fazer com "{cliente?.nome}"?</p>
+              <button onClick={() => { setModalRemover(false); setConfirmArquivar(true); }}
+                className="flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-bg transition text-left">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-amber-soft)' }}>
+                  <Archive size={16} style={{ color: 'var(--color-amber)' }}/>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-text">Arquivar</p>
+                  <p className="text-xs text-text-4">Some das listas, mas o histórico é mantido</p>
+                </div>
+              </button>
+              <button onClick={pedirExclusao}
+                className="flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-rose-soft transition text-left">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-rose-soft)' }}>
+                  <Trash2 size={16} style={{ color: 'var(--color-rose)' }}/>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-text">Excluir permanentemente</p>
+                  <p className="text-xs text-text-4">Apaga para sempre — só é possível sem histórico</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast de erro ao tentar excluir */}
+      {erroExcluir && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] max-w-sm bg-rose text-white text-sm px-5 py-3 rounded-2xl shadow-lg flex items-start gap-2">
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5"/>
+          <p className="flex-1">{erroExcluir}</p>
+          <button onClick={() => setErroExcluir('')} className="flex-shrink-0"><X size={14}/></button>
+        </div>
+      )}
     </div>
   );
 }
