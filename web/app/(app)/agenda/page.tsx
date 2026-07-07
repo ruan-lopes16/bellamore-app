@@ -227,6 +227,7 @@ function NovoAgModal({
   const [novoClienteTelefone, setNovoClienteTelefone] = useState('');
   const [salvandoCliente,     setSalvandoCliente]     = useState(false);
   const [erroCliente,         setErroCliente]         = useState('');
+  const [clienteCriadoFlash,  setClienteCriadoFlash]  = useState('');
 
   const [linhas, setLinhas] = useState<ServicoLinha[]>(() => {
     if (agEditar && (agEditar.agendamento_servicos ?? []).length > 0) {
@@ -350,6 +351,8 @@ function NovoAgModal({
     setCriandoCliente(false);
     setNovoClienteNome('');
     setNovoClienteTelefone('');
+    setClienteCriadoFlash(data.nome);
+    setTimeout(() => setClienteCriadoFlash(''), 2000);
   }
 
   function addLinha() {
@@ -562,7 +565,12 @@ function NovoAgModal({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">Cliente</label>
-              {!criandoCliente && (
+              {clienteCriadoFlash ? (
+                <span className="bm-pop flex items-center gap-1 text-xs font-semibold text-green">
+                  <Check size={12} strokeWidth={3}/>
+                  {clienteCriadoFlash} cadastrada
+                </span>
+              ) : !criandoCliente && (
                 <button type="button"
                   onClick={() => { setCriandoCliente(true); setErroCliente(''); }}
                   className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent-dark transition">

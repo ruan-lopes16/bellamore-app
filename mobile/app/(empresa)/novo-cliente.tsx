@@ -23,6 +23,7 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
+import SuccessCheck from '@/components/SuccessCheck';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -105,6 +106,7 @@ export default function NovoCliente() {
   const [endereco, setEndereco]   = useState('');
   const [obs, setObs]             = useState('');
   const [salvando, setSalvando]   = useState(false);
+  const [sucesso, setSucesso]     = useState<{ nome: string; id: string } | null>(null);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -175,13 +177,39 @@ export default function NovoCliente() {
       return;
     }
 
-    Alert.alert('Cliente cadastrada!', `${nome.trim()} foi adicionada com sucesso.`, [
-      { text: 'Ver perfil', onPress: () => router.replace(`/(empresa)/cliente/${userData.id}` as any) },
-      { text: 'Voltar', onPress: () => router.back() },
-    ]);
+    setSucesso({ nome: nome.trim(), id: userData.id });
   }
 
   const podeSalvar = nome.trim().length > 1;
+
+  if (sucesso) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: insets.top }}>
+        <StatusBar barStyle="dark-content" />
+        <SuccessCheck size={72} />
+        <MotiView from={{ translateY: 12, opacity: 0 }} animate={{ translateY: 0, opacity: 1 }}
+          transition={{ type: 'timing', duration: 350, delay: 150 }}
+          style={{ alignItems: 'center', marginTop: 16 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, textAlign: 'center' }}>
+            Cliente cadastrada!
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text3, textAlign: 'center', marginTop: 6 }}>
+            {sucesso.nome}
+          </Text>
+        </MotiView>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 28, width: '100%' }}>
+          <TouchableOpacity onPress={() => router.back()} activeOpacity={0.8}
+            style={{ flex: 1, borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text2 }}>Voltar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.replace(`/(empresa)/cliente/${sucesso.id}` as any)} activeOpacity={0.8}
+            style={{ flex: 1, backgroundColor: C.primary, borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>Ver perfil</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
