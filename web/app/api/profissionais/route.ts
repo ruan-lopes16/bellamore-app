@@ -2,11 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createAdmin } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 
-const adminClient = createAdmin(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+function createAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY nao configurada.');
+  }
+
+  return createAdmin(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+function errorMessage(error: unknown, fallback = 'Erro interno.') {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,6 +41,7 @@ export async function POST(req: NextRequest) {
       .single();
     if (!membroReq) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+    const adminClient = createAdminClient();
     const emailFinal = email?.trim().toLowerCase() || `prof.${crypto.randomUUID()}@interno.app`;
 
     let userId: string | null = null;
@@ -96,8 +108,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ membro });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message ?? 'Erro interno.' }, { status: 500 });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
 }
 
@@ -120,7 +132,9 @@ export async function PATCH(req: NextRequest) {
       .eq('user_id', user.id)
       .eq('ativo', true);
 
-    const empresaIds = (requesterMembros ?? []).map((m: any) => m.empresa_id);
+    const empresaIds = (requesterMembros ?? []).map(
+      (m: { empresa_id: string }) => m.empresa_id,
+    );
     if (empresaIds.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const { data: alvoMembro } = await supabase
@@ -133,6 +147,7 @@ export async function PATCH(req: NextRequest) {
 
     if (!alvoMembro) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+    const adminClient = createAdminClient();
     const { error } = await adminClient.from('users').update({
       nome:     nome.trim(),
       telefone: telefone?.trim() || null,
@@ -155,7 +170,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message ?? 'Erro interno.' }, { status: 500 });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
 }

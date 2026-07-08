@@ -107,10 +107,9 @@ export default function NotificacoesPage() {
           .order('data_hora_inicio'),
 
         // Estoque abaixo do mínimo
-        supabase.from('produtos')
+        supabase.from('v_produtos_estoque_baixo')
           .select('id, nome, estoque_atual, estoque_minimo')
-          .eq('empresa_id', empId).eq('ativo', true)
-          .filter('estoque_atual', 'lte', 'estoque_minimo'),
+          .eq('empresa_id', empId).eq('ativo', true),
 
         // Despesas pendentes vencendo em 7 dias
         supabase.from('despesas')

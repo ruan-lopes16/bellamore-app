@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { getAppContext } from '@/lib/auth/server-context';
 import Link from 'next/link';
 import { CountUp } from '@/components/CountUp';
 import { SparkBars } from '@/components/SparkBars';
@@ -56,16 +55,7 @@ function StatusChip({ status }: { status: string }) {
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ mes?: string }> }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: membro } = await supabase
-    .from('empresa_membros')
-    .select('empresa_id')
-    .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-  if (!membro) redirect('/criar-empresa');
-  const empresaId = membro.empresa_id;
+  const { supabase, empresaId, empresa } = await getAppContext();
 
   // Brazil is UTC-3 (no DST since 2019). Shift so getUTC* returns Brazil local values.
   const hoje     = new Date(Date.now() - 3 * 60 * 60 * 1000);
@@ -98,9 +88,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const hojeStr    = `${brYear}-${String(brMonth + 1).padStart(2, '0')}-${String(brDate).padStart(2, '0')}`;
   const daqui7     = new Date(Date.UTC(brYear, brMonth, brDate + 7)).toISOString().slice(0, 10);
 
-  const { data: empresaData } = await supabase
-    .from('empresas').select('meta_mensal').eq('id', empresaId).single();
-  const metaMensal = Number(empresaData?.meta_mensal ?? 0);
+  const metaMensal = Number(empresa.meta_mensal ?? 0);
 
   const [
     agendamentosHoje, agsMes, agsMesAnt, membros,
@@ -134,8 +122,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       .eq('empresa_id', empresaId).gte('created_at', inicioHoje).lte('created_at', fimHoje),
     supabase.from('clientes').select('id', { count: 'exact', head: true })
       .eq('empresa_id', empresaId).eq('ativo', true),
-    supabase.from('produtos').select('id,nome,estoque_atual,estoque_minimo')
-      .eq('empresa_id', empresaId).eq('ativo', true).filter('estoque_atual', 'lte', 'estoque_minimo'),
+    supabase.from('v_produtos_estoque_baixo').select('id,nome,estoque_atual,estoque_minimo')
+      .eq('empresa_id', empresaId).eq('ativo', true),
     supabase.from('despesas').select('id,descricao,valor,data_vencimento')
       .eq('empresa_id', empresaId).eq('status', 'pendente')
       .gte('data_vencimento', hojeStr).lte('data_vencimento', daqui7).order('data_vencimento'),

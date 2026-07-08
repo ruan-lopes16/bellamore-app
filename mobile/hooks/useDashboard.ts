@@ -114,11 +114,10 @@ export function useDashboard() {
     staleTime: 1000 * 60 * 10,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('produtos')
+        .from('v_produtos_estoque_baixo')
         .select('id, nome, estoque_atual, estoque_minimo')
         .eq('empresa_id', empresaId!)
-        .eq('ativo', true)
-        .filter('estoque_atual', 'lte', 'estoque_minimo');
+        .eq('ativo', true);
 
       if (error) throw error;
       return data as Pick<Produto, 'id' | 'nome' | 'estoque_atual' | 'estoque_minimo'>[];

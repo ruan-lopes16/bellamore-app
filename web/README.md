@@ -20,6 +20,16 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Auth and Initial Performance
+
+Protected web routes use `proxy.ts` only as a lightweight, optimistic gate:
+
+- Requests without a Supabase auth cookie are redirected to `/login`.
+- Requests with an auth cookie call `getSession()` only to keep SSR cookies refreshed.
+- Secure authorization still happens in `components/AppLayout.tsx` through `getAppContext()`, which calls `getUser()` and loads the active company.
+- Server pages that need the authenticated company should reuse `getAppContext()` instead of repeating `getUser()` and `empresa_membros` queries.
+- Client components below `AppLayout` should receive known context, such as `empresaId`, through props or a provider before adding extra auth queries.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

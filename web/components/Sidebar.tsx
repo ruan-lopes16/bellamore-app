@@ -58,7 +58,17 @@ const MAIS_NAV = [
   { href: '/configuracoes',label: 'Configurações', icon: Settings     },
 ];
 
-export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: { empresaNome: string; empresaLogo: string | null; empresaSegmento: string }) {
+export default function Sidebar({
+  empresaId,
+  empresaNome,
+  empresaLogo,
+  empresaSegmento,
+}: {
+  empresaId: string;
+  empresaNome: string;
+  empresaLogo: string | null;
+  empresaSegmento: string;
+}) {
   const pathname        = usePathname();
   const router          = useRouter();
   const [alertCount,     setAlertCount]     = useState(0);
@@ -67,26 +77,17 @@ export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (!membro) return;
-
       const hoje   = new Date().toISOString().slice(0, 10);
       const daqui7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-      const empId  = membro.empresa_id;
 
       const [estoque, despesas, comissoes] = await Promise.all([
-        supabase.from('produtos').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empId).eq('ativo', true)
-          .filter('estoque_atual', 'lte', 'estoque_minimo'),
+        supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
+          .eq('empresa_id', empresaId).eq('ativo', true),
         supabase.from('despesas').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empId).eq('status', 'pendente')
+          .eq('empresa_id', empresaId).eq('status', 'pendente')
           .gte('data_vencimento', hoje).lte('data_vencimento', daqui7),
         supabase.from('comissoes').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empId).eq('status', 'pendente'),
+          .eq('empresa_id', empresaId).eq('status', 'pendente'),
       ]);
 
       const comCount = comissoes.count ?? 0;
@@ -94,7 +95,7 @@ export default function Sidebar({ empresaNome, empresaLogo, empresaSegmento }: {
       const total = (estoque.count ?? 0) + (despesas.count ?? 0) + (comCount > 0 ? 1 : 0);
       setAlertCount(total);
     })();
-  }, []);
+  }, [empresaId]);
 
   async function sair() {
     await supabase.auth.signOut();
