@@ -52,11 +52,10 @@ export async function GET(req: NextRequest) {
         .order('data_vencimento')
         .limit(3),
 
-      supabaseAdmin.from('produtos')
+      supabaseAdmin.from('v_produtos_estoque_baixo')
         .select('id')
         .eq('empresa_id', empId)
-        .eq('ativo', true)
-        .filter('estoque_atual', 'lte', 'estoque_minimo'),
+        .eq('ativo', true),
     ]);
 
     const qtdAgs     = totalAgs ?? 0;

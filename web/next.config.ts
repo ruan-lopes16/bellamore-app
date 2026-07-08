@@ -5,6 +5,7 @@ const sharedPath = path.resolve(__dirname, '../shared');
 
 const nextConfig: NextConfig = {
   turbopack: {
+    root: path.resolve(__dirname, '..'),
     resolveAlias: {
       '@shared': sharedPath,
     },
