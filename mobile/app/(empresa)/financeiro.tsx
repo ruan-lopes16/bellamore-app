@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   RefreshControl, StatusBar, ActivityIndicator,
@@ -36,6 +36,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import type { PagamentoMetodo } from '@/types';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -254,7 +255,14 @@ function ModalMarcarPago({
 }) {
   const hoje = format(new Date(), 'dd/MM/yyyy');
   const [dataPgto, setDataPgto] = useState(hoje);
+  const [valorDespesa, setValorDespesa] = useState('');
   const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (!item) return;
+    setDataPgto(hoje);
+    setValorDespesa(formatValorMonetarioInput(Number(item.valor)));
+  }, [item, hoje]);
 
   function mascaraData(v: string) {
     const n = v.replace(/\D/g, '').slice(0, 8);
@@ -276,10 +284,15 @@ function ModalMarcarPago({
       Alert.alert('Data inválida', 'Use o formato DD/MM/AAAA');
       return;
     }
+    const payload = buildDespesaPagamentoUpdate(dataBanco, valorDespesa);
+    if (!payload) {
+      Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
+      return;
+    }
     setSalvando(true);
     const { error } = await supabase
       .from('despesas')
-      .update({ status: 'pago', data_pagamento: dataBanco })
+      .update(payload)
       .eq('id', item.id);
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
@@ -333,14 +346,29 @@ function ModalMarcarPago({
               {/* Valor */}
               <View style={{
                 backgroundColor: C.redSoft, borderRadius: 14, padding: 14,
-                alignItems: 'center', marginBottom: 20,
+                marginBottom: 20,
               }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.red, marginBottom: 2 }}>
-                  Valor da despesa
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.red, marginBottom: 8, textAlign: 'center' }}>
+                  Valor deste mês
                 </Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 32, color: C.red }}>
-                  {formatBRL(item?.valor ?? 0)}
-                </Text>
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center',
+                  backgroundColor: 'rgba(255,255,255,0.7)',
+                  borderWidth: 1, borderColor: 'rgba(239,68,68,0.18)',
+                  borderRadius: 12, paddingHorizontal: 14, height: 52,
+                }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.red, marginRight: 8 }}>
+                    R$
+                  </Text>
+                  <TextInput
+                    value={valorDespesa}
+                    onChangeText={setValorDespesa}
+                    placeholder="0,00"
+                    placeholderTextColor={C.text4}
+                    keyboardType="decimal-pad"
+                    style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 24, color: C.red, textAlign: 'center', paddingVertical: 0 }}
+                  />
+                </View>
               </View>
 
               {/* Data de pagamento */}
