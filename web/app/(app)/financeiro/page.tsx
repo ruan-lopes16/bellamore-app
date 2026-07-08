@@ -42,6 +42,7 @@ import {
   format, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, parseISO,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
 
 const supabase = createClient();
 
@@ -212,12 +213,19 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
   despesa: Despesa; onClose: () => void; onSalvo: () => void;
 }) {
   const [data,    setData]    = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [valor,   setValor]   = useState(formatValorMonetarioInput(Number(despesa.valor)));
   const [salvando,setSalvando]= useState(false);
   const [erro,    setErro]    = useState('');
 
   async function confirmar() {
     setSalvando(true); setErro('');
-    const { error } = await supabase.from('despesas').update({ status: 'pago', data_pagamento: data }).eq('id', despesa.id);
+    const payload = buildDespesaPagamentoUpdate(data, valor);
+    if (!payload) {
+      setErro('Informe um valor maior que zero.');
+      setSalvando(false);
+      return;
+    }
+    const { error } = await supabase.from('despesas').update(payload).eq('id', despesa.id);
     setSalvando(false);
     if (error) { setErro(error.message); return; }
     onSalvo();
@@ -229,9 +237,13 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90vh] overflow-y-auto">
         <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Confirmar pagamento</p>
         <p className="font-serif text-xl text-text mb-4">{despesa.descricao}</p>
-        <div className="bg-red-soft rounded-xl p-4 text-center mb-4">
-          <p className="text-xs text-red mb-1">Valor da despesa</p>
-          <p className="text-3xl font-bold text-red">{fmtBRL(despesa.valor)}</p>
+        <div className="bg-red-soft rounded-xl p-4 mb-4">
+          <label className="block text-xs text-red mb-2 text-center">Valor deste mês</label>
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-red text-sm font-bold">R$</span>
+            <input value={valor} onChange={e => setValor(e.target.value)}
+              inputMode="decimal" className={`${inputClass} pl-9 text-center text-2xl font-bold text-red bg-white/70 border-red/20`}/>
+          </div>
         </div>
         <div className="mb-5">
           <label className={labelClass}>Data do pagamento</label>

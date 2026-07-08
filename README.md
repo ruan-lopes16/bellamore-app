@@ -434,6 +434,7 @@ As migrations ficam em `supabase/migrations/` e devem ser rodadas em ordem no **
 - ✅ Comparativo mês anterior com delta %
 - ✅ Gráfico de evolução de 6 meses (Bruto / Comissões / Gastos)
 - ✅ Gestão de despesas com suporte a recorrentes
+- ✅ Despesas recorrentes permitem ajustar o valor apenas no mês vigente ao confirmar pagamento
 - ✅ Marcar despesa como paga com data e forma de pagamento
 
 ### Estoque
