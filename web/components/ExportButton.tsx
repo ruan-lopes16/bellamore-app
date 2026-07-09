@@ -25,8 +25,6 @@ interface ExportButtonProps<T> {
   title: string;
   columns: ExportColumn<T>[];
   getData: () => T[];
-  /** Tamanho do botão — padrão "md" */
-  size?: 'sm' | 'md';
 }
 
 export function ExportButton<T>({
@@ -34,7 +32,6 @@ export function ExportButton<T>({
   title,
   columns,
   getData,
-  size = 'md',
 }: ExportButtonProps<T>) {
   const [open,      setOpen]      = useState(false);
   const [loading,   setLoading]   = useState<'xlsx' | 'pdf' | null>(null);
@@ -66,11 +63,9 @@ export function ExportButton<T>({
     }
   }
 
-  const btnCls = size === 'sm'
-    ? 'flex items-center gap-1.5 h-8 px-3 rounded-xl border border-border bg-surface text-text-2 text-xs font-semibold hover:border-accent hover:text-accent transition'
-    : 'flex items-center gap-2 h-10 px-4 rounded-xl border border-border bg-surface text-text-2 text-sm font-semibold hover:border-accent hover:text-accent transition';
+  const btnCls = 'flex items-center gap-2 h-10 px-4 rounded-xl border border-border bg-surface text-text-2 text-sm font-semibold hover:border-accent hover:text-accent transition';
 
-  const iconSize = size === 'sm' ? 13 : 15;
+  const iconSize = 15;
 
   return (
     <div ref={containerRef} className="relative">

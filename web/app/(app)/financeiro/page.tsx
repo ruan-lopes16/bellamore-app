@@ -782,8 +782,9 @@ export default function FinanceiroPage() {
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <p className="font-serif text-lg text-text">Despesas</p>
             <button onClick={() => setModalDespesa(true)}
-              className="flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline">
-              <Plus size={12}/> Nova
+              className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
+              style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
+              <Plus size={13} strokeWidth={2.5}/> Nova
             </button>
           </div>
 
