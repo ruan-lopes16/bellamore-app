@@ -715,7 +715,6 @@ export default function RelatoriosPage() {
         <div className="flex items-center gap-2">
           {!loading && (
             <ExportButton
-              size="sm"
               filename={`relatorio-${aba}-${labelPeriodo.replace(/\s/g, '-')}`}
               title={`Relatório ${ABA_OPTS.find(a => a.key === aba)?.label} — ${labelPeriodo}`}
               columns={(
