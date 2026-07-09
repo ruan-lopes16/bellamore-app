@@ -747,6 +747,13 @@ export default function EstoquePage() {
             />
           )}
           {aba === 'produtos' && (
+            <button onClick={() => { setFiltroProdId(''); abrirAbaMovimentacoes(); }}
+              className="press flex items-center gap-2 px-4 h-10 rounded-2xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition"
+              style={{ fontFamily: 'var(--font-sans)' }}>
+              <CalendarDays size={15} strokeWidth={2}/> Histórico geral
+            </button>
+          )}
+          {aba === 'produtos' && (
             <button onClick={() => setModalProd({ modo: 'criar' })} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
               style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
               <Plus size={15} strokeWidth={2.5}/> Novo produto
