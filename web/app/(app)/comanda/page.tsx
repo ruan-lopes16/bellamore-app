@@ -740,7 +740,7 @@ export default function ComandaPage() {
   // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="bm-page flex gap-0 -mt-6 -mb-24 -mx-4 md:-mt-8 md:-mb-10 md:-mx-8 overflow-hidden" style={{ height: '100dvh' }}>
+    <div className="bm-page flex gap-0 -mx-4 md:-mx-8 overflow-hidden bm-comanda-shell">
 
       {/* ════ PAINEL ESQUERDO — clientes do dia ════ */}
       <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} md:w-[26rem] w-full flex-shrink-0 border-r border-border flex-col bg-bg`}>

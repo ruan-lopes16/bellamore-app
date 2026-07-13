@@ -1587,9 +1587,9 @@ export default function AgendaPage() {
           </p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Agenda</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:pt-1">
+        <div className="bm-mobile-actions sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:pt-1">
           {/* Toggle view */}
-          <div style={{ display: 'flex', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 14, overflow: 'hidden' }}>
+          <div className="bm-mobile-action-wide" style={{ display: 'flex', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 14, overflow: 'hidden' }}>
             {([
               { key: 'semana',   label: 'Semana'   },
               { key: 'mes',      label: 'Mês'      },

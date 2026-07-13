@@ -453,7 +453,7 @@ export default function ComissoesPage() {
                 style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
 
                 {/* Card colapsado */}
-                <div className="w-full flex items-center gap-3 p-4">
+                <div className="w-full flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
                   <button
                     onClick={() => toggleExpand(prof.profissional_id)}
                     className="flex-1 min-w-0 flex items-center gap-3 text-left transition hover:opacity-80">
