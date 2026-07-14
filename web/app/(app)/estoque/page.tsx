@@ -708,14 +708,16 @@ export default function EstoquePage() {
       )}
 
       {/* Header Bellamore */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Insumos & produtos</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Estoque</h1>
         </div>
-        <div className="flex gap-2 pt-1">
+        <div className="flex gap-2 pt-1 bm-mobile-page-actions bm-mobile-stock-actions">
           {aba === 'produtos' && (
             <ExportButton
+              variant="mobileHeader"
+              className="bm-mobile-header-export"
               filename="estoque-produtos"
               title="Estoque — Produtos"
               columns={[
@@ -734,6 +736,8 @@ export default function EstoquePage() {
           )}
           {aba === 'movimentacoes' && (
             <ExportButton
+              variant="mobileHeader"
+              className="bm-mobile-header-export"
               filename="estoque-movimentacoes"
               title={`Movimentações — ${format(mesMov, 'MMMM yyyy', { locale: ptBR })}`}
               columns={[

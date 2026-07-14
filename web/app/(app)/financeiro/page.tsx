@@ -515,12 +515,14 @@ export default function FinanceiroPage() {
   return (
     <div className="bm-page">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Visão Geral</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Financeiro</h1>
         </div>
         <ExportButton
+          variant="mobileHeader"
+          className="bm-mobile-header-export"
           filename={`financeiro-despesas-${format(mesRef, 'yyyy-MM')}`}
           title={`Despesas — ${format(mesRef, 'MMMM yyyy', { locale: ptBR })}`}
           columns={[

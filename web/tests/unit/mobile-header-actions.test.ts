@@ -42,4 +42,3 @@ describe('mobile header actions', () => {
     expect(read('app/(app)/comanda/page.tsx')).toContain('bm-comanda-view-toggle');
   });
 });
-

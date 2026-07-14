@@ -747,19 +747,21 @@ export default function ComandaPage() {
         {/* Header — título + toggle + week strip */}
         <div className="px-3 pt-3 pb-2 border-b border-border flex-shrink-0">
           {/* Linha 1: título + toggle Semana/Mês */}
-          <div className="flex items-center justify-between mb-2">
-            <div>
+          <div className="flex items-start gap-3 mb-2">
+            <div className="min-w-0">
               <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em' }} className="capitalize">
                 {format(dataComanda, 'MMMM yyyy', { locale: ptBR })}
               </p>
               <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Comanda</h1>
             </div>
-            <SmoothTabs
-              variant="pill"
-              tabs={[{ key: 'semana', label: 'Semana' }, { key: 'mes', label: 'Mês' }]}
-              active={view}
-              onChange={key => setView(key as 'semana' | 'mes')}
-            />
+            <div className="bm-comanda-view-toggle ml-auto flex-shrink-0">
+              <SmoothTabs
+                variant="pill"
+                tabs={[{ key: 'semana', label: 'Semana' }, { key: 'mes', label: 'Mês' }]}
+                active={view}
+                onChange={key => setView(key as 'semana' | 'mes')}
+              />
+            </div>
           </div>
 
           {/* Week strip — só visível no modo Semana */}
