@@ -219,6 +219,25 @@ html, body {
   .bm-mobile-actions > .bm-mobile-action-wide { flex-basis: 100%; }
   .bm-mobile-actions > .relative > button,
   .bm-mobile-actions > button { min-height: 44px; justify-content: center; }
+
+  .bm-mobile-page-header { position: relative; }
+  .bm-mobile-page-header > :first-child { min-height: 44px; padding-right: 9.5rem; }
+  .bm-mobile-header-export { position: absolute; top: 0; right: 0; z-index: 2; }
+  .bm-mobile-header-export-button {
+    min-height: 44px;
+    border-color: var(--color-rose);
+    background: var(--color-rose);
+    color: #fff;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--color-rose) 24%, transparent);
+  }
+  .bm-mobile-header-export-button:hover { border-color: var(--color-rose); color: #fff; filter: brightness(0.96); }
+  .bm-mobile-page-actions { width: 100%; display: flex; justify-content: flex-end; gap: 0.5rem; }
+  .bm-mobile-stock-actions > button { flex: 1 1 0; min-width: 0; justify-content: center; white-space: nowrap; }
+  .bm-mobile-export-only { display: contents; }
+}
+
+@media (min-width: 640px) {
+  .bm-mobile-header-export { position: static; }
 }
 
 /* ── Acessibilidade de movimento ───────────────────────────── */

@@ -457,7 +457,8 @@ As migrations ficam em `supabase/migrations/` e devem ser rodadas em ordem no **
 ### Features planejadas
 - [ ] **Módulo de Vendas** — venda de produtos/bebidas avulsos (fora de agendamentos). Registrado em 2026-06-04.
 - [ ] **Controle de acesso por role** — owner vs profissional (views diferentes). Explicitamente adiado pelo usuário.
-- [ ] **Exportação PDF/XLSX** — todas as listagens. Implementar após todas as telas prontas.
+- [x] **Exportação PDF/XLSX** — disponível nas listagens, com o botão Exportar destacado e posicionado no canto superior direito em telas móveis.
+- [x] **Cabeçalhos móveis** — ações preservam espaço para o título; Agenda exibe o nome completo do profissional no timeline e a Comanda mantém Semana/Mês alinhado à direita.
 
 ### Dívida técnica
 - [ ] Adicionar `loading.tsx` nas páginas que ainda não têm (agenda, clientes, financeiro, etc.)

@@ -1067,17 +1067,13 @@ function TimelineView({
 
         {/* Cabeçalho com nomes dos profissionais */}
         <div className="flex border-b border-border bg-bg">
-          <div className="w-12 flex-shrink-0 border-r border-border" />
+          <div className="w-10 md:w-12 flex-shrink-0 border-r border-border" />
           {profissionais.map(prof => {
-            const partes = prof.nome.trim().split(/\s+/);
-            const exibir = partes.length > 1
-              ? `${partes[0]} ${partes[partes.length - 1][0]}.`
-              : partes[0];
             return (
               <div key={prof.id}
-                className="flex-1 min-w-[80px] md:min-w-[130px] border-r border-border last:border-r-0 px-2 py-3 text-center"
+                className="flex-1 min-w-[140px] border-r border-border last:border-r-0 px-2 py-3 text-center"
                 title={prof.nome}>
-                <p className="text-xs font-bold text-text-2 truncate leading-none">{exibir}</p>
+                <p className="text-xs font-bold text-text-2 whitespace-nowrap leading-none">{prof.nome}</p>
               </div>
             );
           })}
@@ -1089,7 +1085,7 @@ function TimelineView({
 
             {/* Coluna de horas */}
             <div
-              className="w-12 flex-shrink-0 border-r border-border relative bg-bg/60"
+              className="w-10 md:w-12 flex-shrink-0 border-r border-border relative bg-bg/60"
               style={{ height: TL_TOTAL_H }}>
               {TL_HOURS.map(h => (
                 <div key={h}
@@ -1109,7 +1105,7 @@ function TimelineView({
 
               return (
                 <div key={prof.id}
-                  className="flex-1 min-w-[80px] md:min-w-[130px] border-r border-border last:border-r-0 relative cursor-crosshair"
+                  className="flex-1 min-w-[140px] border-r border-border last:border-r-0 relative cursor-crosshair"
                   style={{ height: TL_TOTAL_H }}
                   onClick={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
@@ -1580,14 +1576,14 @@ export default function AgendaPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }} className="capitalize">
             {format(dataSel, 'MMMM yyyy', { locale: ptBR })}
           </p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Agenda</h1>
         </div>
-        <div className="bm-mobile-actions sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:pt-1">
+        <div className="bm-mobile-actions bm-mobile-page-actions sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:pt-1">
           {/* Toggle view */}
           <div className="bm-mobile-action-wide" style={{ display: 'flex', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 14, overflow: 'hidden' }}>
             {([
@@ -1603,6 +1599,8 @@ export default function AgendaPage() {
             ))}
           </div>
           <ExportButton
+            variant="mobileHeader"
+            className="bm-mobile-header-export"
             filename={`agenda-${format(dataSel, 'yyyy-MM-dd')}`}
             title={`Agenda — ${format(dataSel, "dd 'de' MMMM yyyy", { locale: ptBR })}`}
             columns={[
