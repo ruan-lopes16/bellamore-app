@@ -33,13 +33,14 @@ import { useState, useEffect } from 'react';
 import {
   Plus, ChevronLeft, ChevronRight, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, X, Layers, Banknote, CreditCard, Gift,
-  RefreshCw, Check,
+  RefreshCw, Check, FileSpreadsheet,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { CnpjFinanceiroImporter } from '@/components/CnpjFinanceiroImporter';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import {
-  format, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, parseISO,
+  format, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
@@ -288,6 +289,7 @@ export default function FinanceiroPage() {
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
+  const [modalImportCnpj, setModalImportCnpj] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
   const [lancandoRec,           setLancandoRec]           = useState(false);
@@ -399,8 +401,10 @@ export default function FinanceiroPage() {
     setGastos(gastosVal);         setGastosAnt(gastosAntVal);
 
     // Top serviços
+    type TopServicoRow = { servico_id: string | null; valor: number; servico: { nome: string } | null };
     const svcMap: Record<string, { nome: string; qtd: number; receita: number }> = {};
-    (agsMes.data ?? []).forEach((a: any) => {
+    ((agsMes.data ?? []) as TopServicoRow[]).forEach(a => {
+      if (!a.servico_id) return;
       const id = a.servico_id; const nome = a.servico?.nome ?? 'Serviço';
       if (!svcMap[id]) svcMap[id] = { nome, qtd: 0, receita: 0 };
       svcMap[id].qtd += 1; svcMap[id].receita += Number(a.valor);
@@ -781,10 +785,16 @@ export default function FinanceiroPage() {
         <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <p className="font-serif text-lg text-text">Despesas</p>
-            <button onClick={() => setModalDespesa(true)}
-              className="flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline">
-              <Plus size={12}/> Nova
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setModalImportCnpj(true)}
+                className="flex items-center gap-1.5 text-xs text-text-3 font-semibold hover:text-accent transition">
+                <FileSpreadsheet size={12}/> Importar CNPJ
+              </button>
+              <button onClick={() => setModalDespesa(true)}
+                className="flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline">
+                <Plus size={12}/> Nova
+              </button>
+            </div>
           </div>
 
           {/* Banner: despesas recorrentes não lançadas */}
@@ -848,6 +858,9 @@ export default function FinanceiroPage() {
 
       {modalDespesa && empresaId && (
         <NovaDespesaModal empresaId={empresaId} onClose={() => setModalDespesa(false)} onSalvo={() => { setModalDespesa(false); recarregar(); }}/>
+      )}
+      {modalImportCnpj && empresaId && (
+        <CnpjFinanceiroImporter empresaId={empresaId} onClose={() => setModalImportCnpj(false)} onImported={recarregar}/>
       )}
       {marcarPago && (
         <MarcarPagoModal despesa={marcarPago} onClose={() => setMarcarPago(null)} onSalvo={() => { setMarcarPago(null); recarregar(); }}/>
