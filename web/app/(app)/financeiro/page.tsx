@@ -38,6 +38,11 @@ import {
 import { ExportButton } from '@/components/ExportButton';
 import { CnpjFinanceiroImporter } from '@/components/CnpjFinanceiroImporter';
 import { createClient } from '@/lib/supabase/client';
+import {
+  applyFinanceiroAjuste,
+  getFinanceiroAjusteForMonth,
+  type FinanceiroAjusteMensalRow,
+} from '@/lib/financeiro/ajustes-mensais';
 import { Sk } from '@/components/Skeleton';
 import {
   format, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth,
@@ -319,7 +324,7 @@ export default function FinanceiroPage() {
     const fimA = endOfMonth(subMonths(mes, 1)).toISOString();
     const ini6 = startOfMonth(subMonths(mes, 5)).toISOString();
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt] = await Promise.all([
+    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, ajustes6m] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional e serviço)
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
@@ -371,12 +376,20 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
         .lt('data_vencimento', ini.slice(0,10))   // somente meses passados
         .order('data_vencimento', { ascending: false }),
+      // Ajustes financeiros mensais: usados para histórico importado sem criar atendimentos falsos.
+      supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
+        .eq('empresa_id', empId)
+        .gte('mes', ini6.slice(0,10)).lte('mes', fim.slice(0,10)),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
     const comMap: Record<string, number> = {};
     ((membros.data ?? []) as { user_id: string; percentual_comissao: number }[])
       .forEach(m => { comMap[m.user_id] = m.percentual_comissao ?? 0; });
+    const ajustesData = (ajustes6m.data ?? []) as FinanceiroAjusteMensalRow[];
+    const ajusteMes = getFinanceiroAjusteForMonth(ajustesData, format(mes, 'yyyy-MM'));
+    const ajusteAnt = getFinanceiroAjusteForMonth(ajustesData, format(subMonths(mes, 1), 'yyyy-MM'));
 
     type AgRow = { profissional_id: string | null; valor: number };
     const calcCom = (ags: AgRow[]) =>
@@ -388,16 +401,24 @@ export default function FinanceiroPage() {
     type VendaRow = { valor_final: number };
     const brutoServicos   = ((agsMes.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0);
     const brutoVendas     = ((vendasMes.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
-    const receitaVal      = brutoServicos + brutoVendas;
-    const receitaAntVal   = ((agsAnt.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0)
-                          + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
-    const comissoesVal    = calcCom((agsMes.data ?? []) as AgRow[]);
-    const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
     const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
     const gastosAntVal    = ((despAnt.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
+    const kpisMes = applyFinanceiroAjuste({
+      receita: brutoServicos + brutoVendas,
+      comissoes: calcCom((agsMes.data ?? []) as AgRow[]),
+      gastos: gastosVal,
+      taxasCartao: 0,
+    }, ajusteMes);
+    const kpisAnt = applyFinanceiroAjuste({
+      receita: ((agsAnt.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0)
+             + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0),
+      comissoes: calcCom((agsAnt.data ?? []) as AgRow[]),
+      gastos: gastosAntVal,
+      taxasCartao: 0,
+    }, ajusteAnt);
 
-    setReceita(receitaVal);       setReceitaAnt(receitaAntVal);
-    setComissoes(comissoesVal);   setComissoesAnt(comissoesAntVal);
+    setReceita(kpisMes.receita);       setReceitaAnt(kpisAnt.receita);
+    setComissoes(kpisMes.comissoes);   setComissoesAnt(kpisAnt.comissoes);
     setGastos(gastosVal);         setGastosAnt(gastosAntVal);
 
     // Top serviços
@@ -448,12 +469,19 @@ export default function FinanceiroPage() {
       const mesVendas = ((vendas6m.data ?? []) as Venda6Row[]).filter(v =>
         isSameMonth(new Date(v.created_at), m)
       );
-      return {
-        mes:       format(m, 'MMM', { locale: ptBR }),
+      const ajuste = getFinanceiroAjusteForMonth(ajustesData, format(m, 'yyyy-MM'));
+      const kpis = applyFinanceiroAjuste({
         receita:   mesAgs.reduce((s, a) => s + Number(a.valor), 0)
                  + mesVendas.reduce((s, v) => s + Number(v.valor_final), 0),
         comissoes: calcCom(mesAgs),
         gastos:    mesDesp.reduce((s, d) => s + Number(d.valor), 0),
+        taxasCartao: 0,
+      }, ajuste);
+      return {
+        mes:       format(m, 'MMM', { locale: ptBR }),
+        receita:   kpis.receita,
+        comissoes: kpis.comissoes,
+        gastos:    kpis.gastos,
       };
     });
     setEvolucao(evolucaoData);
