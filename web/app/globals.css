@@ -78,6 +78,12 @@
   --color-nav-border: var(--color-border-soft);
 }
 
+:root {
+  --bm-mobile-nav-height: 64px;
+  --bm-mobile-nav-space: calc(var(--bm-mobile-nav-height) + env(safe-area-inset-bottom, 0px));
+  --bm-mobile-content-bottom: calc(var(--bm-mobile-nav-space) + 24px);
+}
+
 /* ── Modo escuro ───────────────────────────────────────────── */
 .dark {
   --color-bg:          #130E1F;
@@ -190,6 +196,49 @@ html, body {
 /* ── Utilitários de press / toque ──────────────────────────── */
 .press { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .press:active { transform: scale(0.97); transition: transform 140ms cubic-bezier(.2,.8,.3,1); }
+
+/* Comanda usa painéis com scroll próprio; no mobile, respeita a bottom nav. */
+.bm-comanda-shell {
+  height: calc(100dvh - var(--bm-mobile-nav-space) - 1.5rem);
+  margin-top: 0;
+  margin-bottom: calc(-1 * var(--bm-mobile-content-bottom));
+}
+
+@media (min-width: 768px) {
+  .bm-comanda-shell {
+    height: 100dvh;
+    margin-top: -2rem;
+    margin-bottom: -2.5rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .bm-mobile-actions { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.5rem; width: 100%; }
+  .bm-mobile-actions > .relative,
+  .bm-mobile-actions > button { flex: 1 1 0; min-width: 0; }
+  .bm-mobile-actions > .bm-mobile-action-wide { flex-basis: 100%; }
+  .bm-mobile-actions > .relative > button,
+  .bm-mobile-actions > button { min-height: 44px; justify-content: center; }
+
+  .bm-mobile-page-header { position: relative; }
+  .bm-mobile-page-header > :first-child { min-height: 44px; padding-right: 9.5rem; }
+  .bm-mobile-header-export { position: absolute; top: 0; right: 0; z-index: 2; }
+  .bm-mobile-header-export-button {
+    min-height: 44px;
+    border-color: var(--color-rose);
+    background: var(--color-rose);
+    color: #fff;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--color-rose) 24%, transparent);
+  }
+  .bm-mobile-header-export-button:hover { border-color: var(--color-rose); color: #fff; filter: brightness(0.96); }
+  .bm-mobile-page-actions { width: 100%; display: flex; justify-content: flex-end; gap: 0.5rem; }
+  .bm-mobile-stock-actions > button { flex: 1 1 0; min-width: 0; justify-content: center; white-space: nowrap; }
+  .bm-mobile-export-only { display: contents; }
+}
+
+@media (min-width: 640px) {
+  .bm-mobile-header-export { position: static; }
+}
 
 /* ── Acessibilidade de movimento ───────────────────────────── */
 @media (prefers-reduced-motion: reduce) {

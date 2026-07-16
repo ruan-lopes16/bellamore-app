@@ -204,6 +204,7 @@ export default function Sidebar({
           backdropFilter:'blur(28px) saturate(200%)',
           WebkitBackdropFilter: 'blur(28px) saturate(200%)',
           borderTop:     '1px solid var(--color-nav-border)',
+          minHeight:     'var(--bm-mobile-nav-height)',
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}>
         {MOBILE_NAV.map(({ href, label, icon: Icon }) => {

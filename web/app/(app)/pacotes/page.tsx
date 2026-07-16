@@ -750,14 +750,16 @@ export default function PacotesPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Fidelização</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Pacotes</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 bm-mobile-page-actions">
           {aba === 'catalogo' && (
             <ExportButton
+              variant="mobileHeader"
+              className="bm-mobile-header-export"
               filename="pacotes-catalogo"
               title="Catálogo de Pacotes"
               columns={[
@@ -772,6 +774,8 @@ export default function PacotesPage() {
           )}
           {aba === 'vendidos' && (
             <ExportButton
+              variant="mobileHeader"
+              className="bm-mobile-header-export"
               filename="pacotes-vendidos"
               title="Pacotes Vendidos"
               columns={[
@@ -788,6 +792,8 @@ export default function PacotesPage() {
           )}
           {aba === 'relatorio' && relatorio && (
             <ExportButton
+              variant="mobileHeader"
+              className="bm-mobile-header-export"
               filename="pacotes-relatorio"
               title="Relatório de Utilização de Pacotes"
               columns={[

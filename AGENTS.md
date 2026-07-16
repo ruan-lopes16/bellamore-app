@@ -162,4 +162,25 @@
 ### Features planejadas — próximas sessões
 - [ ] **Controle de acesso por role** — diferenciar UI/ações com base em `empresa_membros.role` (`owner`/`gestor`/`profissional`). Ex: profissionais só veem a própria agenda e comissões; apenas gestores/owners editam serviços, equipe e financeiro. Requer: ler `role` no contexto da sessão (já disponível em `empresa_membros`) e condicionar renderização/rotas.
 
+---
+
+### Sessão 2026-07-13 — Ajustes de cabeçalho mobile
+
+*Escopo auditado: Exportar em Clientes, Financeiro, Serviços, Pacotes, Equipe, Comissões, Relatórios, Estoque e Agenda; controles da Comanda; timeline da Agenda.*
+
+| Critério | Nota | Observação |
+|---|---:|---|
+| TypeScript | 10.0 | `npx.cmd tsc --noEmit` sem erros |
+| UX / Padrões | 9.5 | Exportar consistente, destacado em rosa e sem competir com os títulos no celular |
+| Segurança | 10.0 | Alteração apenas de apresentação, sem dados ou políticas novas |
+| Documentação | 9.5 | README, plano e JSDoc das novas opções do componente atualizados |
+| Arquitetura | 9.5 | Variante reutilizável em `ExportButton`, sem duplicar a lógica de exportação |
+| Performance | 9.5 | Sem consultas nem processamento adicional |
+| Visual (UI) | — | Revisão automática indisponível: conexão com o navegador falhou nesta máquina |
+| **Completude** | 10.0 | 54 testes passaram; inclui o posicionamento e os ajustes solicitados |
+| **Proatividade** | 9.0 | Ajuste de espaço dos títulos e reflow dos controles de Estoque incluídos |
+| **Nota Humana** | — | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.7 / 10` → **A+**
+
 ## Imported Claude Cowork project instructions

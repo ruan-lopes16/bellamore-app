@@ -604,6 +604,12 @@ export default function EstoquePage() {
     if (!movCarregado && empresaId) carregarMovimentos(empresaId, mesMov);
   }
 
+  function abrirHistoricoProduto(p: Produto) {
+    setFiltroProdId(p.id);
+    setFiltroTipo('todos');
+    abrirAbaMovimentacoes();
+  }
+
   function navMes(dir: number) {
     const novo = dir > 0 ? addMonths(mesMov, 1) : subMonths(mesMov, 1);
     setMesMov(novo);
@@ -676,8 +682,21 @@ export default function EstoquePage() {
     return r;
   }, [movimentos, filtroTipo, filtroProdId, produtos]);
 
-  const totalSaidas  = useMemo(() => movimentos.filter(m => m.tipo === 'saida').reduce((s, m) => s + Number(m.quantidade), 0), [movimentos]);
-  const totalEntradas = useMemo(() => movimentos.filter(m => m.tipo === 'entrada').reduce((s, m) => s + Number(m.quantidade), 0), [movimentos]);
+  // Nome do produto selecionado no filtro — usado para recortar os KPIs do mês
+  const produtoFiltradoNome = useMemo(
+    () => produtos.find(p => p.id === filtroProdId)?.nome ?? '',
+    [produtos, filtroProdId],
+  );
+
+  // Movimentos do mês recortados só por produto (independe do filtro de tipo),
+  // para os KPIs mostrarem o total real de entradas/saídas do produto selecionado
+  const movDoProduto = useMemo(
+    () => filtroProdId ? movimentos.filter(m => m.produto.nome === produtoFiltradoNome) : movimentos,
+    [movimentos, filtroProdId, produtoFiltradoNome],
+  );
+
+  const totalSaidas  = useMemo(() => movDoProduto.filter(m => m.tipo === 'saida').reduce((s, m) => s + Number(m.quantidade), 0), [movDoProduto]);
+  const totalEntradas = useMemo(() => movDoProduto.filter(m => m.tipo === 'entrada').reduce((s, m) => s + Number(m.quantidade), 0), [movDoProduto]);
 
   return (
     <div className="bm-page">
@@ -689,14 +708,16 @@ export default function EstoquePage() {
       )}
 
       {/* Header Bellamore */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Insumos & produtos</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Estoque</h1>
         </div>
-        <div className="flex gap-2 pt-1">
+        <div className="flex gap-2 pt-1 bm-mobile-page-actions bm-mobile-stock-actions">
           {aba === 'produtos' && (
             <ExportButton
+              variant="mobileHeader"
+              className="bm-mobile-header-export"
               filename="estoque-produtos"
               title="Estoque — Produtos"
               columns={[
@@ -715,6 +736,8 @@ export default function EstoquePage() {
           )}
           {aba === 'movimentacoes' && (
             <ExportButton
+              variant="mobileHeader"
+              className="bm-mobile-header-export"
               filename="estoque-movimentacoes"
               title={`Movimentações — ${format(mesMov, 'MMMM yyyy', { locale: ptBR })}`}
               columns={[
@@ -726,6 +749,13 @@ export default function EstoquePage() {
               ]}
               getData={() => movFiltrados}
             />
+          )}
+          {aba === 'produtos' && (
+            <button onClick={() => { setFiltroProdId(''); abrirAbaMovimentacoes(); }}
+              className="press flex items-center gap-2 px-4 h-10 rounded-2xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition"
+              style={{ fontFamily: 'var(--font-sans)' }}>
+              <CalendarDays size={15} strokeWidth={2}/> Histórico geral
+            </button>
           )}
           {aba === 'produtos' && (
             <button onClick={() => setModalProd({ modo: 'criar' })} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
@@ -885,13 +915,13 @@ export default function EstoquePage() {
       {loading ? (
         <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
           <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg">
-            {['col-span-4','col-span-2','col-span-2','col-span-2','col-span-2'].map((c, i) => (
+            {['col-span-3','col-span-2','col-span-2','col-span-1','col-span-4'].map((c, i) => (
               <div key={i} className={c}><Sk className="h-3 w-16"/></div>
             ))}
           </div>
           {[1,2,3,4,5].map(i => (
             <div key={i} className="grid grid-cols-12 items-center px-5 py-3.5 border-b border-border last:border-0">
-              <div className="col-span-4 flex items-center gap-3">
+              <div className="col-span-3 flex items-center gap-3">
                 <Sk className="w-7 h-7 rounded-lg flex-shrink-0"/>
                 <div className="flex flex-col gap-1.5">
                   <Sk className="h-4 w-32"/>
@@ -900,9 +930,10 @@ export default function EstoquePage() {
               </div>
               <div className="col-span-2"><Sk className="h-5 w-14 rounded-full"/></div>
               <div className="col-span-2"><Sk className="h-4 w-12"/></div>
-              <div className="col-span-2"><Sk className="h-4 w-10"/></div>
-              <div className="col-span-2 flex justify-end gap-2">
-                <Sk className="w-8 h-8 rounded-lg"/>
+              <div className="col-span-1"><Sk className="h-4 w-10"/></div>
+              <div className="col-span-4 flex justify-end gap-2">
+                <Sk className="w-20 h-8 rounded-lg"/>
+                <Sk className="w-24 h-8 rounded-lg"/>
                 <Sk className="w-8 h-8 rounded-lg"/>
               </div>
             </div>
@@ -932,12 +963,12 @@ export default function EstoquePage() {
       ) : (
         <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
           {/* Cabeçalho */}
-          <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg text-xs font-semibold text-text-3 uppercase tracking-wide min-w-[560px]">
-            <div className="col-span-4">Produto</div>
+          <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg text-xs font-semibold text-text-3 uppercase tracking-wide min-w-[720px]">
+            <div className="col-span-3">Produto</div>
             <div className="col-span-2">Status</div>
             <div className="col-span-2">Estoque</div>
-            <div className="col-span-2">Mínimo</div>
-            <div className="col-span-2 text-right">Ações</div>
+            <div className="col-span-1">Mínimo</div>
+            <div className="col-span-4 text-right">Ações</div>
           </div>
 
           {/* Linhas */}
@@ -947,13 +978,13 @@ export default function EstoquePage() {
             const cat    = CAT_MAP[p.categoria] ?? CAT_MAP['outros'];
             return (
               <div key={p.id}
-                className={`bm-stagger grid grid-cols-12 items-center px-5 py-3.5 min-w-[560px] ${
+                className={`bm-stagger grid grid-cols-12 items-center px-5 py-3.5 min-w-[720px] ${
                   idx < filtrados.length - 1 ? 'border-b border-border' : ''
                 }`}
                 style={{ '--bm-i': idx, '--bm-step': '40ms' } as React.CSSProperties}>
 
                 {/* Nome + categoria */}
-                <div className="col-span-4 flex items-center gap-3 min-w-0">
+                <div className="col-span-3 flex items-center gap-3 min-w-0">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                     style={{ backgroundColor: cat.bg }}>
                     <Package2 size={13} style={{ color: cat.cor }} strokeWidth={2}/>
@@ -996,20 +1027,26 @@ export default function EstoquePage() {
                 </div>
 
                 {/* Mínimo */}
-                <div className="col-span-2">
+                <div className="col-span-1">
                   <span className="text-sm text-text-3">
                     {p.estoque_minimo > 0 ? `${p.estoque_minimo} ${p.unidade}` : '—'}
                   </span>
                 </div>
 
                 {/* Ações */}
-                <div className="col-span-2 flex items-center justify-end gap-2">
-                  <button onClick={() => setModalMov(p)} title="Movimentar estoque"
-                    className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition">
+                <div className="col-span-4 flex items-center justify-end gap-2">
+                  <button onClick={() => abrirHistoricoProduto(p)} title="Ver histórico de movimentações deste produto"
+                    className="h-8 px-3 rounded-lg border border-border flex items-center gap-1.5 text-text-3 text-xs font-semibold hover:bg-bg hover:text-text-2 hover:border-accent transition flex-shrink-0">
+                    <CalendarDays size={13} strokeWidth={2}/>
+                    Histórico
+                  </button>
+                  <button onClick={() => setModalMov(p)} title="Registrar entrada ou saída de estoque"
+                    className="h-8 px-3 rounded-lg border border-border flex items-center gap-1.5 text-text-3 text-xs font-semibold hover:bg-bg hover:text-text-2 hover:border-accent transition flex-shrink-0">
                     <RefreshCw size={13} strokeWidth={2}/>
+                    Movimentar
                   </button>
                   <button onClick={() => setModalProd({ modo: 'editar', produto: p })} title="Editar produto"
-                    className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition">
+                    className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
                     <Edit3 size={13} strokeWidth={2}/>
                   </button>
                 </div>
@@ -1040,6 +1077,19 @@ export default function EstoquePage() {
             </div>
           </div>
 
+          {/* Indicador de filtro por produto — deixa claro que os KPIs abaixo são só desse produto */}
+          {filtroProdId && produtoFiltradoNome && (
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary bg-primary-soft border border-primary/20 px-3 py-1.5 rounded-full">
+                <Search size={12} strokeWidth={2}/>
+                Mostrando: {produtoFiltradoNome}
+                <button onClick={() => setFiltroProdId('')} className="hover:opacity-70 transition" title="Limpar filtro de produto">
+                  <X size={12} strokeWidth={2.5}/>
+                </button>
+              </span>
+            </div>
+          )}
+
           {/* KPIs do mês */}
           {loadingMov ? (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
@@ -1053,9 +1103,9 @@ export default function EstoquePage() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
               {[
-                { label: 'Saídas no mês',   value: movimentos.filter(m => m.tipo === 'saida').length,   sub: `${totalSaidas.toFixed(1)} unid. total`,  icon: ArrowDown, color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)'    },
-                { label: 'Entradas no mês', value: movimentos.filter(m => m.tipo === 'entrada').length, sub: `${totalEntradas.toFixed(1)} unid. total`, icon: ArrowUp,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
-                { label: 'Total registros', value: movimentos.length,                                    sub: 'entradas + saídas',                       icon: List,      color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
+                { label: 'Saídas no mês',   value: movDoProduto.filter(m => m.tipo === 'saida').length,   sub: `${totalSaidas.toFixed(1)} unid. total`,  icon: ArrowDown, color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)'    },
+                { label: 'Entradas no mês', value: movDoProduto.filter(m => m.tipo === 'entrada').length, sub: `${totalEntradas.toFixed(1)} unid. total`, icon: ArrowUp,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
+                { label: 'Total registros', value: movDoProduto.length,                                    sub: 'entradas + saídas',                       icon: List,      color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
               ].map(({ label, value, sub, icon: Icon, color, bg }, idx) => (
                 <div key={label} className="bm-stagger"
                   style={{ '--bm-i': idx, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties}>

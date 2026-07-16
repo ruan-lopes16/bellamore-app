@@ -290,7 +290,7 @@ export default function ComissoesPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Equipe</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
@@ -298,6 +298,8 @@ export default function ComissoesPage() {
           </h1>
         </div>
         <ExportButton<ExRow>
+          variant="mobileHeader"
+          className="bm-mobile-header-export"
           filename={`comissoes-${periodoLabel.replace(/\s+/g, '-').toLowerCase()}`}
           title={`Comissões — ${periodoLabel}`}
           columns={[
@@ -453,7 +455,7 @@ export default function ComissoesPage() {
                 style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
 
                 {/* Card colapsado */}
-                <div className="w-full flex items-center gap-3 p-4">
+                <div className="w-full flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
                   <button
                     onClick={() => toggleExpand(prof.profissional_id)}
                     className="flex-1 min-w-0 flex items-center gap-3 text-left transition hover:opacity-80">
