@@ -43,6 +43,11 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
+import {
+  type FinanceiroFechamentoRow,
+  getFechamentoForMonth,
+  resolveFinanceiroKpis,
+} from '@/lib/financeiro/fechamentos-mensais';
 
 const supabase = createClient();
 
@@ -317,7 +322,7 @@ export default function FinanceiroPage() {
     const fimA = endOfMonth(subMonths(mes, 1)).toISOString();
     const ini6 = startOfMonth(subMonths(mes, 5)).toISOString();
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt] = await Promise.all([
+    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional e serviço)
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
@@ -369,6 +374,11 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
         .lt('data_vencimento', ini.slice(0,10))   // somente meses passados
         .order('data_vencimento', { ascending: false }),
+      // Fechamentos importados para meses sem historico operacional completo.
+      supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
+        .eq('empresa_id', empId)
+        .gte('mes', ini6.slice(0,10)).lte('mes', fim.slice(0,10)),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
@@ -393,10 +403,31 @@ export default function FinanceiroPage() {
     const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
     const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
     const gastosAntVal    = ((despAnt.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
+    const fechamentosData = (fechamentos6m.data ?? []) as FinanceiroFechamentoRow[];
+    const fechamentoMes   = getFechamentoForMonth(fechamentosData, format(mes, 'yyyy-MM'));
+    const fechamentoAnt   = getFechamentoForMonth(fechamentosData, format(subMonths(mes, 1), 'yyyy-MM'));
 
-    setReceita(receitaVal);       setReceitaAnt(receitaAntVal);
-    setComissoes(comissoesVal);   setComissoesAnt(comissoesAntVal);
-    setGastos(gastosVal);         setGastosAnt(gastosAntVal);
+    type PagRow = { metodo: string; valor: number; valor_liquido: number | null };
+    const pagsData = (pagsMes.data ?? []) as PagRow[];
+    const taxasCartaoVal = pagsData.reduce((s, p) =>
+      s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0);
+    const kpisMes = resolveFinanceiroKpis({
+      receita: receitaVal,
+      comissoes: comissoesVal,
+      gastos: gastosVal,
+      taxasCartao: taxasCartaoVal,
+    }, fechamentoMes);
+    const kpisAnt = resolveFinanceiroKpis({
+      receita: receitaAntVal,
+      comissoes: comissoesAntVal,
+      gastos: gastosAntVal,
+      taxasCartao: 0,
+    }, fechamentoAnt);
+
+    setReceita(kpisMes.receita);       setReceitaAnt(kpisAnt.receita);
+    setComissoes(kpisMes.comissoes);   setComissoesAnt(kpisAnt.comissoes);
+    setGastos(kpisMes.gastos);         setGastosAnt(kpisAnt.gastos);
+    setTaxasCartao(kpisMes.taxasCartao);
 
     // Top serviços
     const svcMap: Record<string, { nome: string; qtd: number; receita: number }> = {};
@@ -410,13 +441,6 @@ export default function FinanceiroPage() {
       .sort((a, b) => b.receita - a.receita).slice(0, 5);
     const maxSvc = svcLista[0]?.receita ?? 1;
     setTopServicos(svcLista.map(s => ({ ...s, percentual: Math.round((s.receita / maxSvc) * 100) })));
-
-    // Taxas de cartão — soma (valor - valor_liquido) onde valor_liquido não é nulo
-    type PagRow = { metodo: string; valor: number; valor_liquido: number | null };
-    const pagsData = (pagsMes.data ?? []) as PagRow[];
-    const taxasCartaoVal = pagsData.reduce((s, p) =>
-      s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0);
-    setTaxasCartao(taxasCartaoVal);
 
     // Formas de pagamento
     const metMap: Record<string, { valor: number; quantidade: number }> = {};
@@ -444,12 +468,20 @@ export default function FinanceiroPage() {
       const mesVendas = ((vendas6m.data ?? []) as Venda6Row[]).filter(v =>
         isSameMonth(new Date(v.created_at), m)
       );
+      const gastosMes = mesDesp.reduce((s, d) => s + Number(d.valor), 0);
+      const fechamento = getFechamentoForMonth(fechamentosData, format(m, 'yyyy-MM'));
+      const kpis = resolveFinanceiroKpis({
+        receita: mesAgs.reduce((s, a) => s + Number(a.valor), 0)
+               + mesVendas.reduce((s, v) => s + Number(v.valor_final), 0),
+        comissoes: calcCom(mesAgs),
+        gastos: gastosMes,
+        taxasCartao: 0,
+      }, fechamento);
       return {
         mes:       format(m, 'MMM', { locale: ptBR }),
-        receita:   mesAgs.reduce((s, a) => s + Number(a.valor), 0)
-                 + mesVendas.reduce((s, v) => s + Number(v.valor_final), 0),
-        comissoes: calcCom(mesAgs),
-        gastos:    mesDesp.reduce((s, d) => s + Number(d.valor), 0),
+        receita:   kpis.receita,
+        comissoes: kpis.comissoes,
+        gastos:    kpis.gastos,
       };
     });
     setEvolucao(evolucaoData);
