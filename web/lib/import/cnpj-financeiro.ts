@@ -102,6 +102,7 @@ export function parseCnpjFinanceiroRowsBySheet(sheets: Record<string, unknown[][
 
       if (!categoria || isIgnoredLabel(categoria)) continue;
       if (valor === null) continue;
+      if (isProLaboreExpense(categoria, descricaoCell)) continue;
 
       items.push(buildDespesa({
         config,
@@ -179,9 +180,22 @@ function addSummary(target: Record<string, CnpjImportSummaryEntry>, key: string,
 }
 
 function findProLaboreValue(row: unknown[]): number | null {
-  const hasProLabore = row.some(cell => normalize(cleanText(cell)).includes('PRO-LABORE'));
+  const hasOperationalExpense = Boolean(
+    cleanText(row[ANA_EXPENSE_CATEGORY_COL]) || cleanText(row[ANA_EXPENSE_DESCRIPTION_COL]),
+  );
+  if (hasOperationalExpense) return null;
+
+  const hasProLabore = row.some(cell => isProLaboreText(cleanText(cell)));
   if (!hasProLabore) return null;
   return parseCurrencyCell(row[ANA_EXPENSE_VALUE_COL]);
+}
+
+function isProLaboreExpense(categoria: string, descricao: string) {
+  return isProLaboreText(categoria) || isProLaboreText(descricao);
+}
+
+function isProLaboreText(value: string) {
+  return normalize(value).replace(/[^A-Z0-9]/g, '').includes('PROLABORE');
 }
 
 function isIgnoredLabel(value: string) {

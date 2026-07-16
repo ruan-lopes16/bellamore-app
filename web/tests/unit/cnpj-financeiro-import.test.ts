@@ -11,6 +11,7 @@ describe('importacao CNPJ ANA para Financeiro', () => {
         ['CNPJ - RUAN', null, null, null, null, null, null, null, null, 'CNPJ - ANA'],
         ['RECEITAS', null, null, null, null, 'DESPESAS OPERACIONAIS', null, null, null, 'RECEITAS', null, null, null, null, 'DESPESAS OPERACIONAIS'],
         ['TIPO', 'DESCRICAO', 'VALOR (R$)', 'STATUS', null, 'CATEGORIA', 'DESCRICAO', 'VALOR (R$)', null, 'TIPO', 'DESCRICAO', 'VALOR (R$)', 'STATUS', null, 'CATEGORIA', 'DESCRICAO', 'VALOR (R$)'],
+        [null, null, null, null, null, null, null, null, null, 'Despesa', 'ignorada', 10, 'PAGO', null, 'Salário', 'meu pro labore', 875.574],
         [null, null, null, null, null, 'DAS/Imposto', 'MEI Ruan ignorado', 10, null, 'Faturamento Semanal', 'Lamooni', 945.72, 'PAGO', null, 'DAS/Imposto', 'MEI', 80.9],
         [null, null, null, null, null, null, null, null, null, 'Faturamento Semanal', 'Semana', 1000, 'PAGO', null, 'Marketing', 'Maria', 1000],
         ['TOTAL RECEITAS', null, 0, null, null, 'TOTAL DESPESAS OP.', null, 10, null, 'TOTAL RECEITAS', null, 1945.72, null, null, 'TOTAL DESPESAS OP.', null, 1080.9],
@@ -69,6 +70,10 @@ describe('importacao CNPJ ANA para Financeiro', () => {
       }),
     ]);
     expect(preview.items).toHaveLength(5);
+    expect(preview.items).not.toContainEqual(expect.objectContaining({
+      descricao: 'meu pro labore',
+      categoria: 'Salário',
+    }));
     expect(preview.summary.total).toBe(3151.03);
     expect(preview.summary.byCategory.Comissao.total).toBe(1100.57);
     expect(preview.summary.byMonth['2026-01'].count).toBe(3);
