@@ -48,6 +48,7 @@ import {
   getFechamentoForMonth,
   resolveFinanceiroKpis,
 } from '@/lib/financeiro/fechamentos-mensais';
+import { getMonthQueryBounds } from '@/lib/financeiro/periodo-mensal';
 
 const supabase = createClient();
 
@@ -316,11 +317,14 @@ export default function FinanceiroPage() {
 
   async function carregar(empId: string, mes: Date) {
     setLoading(true);
-    const ini  = startOfMonth(mes).toISOString();
-    const fim  = endOfMonth(mes).toISOString();
-    const iniA = startOfMonth(subMonths(mes, 1)).toISOString();
-    const fimA = endOfMonth(subMonths(mes, 1)).toISOString();
-    const ini6 = startOfMonth(subMonths(mes, 5)).toISOString();
+    const periodo    = getMonthQueryBounds(mes);
+    const periodoAnt = getMonthQueryBounds(subMonths(mes, 1));
+    const periodo6   = getMonthQueryBounds(subMonths(mes, 5));
+    const ini  = periodo.startIso;
+    const fim  = periodo.endIso;
+    const iniA = periodoAnt.startIso;
+    const fimA = periodoAnt.endIso;
+    const ini6 = periodo6.startIso;
 
     const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional e serviço)
@@ -341,15 +345,15 @@ export default function FinanceiroPage() {
       // Despesas pagas no mês
       supabase.from('despesas').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', ini.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
+        .gte('data_pagamento', periodo.startDate).lte('data_pagamento', periodo.endDate),
       // Despesas pagas mês anterior
       supabase.from('despesas').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', iniA.slice(0,10)).lte('data_pagamento', fimA.slice(0,10)),
+        .gte('data_pagamento', periodoAnt.startDate).lte('data_pagamento', periodoAnt.endDate),
       // Despesas 6 meses (evolução)
       supabase.from('despesas').select('valor, data_pagamento')
         .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', ini6.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
+        .gte('data_pagamento', periodo6.startDate).lte('data_pagamento', periodo.endDate),
       // Formas de pagamento
       supabase.from('pagamentos').select('metodo, valor, valor_liquido')
         .eq('empresa_id', empId).eq('status', 'pago')
@@ -357,7 +361,7 @@ export default function FinanceiroPage() {
       // Lista de despesas do mês (pendentes + pagas)
       supabase.from('despesas').select('*')
         .eq('empresa_id', empId)
-        .or(`and(data_vencimento.gte.${ini.slice(0,10)},data_vencimento.lte.${fim.slice(0,10)}),and(data_pagamento.gte.${ini.slice(0,10)},data_pagamento.lte.${fim.slice(0,10)})`)
+        .or(`and(data_vencimento.gte.${periodo.startDate},data_vencimento.lte.${periodo.endDate}),and(data_pagamento.gte.${periodo.startDate},data_pagamento.lte.${periodo.endDate})`)
         .order('status').order('data_vencimento'),
       // Vendas avulsas do mês
       supabase.from('vendas').select('valor_final')
@@ -372,13 +376,13 @@ export default function FinanceiroPage() {
       supabase.from('despesas')
         .select('descricao, categoria, valor, periodicidade, data_vencimento')
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
-        .lt('data_vencimento', ini.slice(0,10))   // somente meses passados
+        .lt('data_vencimento', periodo.startDate)   // somente meses passados
         .order('data_vencimento', { ascending: false }),
       // Fechamentos importados para meses sem historico operacional completo.
       supabase.from('financeiro_ajustes_mensais')
         .select('mes, receita_bruta, comissao_paga')
         .eq('empresa_id', empId)
-        .gte('mes', ini6.slice(0,10)).lte('mes', fim.slice(0,10)),
+        .gte('mes', periodo6.startDate).lte('mes', periodo.endDate),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
