@@ -43,6 +43,12 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
+import {
+  type FinanceiroFechamentoRow,
+  getFechamentoForMonth,
+  resolveFinanceiroKpis,
+} from '@/lib/financeiro/fechamentos-mensais';
+import { getMonthQueryBounds } from '@/lib/financeiro/periodo-mensal';
 
 const supabase = createClient();
 
@@ -311,13 +317,16 @@ export default function FinanceiroPage() {
 
   async function carregar(empId: string, mes: Date) {
     setLoading(true);
-    const ini  = startOfMonth(mes).toISOString();
-    const fim  = endOfMonth(mes).toISOString();
-    const iniA = startOfMonth(subMonths(mes, 1)).toISOString();
-    const fimA = endOfMonth(subMonths(mes, 1)).toISOString();
-    const ini6 = startOfMonth(subMonths(mes, 5)).toISOString();
+    const periodo    = getMonthQueryBounds(mes);
+    const periodoAnt = getMonthQueryBounds(subMonths(mes, 1));
+    const periodo6   = getMonthQueryBounds(subMonths(mes, 5));
+    const ini  = periodo.startIso;
+    const fim  = periodo.endIso;
+    const iniA = periodoAnt.startIso;
+    const fimA = periodoAnt.endIso;
+    const ini6 = periodo6.startIso;
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt] = await Promise.all([
+    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional e serviço)
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
@@ -336,15 +345,15 @@ export default function FinanceiroPage() {
       // Despesas pagas no mês
       supabase.from('despesas').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', ini.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
+        .gte('data_pagamento', periodo.startDate).lte('data_pagamento', periodo.endDate),
       // Despesas pagas mês anterior
       supabase.from('despesas').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', iniA.slice(0,10)).lte('data_pagamento', fimA.slice(0,10)),
+        .gte('data_pagamento', periodoAnt.startDate).lte('data_pagamento', periodoAnt.endDate),
       // Despesas 6 meses (evolução)
       supabase.from('despesas').select('valor, data_pagamento')
         .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', ini6.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
+        .gte('data_pagamento', periodo6.startDate).lte('data_pagamento', periodo.endDate),
       // Formas de pagamento
       supabase.from('pagamentos').select('metodo, valor, valor_liquido')
         .eq('empresa_id', empId).eq('status', 'pago')
@@ -352,7 +361,7 @@ export default function FinanceiroPage() {
       // Lista de despesas do mês (pendentes + pagas)
       supabase.from('despesas').select('*')
         .eq('empresa_id', empId)
-        .or(`and(data_vencimento.gte.${ini.slice(0,10)},data_vencimento.lte.${fim.slice(0,10)}),and(data_pagamento.gte.${ini.slice(0,10)},data_pagamento.lte.${fim.slice(0,10)})`)
+        .or(`and(data_vencimento.gte.${periodo.startDate},data_vencimento.lte.${periodo.endDate}),and(data_pagamento.gte.${periodo.startDate},data_pagamento.lte.${periodo.endDate})`)
         .order('status').order('data_vencimento'),
       // Vendas avulsas do mês
       supabase.from('vendas').select('valor_final')
@@ -367,8 +376,13 @@ export default function FinanceiroPage() {
       supabase.from('despesas')
         .select('descricao, categoria, valor, periodicidade, data_vencimento')
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
-        .lt('data_vencimento', ini.slice(0,10))   // somente meses passados
+        .lt('data_vencimento', periodo.startDate)   // somente meses passados
         .order('data_vencimento', { ascending: false }),
+      // Fechamentos importados para meses sem historico operacional completo.
+      supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
+        .eq('empresa_id', empId)
+        .gte('mes', periodo6.startDate).lte('mes', periodo.endDate),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
@@ -393,10 +407,31 @@ export default function FinanceiroPage() {
     const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
     const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
     const gastosAntVal    = ((despAnt.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
+    const fechamentosData = (fechamentos6m.data ?? []) as FinanceiroFechamentoRow[];
+    const fechamentoMes   = getFechamentoForMonth(fechamentosData, format(mes, 'yyyy-MM'));
+    const fechamentoAnt   = getFechamentoForMonth(fechamentosData, format(subMonths(mes, 1), 'yyyy-MM'));
 
-    setReceita(receitaVal);       setReceitaAnt(receitaAntVal);
-    setComissoes(comissoesVal);   setComissoesAnt(comissoesAntVal);
-    setGastos(gastosVal);         setGastosAnt(gastosAntVal);
+    type PagRow = { metodo: string; valor: number; valor_liquido: number | null };
+    const pagsData = (pagsMes.data ?? []) as PagRow[];
+    const taxasCartaoVal = pagsData.reduce((s, p) =>
+      s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0);
+    const kpisMes = resolveFinanceiroKpis({
+      receita: receitaVal,
+      comissoes: comissoesVal,
+      gastos: gastosVal,
+      taxasCartao: taxasCartaoVal,
+    }, fechamentoMes);
+    const kpisAnt = resolveFinanceiroKpis({
+      receita: receitaAntVal,
+      comissoes: comissoesAntVal,
+      gastos: gastosAntVal,
+      taxasCartao: 0,
+    }, fechamentoAnt);
+
+    setReceita(kpisMes.receita);       setReceitaAnt(kpisAnt.receita);
+    setComissoes(kpisMes.comissoes);   setComissoesAnt(kpisAnt.comissoes);
+    setGastos(kpisMes.gastos);         setGastosAnt(kpisAnt.gastos);
+    setTaxasCartao(kpisMes.taxasCartao);
 
     // Top serviços
     const svcMap: Record<string, { nome: string; qtd: number; receita: number }> = {};
@@ -410,13 +445,6 @@ export default function FinanceiroPage() {
       .sort((a, b) => b.receita - a.receita).slice(0, 5);
     const maxSvc = svcLista[0]?.receita ?? 1;
     setTopServicos(svcLista.map(s => ({ ...s, percentual: Math.round((s.receita / maxSvc) * 100) })));
-
-    // Taxas de cartão — soma (valor - valor_liquido) onde valor_liquido não é nulo
-    type PagRow = { metodo: string; valor: number; valor_liquido: number | null };
-    const pagsData = (pagsMes.data ?? []) as PagRow[];
-    const taxasCartaoVal = pagsData.reduce((s, p) =>
-      s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0);
-    setTaxasCartao(taxasCartaoVal);
 
     // Formas de pagamento
     const metMap: Record<string, { valor: number; quantidade: number }> = {};
@@ -444,12 +472,20 @@ export default function FinanceiroPage() {
       const mesVendas = ((vendas6m.data ?? []) as Venda6Row[]).filter(v =>
         isSameMonth(new Date(v.created_at), m)
       );
+      const gastosMes = mesDesp.reduce((s, d) => s + Number(d.valor), 0);
+      const fechamento = getFechamentoForMonth(fechamentosData, format(m, 'yyyy-MM'));
+      const kpis = resolveFinanceiroKpis({
+        receita: mesAgs.reduce((s, a) => s + Number(a.valor), 0)
+               + mesVendas.reduce((s, v) => s + Number(v.valor_final), 0),
+        comissoes: calcCom(mesAgs),
+        gastos: gastosMes,
+        taxasCartao: 0,
+      }, fechamento);
       return {
         mes:       format(m, 'MMM', { locale: ptBR }),
-        receita:   mesAgs.reduce((s, a) => s + Number(a.valor), 0)
-                 + mesVendas.reduce((s, v) => s + Number(v.valor_final), 0),
-        comissoes: calcCom(mesAgs),
-        gastos:    mesDesp.reduce((s, d) => s + Number(d.valor), 0),
+        receita:   kpis.receita,
+        comissoes: kpis.comissoes,
+        gastos:    kpis.gastos,
       };
     });
     setEvolucao(evolucaoData);

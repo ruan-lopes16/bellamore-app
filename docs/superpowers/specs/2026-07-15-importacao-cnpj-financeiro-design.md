@@ -1,76 +1,57 @@
-# Importacao CNPJ no Financeiro - Design
+# Historico Financeiro de Janeiro a Maio de 2026 - Design
 
 ## Objetivo
 
-Importar dados do bloco CNPJ da planilha `Controle de Gastos - AC RS (1).xlsx` para o modulo Financeiro do App de Estetica, com preview antes de gravar.
+Registrar os fechamentos financeiros fornecidos pelo usuario para janeiro a maio de 2026 sem criar atendimentos, vendas ou pagamentos artificiais.
 
 ## Escopo aprovado
 
-- Destino: tabela `despesas`, exibida em `Financeiro`.
-- Fonte: somente o bloco `CNPJ - ANA` das abas mensais.
-- Meses importados: `01-Jan`, `02-Fev`, `03-Mar`, `04-Abr` e `05-Mai` de 2026.
-- Meses fora do escopo: `06-Jun` e `07-Jul`, alem de `08-Ago` a `12-Dez`.
-- Blocos fora do escopo: `Resumo Anual`, `Dashboard`, dados pessoais e bloco `CNPJ - RUAN`.
-- Todas as linhas importadas entram como despesas pagas.
-- Receitas/faturamento do CNPJ nao entram, porque o Financeiro do app ja calcula receita a partir de agenda e vendas.
-- A linha `PRO-LABORE (45% do faturamento bruto)` entra como despesa de categoria `Comissao`.
+- Fonte unica: tabela de valores e imagens fornecidas pelo usuario nesta tarefa.
+- Meses: janeiro, fevereiro, marco, abril e maio de 2026.
+- Fora do escopo: dezembro de 2025, junho e julho de 2026.
+- `Faturamento Bruto` recebe `Receita`.
+- `Comissoes` recebe `Comissao`, paga para Ana Clara.
+- `Gastos Operacionais` recebe a soma das despesas pagas descritas nas imagens.
+- `Lucro Real` corresponde a `Receita - Comissao - Gastos`, sem taxas de pagamento.
+- Nenhum atendimento, venda, pagamento ou comissao operacional artificial deve ser criado.
 
-## Mapeamento de dados
+## Valores aprovados
 
-Para despesas operacionais do bloco `CNPJ - ANA`:
+| Mes | Receita | Comissao | Gastos | Lucro |
+|---|---:|---:|---:|---:|
+| Janeiro | R$ 6.491,08 | R$ 2.920,99 | R$ 2.448,19 | R$ 1.121,90 |
+| Fevereiro | R$ 7.353,04 | R$ 3.308,87 | R$ 1.915,82 | R$ 2.128,35 |
+| Marco | R$ 9.402,10 | R$ 4.230,95 | R$ 1.708,24 | R$ 3.462,91 |
+| Abril | R$ 11.889,38 | R$ 5.350,22 | R$ 1.320,28 | R$ 5.218,88 |
+| Maio | R$ 8.170,08 | R$ 3.676,54 | R$ 1.264,73 | R$ 3.228,81 |
 
-- `descricao`: descricao da linha da planilha. Se vier vazia, usar a categoria como descricao.
-- `categoria`: categoria da planilha, preservada.
-- `valor`: valor monetario da linha.
-- `status`: `pago`.
+## Persistencia
+
+- `financeiro_ajustes_mensais`: cinco fechamentos com Receita e Comissao.
+- `despesas`: 28 despesas pagas, preservando categoria, descricao e valor das imagens.
+- `data_pagamento` e `data_vencimento`: primeiro dia do respectivo mes.
 - `recorrente`: `false`.
-- `data_pagamento`: primeiro dia do mes da aba, em formato `YYYY-MM-01`.
-- `data_vencimento`: mesmo valor de `data_pagamento`.
-
-Para pro-labore:
-
-- `descricao`: `Comissao - Janeiro/2026`, `Comissao - Fevereiro/2026`, `Comissao - Marco/2026`, `Comissao - Abril/2026` ou `Comissao - Maio/2026`, conforme a aba importada.
-- `categoria`: `Comissao`.
-- `valor`: valor calculado da linha `PRO-LABORE`.
-- `status`: `pago`.
-- `recorrente`: `false`.
-- `data_pagamento` e `data_vencimento`: primeiro dia do mes da aba.
-
-## Fluxo de usuario
-
-1. O usuario abre um fluxo administrativo de importacao no app.
-2. Seleciona a planilha `.xlsx`.
-3. O app mostra um preview antes de gravar:
-   - total por mes;
-   - total por categoria;
-   - quantidade de linhas;
-   - linhas que serao importadas;
-   - avisos de linhas ignoradas.
-4. O usuario confirma.
-5. O app grava as despesas no Supabase.
-6. O Financeiro passa a exibir os valores nos meses correspondentes.
+- `periodicidade`: `null`.
 
 ## Regras de seguranca e consistencia
 
-- Nenhuma gravacao acontece durante o preview.
-- O importador deve validar valor maior que zero.
-- Linhas de totais, receitas e lucro liquido nao entram como despesas, exceto o pro-labore mapeado para `Comissao`.
-- Antes de inserir, o app deve detectar possiveis duplicidades por `empresa_id`, `descricao`, `categoria`, `valor`, `data_pagamento` e `status`.
-- Duplicidades detectadas devem aparecer no preview como avisos e nao devem ser reinseridas.
-- A importacao respeita RLS existente: somente usuario com permissao de escrita em `despesas` consegue gravar.
+- A gravacao deve abortar se ja houver fechamentos ou despesas no intervalo aprovado.
+- Os totais das despesas devem ser validados por mes antes e depois da gravacao.
+- O lucro calculado deve coincidir centavo por centavo com a tabela aprovada.
+- Taxas de pagamento devem permanecer zeradas nesses fechamentos.
+- Scripts temporarios de gravacao devem ser removidos apos a verificacao.
 
 ## Componentes tecnicos
 
-- Parser puro para ler o workbook e converter as abas Jan-Mai em um payload tipado.
-- Componente client-side para selecionar arquivo, renderizar preview e confirmar importacao.
-- Server action para validar o payload, checar duplicidades e inserir em `despesas`.
-- Testes unitarios para parser, mapeamento do pro-labore e exclusao de junho/julho.
+- Helper puro para selecionar o fechamento do mes e resolver os KPIs.
+- Consulta da tela Financeiro a `financeiro_ajustes_mensais`.
+- Migration idempotente para a tabela e suas politicas RLS.
+- Testes unitarios para fechamento historico e preservacao do calculo normal.
 
 ## Criterios de aceite
 
-- Preview mostra apenas dados de Jan-Mai/2026 do bloco `CNPJ - ANA`.
-- Junho e julho nao aparecem no preview nem no payload.
-- `PRO-LABORE` aparece como `Comissao`.
-- Confirmar importacao cria despesas pagas nos meses certos.
-- Rodar `npx tsc --noEmit` sem erros.
-- Testes do importador passam.
+- Os quatro KPIs de cada mes coincidem com a tabela aprovada.
+- Janeiro contem 7 despesas, fevereiro 6 e marco, abril e maio 5 cada.
+- Nao existem registros criados por esta operacao em dezembro de 2025, junho ou julho de 2026.
+- Nenhum importador de CNPJ e exposto na interface.
+- `npx tsc --noEmit` e a suite de testes passam.
