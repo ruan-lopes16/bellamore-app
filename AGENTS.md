@@ -183,4 +183,25 @@
 
 **Score parcial (sem visual/humana):** `9.7 / 10` → **A+**
 
+---
+
+### Sessao 2026-07-16 - Calendario mensal no Financeiro
+
+*Escopo auditado: seletor recolhivel de mes no Financeiro, componente `FinanceMonthCalendar`, teste unitario e documentacao de design/plano.*
+
+| Criterio | Nota | Observacao |
+|---|---:|---|
+| TypeScript | 10.0 | `npx.cmd tsc --noEmit` sem erros |
+| UX / Padroes | 9.5 | Calendario segue a referencia da Agenda, com seletor compacto e alvos de toque de 44px |
+| Seguranca | 10.0 | Alteracao apenas visual, sem schema, RLS ou queries novas |
+| Documentacao | 9.5 | Spec, plano e JSDoc do componente adicionados |
+| Arquitetura | 9.5 | Componente isolado e controlado por props, Financeiro preserva o estado mensal |
+| Performance | 9.5 | Sem consultas extras; grade mensal gerada localmente |
+| Visual (UI) | - | Validacao visual automatica nao executada nesta sessao |
+| **Completude** | 10.0 | Teste focado e suite completa passaram; comportamento aprovado implementado |
+| **Proatividade** | 9.0 | Mantido bloqueio de mes futuro e destaque do dia selecionado como na Agenda |
+| **Nota Humana** | - | *Aguardando avaliacao do usuario* |
+
+**Score parcial (sem visual/humana):** `9.6 / 10` -> **A+**
+
 ## Imported Claude Cowork project instructions

@@ -31,12 +31,13 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Plus, ChevronLeft, ChevronRight, TrendingUp, TrendingDown,
+  Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, X, Layers, Banknote, CreditCard, Gift,
   RefreshCw, Check, FileSpreadsheet,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { CnpjFinanceiroImporter } from '@/components/CnpjFinanceiroImporter';
+import { FinanceMonthCalendar } from '@/components/FinanceMonthCalendar';
 import { createClient } from '@/lib/supabase/client';
 import {
   applyFinanceiroAjuste,
@@ -295,6 +296,7 @@ export default function FinanceiroPage() {
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
   const [modalImportCnpj, setModalImportCnpj] = useState(false);
+  const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
   const [lancandoRec,           setLancandoRec]           = useState(false);
@@ -570,28 +572,14 @@ export default function FinanceiroPage() {
         />
       </div>
 
-      {/* Seletor de mês */}
-      <div className="flex items-center justify-center mb-6">
-        <div className="bg-surface border border-border rounded-[20px] flex items-center gap-2 px-3 py-2">
-          <button onClick={() => setMesRef(m => subMonths(m, 1))}
-            className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
-            <ChevronLeft size={16}/>
-          </button>
-          <div className="text-center" style={{ minWidth: 180 }}>
-            <p className="text-sm font-semibold capitalize" style={{ color: 'var(--color-ink)' }}>
-              {format(mesRef, 'MMMM yyyy', { locale: ptBR })}
-            </p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--color-ink4)' }}>
-              {format(startOfMonth(mesRef), 'dd/MM')} – {format(endOfMonth(mesRef), 'dd/MM')}
-            </p>
-          </div>
-          <button onClick={() => !isHoje && setMesRef(m => addMonths(m, 1))}
-            disabled={isHoje}
-            className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition disabled:opacity-30">
-            <ChevronRight size={16}/>
-          </button>
-        </div>
-      </div>
+      <FinanceMonthCalendar
+        month={mesRef}
+        isOpen={calendarioAberto}
+        isNextDisabled={isHoje}
+        onToggle={() => setCalendarioAberto(open => !open)}
+        onPreviousMonth={() => setMesRef(m => subMonths(m, 1))}
+        onNextMonth={() => !isHoje && setMesRef(m => addMonths(m, 1))}
+      />
 
       {/* KPIs */}
       {loading ? (
