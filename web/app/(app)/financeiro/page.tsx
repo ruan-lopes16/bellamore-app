@@ -81,8 +81,10 @@ const CATEGORIAS_DESP = [
   'Produtos / Insumos', 'Manutenção', 'Marketing', 'Contabilidade', 'Outros',
 ];
 const PERIODICIDADES = [
-  { key: 'mensal', label: 'Mensal' },
   { key: 'semanal', label: 'Semanal' },
+  { key: 'mensal', label: 'Mensal' },
+  { key: 'trimestral', label: 'Trimestral' },
+  { key: 'semestral', label: 'Semestral' },
   { key: 'anual', label: 'Anual' },
 ] as const;
 
@@ -106,7 +108,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   const [valor,         setValor]         = useState('');
   const [categoria,     setCategoria]     = useState('');
   const [recorrente,    setRecorrente]    = useState(false);
-  const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'anual'>('mensal');
+  const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>('mensal');
   const [vencimento,    setVencimento]    = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
@@ -186,10 +188,10 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
               </span>
             </label>
             {recorrente && (
-              <div className="flex gap-2 mt-3">
+              <div className="flex flex-wrap gap-2 mt-3">
                 {PERIODICIDADES.map(p => (
                   <button key={p.key} type="button" onClick={() => setPeriodicidade(p.key)}
-                    className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition ${
+                    className={`flex-1 min-w-[90px] py-2 rounded-xl text-xs font-semibold border transition ${
                       periodicidade === p.key
                         ? 'bg-amber-soft border-amber/30 text-amber'
                         : 'bg-bg border-border text-text-3'

@@ -40,8 +40,10 @@ const CATEGORIAS = [
 ];
 
 const PERIODICIDADES = [
-  { key: 'mensal', label: 'Mensal' },
   { key: 'semanal', label: 'Semanal' },
+  { key: 'mensal', label: 'Mensal' },
+  { key: 'trimestral', label: 'Trimestral' },
+  { key: 'semestral', label: 'Semestral' },
   { key: 'anual', label: 'Anual' },
 ];
 
@@ -69,7 +71,7 @@ export default function NovaDespesa() {
   const [valor, setValor]               = useState('');
   const [categoria, setCategoria]       = useState('');
   const [recorrente, setRecorrente]     = useState(false);
-  const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'anual'>('mensal');
+  const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>('mensal');
   const [vencimento, setVencimento]     = useState('');
   const [salvando, setSalvando]         = useState(false);
 
@@ -251,13 +253,13 @@ export default function NovaDespesa() {
 
           {recorrente && (
             <MotiView from={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={{ type: 'timing', duration: 250 }}>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
                 {PERIODICIDADES.map((p) => (
                   <TouchableOpacity
                     key={p.key}
                     onPress={() => setPeriodicidade(p.key as any)}
                     style={{
-                      flex: 1, paddingVertical: 10, borderRadius: 12,
+                      paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12,
                       backgroundColor: periodicidade === p.key ? C.amberSoft : C.surface,
                       borderWidth: 1, borderColor: periodicidade === p.key ? C.amber : C.border,
                       alignItems: 'center',

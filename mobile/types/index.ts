@@ -169,7 +169,7 @@ export interface Despesa {
   categoria?: string;
   valor: number;
   recorrente: boolean;
-  periodicidade?: 'mensal' | 'semanal' | 'anual';
+  periodicidade?: 'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual';
   data_vencimento?: string;
   data_pagamento?: string;
   status: DespesaStatus;
