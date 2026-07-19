@@ -170,6 +170,12 @@ export default function NovaComandaScreen() {
     return Object.values(map).sort((a, b) => (a.agendamentos[0]?.data_hora_inicio ?? '').localeCompare(b.agendamentos[0]?.data_hora_inicio ?? ''));
   }, [agDia]);
 
+  /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) hoje */
+  const totalDia = useMemo(
+    () => agDia.filter(ag => ag.status === 'concluido').reduce((s, ag) => s + ag.valor, 0),
+    [agDia],
+  );
+
   /** Próximo cliente da fila: comanda ainda aberta e horário do atendimento já passou */
   function proximoClienteAberto(excluirId: string): ClienteComanda | null {
     const agora = new Date();
@@ -436,12 +442,22 @@ export default function NovaComandaScreen() {
           <TouchableOpacity onPress={() => router.back()} style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
             <ChevronLeft size={20} color={C.text3} />
           </TouchableOpacity>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2 }}>Comanda</Text>
             <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text }}>
               {format(new Date(), "EEEE, d 'de' MMM", { locale: ptBR })}
             </Text>
           </View>
+          {totalDia > 0 && (
+            <View style={{ backgroundColor: C.greenSoft, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7, alignItems: 'flex-end' }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                Total do dia
+              </Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green }}>
+                {fmtBRL(totalDia)}
+              </Text>
+            </View>
+          )}
         </View>
 
         {loading ? (
