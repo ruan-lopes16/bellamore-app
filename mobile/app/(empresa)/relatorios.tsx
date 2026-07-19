@@ -11,7 +11,10 @@ import {
   CalendarCheck2, Receipt, UserPlus, RefreshCw,
   Users, UserCheck, Clock, ChevronLeft, ChevronRight,
 } from 'lucide-react-native';
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameWeek, startOfMonth } from 'date-fns';
+import {
+  format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameWeek, startOfMonth,
+  addYears, subYears, isSameYear,
+} from 'date-fns';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -244,10 +247,15 @@ export default function Relatorios() {
   const [periodo, setPeriodo] = useState<Periodo>('30d');
   // Data de referência da semana visualizada — só usada quando periodo === '7d'
   const [semanaRef, setSemanaRef] = useState(new Date());
-  const refAtivo = periodo === '7d' ? semanaRef : new Date();
   const semanaIni = startOfWeek(semanaRef, { weekStartsOn: 1 });
   const semanaFim = endOfWeek(semanaRef, { weekStartsOn: 1 });
   const semanaAtual = isSameWeek(semanaRef, new Date(), { weekStartsOn: 1 });
+
+  // Data de referência do ano visualizado — só usada quando periodo === '1y'
+  const [anoRef, setAnoRef] = useState(new Date());
+  const anoAtual = isSameYear(anoRef, new Date());
+
+  const refAtivo = periodo === '7d' ? semanaRef : periodo === '1y' ? anoRef : new Date();
 
   // Intervalo personalizado (texto digitado com máscara) — só usado quando periodo === 'custom'
   const [customIniStr, setCustomIniStr] = useState(() => format(startOfMonth(new Date()), 'dd/MM/yyyy'));
@@ -327,13 +335,14 @@ export default function Relatorios() {
               onChange={key => {
                 setPeriodo(key as Periodo);
                 if (key === '7d') setSemanaRef(new Date());
+                if (key === '1y') setAnoRef(new Date());
               }}
               activeColor="#fff"
               activeTextColor={C.primary}
               inactiveTextColor="rgba(255,255,255,0.5)"
               trackBg="rgba(255,255,255,0.1)"
               trackBorder="rgba(255,255,255,0.1)"
-              style={{ marginBottom: periodo === '7d' || periodo === 'custom' ? 12 : 20 }}
+              style={{ marginBottom: periodo === '7d' || periodo === 'custom' || periodo === '1y' ? 12 : 20 }}
             />
 
             {/* Datas personalizadas — só no período "Personalizado" */}
@@ -380,6 +389,26 @@ export default function Relatorios() {
                   onPress={() => !semanaAtual && setSemanaRef(d => addWeeks(d, 1))}
                   disabled={semanaAtual}
                   style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: semanaAtual ? 0.3 : 1 }}>
+                  <ChevronRight size={14} color="rgba(255,255,255,0.75)" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Navegação entre anos — só no período "Ano" */}
+            {periodo === '1y' && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 20 }}>
+                <TouchableOpacity
+                  onPress={() => setAnoRef(d => subYears(d, 1))}
+                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+                  <ChevronLeft size={14} color="rgba(255,255,255,0.75)" />
+                </TouchableOpacity>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>
+                  {format(anoRef, 'yyyy')}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => !anoAtual && setAnoRef(d => addYears(d, 1))}
+                  disabled={anoAtual}
+                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: anoAtual ? 0.3 : 1 }}>
                   <ChevronRight size={14} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
               </View>

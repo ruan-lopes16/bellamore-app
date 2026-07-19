@@ -39,7 +39,7 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   format, startOfMonth, endOfMonth, startOfYear, endOfYear,
   subMonths, parseISO, eachMonthOfInterval, eachWeekOfInterval, eachDayOfInterval,
-  startOfWeek, endOfWeek, isSameDay, addWeeks, startOfDay, endOfDay, differenceInCalendarDays,
+  startOfWeek, endOfWeek, isSameDay, addWeeks, addYears, startOfDay, endOfDay, differenceInCalendarDays,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -144,23 +144,25 @@ function iniciais(nome: string) {
  * Converte enum de período em datas reais de início/fim e label legível.
  * Todos os períodos usam limites de mês completo para evitar dados parciais.
  */
-function periodoParaDatas(
-  p: Periodo,
-  semanaOffset = 0,
-  custom?: { ini: string; fim: string },
-): { inicio: Date; fim: Date; labelPeriodo: string } {
+type PeriodoOpts = {
+  semanaOffset?: number;
+  anoOffset?: number;
+  custom?: { ini: string; fim: string };
+};
+
+function periodoParaDatas(p: Periodo, opts: PeriodoOpts = {}): { inicio: Date; fim: Date; labelPeriodo: string } {
   const hoje = new Date();
   switch (p) {
     case 'custom': {
-      const ini   = custom ? startOfDay(parseISO(custom.ini)) : startOfMonth(hoje);
-      const fimC  = custom ? endOfDay(parseISO(custom.fim))   : hoje;
+      const ini   = opts.custom ? startOfDay(parseISO(opts.custom.ini)) : startOfMonth(hoje);
+      const fimC  = opts.custom ? endOfDay(parseISO(opts.custom.fim))   : hoje;
       return {
         inicio: ini, fim: fimC,
         labelPeriodo: `${format(ini, 'dd/MM/yyyy')} – ${format(fimC, 'dd/MM/yyyy')}`,
       };
     }
     case 'semana': {
-      const ref = addWeeks(hoje, semanaOffset);
+      const ref = addWeeks(hoje, opts.semanaOffset ?? 0);
       const ini = startOfWeek(ref, { weekStartsOn: 0 });
       const fimSem = endOfWeek(ref, { weekStartsOn: 0 });
       return {
@@ -194,11 +196,13 @@ function periodoParaDatas(
         labelPeriodo: `${format(ini, 'MMM', { locale: ptBR })} – ${format(hoje, 'MMM yyyy', { locale: ptBR })}`,
       };
     }
-    case 'ano':
+    case 'ano': {
+      const ref = addYears(hoje, opts.anoOffset ?? 0);
       return {
-        inicio: startOfYear(hoje), fim: endOfYear(hoje),
-        labelPeriodo: format(hoje, 'yyyy'),
+        inicio: startOfYear(ref), fim: endOfYear(ref),
+        labelPeriodo: format(ref, 'yyyy'),
       };
+    }
   }
 }
 
@@ -318,6 +322,8 @@ export default function RelatoriosPage() {
   const [aba,       setAba]       = useState<Aba>('financeiro');
   // Deslocamento em semanas a partir de hoje — só usado quando periodo === 'semana'
   const [semanaOffset, setSemanaOffset] = useState(0);
+  // Deslocamento em anos a partir de hoje — só usado quando periodo === 'ano'
+  const [anoOffset, setAnoOffset] = useState(0);
   // Intervalo personalizado (yyyy-MM-dd) — só usado quando periodo === 'custom'
   const [customIni, setCustomIni] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [customFim, setCustomFim] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -386,11 +392,9 @@ export default function RelatoriosPage() {
    * paginados (podem ultrapassar o limite padrão de linhas por requisição).
    * Estoque e Avaliações ficam de fora — carregam sob demanda ao abrir a aba.
    */
-  const carregar = useCallback(async (
-    empId: string, per: Periodo, semOffset: number, custom: { ini: string; fim: string },
-  ) => {
+  const carregar = useCallback(async (empId: string, per: Periodo, opts: PeriodoOpts) => {
     setLoading(true);
-    const { inicio, fim } = periodoParaDatas(per, semOffset, custom);
+    const { inicio, fim } = periodoParaDatas(per, opts);
     const isoIni  = inicio.toISOString();
     const isoFim  = fim.toISOString();
     const dateIni = format(inicio, 'yyyy-MM-dd');
@@ -458,18 +462,25 @@ export default function RelatoriosPage() {
     setLoading(false);
   }, [supabase]);
 
+  // Opções que parametrizam o período selecionado — memoizado para não recriar o objeto
+  // a cada render (evitaria re-disparar os efeitos abaixo, que o têm como dependência).
+  const periodoOpts = useMemo<PeriodoOpts>(
+    () => ({ semanaOffset, anoOffset, custom: { ini: customIni, fim: customFim } }),
+    [semanaOffset, anoOffset, customIni, customFim],
+  );
+
   useEffect(() => {
-    if (empresaId) carregar(empresaId, periodo, semanaOffset, { ini: customIni, fim: customFim });
-  }, [empresaId, periodo, semanaOffset, customIni, customFim, carregar]);
+    if (empresaId) carregar(empresaId, periodo, periodoOpts);
+  }, [empresaId, periodo, periodoOpts, carregar]);
 
   // ── Aba Estoque: carrega sob demanda (sai da query principal)
   useEffect(() => {
     if (aba !== 'estoque' || !empresaId) return;
-    const chave = `${empresaId}-${periodo}-${semanaOffset}-${customIni}-${customFim}`;
+    const chave = `${empresaId}-${periodo}-${semanaOffset}-${anoOffset}-${customIni}-${customFim}`;
     if (estoqueChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { inicio, fim } = periodoParaDatas(periodo, semanaOffset, { ini: customIni, fim: customFim });
+      const { inicio, fim } = periodoParaDatas(periodo, periodoOpts);
       const { data } = await supabase.from('estoque_movimentos')
         .select('produto_id, quantidade, produto:produtos(nome, preco_custo)')
         .eq('empresa_id', empresaId)
@@ -480,16 +491,16 @@ export default function RelatoriosPage() {
       setEstoqueChave(chave);
       setLoadingAba(false);
     })();
-  }, [aba, empresaId, periodo, semanaOffset, customIni, customFim, estoqueChave]);
+  }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, estoqueChave]);
 
   // ── Aba Avaliações: carrega sob demanda (sai da query principal)
   useEffect(() => {
     if (aba !== 'avaliacoes' || !empresaId) return;
-    const chave = `${empresaId}-${periodo}-${semanaOffset}-${customIni}-${customFim}`;
+    const chave = `${empresaId}-${periodo}-${semanaOffset}-${anoOffset}-${customIni}-${customFim}`;
     if (avalChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { inicio, fim } = periodoParaDatas(periodo, semanaOffset, { ini: customIni, fim: customFim });
+      const { inicio, fim } = periodoParaDatas(periodo, periodoOpts);
       const { data } = await supabase.from('avaliacoes')
         .select(`nota, comentario, created_at, profissional_id,
           profissional:empresa_membros!avaliacoes_profissional_id_fkey(nome),
@@ -502,12 +513,12 @@ export default function RelatoriosPage() {
       setAvalChave(chave);
       setLoadingAba(false);
     })();
-  }, [aba, empresaId, periodo, semanaOffset, customIni, customFim, avalChave]);
+  }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, avalChave]);
 
   // ── Label do período selecionado
   const { labelPeriodo, inicio, fim } = useMemo(
-    () => periodoParaDatas(periodo, semanaOffset, { ini: customIni, fim: customFim }),
-    [periodo, semanaOffset, customIni, customFim],
+    () => periodoParaDatas(periodo, periodoOpts),
+    [periodo, periodoOpts],
   );
 
   // ── KPIs principais
@@ -803,6 +814,25 @@ export default function RelatoriosPage() {
                   <ChevronRight size={13} />
                 </button>
               </div>
+            ) : periodo === 'ano' ? (
+              <div className="flex items-center gap-1 mt-0.5">
+                <button
+                  onClick={() => setAnoOffset(o => o - 1)}
+                  aria-label="Ano anterior"
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-text-3 hover:bg-surface hover:text-text transition flex-shrink-0"
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <p className="text-sm text-text-3">{labelPeriodo}</p>
+                <button
+                  onClick={() => setAnoOffset(o => Math.min(o + 1, 0))}
+                  disabled={anoOffset >= 0}
+                  aria-label="Próximo ano"
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-text-3 hover:bg-surface hover:text-text transition disabled:opacity-30 disabled:pointer-events-none flex-shrink-0"
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
             ) : (
               <p className="text-sm text-text-3 mt-0.5 capitalize">{labelPeriodo}</p>
             )
@@ -874,6 +904,7 @@ export default function RelatoriosPage() {
         onChange={key => {
           setPeriodo(key as Periodo);
           if (key === 'semana') setSemanaOffset(0);
+          if (key === 'ano') setAnoOffset(0);
         }}
       />
 
