@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, StatusBar,
+  RefreshControl, StatusBar, TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,7 +11,10 @@ import {
   CalendarCheck2, Receipt, UserPlus, RefreshCw,
   Users, UserCheck, Clock, ChevronLeft, ChevronRight,
 } from 'lucide-react-native';
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameWeek } from 'date-fns';
+import {
+  format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameWeek, startOfMonth,
+  addYears, subYears, isSameYear,
+} from 'date-fns';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -46,18 +49,36 @@ const C = {
 };
 
 const PERIODOS: { key: Periodo; label: string }[] = [
-  { key: '7d',  label: 'Semana'    },
-  { key: '30d', label: 'Mês'       },
-  { key: '90d', label: 'Trimestre' },
-  { key: '1y',  label: 'Ano'       },
+  { key: '7d',     label: 'Semana'       },
+  { key: '30d',    label: 'Mês'          },
+  { key: '90d',    label: 'Trimestre'    },
+  { key: '1y',     label: 'Ano'          },
+  { key: 'custom', label: 'Personalizado' },
 ];
 
 const PERIODO_LABEL: Record<Periodo, string> = {
-  '7d':  'vs semana anterior',
-  '30d': 'vs mês anterior',
-  '90d': 'vs trimestre anterior',
-  '1y':  'vs ano anterior',
+  '7d':     'vs semana anterior',
+  '30d':    'vs mês anterior',
+  '90d':    'vs trimestre anterior',
+  '1y':     'vs ano anterior',
+  'custom': 'vs período anterior',
 };
+
+/** Máscara DD/MM/AAAA aplicada ao digitar — mesmo padrão usado em nova-despesa.tsx */
+function mascaraData(v: string) {
+  const n = v.replace(/\D/g, '').slice(0, 8);
+  if (n.length <= 2) return n;
+  if (n.length <= 4) return `${n.slice(0, 2)}/${n.slice(2)}`;
+  return `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`;
+}
+
+/** Converte "DD/MM/AAAA" em Date; retorna null enquanto a digitação estiver incompleta */
+function parseDataBR(v: string): Date | null {
+  const p = v.split('/');
+  if (p.length !== 3 || p[2].length !== 4) return null;
+  const d = new Date(Number(p[2]), Number(p[1]) - 1, Number(p[0]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -226,12 +247,28 @@ export default function Relatorios() {
   const [periodo, setPeriodo] = useState<Periodo>('30d');
   // Data de referência da semana visualizada — só usada quando periodo === '7d'
   const [semanaRef, setSemanaRef] = useState(new Date());
-  const refAtivo = periodo === '7d' ? semanaRef : new Date();
   const semanaIni = startOfWeek(semanaRef, { weekStartsOn: 1 });
   const semanaFim = endOfWeek(semanaRef, { weekStartsOn: 1 });
   const semanaAtual = isSameWeek(semanaRef, new Date(), { weekStartsOn: 1 });
 
-  const { resumo, clientes, servicos, profissionais, isLoading, refetch } = useRelatorios(periodo, refAtivo);
+  // Data de referência do ano visualizado — só usada quando periodo === '1y'
+  const [anoRef, setAnoRef] = useState(new Date());
+  const anoAtual = isSameYear(anoRef, new Date());
+
+  const refAtivo = periodo === '7d' ? semanaRef : periodo === '1y' ? anoRef : new Date();
+
+  // Intervalo personalizado (texto digitado com máscara) — só usado quando periodo === 'custom'
+  const [customIniStr, setCustomIniStr] = useState(() => format(startOfMonth(new Date()), 'dd/MM/yyyy'));
+  const [customFimStr, setCustomFimStr] = useState(() => format(new Date(), 'dd/MM/yyyy'));
+  const hoje = new Date();
+  let customFimEfetivo = parseDataBR(customFimStr) ?? hoje;
+  if (customFimEfetivo > hoje) customFimEfetivo = hoje;
+  let customIniEfetivo = parseDataBR(customIniStr) ?? startOfMonth(hoje);
+  if (customIniEfetivo > customFimEfetivo) customIniEfetivo = customFimEfetivo;
+
+  const { resumo, clientes, servicos, profissionais, isLoading, refetch } = useRelatorios(
+    periodo, refAtivo, { ini: customIniEfetivo, fim: customFimEfetivo },
+  );
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -298,14 +335,44 @@ export default function Relatorios() {
               onChange={key => {
                 setPeriodo(key as Periodo);
                 if (key === '7d') setSemanaRef(new Date());
+                if (key === '1y') setAnoRef(new Date());
               }}
               activeColor="#fff"
               activeTextColor={C.primary}
               inactiveTextColor="rgba(255,255,255,0.5)"
               trackBg="rgba(255,255,255,0.1)"
               trackBorder="rgba(255,255,255,0.1)"
-              style={{ marginBottom: periodo === '7d' ? 12 : 20 }}
+              style={{ marginBottom: periodo === '7d' || periodo === 'custom' || periodo === '1y' ? 12 : 20 }}
             />
+
+            {/* Datas personalizadas — só no período "Personalizado" */}
+            {periodo === 'custom' && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 20 }}>
+                <View style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, paddingHorizontal: 10, height: 34, justifyContent: 'center' }}>
+                  <TextInput
+                    value={customIniStr}
+                    onChangeText={v => setCustomIniStr(mascaraData(v))}
+                    placeholder="DD/MM/AAAA"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    keyboardType="numeric"
+                    maxLength={10}
+                    style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#fff', width: 82 }}
+                  />
+                </View>
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>até</Text>
+                <View style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10, paddingHorizontal: 10, height: 34, justifyContent: 'center' }}>
+                  <TextInput
+                    value={customFimStr}
+                    onChangeText={v => setCustomFimStr(mascaraData(v))}
+                    placeholder="DD/MM/AAAA"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    keyboardType="numeric"
+                    maxLength={10}
+                    style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#fff', width: 82 }}
+                  />
+                </View>
+              </View>
+            )}
 
             {/* Navegação entre semanas — só no período "Semana" */}
             {periodo === '7d' && (
@@ -322,6 +389,26 @@ export default function Relatorios() {
                   onPress={() => !semanaAtual && setSemanaRef(d => addWeeks(d, 1))}
                   disabled={semanaAtual}
                   style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: semanaAtual ? 0.3 : 1 }}>
+                  <ChevronRight size={14} color="rgba(255,255,255,0.75)" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Navegação entre anos — só no período "Ano" */}
+            {periodo === '1y' && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 20 }}>
+                <TouchableOpacity
+                  onPress={() => setAnoRef(d => subYears(d, 1))}
+                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+                  <ChevronLeft size={14} color="rgba(255,255,255,0.75)" />
+                </TouchableOpacity>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>
+                  {format(anoRef, 'yyyy')}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => !anoAtual && setAnoRef(d => addYears(d, 1))}
+                  disabled={anoAtual}
+                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: anoAtual ? 0.3 : 1 }}>
                   <ChevronRight size={14} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
               </View>
