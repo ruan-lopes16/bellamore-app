@@ -29,7 +29,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
-  ChevronDown, DollarSign, Target, Activity, User, Check, Star, CreditCard,
+  ChevronDown, ChevronLeft, ChevronRight, DollarSign, Target, Activity, User, Check, Star, CreditCard,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
@@ -38,7 +38,8 @@ import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   format, startOfMonth, endOfMonth, startOfYear, endOfYear,
-  subMonths, parseISO, eachMonthOfInterval, eachWeekOfInterval, endOfWeek,
+  subMonths, parseISO, eachMonthOfInterval, eachWeekOfInterval, eachDayOfInterval,
+  startOfWeek, endOfWeek, isSameDay, addWeeks,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -46,7 +47,7 @@ const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-type Periodo = 'mes' | 'mes_anterior' | 'trimestre' | 'semestre' | 'ano';
+type Periodo = 'semana' | 'mes' | 'mes_anterior' | 'trimestre' | 'semestre' | 'ano';
 
 /** Dados brutos de um agendamento com joins resolvidos */
 type Ag = {
@@ -100,6 +101,7 @@ type EstRankItem = { nome: string; qtd: number; custo: number; pct: number };
 // ── Constantes ────────────────────────────────────────────────
 
 const PERIODOS: { key: Periodo; label: string }[] = [
+  { key: 'semana',       label: 'Esta semana'  },
   { key: 'mes',          label: 'Este mês'     },
   { key: 'mes_anterior', label: 'Mês anterior' },
   { key: 'trimestre',    label: '3 meses'      },
@@ -141,9 +143,18 @@ function iniciais(nome: string) {
  * Converte enum de período em datas reais de início/fim e label legível.
  * Todos os períodos usam limites de mês completo para evitar dados parciais.
  */
-function periodoParaDatas(p: Periodo): { inicio: Date; fim: Date; labelPeriodo: string } {
+function periodoParaDatas(p: Periodo, semanaOffset = 0): { inicio: Date; fim: Date; labelPeriodo: string } {
   const hoje = new Date();
   switch (p) {
+    case 'semana': {
+      const ref = addWeeks(hoje, semanaOffset);
+      const ini = startOfWeek(ref, { weekStartsOn: 0 });
+      const fimSem = endOfWeek(ref, { weekStartsOn: 0 });
+      return {
+        inicio: ini, fim: fimSem,
+        labelPeriodo: `${format(ini, 'dd/MM')} – ${format(fimSem, 'dd/MM')}`,
+      };
+    }
     case 'mes':
       return {
         inicio: startOfMonth(hoje), fim: endOfMonth(hoje),
@@ -292,6 +303,8 @@ export default function RelatoriosPage() {
   }
   const [periodo,   setPeriodo]   = useState<Periodo>('mes');
   const [aba,       setAba]       = useState<Aba>('financeiro');
+  // Deslocamento em semanas a partir de hoje — só usado quando periodo === 'semana'
+  const [semanaOffset, setSemanaOffset] = useState(0);
 
   // ── Dados brutos carregados do Supabase
   const [ags,        setAgs]        = useState<Ag[]>([]);
@@ -346,9 +359,9 @@ export default function RelatoriosPage() {
    * paginados (podem ultrapassar o limite padrão de linhas por requisição).
    * Estoque e Avaliações ficam de fora — carregam sob demanda ao abrir a aba.
    */
-  const carregar = useCallback(async (empId: string, per: Periodo) => {
+  const carregar = useCallback(async (empId: string, per: Periodo, semOffset: number) => {
     setLoading(true);
-    const { inicio, fim } = periodoParaDatas(per);
+    const { inicio, fim } = periodoParaDatas(per, semOffset);
     const isoIni  = inicio.toISOString();
     const isoFim  = fim.toISOString();
     const dateIni = format(inicio, 'yyyy-MM-dd');
@@ -417,17 +430,17 @@ export default function RelatoriosPage() {
   }, [supabase]);
 
   useEffect(() => {
-    if (empresaId) carregar(empresaId, periodo);
-  }, [empresaId, periodo, carregar]);
+    if (empresaId) carregar(empresaId, periodo, semanaOffset);
+  }, [empresaId, periodo, semanaOffset, carregar]);
 
   // ── Aba Estoque: carrega sob demanda (sai da query principal)
   useEffect(() => {
     if (aba !== 'estoque' || !empresaId) return;
-    const chave = `${empresaId}-${periodo}`;
+    const chave = `${empresaId}-${periodo}-${semanaOffset}`;
     if (estoqueChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { inicio, fim } = periodoParaDatas(periodo);
+      const { inicio, fim } = periodoParaDatas(periodo, semanaOffset);
       const { data } = await supabase.from('estoque_movimentos')
         .select('produto_id, quantidade, produto:produtos(nome, preco_custo)')
         .eq('empresa_id', empresaId)
@@ -438,16 +451,16 @@ export default function RelatoriosPage() {
       setEstoqueChave(chave);
       setLoadingAba(false);
     })();
-  }, [aba, empresaId, periodo, estoqueChave]);
+  }, [aba, empresaId, periodo, semanaOffset, estoqueChave]);
 
   // ── Aba Avaliações: carrega sob demanda (sai da query principal)
   useEffect(() => {
     if (aba !== 'avaliacoes' || !empresaId) return;
-    const chave = `${empresaId}-${periodo}`;
+    const chave = `${empresaId}-${periodo}-${semanaOffset}`;
     if (avalChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { inicio, fim } = periodoParaDatas(periodo);
+      const { inicio, fim } = periodoParaDatas(periodo, semanaOffset);
       const { data } = await supabase.from('avaliacoes')
         .select(`nota, comentario, created_at, profissional_id,
           profissional:empresa_membros!avaliacoes_profissional_id_fkey(nome),
@@ -460,10 +473,13 @@ export default function RelatoriosPage() {
       setAvalChave(chave);
       setLoadingAba(false);
     })();
-  }, [aba, empresaId, periodo, avalChave]);
+  }, [aba, empresaId, periodo, semanaOffset, avalChave]);
 
   // ── Label do período selecionado
-  const { labelPeriodo, inicio, fim } = useMemo(() => periodoParaDatas(periodo), [periodo]);
+  const { labelPeriodo, inicio, fim } = useMemo(
+    () => periodoParaDatas(periodo, semanaOffset),
+    [periodo, semanaOffset],
+  );
 
   // ── KPIs principais
   const concluidos = useMemo(() => ags.filter(a => a.status === 'concluido'), [ags]);
@@ -658,6 +674,15 @@ export default function RelatoriosPage() {
   // ── Série temporal para o gráfico de evolução
   // Agrupa por semana se o período ≤ 1 mês, por mês caso contrário
   const serieGrafico = useMemo(() => {
+    if (periodo === 'semana') {
+      const dias = eachDayOfInterval({ start: inicio, end: fim });
+      return dias.map(dia => {
+        const valor = concluidos
+          .filter(ag => isSameDay(parseISO(ag.data_hora_inicio), dia))
+          .reduce((s, ag) => s + ag.valor, 0);
+        return { label: format(dia, 'dd/MM'), valor };
+      });
+    }
     const usarSemanas = periodo === 'mes' || periodo === 'mes_anterior';
     if (usarSemanas) {
       const semanas = eachWeekOfInterval({ start: inicio, end: fim }, { weekStartsOn: 0 });
@@ -707,7 +732,28 @@ export default function RelatoriosPage() {
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Análise</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Relatórios</h1>
           {!loading && (
-            <p className="text-sm text-text-3 mt-0.5 capitalize">{labelPeriodo}</p>
+            periodo === 'semana' ? (
+              <div className="flex items-center gap-1 mt-0.5">
+                <button
+                  onClick={() => setSemanaOffset(o => o - 1)}
+                  aria-label="Semana anterior"
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-text-3 hover:bg-surface hover:text-text transition flex-shrink-0"
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <p className="text-sm text-text-3">{labelPeriodo}</p>
+                <button
+                  onClick={() => setSemanaOffset(o => Math.min(o + 1, 0))}
+                  disabled={semanaOffset >= 0}
+                  aria-label="Próxima semana"
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-text-3 hover:bg-surface hover:text-text transition disabled:opacity-30 disabled:pointer-events-none flex-shrink-0"
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-text-3 mt-0.5 capitalize">{labelPeriodo}</p>
+            )
           )}
         </div>
 
@@ -773,7 +819,10 @@ export default function RelatoriosPage() {
         className="mb-6"
         tabs={PERIODOS}
         active={periodo}
-        onChange={key => setPeriodo(key as Periodo)}
+        onChange={key => {
+          setPeriodo(key as Periodo);
+          if (key === 'semana') setSemanaOffset(0);
+        }}
       />
 
       {/* ── KPIs ── */}

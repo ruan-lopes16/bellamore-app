@@ -103,19 +103,21 @@ export function getRanges(periodo: Periodo, ref = new Date()) {
 
 // ── Hook principal ───────────────────────────────────────────
 
-export function useRelatorios(periodo: Periodo) {
+export function useRelatorios(periodo: Periodo, ref: Date = new Date()) {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
 
-  const { ini, fim, iniAnt, fimAnt } = getRanges(periodo);
+  const { ini, fim, iniAnt, fimAnt } = getRanges(periodo, ref);
   const iniISO    = ini.toISOString();
   const fimISO    = fim.toISOString();
   const iniAntISO = iniAnt.toISOString();
   const fimAntISO = fimAnt.toISOString();
+  // Chave de cache — muda quando o usuário navega para outra semana/período de referência
+  const refKey = ref.toISOString().slice(0, 10);
 
   // ── Resumo (faturamento + atendimentos) ──────────────────
   const resumo = useQuery<ResumoRelatorio>({
-    queryKey: ['rel-resumo', empresaId, periodo],
+    queryKey: ['rel-resumo', empresaId, periodo, refKey],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
@@ -164,7 +166,7 @@ export function useRelatorios(periodo: Periodo) {
 
   // ── Métricas de clientes ─────────────────────────────────
   const clientes = useQuery<MetricasCliente>({
-    queryKey: ['rel-clientes', empresaId, periodo],
+    queryKey: ['rel-clientes', empresaId, periodo, refKey],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
@@ -231,7 +233,7 @@ export function useRelatorios(periodo: Periodo) {
 
   // ── Top serviços ─────────────────────────────────────────
   const servicos = useQuery<ServicoRelatorio[]>({
-    queryKey: ['rel-servicos', empresaId, periodo],
+    queryKey: ['rel-servicos', empresaId, periodo, refKey],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
@@ -267,7 +269,7 @@ export function useRelatorios(periodo: Periodo) {
 
   // ── Por profissional ─────────────────────────────────────
   const profissionais = useQuery<ProfissionalRelatorio[]>({
-    queryKey: ['rel-profissionais', empresaId, periodo],
+    queryKey: ['rel-profissionais', empresaId, periodo, refKey],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {

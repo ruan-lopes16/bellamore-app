@@ -9,8 +9,9 @@ import { MotiView } from 'moti';
 import {
   Download, TrendingUp, TrendingDown,
   CalendarCheck2, Receipt, UserPlus, RefreshCw,
-  Users, UserCheck, Clock,
+  Users, UserCheck, Clock, ChevronLeft, ChevronRight,
 } from 'lucide-react-native';
+import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameWeek } from 'date-fns';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -223,8 +224,14 @@ function ProfissionalRow({ item, index, isLast }: { item: ProfissionalRelatorio;
 export default function Relatorios() {
   const insets = useSafeAreaInsets();
   const [periodo, setPeriodo] = useState<Periodo>('30d');
+  // Data de referência da semana visualizada — só usada quando periodo === '7d'
+  const [semanaRef, setSemanaRef] = useState(new Date());
+  const refAtivo = periodo === '7d' ? semanaRef : new Date();
+  const semanaIni = startOfWeek(semanaRef, { weekStartsOn: 1 });
+  const semanaFim = endOfWeek(semanaRef, { weekStartsOn: 1 });
+  const semanaAtual = isSameWeek(semanaRef, new Date(), { weekStartsOn: 1 });
 
-  const { resumo, clientes, servicos, profissionais, isLoading, refetch } = useRelatorios(periodo);
+  const { resumo, clientes, servicos, profissionais, isLoading, refetch } = useRelatorios(periodo, refAtivo);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -288,14 +295,37 @@ export default function Relatorios() {
               variant="segmented"
               tabs={PERIODOS}
               active={periodo}
-              onChange={key => setPeriodo(key as Periodo)}
+              onChange={key => {
+                setPeriodo(key as Periodo);
+                if (key === '7d') setSemanaRef(new Date());
+              }}
               activeColor="#fff"
               activeTextColor={C.primary}
               inactiveTextColor="rgba(255,255,255,0.5)"
               trackBg="rgba(255,255,255,0.1)"
               trackBorder="rgba(255,255,255,0.1)"
-              style={{ marginBottom: 20 }}
+              style={{ marginBottom: periodo === '7d' ? 12 : 20 }}
             />
+
+            {/* Navegação entre semanas — só no período "Semana" */}
+            {periodo === '7d' && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 20 }}>
+                <TouchableOpacity
+                  onPress={() => setSemanaRef(d => subWeeks(d, 1))}
+                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+                  <ChevronLeft size={14} color="rgba(255,255,255,0.75)" />
+                </TouchableOpacity>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>
+                  {format(semanaIni, 'dd/MM')} – {format(semanaFim, 'dd/MM')}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => !semanaAtual && setSemanaRef(d => addWeeks(d, 1))}
+                  disabled={semanaAtual}
+                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: semanaAtual ? 0.3 : 1 }}>
+                  <ChevronRight size={14} color="rgba(255,255,255,0.75)" />
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* Faturamento */}
             <View style={{
