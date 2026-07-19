@@ -3,14 +3,15 @@ import {
   startOfWeek, endOfWeek, startOfMonth, endOfMonth,
   startOfQuarter, endOfQuarter, startOfYear, endOfYear,
   subWeeks, subMonths, subQuarters, subYears,
-  differenceInDays,
+  differenceInDays, differenceInCalendarDays,
+  startOfDay, endOfDay, subDays,
 } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 
 // ── Tipos ────────────────────────────────────────────────────
 
-export type Periodo = '7d' | '30d' | '90d' | '1y';
+export type Periodo = '7d' | '30d' | '90d' | '1y' | 'custom';
 
 export interface ResumoRelatorio {
   faturamento: number;
@@ -68,7 +69,7 @@ async function buscarTodasPaginas<T>(
 
 // ── Helpers de range ─────────────────────────────────────────
 
-export function getRanges(periodo: Periodo, ref = new Date()) {
+export function getRanges(periodo: Exclude<Periodo, 'custom'>, ref = new Date()) {
   switch (periodo) {
     case '7d': {
       const ini = startOfWeek(ref, { weekStartsOn: 1 });
@@ -101,19 +102,38 @@ export function getRanges(periodo: Periodo, ref = new Date()) {
   }
 }
 
+/** Range customizado — "período anterior" vira o mesmo número de dias, imediatamente antes. */
+function getCustomRanges(customRange: { ini: Date; fim: Date }) {
+  const ini = startOfDay(customRange.ini);
+  const fim = endOfDay(customRange.fim);
+  const duracaoDias = differenceInCalendarDays(fim, ini) + 1;
+  const fimAnt = subDays(ini, 1);
+  const iniAnt = subDays(fimAnt, duracaoDias - 1);
+  return { ini, fim, iniAnt, fimAnt };
+}
+
 // ── Hook principal ───────────────────────────────────────────
 
-export function useRelatorios(periodo: Periodo, ref: Date = new Date()) {
+export function useRelatorios(
+  periodo: Periodo,
+  ref: Date = new Date(),
+  customRange: { ini: Date; fim: Date } = { ini: startOfMonth(new Date()), fim: new Date() },
+) {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
 
-  const { ini, fim, iniAnt, fimAnt } = getRanges(periodo, ref);
+  const { ini, fim, iniAnt, fimAnt } = periodo === 'custom'
+    ? getCustomRanges(customRange)
+    : getRanges(periodo, ref);
   const iniISO    = ini.toISOString();
   const fimISO    = fim.toISOString();
   const iniAntISO = iniAnt.toISOString();
   const fimAntISO = fimAnt.toISOString();
-  // Chave de cache — muda quando o usuário navega para outra semana/período de referência
-  const refKey = ref.toISOString().slice(0, 10);
+  // Chave de cache — muda quando o usuário navega para outra semana/período de referência,
+  // ou para outro intervalo personalizado
+  const refKey = periodo === 'custom'
+    ? `${customRange.ini.toISOString().slice(0, 10)}_${customRange.fim.toISOString().slice(0, 10)}`
+    : ref.toISOString().slice(0, 10);
 
   // ── Resumo (faturamento + atendimentos) ──────────────────
   const resumo = useQuery<ResumoRelatorio>({

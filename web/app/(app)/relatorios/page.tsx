@@ -39,7 +39,7 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   format, startOfMonth, endOfMonth, startOfYear, endOfYear,
   subMonths, parseISO, eachMonthOfInterval, eachWeekOfInterval, eachDayOfInterval,
-  startOfWeek, endOfWeek, isSameDay, addWeeks,
+  startOfWeek, endOfWeek, isSameDay, addWeeks, startOfDay, endOfDay, differenceInCalendarDays,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -47,7 +47,7 @@ const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-type Periodo = 'semana' | 'mes' | 'mes_anterior' | 'trimestre' | 'semestre' | 'ano';
+type Periodo = 'semana' | 'mes' | 'mes_anterior' | 'trimestre' | 'semestre' | 'ano' | 'custom';
 
 /** Dados brutos de um agendamento com joins resolvidos */
 type Ag = {
@@ -107,6 +107,7 @@ const PERIODOS: { key: Periodo; label: string }[] = [
   { key: 'trimestre',    label: '3 meses'      },
   { key: 'semestre',     label: '6 meses'      },
   { key: 'ano',          label: 'Este ano'     },
+  { key: 'custom',       label: 'Personalizado' },
 ];
 
 const ABA_OPTS = [
@@ -143,9 +144,21 @@ function iniciais(nome: string) {
  * Converte enum de período em datas reais de início/fim e label legível.
  * Todos os períodos usam limites de mês completo para evitar dados parciais.
  */
-function periodoParaDatas(p: Periodo, semanaOffset = 0): { inicio: Date; fim: Date; labelPeriodo: string } {
+function periodoParaDatas(
+  p: Periodo,
+  semanaOffset = 0,
+  custom?: { ini: string; fim: string },
+): { inicio: Date; fim: Date; labelPeriodo: string } {
   const hoje = new Date();
   switch (p) {
+    case 'custom': {
+      const ini   = custom ? startOfDay(parseISO(custom.ini)) : startOfMonth(hoje);
+      const fimC  = custom ? endOfDay(parseISO(custom.fim))   : hoje;
+      return {
+        inicio: ini, fim: fimC,
+        labelPeriodo: `${format(ini, 'dd/MM/yyyy')} – ${format(fimC, 'dd/MM/yyyy')}`,
+      };
+    }
     case 'semana': {
       const ref = addWeeks(hoje, semanaOffset);
       const ini = startOfWeek(ref, { weekStartsOn: 0 });
@@ -305,6 +318,20 @@ export default function RelatoriosPage() {
   const [aba,       setAba]       = useState<Aba>('financeiro');
   // Deslocamento em semanas a partir de hoje — só usado quando periodo === 'semana'
   const [semanaOffset, setSemanaOffset] = useState(0);
+  // Intervalo personalizado (yyyy-MM-dd) — só usado quando periodo === 'custom'
+  const [customIni, setCustomIni] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [customFim, setCustomFim] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+
+  function atualizarCustomIni(v: string) {
+    setCustomIni(v);
+    if (v > customFim) setCustomFim(v);
+  }
+  function atualizarCustomFim(v: string) {
+    const hojeStr = format(new Date(), 'yyyy-MM-dd');
+    const clamped = v > hojeStr ? hojeStr : v;
+    setCustomFim(clamped);
+    if (clamped < customIni) setCustomIni(clamped);
+  }
 
   // ── Dados brutos carregados do Supabase
   const [ags,        setAgs]        = useState<Ag[]>([]);
@@ -359,9 +386,11 @@ export default function RelatoriosPage() {
    * paginados (podem ultrapassar o limite padrão de linhas por requisição).
    * Estoque e Avaliações ficam de fora — carregam sob demanda ao abrir a aba.
    */
-  const carregar = useCallback(async (empId: string, per: Periodo, semOffset: number) => {
+  const carregar = useCallback(async (
+    empId: string, per: Periodo, semOffset: number, custom: { ini: string; fim: string },
+  ) => {
     setLoading(true);
-    const { inicio, fim } = periodoParaDatas(per, semOffset);
+    const { inicio, fim } = periodoParaDatas(per, semOffset, custom);
     const isoIni  = inicio.toISOString();
     const isoFim  = fim.toISOString();
     const dateIni = format(inicio, 'yyyy-MM-dd');
@@ -430,17 +459,17 @@ export default function RelatoriosPage() {
   }, [supabase]);
 
   useEffect(() => {
-    if (empresaId) carregar(empresaId, periodo, semanaOffset);
-  }, [empresaId, periodo, semanaOffset, carregar]);
+    if (empresaId) carregar(empresaId, periodo, semanaOffset, { ini: customIni, fim: customFim });
+  }, [empresaId, periodo, semanaOffset, customIni, customFim, carregar]);
 
   // ── Aba Estoque: carrega sob demanda (sai da query principal)
   useEffect(() => {
     if (aba !== 'estoque' || !empresaId) return;
-    const chave = `${empresaId}-${periodo}-${semanaOffset}`;
+    const chave = `${empresaId}-${periodo}-${semanaOffset}-${customIni}-${customFim}`;
     if (estoqueChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { inicio, fim } = periodoParaDatas(periodo, semanaOffset);
+      const { inicio, fim } = periodoParaDatas(periodo, semanaOffset, { ini: customIni, fim: customFim });
       const { data } = await supabase.from('estoque_movimentos')
         .select('produto_id, quantidade, produto:produtos(nome, preco_custo)')
         .eq('empresa_id', empresaId)
@@ -451,16 +480,16 @@ export default function RelatoriosPage() {
       setEstoqueChave(chave);
       setLoadingAba(false);
     })();
-  }, [aba, empresaId, periodo, semanaOffset, estoqueChave]);
+  }, [aba, empresaId, periodo, semanaOffset, customIni, customFim, estoqueChave]);
 
   // ── Aba Avaliações: carrega sob demanda (sai da query principal)
   useEffect(() => {
     if (aba !== 'avaliacoes' || !empresaId) return;
-    const chave = `${empresaId}-${periodo}-${semanaOffset}`;
+    const chave = `${empresaId}-${periodo}-${semanaOffset}-${customIni}-${customFim}`;
     if (avalChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { inicio, fim } = periodoParaDatas(periodo, semanaOffset);
+      const { inicio, fim } = periodoParaDatas(periodo, semanaOffset, { ini: customIni, fim: customFim });
       const { data } = await supabase.from('avaliacoes')
         .select(`nota, comentario, created_at, profissional_id,
           profissional:empresa_membros!avaliacoes_profissional_id_fkey(nome),
@@ -473,12 +502,12 @@ export default function RelatoriosPage() {
       setAvalChave(chave);
       setLoadingAba(false);
     })();
-  }, [aba, empresaId, periodo, semanaOffset, avalChave]);
+  }, [aba, empresaId, periodo, semanaOffset, customIni, customFim, avalChave]);
 
   // ── Label do período selecionado
   const { labelPeriodo, inicio, fim } = useMemo(
-    () => periodoParaDatas(periodo, semanaOffset),
-    [periodo, semanaOffset],
+    () => periodoParaDatas(periodo, semanaOffset, { ini: customIni, fim: customFim }),
+    [periodo, semanaOffset, customIni, customFim],
   );
 
   // ── KPIs principais
@@ -672,9 +701,12 @@ export default function RelatoriosPage() {
   }
 
   // ── Série temporal para o gráfico de evolução
-  // Agrupa por semana se o período ≤ 1 mês, por mês caso contrário
+  // Granularidade por duração do intervalo (funciona para qualquer período, incluindo datas
+  // personalizadas): até 10 dias → por dia, até 45 dias → por semana, senão → por mês.
   const serieGrafico = useMemo(() => {
-    if (periodo === 'semana') {
+    const duracaoDias = differenceInCalendarDays(fim, inicio) + 1;
+
+    if (duracaoDias <= 10) {
       const dias = eachDayOfInterval({ start: inicio, end: fim });
       return dias.map(dia => {
         const valor = concluidos
@@ -683,8 +715,7 @@ export default function RelatoriosPage() {
         return { label: format(dia, 'dd/MM'), valor };
       });
     }
-    const usarSemanas = periodo === 'mes' || periodo === 'mes_anterior';
-    if (usarSemanas) {
+    if (duracaoDias <= 45) {
       const semanas = eachWeekOfInterval({ start: inicio, end: fim }, { weekStartsOn: 0 });
       return semanas.map(semIni => {
         const semFim = endOfWeek(semIni, { weekStartsOn: 0 });
@@ -702,7 +733,7 @@ export default function RelatoriosPage() {
         .reduce((s, ag) => s + ag.valor, 0);
       return { label: format(mesIni, 'MMM', { locale: ptBR }), valor };
     });
-  }, [concluidos, inicio, fim, periodo]);
+  }, [concluidos, inicio, fim]);
 
   const maxGrafico = useMemo(() => Math.max(...serieGrafico.map(s => s.valor), 1), [serieGrafico]);
 
@@ -732,7 +763,28 @@ export default function RelatoriosPage() {
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Análise</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Relatórios</h1>
           {!loading && (
-            periodo === 'semana' ? (
+            periodo === 'custom' ? (
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                <input
+                  type="date"
+                  value={customIni}
+                  max={customFim}
+                  onChange={e => atualizarCustomIni(e.target.value)}
+                  aria-label="Data inicial"
+                  className="text-xs text-text-2 bg-surface border border-border rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+                <span className="text-text-4 text-xs">até</span>
+                <input
+                  type="date"
+                  value={customFim}
+                  min={customIni}
+                  max={format(new Date(), 'yyyy-MM-dd')}
+                  onChange={e => atualizarCustomFim(e.target.value)}
+                  aria-label="Data final"
+                  className="text-xs text-text-2 bg-surface border border-border rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            ) : periodo === 'semana' ? (
               <div className="flex items-center gap-1 mt-0.5">
                 <button
                   onClick={() => setSemanaOffset(o => o - 1)}
