@@ -31,15 +31,17 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Plus, ChevronLeft, ChevronRight, TrendingUp, TrendingDown,
+  Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, X, Layers, Banknote, CreditCard, Gift,
-  RefreshCw, Check,
+  RefreshCw, Check, FileSpreadsheet,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { CnpjFinanceiroImporter } from '@/components/CnpjFinanceiroImporter';
+import { FinanceMonthCalendar } from '@/components/FinanceMonthCalendar';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import {
-  format, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, parseISO,
+  format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
@@ -294,6 +296,8 @@ export default function FinanceiroPage() {
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
+  const [modalImportCnpj, setModalImportCnpj] = useState(false);
+  const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
   const [lancandoRec,           setLancandoRec]           = useState(false);
@@ -434,8 +438,10 @@ export default function FinanceiroPage() {
     setTaxasCartao(kpisMes.taxasCartao);
 
     // Top serviços
+    type TopServicoRow = { servico_id: string | null; valor: number; servico: { nome: string } | null };
     const svcMap: Record<string, { nome: string; qtd: number; receita: number }> = {};
-    (agsMes.data ?? []).forEach((a: any) => {
+    ((agsMes.data ?? []) as TopServicoRow[]).forEach(a => {
+      if (!a.servico_id) return;
       const id = a.servico_id; const nome = a.servico?.nome ?? 'Serviço';
       if (!svcMap[id]) svcMap[id] = { nome, qtd: 0, receita: 0 };
       svcMap[id].qtd += 1; svcMap[id].receita += Number(a.valor);
@@ -574,28 +580,14 @@ export default function FinanceiroPage() {
         />
       </div>
 
-      {/* Seletor de mês */}
-      <div className="flex items-center justify-center mb-6">
-        <div className="bg-surface border border-border rounded-[20px] flex items-center gap-2 px-3 py-2">
-          <button onClick={() => setMesRef(m => subMonths(m, 1))}
-            className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
-            <ChevronLeft size={16}/>
-          </button>
-          <div className="text-center" style={{ minWidth: 180 }}>
-            <p className="text-sm font-semibold capitalize" style={{ color: 'var(--color-ink)' }}>
-              {format(mesRef, 'MMMM yyyy', { locale: ptBR })}
-            </p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--color-ink4)' }}>
-              {format(startOfMonth(mesRef), 'dd/MM')} – {format(endOfMonth(mesRef), 'dd/MM')}
-            </p>
-          </div>
-          <button onClick={() => !isHoje && setMesRef(m => addMonths(m, 1))}
-            disabled={isHoje}
-            className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition disabled:opacity-30">
-            <ChevronRight size={16}/>
-          </button>
-        </div>
-      </div>
+      <FinanceMonthCalendar
+        month={mesRef}
+        isOpen={calendarioAberto}
+        isNextDisabled={isHoje}
+        onToggle={() => setCalendarioAberto(open => !open)}
+        onPreviousMonth={() => setMesRef(m => subMonths(m, 1))}
+        onNextMonth={() => !isHoje && setMesRef(m => addMonths(m, 1))}
+      />
 
       {/* KPIs */}
       {loading ? (
@@ -819,11 +811,17 @@ export default function FinanceiroPage() {
         <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <p className="font-serif text-lg text-text">Despesas</p>
-            <button onClick={() => setModalDespesa(true)}
-              className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
-              style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
-              <Plus size={13} strokeWidth={2.5}/> Nova
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setModalImportCnpj(true)}
+                className="flex items-center gap-1.5 text-xs text-text-3 font-semibold hover:text-accent transition">
+                <FileSpreadsheet size={12}/> Importar CNPJ
+              </button>
+              <button onClick={() => setModalDespesa(true)}
+                className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
+                style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
+                <Plus size={13} strokeWidth={2.5}/> Nova
+              </button>
+            </div>
           </div>
 
           {/* Banner: despesas recorrentes não lançadas */}
@@ -887,6 +885,9 @@ export default function FinanceiroPage() {
 
       {modalDespesa && empresaId && (
         <NovaDespesaModal empresaId={empresaId} onClose={() => setModalDespesa(false)} onSalvo={() => { setModalDespesa(false); recarregar(); }}/>
+      )}
+      {modalImportCnpj && empresaId && (
+        <CnpjFinanceiroImporter empresaId={empresaId} onClose={() => setModalImportCnpj(false)} onImported={recarregar}/>
       )}
       {marcarPago && (
         <MarcarPagoModal despesa={marcarPago} onClose={() => setMarcarPago(null)} onSalvo={() => { setMarcarPago(null); recarregar(); }}/>
