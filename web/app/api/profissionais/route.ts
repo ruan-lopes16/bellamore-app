@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createAdmin } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { podeAtribuirRole } from '@/lib/permissions';
 
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,7 +22,7 @@ function errorMessage(error: unknown, fallback = 'Erro interno.') {
 
 export async function POST(req: NextRequest) {
   try {
-    const { empresaId, nome, telefone, email, percentual_comissao } = await req.json();
+    const { empresaId, nome, telefone, email, percentual_comissao, role } = await req.json();
 
     if (!empresaId || !nome) {
       return NextResponse.json({ error: 'Nome e empresa são obrigatórios.' }, { status: 400 });
@@ -34,12 +35,17 @@ export async function POST(req: NextRequest) {
 
     const { data: membroReq } = await supabase
       .from('empresa_membros')
-      .select('empresa_id')
+      .select('empresa_id, role')
       .eq('user_id', user.id)
       .eq('empresa_id', empresaId)
       .eq('ativo', true)
       .single();
     if (!membroReq) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const roleSolicitado: 'gestor' | 'profissional' = role === 'gestor' ? 'gestor' : 'profissional';
+    if (!podeAtribuirRole(membroReq.role as 'owner' | 'gestor' | 'profissional', roleSolicitado)) {
+      return NextResponse.json({ error: 'Você não pode convidar alguém com esse papel.' }, { status: 403 });
+    }
 
     const adminClient = createAdminClient();
     const emailFinal = email?.trim().toLowerCase() || `prof.${crypto.randomUUID()}@interno.app`;
@@ -89,7 +95,7 @@ export async function POST(req: NextRequest) {
       .eq('user_id', userId!)
       .single();
 
-    const roleToUse = existing?.role ?? 'profissional';
+    const roleToUse = existing?.role ?? roleSolicitado;
 
     const { data: membro, error: membroError } = await adminClient
       .from('empresa_membros')

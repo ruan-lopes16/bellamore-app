@@ -11,51 +11,54 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import { temPermissao, type Permissao } from '@/lib/permissions';
+import type { PerfilRole } from '@/types';
 
 const supabase = createClient();
 
 // Itens principais da sidebar desktop
-const NAV = [
-  { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard },
+const NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
+  { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
   { href: '/agenda',       label: 'Agenda',       icon: CalendarDays    },
   { href: '/comanda',      label: 'Comanda',      icon: Receipt         },
   { href: '/vendas',       label: 'Vendas',       icon: ShoppingCart    },
   { href: '/clientes',     label: 'Clientes',     icon: Users           },
-  { href: '/financeiro',   label: 'Financeiro',   icon: DollarSign      },
-  { href: '/servicos',     label: 'Serviços',     icon: Scissors        },
+  { href: '/financeiro',   label: 'Financeiro',   icon: DollarSign,      permissao: 'ver_resumo_financeiro' },
+  { href: '/servicos',     label: 'Serviços',     icon: Scissors,        permissao: 'gerenciar_servicos'     },
   { href: '/pacotes',      label: 'Pacotes',      icon: Gift            },
-  { href: '/equipe',       label: 'Equipe',       icon: UserCog         },
-  { href: '/comissoes',    label: 'Comissões',    icon: Banknote        },
-  { href: '/estoque',      label: 'Estoque',      icon: Package         },
-  { href: '/relatorios',   label: 'Relatórios',   icon: BarChart2       },
+  { href: '/equipe',       label: 'Equipe',       icon: UserCog,         permissao: 'gerenciar_profissionais' },
+  { href: '/comissoes',    label: 'Comissões',    icon: Banknote,        permissao: 'ver_comissoes_todas'    },
+  { href: '/estoque',      label: 'Estoque',      icon: Package,         permissao: 'gerenciar_estoque'      },
+  { href: '/relatorios',   label: 'Relatórios',   icon: BarChart2,       permissao: 'ver_resumo_financeiro'  },
 ];
 
-const BOTTOM_NAV_DESKTOP = [
+const BOTTOM_NAV_DESKTOP: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
   { href: '/notificacoes',  label: 'Notificações', icon: Bell     },
-  { href: '/configuracoes', label: 'Configurações', icon: Settings },
+  { href: '/configuracoes', label: 'Configurações', icon: Settings, permissao: 'configurar_empresa' },
 ];
 
-// 5 abas do bottom nav mobile (design Bellamore)
-const MOBILE_NAV = [
-  { href: '/dashboard',  label: 'Início',     icon: LayoutDashboard },
+// 5 abas do bottom nav mobile (design Bellamore) — sem permissão condicionada:
+// Financeiro some do bottom nav quando restrito (ver filtragem no componente)
+const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
+  { href: '/dashboard',  label: 'Início',     icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
   { href: '/agenda',     label: 'Agenda',     icon: CalendarDays    },
   { href: '/clientes',   label: 'Clientes',   icon: Users           },
-  { href: '/financeiro', label: 'Financeiro', icon: DollarSign      },
+  { href: '/financeiro', label: 'Financeiro', icon: DollarSign,      permissao: 'ver_resumo_financeiro' },
   { href: '/mais',       label: 'Mais',       icon: MoreHorizontal  },
 ];
 
 // Itens do drawer "Mais" (mobile)
-const MAIS_NAV = [
+const MAIS_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
   { href: '/comanda',      label: 'Comanda',      icon: Receipt      },
   { href: '/vendas',       label: 'Vendas',        icon: ShoppingCart },
-  { href: '/servicos',     label: 'Serviços',      icon: Scissors     },
+  { href: '/servicos',     label: 'Serviços',      icon: Scissors,     permissao: 'gerenciar_servicos'     },
   { href: '/pacotes',      label: 'Pacotes',       icon: Gift         },
-  { href: '/equipe',       label: 'Equipe',        icon: UserCog      },
-  { href: '/comissoes',    label: 'Comissões',     icon: Banknote     },
-  { href: '/estoque',      label: 'Estoque',       icon: Package      },
-  { href: '/relatorios',   label: 'Relatórios',    icon: BarChart2    },
+  { href: '/equipe',       label: 'Equipe',        icon: UserCog,      permissao: 'gerenciar_profissionais' },
+  { href: '/comissoes',    label: 'Comissões',     icon: Banknote,     permissao: 'ver_comissoes_todas'    },
+  { href: '/estoque',      label: 'Estoque',       icon: Package,      permissao: 'gerenciar_estoque'      },
+  { href: '/relatorios',   label: 'Relatórios',    icon: BarChart2,    permissao: 'ver_resumo_financeiro'  },
   { href: '/notificacoes', label: 'Notificações',  icon: Bell         },
-  { href: '/configuracoes',label: 'Configurações', icon: Settings     },
+  { href: '/configuracoes',label: 'Configurações', icon: Settings,     permissao: 'configurar_empresa'     },
 ];
 
 export default function Sidebar({
@@ -63,17 +66,25 @@ export default function Sidebar({
   empresaNome,
   empresaLogo,
   empresaSegmento,
+  role,
 }: {
   empresaId: string;
   empresaNome: string;
   empresaLogo: string | null;
   empresaSegmento: string;
+  role: string | null;
 }) {
   const pathname        = usePathname();
   const router          = useRouter();
   const [alertCount,     setAlertCount]     = useState(0);
   const [comissoesCount, setComissoesCount] = useState(0);
   const [maisAberto,     setMaisAberto]     = useState(false);
+
+  const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
+  const navFiltrado          = NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
+  const bottomNavFiltrado    = BOTTOM_NAV_DESKTOP.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
+  const mobileNavFiltrado    = MOBILE_NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
+  const maisNavFiltrado      = MAIS_NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
 
   useEffect(() => {
     (async () => {
@@ -135,7 +146,7 @@ export default function Sidebar({
 
         {/* Nav principal */}
         <nav className="flex-1 overflow-y-auto px-3 py-4 flex flex-col gap-0.5">
-          {NAV.map(({ href, label, icon: Icon }) => {
+          {navFiltrado.map(({ href, label, icon: Icon }) => {
             const active = isActive(href);
             return (
               <Link key={href} href={href}
@@ -161,7 +172,7 @@ export default function Sidebar({
 
         {/* Nav inferior */}
         <div className="px-3 pb-4 flex flex-col gap-0.5 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
-          {BOTTOM_NAV_DESKTOP.map(({ href, label, icon: Icon }) => {
+          {bottomNavFiltrado.map(({ href, label, icon: Icon }) => {
             const active  = pathname === href;
             const isNotif = href === '/notificacoes';
             return (
@@ -207,10 +218,10 @@ export default function Sidebar({
           minHeight:     'var(--bm-mobile-nav-height)',
           paddingBottom: 'env(safe-area-inset-bottom)',
         }}>
-        {MOBILE_NAV.map(({ href, label, icon: Icon }) => {
+        {mobileNavFiltrado.map(({ href, label, icon: Icon }) => {
           const isMais = href === '/mais';
           const active = isMais
-            ? MAIS_NAV.some(({ href: h }) => pathname.startsWith(h))
+            ? maisNavFiltrado.some(({ href: h }) => pathname.startsWith(h))
             : isActive(href);
           const handleClick = isMais
             ? (e: React.MouseEvent) => { e.preventDefault(); setMaisAberto(true); }
@@ -264,7 +275,7 @@ export default function Sidebar({
             </div>
             {/* Grid de itens */}
             <div className="grid grid-cols-4 gap-1 p-3">
-              {MAIS_NAV.map(({ href, label, icon: Icon }) => {
+              {maisNavFiltrado.map(({ href, label, icon: Icon }) => {
                 const active = pathname.startsWith(href);
                 return (
                   <Link key={href} href={href} onClick={() => setMaisAberto(false)}

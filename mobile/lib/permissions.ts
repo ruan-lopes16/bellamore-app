@@ -85,3 +85,11 @@ export function rotaInicial(role: PerfilRole | 'owner'): string {
       return '/(auth)/login';
   }
 }
+
+export function podeAtribuirRole(
+  quemConvida: 'owner' | PerfilRole,
+  roleAlvo: 'gestor' | 'profissional'
+): boolean {
+  if (roleAlvo === 'gestor') return quemConvida === 'owner';
+  return quemConvida === 'owner' || quemConvida === 'gestor';
+}

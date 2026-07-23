@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { maskPhone } from '@/lib/masks';
+import { podeAtribuirRole } from '@/lib/permissions';
 // createClient usado apenas nas funções da tela principal (carregarEquipe, toggleAtivo, salvarComissao)
 import { ptBR } from 'date-fns/locale';
 
@@ -58,8 +59,9 @@ const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-w
 
 // ── Modal adicionar profissional ──────────────────────────────
 
-function NovoProfModal({ empresaId, onClose, onSalvo }: {
+function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   empresaId: string;
+  meuRole: 'owner' | 'gestor' | 'profissional';
   onClose: () => void;
   onSalvo: (p: Profissional) => void;
 }) {
@@ -67,6 +69,7 @@ function NovoProfModal({ empresaId, onClose, onSalvo }: {
   const [telefone, setTelefone] = useState('');
   const [email,    setEmail]    = useState('');
   const [comissao, setComissao] = useState('0');
+  const [role,     setRole]     = useState<'gestor' | 'profissional'>('profissional');
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
 
@@ -83,6 +86,7 @@ function NovoProfModal({ empresaId, onClose, onSalvo }: {
         telefone:             telefone.trim() || null,
         email:                email.trim() || null,
         percentual_comissao:  parseFloat(comissao) || 0,
+        role,
       }),
     });
 
@@ -120,6 +124,31 @@ function NovoProfModal({ empresaId, onClose, onSalvo }: {
             <input value={email} onChange={e => setEmail(e.target.value)}
               placeholder="email@exemplo.com" type="email" className={inputClass}/>
           </div>
+          {podeAtribuirRole(meuRole, 'gestor') && (
+            <div>
+              <label className={labelClass}>Papel</label>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setRole('profissional')}
+                  className="flex-1 h-10 rounded-xl border text-sm font-semibold transition"
+                  style={{
+                    borderColor: role === 'profissional' ? 'var(--color-primary)' : 'var(--color-border)',
+                    background:  role === 'profissional' ? 'var(--color-primary-soft)' : 'transparent',
+                    color:       role === 'profissional' ? 'var(--color-primary)' : 'var(--color-text-2)',
+                  }}>
+                  Profissional
+                </button>
+                <button type="button" onClick={() => setRole('gestor')}
+                  className="flex-1 h-10 rounded-xl border text-sm font-semibold transition"
+                  style={{
+                    borderColor: role === 'gestor' ? 'var(--color-primary)' : 'var(--color-border)',
+                    background:  role === 'gestor' ? 'var(--color-primary-soft)' : 'transparent',
+                    color:       role === 'gestor' ? 'var(--color-primary)' : 'var(--color-text-2)',
+                  }}>
+                  Gestora
+                </button>
+              </div>
+            </div>
+          )}
           <div>
             <label className={labelClass}>Comissão por atendimento (%)</label>
             <div className="relative">
@@ -239,11 +268,13 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
 
 // ── Card profissional ─────────────────────────────────────────
 
-function ProfCard({ prof, onEditInfo, onToggle, onPagar }: {
+function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlterarRole }: {
   prof: Profissional;
+  podeAlterarRole: boolean;
   onEditInfo: () => void;
   onToggle: () => void;
   onPagar: () => void;
+  onAlterarRole: () => void;
 }) {
   const [expandido, setExpandido] = useState(false);
   const [pagando,   setPagando]   = useState(false);
@@ -360,6 +391,15 @@ function ProfCard({ prof, onEditInfo, onToggle, onPagar }: {
               : <><Power     size={13} strokeWidth={2}/> Reativar profissional</>
             }
           </button>
+
+          {/* Promover / rebaixar */}
+          {podeAlterarRole && prof.role !== 'owner' && (
+            <button onClick={onAlterarRole}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 36, borderRadius: 14, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)', marginTop: 8 }}>
+              <UserCog size={13} strokeWidth={2}/>
+              {prof.role === 'gestor' ? 'Rebaixar para profissional' : 'Promover a gestora'}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -375,15 +415,19 @@ export default function EquipePage() {
   const [modal,          setModal]          = useState(false);
   const [editandoInfo,   setEditandoInfo]   = useState<Profissional | null>(null);
   const [confirmDesativar, setConfirmDesativar] = useState<Profissional | null>(null);
+  const [meuUserId, setMeuUserId] = useState<string | null>(null);
+  const [meuRole,   setMeuRole]   = useState<'owner' | 'gestor' | 'profissional'>('profissional');
 
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
+      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id, role')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
       setEmpresaId(membro.empresa_id);
+      setMeuUserId(user.id);
+      setMeuRole(membro.role as 'owner' | 'gestor' | 'profissional');
       await carregarEquipe(membro.empresa_id);
     })();
   }, []);
@@ -450,6 +494,15 @@ export default function EquipePage() {
     await supabase.from('empresa_membros').update({ ativo: false }).eq('id', confirmDesativar.id);
     setProfs(prev => prev.map(p => p.id === confirmDesativar.id ? { ...p, ativo: false } : p));
     setConfirmDesativar(null);
+  }
+
+  async function alterarRole(prof: Profissional) {
+    const novoRole = prof.role === 'gestor' ? 'profissional' : 'gestor';
+    const { error } = await supabase.from('empresa_membros')
+      .update({ role: novoRole })
+      .eq('id', prof.id);
+    if (error) { alert(error.message); return; }
+    setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, role: novoRole } : p));
   }
 
 function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number }) {
@@ -576,7 +629,14 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
             {profs.map((p, i) => (
               <div key={p.id} className="bm-stagger"
                 style={{ '--bm-i': i, '--bm-step': '60ms' } as React.CSSProperties}>
-                <ProfCard prof={p} onEditInfo={() => setEditandoInfo(p)} onToggle={() => toggleAtivo(p)} onPagar={() => pagarComissoes(p.user_id)}/>
+                <ProfCard
+                  prof={p}
+                  podeAlterarRole={meuRole === 'owner' && p.user_id !== meuUserId}
+                  onEditInfo={() => setEditandoInfo(p)}
+                  onToggle={() => toggleAtivo(p)}
+                  onPagar={() => pagarComissoes(p.user_id)}
+                  onAlterarRole={() => alterarRole(p)}
+                />
               </div>
             ))}
           </div>
@@ -584,7 +644,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
       )}
 
       {modal && empresaId && (
-        <NovoProfModal empresaId={empresaId} onClose={() => setModal(false)} onSalvo={onProfSalva}/>
+        <NovoProfModal empresaId={empresaId} meuRole={meuRole} onClose={() => setModal(false)} onSalvo={onProfSalva}/>
       )}
 
       {editandoInfo && (

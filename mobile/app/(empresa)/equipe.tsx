@@ -63,6 +63,7 @@ function formatBRL(v: number) {
 interface MembroEquipe {
   id: string;
   user_id: string;
+  role: 'gestor' | 'profissional';
   percentual_comissao: number;
   ativo: boolean;
   created_at: string;
@@ -86,7 +87,7 @@ function useEquipe() {
         .from('empresa_membros')
         .select('*, user:users(id, nome, telefone, foto_url)')
         .eq('empresa_id', empresaId!)
-        .eq('role', 'profissional')
+        .in('role', ['gestor', 'profissional'])
         .order('ativo', { ascending: false })
         .order('created_at');
 
@@ -190,10 +191,12 @@ function ModalComissao({ membro, onClose, onSalvar }: {
 
 // ── Card de profissional ──────────────────────────────────────
 
-function ProfCard({ membro, onEditComissao, onToggle }: {
+function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterarRole }: {
   membro: MembroEquipe;
+  podeAlterarRole: boolean;
   onEditComissao: () => void;
   onToggle: () => void;
+  onAlterarRole: () => void;
 }) {
   const [c1, c2] = membro.ativo ? avatarColors(membro.user.nome) : ['#9CA3AF', '#6B7280'];
 
@@ -294,6 +297,21 @@ function ProfCard({ membro, onEditComissao, onToggle }: {
         {membro.ativo && <Edit3 size={13} color={C.text3} strokeWidth={2} />}
       </TouchableOpacity>
 
+      {podeAlterarRole && (
+        <TouchableOpacity
+          onPress={onAlterarRole}
+          style={{
+            padding: 10, borderRadius: 10, marginBottom: 8,
+            borderWidth: 1, borderColor: C.border, backgroundColor: C.bg,
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}
+        >
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2 }}>
+            {membro.role === 'gestor' ? 'Rebaixar para profissional' : 'Promover a gestora'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Ações */}
       {membro.ativo ? (
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -343,7 +361,7 @@ function ProfCard({ membro, onEditComissao, onToggle }: {
 
 export default function Equipe() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, isOwner } = useAuthStore();
   const qc = useQueryClient();
 
   const { data: membros = [], isLoading, refetch } = useEquipe();
@@ -380,6 +398,16 @@ export default function Equipe() {
       .update({ percentual_comissao: pct })
       .eq('id', membro.id);
     setEditando(null);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    qc.invalidateQueries({ queryKey: ['equipe'] });
+  }
+
+  async function alterarRole(m: MembroEquipe) {
+    const novoRole = m.role === 'gestor' ? 'profissional' : 'gestor';
+    const { error } = await supabase
+      .from('empresa_membros')
+      .update({ role: novoRole })
+      .eq('id', m.id);
     if (error) { Alert.alert('Erro', error.message); return; }
     qc.invalidateQueries({ queryKey: ['equipe'] });
   }
@@ -459,8 +487,10 @@ export default function Equipe() {
             <ProfCard
               key={m.id}
               membro={m}
+              podeAlterarRole={isOwner}
               onEditComissao={() => setEditando(m)}
               onToggle={() => toggleAtivo(m)}
+              onAlterarRole={() => alterarRole(m)}
             />
           ))}
 
