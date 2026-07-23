@@ -1,6 +1,6 @@
 import type { PerfilRole } from '@/types';
 
-type Permissao =
+export type Permissao =
   | 'ver_financeiro_sensivel'
   | 'ver_despesas'
   | 'ver_resumo_financeiro'
@@ -48,4 +48,12 @@ export function rotaInicial(role: PerfilRole | 'owner'): string {
     case 'cliente':     return '/inicio';
     default:            return '/login';
   }
+}
+
+export function podeAtribuirRole(
+  quemConvida: 'owner' | PerfilRole,
+  roleAlvo: 'gestor' | 'profissional',
+): boolean {
+  if (roleAlvo === 'gestor') return quemConvida === 'owner';
+  return quemConvida === 'owner' || quemConvida === 'gestor';
 }

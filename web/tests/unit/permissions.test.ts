@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { temPermissao, rotaInicial } from '@/lib/permissions';
+import { temPermissao, rotaInicial, podeAtribuirRole } from '@/lib/permissions';
 
 describe('temPermissao', () => {
   describe('owner', () => {
@@ -79,5 +79,19 @@ describe('rotaInicial', () => {
 
   it('cliente vai ao início', () => {
     expect(rotaInicial('cliente')).toBe('/inicio');
+  });
+});
+
+describe('podeAtribuirRole', () => {
+  it('só owner pode atribuir role gestor', () => {
+    expect(podeAtribuirRole('owner', 'gestor')).toBe(true);
+    expect(podeAtribuirRole('gestor', 'gestor')).toBe(false);
+    expect(podeAtribuirRole('profissional', 'gestor')).toBe(false);
+  });
+
+  it('owner ou gestor podem atribuir role profissional', () => {
+    expect(podeAtribuirRole('owner', 'profissional')).toBe(true);
+    expect(podeAtribuirRole('gestor', 'profissional')).toBe(true);
+    expect(podeAtribuirRole('profissional', 'profissional')).toBe(false);
   });
 });
