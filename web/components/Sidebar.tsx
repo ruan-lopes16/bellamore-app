@@ -18,7 +18,7 @@ const supabase = createClient();
 
 // Itens principais da sidebar desktop
 const NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard },
+  { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
   { href: '/agenda',       label: 'Agenda',       icon: CalendarDays    },
   { href: '/comanda',      label: 'Comanda',      icon: Receipt         },
   { href: '/vendas',       label: 'Vendas',       icon: ShoppingCart    },
@@ -40,7 +40,7 @@ const BOTTOM_NAV_DESKTOP: { href: string; label: string; icon: React.ElementType
 // 5 abas do bottom nav mobile (design Bellamore) — sem permissão condicionada:
 // Financeiro some do bottom nav quando restrito (ver filtragem no componente)
 const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/dashboard',  label: 'Início',     icon: LayoutDashboard },
+  { href: '/dashboard',  label: 'Início',     icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
   { href: '/agenda',     label: 'Agenda',     icon: CalendarDays    },
   { href: '/clientes',   label: 'Clientes',   icon: Users           },
   { href: '/financeiro', label: 'Financeiro', icon: DollarSign,      permissao: 'ver_resumo_financeiro' },
