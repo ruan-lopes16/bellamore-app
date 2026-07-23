@@ -18,6 +18,12 @@
 --      próprio role; role 'owner' nunca é atribuído/removido por
 --      aqui (só a função criar_empresa_completo, que roda como
 --      SECURITY DEFINER e não passa por RLS/trigger de policy).
+--   4. Bloqueia, via o mesmo trigger, qualquer UPDATE que reatribua
+--      user_id ou empresa_id — a policy de UPDATE acima é permissiva
+--      o bastante (is_gestor_ou_owner) para deixar essas colunas
+--      passarem sem o guard explícito; sem isso um gestor poderia
+--      trocar o user_id de uma linha com role='gestor' para promover
+--      um cúmplice sem nunca alterar a coluna role.
 -- ============================================================
 
 CREATE POLICY "membros: gestor ou owner convida"
@@ -44,6 +50,10 @@ CREATE POLICY "membros: gestor ou owner atualiza"
 CREATE OR REPLACE FUNCTION public.bloquear_alteracao_role()
 RETURNS trigger AS $$
 BEGIN
+  IF NEW.user_id IS DISTINCT FROM OLD.user_id
+     OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id THEN
+    RAISE EXCEPTION 'Não é possível reatribuir esta associação a outro usuário/empresa.';
+  END IF;
   IF NEW.role IS DISTINCT FROM OLD.role THEN
     IF NEW.role = 'owner' OR OLD.role = 'owner' THEN
       RAISE EXCEPTION 'O papel de dona não pode ser alterado.';
