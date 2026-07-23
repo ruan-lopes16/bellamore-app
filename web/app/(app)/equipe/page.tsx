@@ -268,11 +268,13 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
 
 // ── Card profissional ─────────────────────────────────────────
 
-function ProfCard({ prof, onEditInfo, onToggle, onPagar }: {
+function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlterarRole }: {
   prof: Profissional;
+  podeAlterarRole: boolean;
   onEditInfo: () => void;
   onToggle: () => void;
   onPagar: () => void;
+  onAlterarRole: () => void;
 }) {
   const [expandido, setExpandido] = useState(false);
   const [pagando,   setPagando]   = useState(false);
@@ -389,6 +391,15 @@ function ProfCard({ prof, onEditInfo, onToggle, onPagar }: {
               : <><Power     size={13} strokeWidth={2}/> Reativar profissional</>
             }
           </button>
+
+          {/* Promover / rebaixar */}
+          {podeAlterarRole && prof.role !== 'owner' && (
+            <button onClick={onAlterarRole}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 36, borderRadius: 14, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)', marginTop: 8 }}>
+              <UserCog size={13} strokeWidth={2}/>
+              {prof.role === 'gestor' ? 'Rebaixar para profissional' : 'Promover a gestora'}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -483,6 +494,15 @@ export default function EquipePage() {
     await supabase.from('empresa_membros').update({ ativo: false }).eq('id', confirmDesativar.id);
     setProfs(prev => prev.map(p => p.id === confirmDesativar.id ? { ...p, ativo: false } : p));
     setConfirmDesativar(null);
+  }
+
+  async function alterarRole(prof: Profissional) {
+    const novoRole = prof.role === 'gestor' ? 'profissional' : 'gestor';
+    const { error } = await supabase.from('empresa_membros')
+      .update({ role: novoRole })
+      .eq('id', prof.id);
+    if (error) { alert(error.message); return; }
+    setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, role: novoRole } : p));
   }
 
 function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number }) {
@@ -609,7 +629,14 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
             {profs.map((p, i) => (
               <div key={p.id} className="bm-stagger"
                 style={{ '--bm-i': i, '--bm-step': '60ms' } as React.CSSProperties}>
-                <ProfCard prof={p} onEditInfo={() => setEditandoInfo(p)} onToggle={() => toggleAtivo(p)} onPagar={() => pagarComissoes(p.user_id)}/>
+                <ProfCard
+                  prof={p}
+                  podeAlterarRole={meuRole === 'owner' && p.user_id !== meuUserId}
+                  onEditInfo={() => setEditandoInfo(p)}
+                  onToggle={() => toggleAtivo(p)}
+                  onPagar={() => pagarComissoes(p.user_id)}
+                  onAlterarRole={() => alterarRole(p)}
+                />
               </div>
             ))}
           </div>
