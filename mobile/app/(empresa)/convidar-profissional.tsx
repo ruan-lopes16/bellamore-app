@@ -22,6 +22,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
+import { podeAtribuirRole } from '@/lib/permissions';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -73,13 +74,14 @@ function Campo({
 
 export default function ConvidarProfissional() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, isOwner } = useAuthStore();
   const qc = useQueryClient();
 
   const [email,    setEmail]    = useState('');
   const [nome,     setNome]     = useState('');
   const [telefone, setTelefone] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [role, setRole] = useState<'gestor' | 'profissional'>('profissional');
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -118,7 +120,7 @@ export default function ConvidarProfissional() {
     const { error } = await supabase.from('empresa_membros').upsert({
       empresa_id:           empresaAtiva.id,
       user_id:              users.id,
-      role:                 'profissional',
+      role,
       percentual_comissao:  0,
       ativo:                true,
     }, { onConflict: 'empresa_id,user_id' });
@@ -185,6 +187,38 @@ export default function ConvidarProfissional() {
             placeholder="(00) 00000-0000"
             keyboardType="phone-pad"
           />
+
+          {podeAtribuirRole(isOwner ? 'owner' : 'gestor', 'gestor') && (
+            <View style={{ marginBottom: 16 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>
+                Papel
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity onPress={() => setRole('profissional')}
+                  style={{
+                    flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1,
+                    borderColor: role === 'profissional' ? C.primary : C.border,
+                    backgroundColor: role === 'profissional' ? C.primarySoft : C.surface,
+                  }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: role === 'profissional' ? C.primary : C.text2 }}>
+                    Profissional
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setRole('gestor')}
+                  style={{
+                    flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1,
+                    borderColor: role === 'gestor' ? C.primary : C.border,
+                    backgroundColor: role === 'gestor' ? C.primarySoft : C.surface,
+                  }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: role === 'gestor' ? C.primary : C.text2 }}>
+                    Gestora
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           {/* Botão */}
           <TouchableOpacity
