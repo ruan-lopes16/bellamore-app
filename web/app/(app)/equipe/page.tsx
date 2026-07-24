@@ -63,21 +63,25 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   empresaId: string;
   meuRole: 'owner' | 'gestor' | 'profissional';
   onClose: () => void;
-  onSalvo: (p: Profissional) => void;
+  onSalvo: (p: Profissional, mensagem?: string) => void;
 }) {
-  const [nome,     setNome]     = useState('');
-  const [telefone, setTelefone] = useState('');
-  const [email,    setEmail]    = useState('');
-  const [comissao, setComissao] = useState('0');
-  const [role,     setRole]     = useState<'gestor' | 'profissional'>('profissional');
-  const [salvando, setSalvando] = useState(false);
-  const [erro,     setErro]     = useState('');
+  const [nome,          setNome]          = useState('');
+  const [telefone,      setTelefone]      = useState('');
+  const [email,         setEmail]         = useState('');
+  const [enviarConvite, setEnviarConvite] = useState(true);
+  const [comissao,      setComissao]      = useState('0');
+  const [role,          setRole]          = useState<'gestor' | 'profissional'>('profissional');
+  const [salvando,      setSalvando]      = useState(false);
+  const [erro,          setErro]          = useState('');
+
+  const temEmail = email.trim().length > 0;
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setErro(''); setSalvando(true);
 
-    const res = await fetch('/api/profissionais', {
+    const usarConvite = temEmail && enviarConvite;
+    const res = await fetch(usarConvite ? '/api/convites' : '/api/profissionais', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -95,7 +99,12 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
 
     if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
 
-    onSalvo({ ...json.membro, total_mes: 0, atendimentos_mes: 0 });
+    onSalvo(
+      { ...json.membro, total_mes: 0, atendimentos_mes: 0 },
+      json.status === 'convite_enviado'
+        ? `Convite enviado! ${nome.trim()} vai receber um e-mail para criar a senha.`
+        : undefined,
+    );
   }
 
   return (
@@ -124,6 +133,15 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
             <input value={email} onChange={e => setEmail(e.target.value)}
               placeholder="email@exemplo.com" type="email" className={inputClass}/>
           </div>
+          {temEmail && (
+            <label className="flex items-start gap-2.5 -mt-1 cursor-pointer">
+              <input type="checkbox" checked={enviarConvite} onChange={e => setEnviarConvite(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-border accent-[var(--color-primary)] flex-shrink-0"/>
+              <span className="text-xs text-text-2 leading-snug">
+                Enviar convite por e-mail — ela cria a própria senha e acessa o app com este e-mail.
+              </span>
+            </label>
+          )}
           {podeAtribuirRole(meuRole, 'gestor') && (
             <div>
               <label className={labelClass}>Papel</label>
@@ -166,7 +184,9 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
             </button>
             <button type="submit" disabled={salvando || !nome.trim()}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
-              {salvando ? 'Salvando...' : 'Adicionar'}
+              {salvando
+                ? (temEmail && enviarConvite ? 'Enviando convite...' : 'Salvando...')
+                : (temEmail && enviarConvite ? 'Enviar convite' : 'Adicionar')}
             </button>
           </div>
         </form>
@@ -417,6 +437,9 @@ export default function EquipePage() {
   const [confirmDesativar, setConfirmDesativar] = useState<Profissional | null>(null);
   const [meuUserId, setMeuUserId] = useState<string | null>(null);
   const [meuRole,   setMeuRole]   = useState<'owner' | 'gestor' | 'profissional'>('profissional');
+  const [toast,     setToast]     = useState('');
+
+  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
   useEffect(() => {
     (async () => {
@@ -527,12 +550,13 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
     if (error) await carregarEquipe(empresaId);
   }
 
-  function onProfSalva(nova: Profissional) {
+  function onProfSalva(nova: Profissional, mensagem?: string) {
     setProfs(prev => {
       const existe = prev.find(p => p.id === nova.id);
       return existe ? prev.map(p => p.id === nova.id ? nova : p) : [...prev, nova];
     });
     setModal(false);
+    if (mensagem) showToast(mensagem);
   }
 
   const ativos   = profs.filter(p => p.ativo).length;
@@ -541,6 +565,13 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
 
   return (
     <div className="bm-page">
+      {/* Toast de feedback */}
+      {toast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-green text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none">
+          <CheckCircle2 size={16} strokeWidth={2.5}/> {toast}
+        </div>
+      )}
+
       {/* Header Bellamore */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
