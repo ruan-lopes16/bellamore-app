@@ -30,7 +30,7 @@ describe('mobile layout regressions', () => {
   it('keeps dense mobile controls reachable without overlapping', () => {
     expect(read('app/globals.css')).toContain('.bm-mobile-actions');
     expect(read('app/(app)/agenda/page.tsx')).toContain('bm-mobile-actions');
-    expect(read('app/(app)/comissoes/page.tsx')).toContain('flex-col gap-3 p-4 sm:flex-row');
+    expect(read('app/(app)/comissoes/ComissoesGestorView.tsx')).toContain('flex-col gap-3 p-4 sm:flex-row');
   });
 
   it('provides reusable mobile header and stock action layout hooks', () => {

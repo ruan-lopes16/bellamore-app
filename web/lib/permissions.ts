@@ -15,7 +15,8 @@ export type Permissao =
   | 'ver_todos_clientes'
   | 'ver_anamnese'
   | 'fechar_comanda'
-  | 'configurar_empresa';
+  | 'configurar_empresa'
+  | 'gerenciar_vendas';
 
 const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
   owner: [
@@ -24,6 +25,7 @@ const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
     'gerenciar_profissionais', 'gerenciar_servicos', 'gerenciar_produtos',
     'gerenciar_estoque', 'ver_comissoes_todas', 'ver_propria_comissao',
     'ver_todos_clientes', 'ver_anamnese', 'fechar_comanda', 'configurar_empresa',
+    'gerenciar_vendas',
   ],
   gestor: [
     'ver_despesas', 'ver_resumo_financeiro',
@@ -31,6 +33,7 @@ const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
     'gerenciar_profissionais', 'gerenciar_servicos', 'gerenciar_produtos',
     'gerenciar_estoque', 'ver_comissoes_todas', 'ver_propria_comissao',
     'ver_todos_clientes', 'ver_anamnese', 'fechar_comanda',
+    'gerenciar_vendas',
   ],
   profissional: ['ver_proprios_agendamentos', 'ver_propria_comissao', 'ver_anamnese', 'fechar_comanda'],
   cliente: [],
