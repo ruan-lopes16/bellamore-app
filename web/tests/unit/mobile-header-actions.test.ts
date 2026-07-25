@@ -9,7 +9,7 @@ const headerPages = [
   'app/(app)/servicos/page.tsx',
   'app/(app)/pacotes/page.tsx',
   'app/(app)/equipe/page.tsx',
-  'app/(app)/comissoes/page.tsx',
+  'app/(app)/comissoes/ComissoesGestorView.tsx',
   'app/(app)/relatorios/page.tsx',
   'app/(app)/estoque/page.tsx',
   'app/(app)/agenda/page.tsx',

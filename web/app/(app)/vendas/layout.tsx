@@ -1,8 +1,8 @@
 import { getAppContext } from '@/lib/auth/server-context';
 import { exigirPermissao } from '@/lib/auth/requireRole';
 
-export default async function ComissoesLayout({ children }: { children: React.ReactNode }) {
+export default async function VendasLayout({ children }: { children: React.ReactNode }) {
   const { role } = await getAppContext();
-  await exigirPermissao(role, 'ver_propria_comissao');
+  await exigirPermissao(role, 'gerenciar_vendas');
   return <>{children}</>;
 }
