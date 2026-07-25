@@ -98,41 +98,58 @@ export default function ConvidarProfissional() {
     if (!podeEnviar || !empresaAtiva) return;
     setEnviando(true);
 
-    // 1. Tenta encontrar o usuário pelo email
-    const { data: users } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', email.toLowerCase().trim())
-      .single();
+    const { data: { session } } = await supabase.auth.getSession();
+    const apiUrl = process.env.EXPO_PUBLIC_API_URL;
 
-    if (!users) {
-      // Usuário não existe ainda — em produção enviaria convite por email via Supabase Auth
+    if (!session || !apiUrl) {
       setEnviando(false);
-      Alert.alert(
-        'Convite enviado!',
-        `Um link de cadastro será enviado para ${email}. Quando a profissional criar a conta, ela aparecerá na sua equipe.`,
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      Alert.alert('Erro', 'Não foi possível enviar o convite. Tente novamente mais tarde.');
       return;
     }
 
-    // 2. Usuário existe — adiciona diretamente à empresa (comissão configurada depois na tela Equipe)
-    const { error } = await supabase.from('empresa_membros').upsert({
-      empresa_id:           empresaAtiva.id,
-      user_id:              users.id,
-      role,
-      percentual_comissao:  0,
-      ativo:                true,
-    }, { onConflict: 'empresa_id,user_id' });
+    let resposta: Response;
+    try {
+      resposta = await fetch(`${apiUrl}/api/convites`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          empresaId: empresaAtiva.id,
+          nome:      nome.trim(),
+          telefone:  telefone.trim() || undefined,
+          email:     email.toLowerCase().trim(),
+          role,
+        }),
+      });
+    } catch {
+      setEnviando(false);
+      Alert.alert('Erro', 'Falha de conexão ao enviar o convite. Verifique sua internet.');
+      return;
+    }
 
+    const resultado = await resposta.json();
     setEnviando(false);
 
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (!resposta.ok) {
+      Alert.alert('Erro', resultado.error ?? 'Não foi possível enviar o convite.');
+      return;
+    }
 
     qc.invalidateQueries({ queryKey: ['equipe'] });
-    Alert.alert('Profissional adicionada!', `${nome} foi adicionada à sua equipe.`, [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+
+    if (resultado.status === 'adicionado') {
+      Alert.alert('Profissional adicionada!', `${nome} foi adicionada à sua equipe.`, [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } else {
+      Alert.alert(
+        'Convite enviado!',
+        `Um e-mail foi enviado para ${email} com um link para criar a senha e acessar a equipe.`,
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    }
   }
 
   return (
