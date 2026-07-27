@@ -35,7 +35,8 @@ export function useEstoque() {
         .select('*')
         .eq('empresa_id', empresaId!)
         .eq('ativo', true)
-        .order('estoque_atual', { ascending: true });
+        .order('categoria', { ascending: true })
+        .order('nome', { ascending: true });
 
       if (error) throw error;
 

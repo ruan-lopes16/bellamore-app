@@ -29,9 +29,10 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Plus, Package2, AlertTriangle, DollarSign, Wallet,
   Search, Edit3, X, ArrowUp, ArrowDown, RefreshCw,
-  ChevronLeft, ChevronRight, List, CalendarDays, Check,
+  ChevronLeft, ChevronRight, List, CalendarDays, Check, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -74,16 +75,17 @@ type MovItem = {
 
 // ── Constantes ────────────────────────────────────────────────
 
+// Ordem alfabética por label (pt-BR) — mantém filtros e seletor de categoria consistentes
 const CATS = [
   { key: 'cilios',       label: 'Cílios',       cor: '#4F46E5', bg: '#EEF2FF' },
-  { key: 'sobrancelhas', label: 'Sobrancelhas',  cor: '#7C3AED', bg: '#F3EFFE' },
-  { key: 'pele',         label: 'Pele',          cor: '#0D7E5F', bg: '#EAFAF5' },
-  { key: 'unhas',        label: 'Unhas',         cor: '#B45309', bg: '#FEF3E2' },
   { key: 'depilacao',    label: 'Depilação',     cor: '#D4608A', bg: '#FDF0F5' },
   { key: 'ferramentas',  label: 'Ferramentas',   cor: '#0891B2', bg: '#ECFEFF' },
   { key: 'higiene',      label: 'Higiene',       cor: '#059669', bg: '#ECFDF5' },
   { key: 'materiais',    label: 'Materiais',     cor: '#92400E', bg: '#FEF3E2' },
   { key: 'outros',       label: 'Outros',        cor: '#6B7280', bg: '#F3F4F6' },
+  { key: 'pele',         label: 'Pele',          cor: '#0D7E5F', bg: '#EAFAF5' },
+  { key: 'sobrancelhas', label: 'Sobrancelhas',  cor: '#7C3AED', bg: '#F3EFFE' },
+  { key: 'unhas',        label: 'Unhas',         cor: '#B45309', bg: '#FEF3E2' },
 ] as const;
 
 type CatKey = typeof CATS[number]['key'];
@@ -120,11 +122,12 @@ const labelClass  = "block text-xs font-semibold text-text-2 uppercase tracking-
 
 type ProdutoModalState = { modo: 'criar' } | { modo: 'editar'; produto: Produto };
 
-function ProdutoModal({ empresaId, state, onClose, onSalvo }: {
+function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
   empresaId: string;
   state: ProdutoModalState;
   onClose: () => void;
   onSalvo: (p: Produto) => void;
+  onExcluido: (id: string) => void;
 }) {
 
   const ed = state.modo === 'editar' ? state.produto : null;
@@ -140,6 +143,8 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo }: {
   const [precoVenda, setPrecoVenda] = useState(ed && ed.preco_venda > 0 ? String(ed.preco_venda) : '');
   const [salvando,   setSalvando]   = useState(false);
   const [erro,       setErro]       = useState('');
+  const [confirmExcluir, setConfirmExcluir] = useState(false);
+  const [excluindo,      setExcluindo]      = useState(false);
 
   async function salvar() {
     if (!nome.trim()) return;
@@ -172,6 +177,26 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo }: {
       if (error) { setErro(error.message); return; }
       onSalvo(data as Produto);
     }
+  }
+
+  async function excluir() {
+    if (!ed) return;
+    setExcluindo(true);
+    const { error } = await supabase.from('produtos')
+      .delete().eq('id', ed.id).eq('empresa_id', empresaId);
+    if (error) {
+      // Produto tem movimentações/vendas/comandas vinculadas (FK) — desativa em vez de excluir
+      const { error: errDesativar } = await supabase.from('produtos')
+        .update({ ativo: false }).eq('id', ed.id).eq('empresa_id', empresaId);
+      setExcluindo(false);
+      if (errDesativar) { setErro(errDesativar.message); return; }
+      setConfirmExcluir(false);
+      onExcluido(ed.id);
+      return;
+    }
+    setExcluindo(false);
+    setConfirmExcluir(false);
+    onExcluido(ed.id);
   }
 
   return (
@@ -345,6 +370,12 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo }: {
 
         {/* Footer */}
         <div className="flex gap-3 p-5 border-t border-border flex-shrink-0">
+          {ed && (
+            <button onClick={() => setConfirmExcluir(true)} title="Excluir produto" aria-label="Excluir produto"
+              className="w-10 h-10 rounded-xl border border-border flex items-center justify-center text-text-4 hover:bg-rose-soft hover:border-rose/30 hover:text-rose transition flex-shrink-0">
+              <Trash2 size={15}/>
+            </button>
+          )}
           <button onClick={onClose}
             className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
             Cancelar
@@ -355,6 +386,17 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo }: {
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmExcluir}
+        title="Excluir produto?"
+        message={`"${ed?.nome}" será removido do estoque. Essa ação não pode ser desfeita.`}
+        confirmLabel="Excluir"
+        variant="danger"
+        loading={excluindo}
+        onConfirm={excluir}
+        onCancel={() => setConfirmExcluir(false)}
+      />
     </div>
   );
 }
@@ -647,10 +689,17 @@ export default function EstoquePage() {
       const existe = prev.find(x => x.id === p.id);
       if (existe) return prev.map(x => x.id === p.id ? p : x);
       return [...prev, p].sort(
-        (a, b) => a.categoria.localeCompare(b.categoria) || a.nome.localeCompare(b.nome),
+        (a, b) => a.categoria.localeCompare(b.categoria, 'pt-BR') || a.nome.localeCompare(b.nome, 'pt-BR'),
       );
     });
     setModalProd(null);
+  }
+
+  function onProdutoExcluido(id: string) {
+    const produto = produtos.find(p => p.id === id);
+    setProdutos(prev => prev.filter(p => p.id !== id));
+    setModalProd(null);
+    showToast(`Produto excluído${produto ? ` — ${produto.nome}` : ''}`);
   }
 
   function onMovSalvo(produto: Produto, novoEstoque: number, tipo: 'entrada' | 'saida', qtd: number) {
@@ -1274,7 +1323,8 @@ export default function EstoquePage() {
           empresaId={empresaId}
           state={modalProd}
           onClose={() => setModalProd(null)}
-          onSalvo={onProdutoSalvo}/>
+          onSalvo={onProdutoSalvo}
+          onExcluido={onProdutoExcluido}/>
       )}
       {modalMov && (
         <MovModal
