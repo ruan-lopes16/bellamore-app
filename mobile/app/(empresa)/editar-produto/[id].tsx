@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform,
   StatusBar, ActivityIndicator, Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
-import { ChevronLeft, Package } from 'lucide-react-native';
+import { ChevronLeft, Trash2 } from 'lucide-react-native';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -19,17 +19,18 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 
-// ── Constantes ───────────────────────────────────────────────
+// ── Constantes (iguais ao novo-produto) ────────────────────────
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
   primary: '#2C1654', primarySoft: '#EEE8F8',
   accent: '#9B6FE8',
-  red: '#C0392B',
+  red: '#C0392B', redSoft: '#FEF2F2',
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
 
@@ -46,7 +47,7 @@ function parseBRLFloat(str: string): number {
   return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
 }
 
-// ── Componentes auxiliares ───────────────────────────────────
+// ── Componentes auxiliares (iguais ao novo-produto) ────────────
 
 function Label({ children }: { children: string }) {
   return (
@@ -126,17 +127,21 @@ function ChipSelector({ label, options, value, onChange }: {
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function NovoProdutoScreen() {
+export default function EditarProdutoScreen() {
   const insets = useSafeAreaInsets();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { empresaAtiva } = useAuthStore();
+  const qc = useQueryClient();
 
-  const [nome, setNome] = useState('');
-  const [categoria, setCategoria] = useState('');
-  const [unidade, setUnidade] = useState('un');
-  const [precoCusto, setPrecoCusto] = useState('');
-  const [estoqueMinimo, setEstoqueMinimo] = useState('');
-  const [estoqueInicial, setEstoqueInicial] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [nome,           setNome]           = useState('');
+  const [categoria,      setCategoria]      = useState('');
+  const [unidade,        setUnidade]        = useState('un');
+  const [precoCusto,     setPrecoCusto]     = useState('');
+  const [estoqueAtual,   setEstoqueAtual]   = useState('');
+  const [estoqueMinimo,  setEstoqueMinimo]  = useState('');
+  const [carregando,     setCarregando]     = useState(true);
+  const [salvando,       setSalvando]       = useState(false);
+  const [excluindo,      setExcluindo]      = useState(false);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -147,7 +152,24 @@ export default function NovoProdutoScreen() {
     PlusJakartaSans_700Bold,
   });
 
-  if (!fontsLoaded) return null;
+  // Carrega dados do produto
+  useEffect(() => {
+    if (!id) return;
+    supabase.from('produtos').select('*').eq('id', id).single()
+      .then(({ data }) => {
+        if (data) {
+          setNome(data.nome ?? '');
+          setCategoria(data.categoria ?? '');
+          setUnidade(data.unidade ?? 'un');
+          setPrecoCusto(data.preco_custo ? String(data.preco_custo) : '');
+          setEstoqueAtual(data.estoque_atual != null ? String(data.estoque_atual) : '');
+          setEstoqueMinimo(data.estoque_minimo != null ? String(data.estoque_minimo) : '');
+        }
+        setCarregando(false);
+      });
+  }, [id]);
+
+  if (!fontsLoaded || carregando) return null;
 
   async function handleSalvar() {
     if (!nome.trim()) {
@@ -159,27 +181,50 @@ export default function NovoProdutoScreen() {
       return;
     }
 
-    setLoading(true);
-    try {
-      const { error } = await supabase.from('produtos').insert({
-        empresa_id:      empresaAtiva!.id,
-        nome:            nome.trim(),
-        categoria,
-        unidade,
-        preco_custo:     parseBRLFloat(precoCusto),
-        estoque_minimo:  parseBRLFloat(estoqueMinimo),
-        estoque_atual:   parseBRLFloat(estoqueInicial),
-        ativo:           true,
-      });
+    setSalvando(true);
+    const { error } = await supabase.from('produtos').update({
+      nome:            nome.trim(),
+      categoria,
+      unidade,
+      preco_custo:     parseBRLFloat(precoCusto),
+      estoque_minimo:  parseBRLFloat(estoqueMinimo),
+      estoque_atual:   parseBRLFloat(estoqueAtual),
+    }).eq('id', id!).eq('empresa_id', empresaAtiva!.id);
+    setSalvando(false);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    qc.invalidateQueries({ queryKey: ['estoque', empresaAtiva?.id] });
+    router.back();
+  }
 
-      if (error) throw error;
+  function confirmarExcluir() {
+    Alert.alert(
+      'Excluir produto',
+      `"${nome}" será removido do estoque. Essa ação não pode ser desfeita.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Excluir', style: 'destructive', onPress: excluir },
+      ]
+    );
+  }
 
+  async function excluir() {
+    if (!id) return;
+    setExcluindo(true);
+    const { error } = await supabase.from('produtos')
+      .delete().eq('id', id).eq('empresa_id', empresaAtiva!.id);
+    if (error) {
+      // Produto tem movimentações/vendas/comandas vinculadas (FK) — desativa em vez de excluir
+      const { error: errDesativar } = await supabase.from('produtos')
+        .update({ ativo: false }).eq('id', id).eq('empresa_id', empresaAtiva!.id);
+      setExcluindo(false);
+      if (errDesativar) { Alert.alert('Erro', errDesativar.message); return; }
+      qc.invalidateQueries({ queryKey: ['estoque', empresaAtiva?.id] });
       router.back();
-    } catch (err: any) {
-      Alert.alert('Erro', err?.message ?? 'Não foi possível salvar o produto.');
-    } finally {
-      setLoading(false);
+      return;
     }
+    setExcluindo(false);
+    qc.invalidateQueries({ queryKey: ['estoque', empresaAtiva?.id] });
+    router.back();
   }
 
   return (
@@ -201,16 +246,23 @@ export default function NovoProdutoScreen() {
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 2 }}>
             Estoque
           </Text>
-          <Text style={{ fontFamily: 'Fraunces_700Bold', fontSize: 22, color: C.text }}>
-            Novo Produto
+          <Text style={{ fontFamily: 'Fraunces_700Bold', fontSize: 22, color: C.text }} numberOfLines={1}>
+            {nome || 'Editar Produto'}
           </Text>
         </View>
-        <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-          <Package size={18} color={C.primary} strokeWidth={2} />
-        </View>
+        <TouchableOpacity
+          onPress={confirmarExcluir}
+          disabled={excluindo}
+          style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: C.redSoft, alignItems: 'center', justifyContent: 'center', opacity: excluindo ? 0.6 : 1 }}
+        >
+          {excluindo
+            ? <ActivityIndicator size="small" color={C.red} />
+            : <Trash2 size={16} color={C.red} strokeWidth={2} />
+          }
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: insets.bottom + 100 }}>
+      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: insets.bottom + 100 }} keyboardShouldPersistTaps="handled">
         <MotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 350 }}>
 
           {/* Nome */}
@@ -247,11 +299,11 @@ export default function NovoProdutoScreen() {
             opcional
           />
 
-          {/* Estoque inicial */}
+          {/* Estoque atual */}
           <Field
-            label="Estoque inicial"
-            value={estoqueInicial}
-            onChange={setEstoqueInicial}
+            label="Estoque atual"
+            value={estoqueAtual}
+            onChange={setEstoqueAtual}
             placeholder={`Quantidade em ${unidade}`}
             keyboardType="decimal-pad"
             opcional
@@ -262,7 +314,7 @@ export default function NovoProdutoScreen() {
             label="Estoque mínimo (alerta)"
             value={estoqueMinimo}
             onChange={setEstoqueMinimo}
-            placeholder={`Qtd. mínima antes do alerta`}
+            placeholder="Qtd. mínima antes do alerta"
             keyboardType="decimal-pad"
             opcional
           />
@@ -276,13 +328,13 @@ export default function NovoProdutoScreen() {
       }}>
         <TouchableOpacity
           onPress={handleSalvar}
-          disabled={loading}
+          disabled={salvando}
           style={{ backgroundColor: C.primary, borderRadius: 16, padding: 17, alignItems: 'center' }}
         >
-          {loading
+          {salvando
             ? <ActivityIndicator color="#fff" />
             : <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: '#fff' }}>
-                Salvar Produto
+                Salvar alterações
               </Text>
           }
         </TouchableOpacity>

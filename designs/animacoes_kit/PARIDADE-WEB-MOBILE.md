@@ -35,7 +35,7 @@ Os **ícones SVG** ficam como paths em `shared/categorias.ts`; web embrulha em `
 | Serviços | `app/servicos/page.tsx` | `(empresa)/servicos.tsx` + `novo-servico` + `editar-servico/[id]` | ✅ |
 | Equipe | `app/equipe/page.tsx` | `(empresa)/equipe.tsx` + `convidar-profissional` | ✅ |
 | Comissões | `app/comissoes/page.tsx` | `(empresa)/comissoes.tsx` | ✅ |
-| Estoque | `app/estoque/page.tsx` | `(empresa)/estoque.tsx` + `novo-produto` | ✅ |
+| Estoque | `app/estoque/page.tsx` | `(empresa)/estoque.tsx` + `novo-produto` + `editar-produto/[id]` | ✅ |
 | Financeiro | `app/financeiro/page.tsx` | `(empresa)/financeiro.tsx` + `nova-despesa` | ✅ |
 | Pacotes | `app/pacotes/page.tsx` | `(empresa)/pacotes.tsx` + `novo/editar-pacote` | ✅ |
 | Relatórios | `app/relatorios/page.tsx` | `(empresa)/relatorios.tsx` | ✅ |

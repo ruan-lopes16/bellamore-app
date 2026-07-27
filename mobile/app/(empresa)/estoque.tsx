@@ -242,7 +242,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
 
 // ── Card de produto ──────────────────────────────────────────
 
-function ProdutoRow({ produto, onPress }: { produto: Produto; onPress: () => void }) {
+function ProdutoRow({ produto, onPress, onEdit }: { produto: Produto; onPress: () => void; onEdit: () => void }) {
   const pct = produto.estoque_minimo > 0
     ? Math.min(produto.estoque_atual / produto.estoque_minimo, 1)
     : 1;
@@ -256,53 +256,64 @@ function ProdutoRow({ produto, onPress }: { produto: Produto; onPress: () => voi
     produto.status === 'baixo'   ? C.amberSoft : C.greenSoft;
 
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.7}
-      style={{
-        flexDirection: 'row', alignItems: 'center', gap: 12,
-        paddingVertical: 14, paddingHorizontal: 16,
-        borderBottomWidth: 1, borderBottomColor: C.border,
-      }}
-    >
-      {/* Ícone status */}
-      <View style={{
-        width: 38, height: 38, borderRadius: 12,
-        backgroundColor: statusBg,
-        alignItems: 'center', justifyContent: 'center',
-      }}>
-        {produto.status === 'ok'
-          ? <CheckCircle2 size={17} color={statusColor} strokeWidth={2} />
-          : <AlertTriangle size={17} color={statusColor} strokeWidth={2} />
-        }
-      </View>
-
-      {/* Info */}
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
-          {produto.nome}
-        </Text>
-        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginBottom: 6 }}>
-          {produto.categoria}
-        </Text>
-        {/* Barra de progresso */}
-        <View style={{ height: 3, backgroundColor: C.border, borderRadius: 2 }}>
-          <View style={{ width: `${pct * 100}%`, height: 3, backgroundColor: statusColor, borderRadius: 2 }} />
+    <View style={{
+      flexDirection: 'row', alignItems: 'center',
+      borderBottomWidth: 1, borderBottomColor: C.border,
+    }}>
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.7}
+        style={{
+          flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12,
+          paddingVertical: 14, paddingLeft: 16, paddingRight: 8,
+        }}
+      >
+        {/* Ícone status */}
+        <View style={{
+          width: 38, height: 38, borderRadius: 12,
+          backgroundColor: statusBg,
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          {produto.status === 'ok'
+            ? <CheckCircle2 size={17} color={statusColor} strokeWidth={2} />
+            : <AlertTriangle size={17} color={statusColor} strokeWidth={2} />
+          }
         </View>
-      </View>
 
-      {/* Saldo */}
-      <View style={{ alignItems: 'flex-end', gap: 4 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.text }}>
-          {produto.estoque_atual}
-        </Text>
-        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
-          {produto.unidade}
-        </Text>
-      </View>
+        {/* Info */}
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
+            {produto.nome}
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginBottom: 6 }}>
+            {produto.categoria}
+          </Text>
+          {/* Barra de progresso */}
+          <View style={{ height: 3, backgroundColor: C.border, borderRadius: 2 }}>
+            <View style={{ width: `${pct * 100}%`, height: 3, backgroundColor: statusColor, borderRadius: 2 }} />
+          </View>
+        </View>
 
-      <ChevronRight size={14} color={C.text4} strokeWidth={2} />
-    </TouchableOpacity>
+        {/* Saldo */}
+        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.text }}>
+            {produto.estoque_atual}
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
+            {produto.unidade}
+          </Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Editar / ver produto (inclui excluir) */}
+      <TouchableOpacity
+        onPress={onEdit}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={{ paddingHorizontal: 12, paddingVertical: 14 }}
+      >
+        <ChevronRight size={16} color={C.text4} strokeWidth={2} />
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -471,6 +482,7 @@ export default function EstoqueScreen() {
                 <ProdutoRow
                   produto={produto}
                   onPress={() => setProdutoSelecionado(produto)}
+                  onEdit={() => router.push(`/(empresa)/editar-produto/${produto.id}` as any)}
                 />
               </MotiView>
             ))}
