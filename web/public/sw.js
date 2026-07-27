@@ -28,19 +28,36 @@ self.addEventListener('fetch', e => {
   if (url.origin !== location.origin) return;
   if (url.pathname.startsWith('/api/') || url.hostname.includes('supabase')) return;
 
-  e.respondWith(
-    fetch(request)
-      .then(response => {
-        if (response.ok && url.pathname.startsWith('/_next/static/')) {
-          const clone = response.clone();
-          caches.open(CACHE).then(c => c.put(request, clone));
-        }
-        return response;
-      })
-      .catch(() =>
-        caches.match(request).then(cached => cached ?? caches.match('/offline')),
-      ),
-  );
+  // Navegação de documento (link aberto, refresh): só aqui faz sentido cair
+  // para a página /offline quando a rede falha.
+  if (request.mode === 'navigate') {
+    e.respondWith(
+      fetch(request).catch(() => caches.match('/offline').then(cached => cached ?? Response.error())),
+    );
+    return;
+  }
+
+  // Chunks estáticos do Next: cacheia para reuso, mas em falha de rede sem
+  // cache correspondente deixa a requisição falhar normalmente — nunca
+  // devolve o HTML da página /offline no lugar de um .js/.css.
+  if (url.pathname.startsWith('/_next/static/')) {
+    e.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE).then(c => c.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then(cached => cached ?? Response.error())),
+    );
+    return;
+  }
+
+  // Demais requisições (payloads RSC/data do App Router, prefetch, etc.):
+  // sem interceptação. Um fetch de RSC que recebesse HTML da /offline no
+  // lugar do payload esperado quebra o render no cliente.
 });
 
 // ── Push notifications ──────────────────────────────────────────

@@ -10,6 +10,8 @@ const PUBLIC_PREFIXES = [
   '/verificar-email',
   '/auth/callback',
   '/offline',
+  '/icon',
+  '/apple-icon',
 ];
 
 export function getSupabaseAuthCookieBaseName(supabaseUrl?: string): string | null {
