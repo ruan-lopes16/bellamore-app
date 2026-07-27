@@ -45,6 +45,11 @@ describe('proxy auth rules', () => {
     expect(isProtectedAppPath('/')).toBe(false);
   });
 
+  it('does not protect the generated PWA icon routes (no dot in the URL to bypass the matcher)', () => {
+    expect(isProtectedAppPath('/icon')).toBe(false);
+    expect(isProtectedAppPath('/apple-icon')).toBe(false);
+  });
+
   it('redirects protected app routes only when no Supabase auth cookie exists', () => {
     expect(
       shouldRedirectToLogin({

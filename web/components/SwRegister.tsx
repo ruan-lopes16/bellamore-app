@@ -20,7 +20,13 @@ export function SwRegister() {
         // Aguarda o SW estar ativo antes de subscrever
         await navigator.serviceWorker.ready;
 
-        const permission = await Notification.requestPermission();
+        // Só pede permissão quando o usuário ainda não decidiu — repetir o
+        // pedido após um "denied" não reabre o prompt, só gera o aviso do
+        // Chrome de permissão bloqueada por dispensa repetida.
+        if (Notification.permission === 'denied') return;
+        const permission = Notification.permission === 'granted'
+          ? 'granted'
+          : await Notification.requestPermission();
         if (permission !== 'granted') return;
 
         const existing = await registration.pushManager.getSubscription();
