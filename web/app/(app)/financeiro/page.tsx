@@ -33,7 +33,7 @@ import { useState, useEffect } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, X, Layers, Banknote, CreditCard, Gift,
-  RefreshCw, Check, FileSpreadsheet,
+  RefreshCw, Check, FileSpreadsheet, Pencil, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { CnpjFinanceiroImporter } from '@/components/CnpjFinanceiroImporter';
@@ -58,7 +58,7 @@ const supabase = createClient();
 
 type Despesa = {
   id: string; descricao: string; categoria?: string;
-  valor: number; recorrente: boolean;
+  valor: number; recorrente: boolean; periodicidade?: string;
   data_vencimento?: string; data_pagamento?: string;
   status: 'pendente' | 'pago';
 };
@@ -276,6 +276,151 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
   );
 }
 
+// ── Modal Editar Despesa ──────────────────────────────────────
+
+function EditarDespesaModal({ despesa, onClose, onSalvo }: {
+  despesa: Despesa; onClose: () => void; onSalvo: () => void;
+}) {
+  const [descricao,     setDescricao]     = useState(despesa.descricao);
+  const [valor,         setValor]         = useState(formatValorMonetarioInput(Number(despesa.valor)));
+  const [categoria,     setCategoria]     = useState(despesa.categoria ?? '');
+  const [recorrente,    setRecorrente]    = useState(despesa.recorrente);
+  const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>(
+    (despesa.periodicidade ?? 'mensal') as 'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'
+  );
+  const [vencimento,    setVencimento]    = useState(despesa.data_vencimento ?? '');
+  const [salvando,      setSalvando]      = useState(false);
+  const [excluindo,     setExcluindo]     = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [erro,          setErro]          = useState('');
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault(); setErro(''); setSalvando(true);
+    const valorN = parseFloat(valor.replace(',', '.'));
+    if (isNaN(valorN) || valorN <= 0) {
+      setErro('Informe um valor maior que zero.'); setSalvando(false); return;
+    }
+    const { error } = await supabase.from('despesas').update({
+      descricao:       descricao.trim(),
+      categoria:       categoria || null,
+      valor:           valorN,
+      recorrente,
+      periodicidade:   recorrente ? periodicidade : null,
+      data_vencimento: vencimento || null,
+    }).eq('id', despesa.id);
+    setSalvando(false);
+    if (error) { setErro(error.message); return; }
+    onSalvo();
+  }
+
+  async function excluir() {
+    setExcluindo(true);
+    await supabase.from('despesas').delete().eq('id', despesa.id);
+    setExcluindo(false);
+    onSalvo();
+  }
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
+          <h2 className="font-serif text-xl text-text">Editar despesa</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
+        </div>
+        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+          <div>
+            <label className={labelClass}>Descrição *</label>
+            <input value={descricao} onChange={e => setDescricao(e.target.value)}
+              placeholder="Ex: Aluguel do espaço" required className={inputClass}/>
+          </div>
+          <div>
+            <label className={labelClass}>Valor *</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <input value={valor} onChange={e => setValor(e.target.value)}
+                inputMode="decimal" placeholder="0,00" required className={`${inputClass} pl-9`}/>
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>Categoria</label>
+            <div className="flex flex-wrap gap-2">
+              {CATEGORIAS_DESP.map(c => (
+                <button key={c} type="button" onClick={() => setCategoria(c === categoria ? '' : c)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                    categoria === c
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-bg border-border text-text-3 hover:border-accent'
+                  }`}>{c}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>Data de vencimento</label>
+            <input value={vencimento} onChange={e => setVencimento(e.target.value)}
+              type="date" className={inputClass}/>
+          </div>
+          <div className="border-t border-border pt-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div onClick={() => setRecorrente(v => !v)}
+                className={`w-5 h-5 rounded-md border flex items-center justify-center transition ${
+                  recorrente ? 'bg-primary border-primary' : 'border-border bg-bg'
+                }`}>
+                {recorrente && <Check size={12} strokeWidth={3} className="text-white"/>}
+              </div>
+              <span className="flex items-center gap-2 text-sm font-semibold text-text-2">
+                <RefreshCw size={14} strokeWidth={2} className={recorrente ? 'text-primary' : 'text-text-4'}/>
+                Despesa recorrente
+              </span>
+            </label>
+            {recorrente && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {PERIODICIDADES.map(p => (
+                  <button key={p.key} type="button" onClick={() => setPeriodicidade(p.key)}
+                    className={`flex-1 min-w-[90px] py-2 rounded-xl text-xs font-semibold border transition ${
+                      periodicidade === p.key
+                        ? 'bg-amber-soft border-amber/30 text-amber'
+                        : 'bg-bg border-border text-text-3'
+                    }`}>{p.label}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          {erro && <p className="text-red text-sm">{erro}</p>}
+          <div className="border-t border-border pt-3">
+            {confirmDelete ? (
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-red flex-1">Confirmar exclusão?</p>
+                <button type="button" onClick={() => setConfirmDelete(false)}
+                  className="px-3 h-8 rounded-lg border border-border text-xs text-text-2 hover:bg-bg transition">Cancelar</button>
+                <button type="button" onClick={excluir} disabled={excluindo}
+                  className="px-3 h-8 rounded-lg bg-red text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50">
+                  {excluindo ? 'Excluindo...' : 'Excluir'}
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setConfirmDelete(true)}
+                className="flex items-center gap-1.5 text-xs text-red font-semibold hover:underline">
+                <Trash2 size={12} strokeWidth={2}/> Excluir despesa
+              </button>
+            )}
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+              Cancelar
+            </button>
+            <button type="submit" disabled={salvando || !descricao.trim() || !valor}
+              className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
+              {salvando ? 'Salvando...' : 'Salvar alterações'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Tela principal ────────────────────────────────────────────
 
 export default function FinanceiroPage() {
@@ -303,6 +448,7 @@ export default function FinanceiroPage() {
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
   const [lancandoRec,           setLancandoRec]           = useState(false);
+  const [editarDespesa,         setEditarDespesa]         = useState<Despesa | null>(null);
 
   const isHoje = isSameMonth(mesRef, new Date());
 
@@ -585,10 +731,10 @@ export default function FinanceiroPage() {
       <FinanceMonthCalendar
         month={mesRef}
         isOpen={calendarioAberto}
-        isNextDisabled={isHoje}
+        isNextDisabled={false}
         onToggle={() => setCalendarioAberto(open => !open)}
         onPreviousMonth={() => setMesRef(m => subMonths(m, 1))}
-        onNextMonth={() => !isHoje && setMesRef(m => addMonths(m, 1))}
+        onNextMonth={() => setMesRef(m => addMonths(m, 1))}
       />
 
       {/* KPIs */}
@@ -852,32 +998,41 @@ export default function FinanceiroPage() {
           ) : (
             despesas.map((d, i) => (
               <div key={d.id}
-                className={`flex items-center gap-3 px-5 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''} ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
-                  {d.status === 'pago'
-                    ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
-                    : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
-                  }
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
-                  <p className="text-[10px] text-text-4 mt-0.5">
+                className={`flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
+                <div
+                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                  onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                     {d.status === 'pago'
-                      ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
-                      : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
+                      ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
+                      : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
                     }
-                    {d.recorrente && ' · Recorrente'}
-                  </p>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                    <p className="text-[10px] text-text-4 mt-0.5">
+                      {d.status === 'pago'
+                        ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
+                        : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
+                      }
+                      {d.recorrente && ' · Recorrente'}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                      d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
+                    }`}>
+                      {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
-                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
-                    d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
-                  }`}>
-                    {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
-                  </span>
-                </div>
+                <button
+                  onClick={() => setEditarDespesa(d)}
+                  title="Editar despesa"
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
+                  <Pencil size={12} strokeWidth={2}/>
+                </button>
               </div>
             ))
           )}
@@ -893,6 +1048,9 @@ export default function FinanceiroPage() {
       )}
       {marcarPago && (
         <MarcarPagoModal despesa={marcarPago} onClose={() => setMarcarPago(null)} onSalvo={() => { setMarcarPago(null); recarregar(); }}/>
+      )}
+      {editarDespesa && (
+        <EditarDespesaModal despesa={editarDespesa} onClose={() => setEditarDespesa(null)} onSalvo={() => { setEditarDespesa(null); recarregar(); }}/>
       )}
     </div>
   );

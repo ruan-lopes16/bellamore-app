@@ -37,6 +37,7 @@ export interface DespesaItem {
   categoria?: string;
   valor: number;
   recorrente: boolean;
+  periodicidade?: string;
   data_vencimento?: string;
   data_pagamento?: string;
   status: 'pendente' | 'pago';

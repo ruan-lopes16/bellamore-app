@@ -13,7 +13,7 @@ import {
   ChevronLeft, ChevronRight, Download,
   TrendingUp, TrendingDown, Plus,
   Layers, CreditCard, Banknote, Smartphone, Gift,
-  AlertTriangle, CheckCircle2, X,
+  AlertTriangle, CheckCircle2, X, Pencil, Trash2,
 } from 'lucide-react-native';
 import {
   Modal, TextInput, KeyboardAvoidingView, Platform,
@@ -29,7 +29,7 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { addMonths, subMonths, format, isSameMonth } from 'date-fns';
+import { addMonths, subMonths, format, isSameMonth, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -50,6 +50,19 @@ const C = {
   indigo: '#4F46E5', indigoSoft: '#EEF2FF',
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
+
+const CATEGORIAS_MOBILE = [
+  'Aluguel', 'Energia', 'Água', 'Internet',
+  'Produtos / Insumos', 'Manutenção', 'Marketing', 'Contabilidade', 'Outros',
+];
+
+const PERIODICIDADES_MOBILE = [
+  { key: 'semanal', label: 'Semanal' },
+  { key: 'mensal', label: 'Mensal' },
+  { key: 'trimestral', label: 'Trimestral' },
+  { key: 'semestral', label: 'Semestral' },
+  { key: 'anual', label: 'Anual' },
+];
 
 const METODO_CONFIG: Record<PagamentoMetodo, {
   label: string; icon: React.ReactNode; bg: string; color: string; barColor: string;
@@ -182,65 +195,78 @@ function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean })
 // ── Despesa row ──────────────────────────────────────────────
 
 function DespesaRow({
-  item, isLast, onMarcarPago,
+  item, isLast, onMarcarPago, onEditar,
 }: {
   item: DespesaItem;
   isLast: boolean;
   onMarcarPago: (item: DespesaItem) => void;
+  onEditar: (item: DespesaItem) => void;
 }) {
   const pago = item.status === 'pago';
 
   return (
-    <TouchableOpacity
-      activeOpacity={pago ? 1 : 0.7}
-      onPress={() => !pago && onMarcarPago(item)}
-      style={{
-        paddingVertical: 11, paddingHorizontal: 16,
-        flexDirection: 'row', alignItems: 'center', gap: 12,
-        borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
-      }}
-    >
-      <View style={{
-        width: 32, height: 32, borderRadius: 9,
-        backgroundColor: pago ? C.greenSoft : C.amberSoft,
-        alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-      }}>
-        {pago
-          ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
-          : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
-        }
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
-          {item.descricao}
-        </Text>
-        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
-          {pago
-            ? `Pago ${item.data_pagamento ? format(new Date(item.data_pagamento + 'T12:00:00'), 'dd/MM') : ''}`
-            : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
-          }
-          {item.recorrente ? ' · Recorrente' : ''}
-        </Text>
-      </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
-          {formatBRL(item.valor)}
-        </Text>
+    <View style={{
+      paddingVertical: 11, paddingHorizontal: 16,
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
+    }}>
+      <TouchableOpacity
+        activeOpacity={pago ? 1 : 0.7}
+        onPress={() => !pago && onMarcarPago(item)}
+        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+      >
         <View style={{
-          marginTop: 3,
+          width: 32, height: 32, borderRadius: 9,
           backgroundColor: pago ? C.greenSoft : C.amberSoft,
-          borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+          alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}>
-          <Text style={{
-            fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
-            color: pago ? C.green : C.amber,
-            textTransform: 'uppercase',
-          }}>
-            {pago ? 'Pago' : 'Toque p/ pagar'}
+          {pago
+            ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
+            : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+          }
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
+            {item.descricao}
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
+            {pago
+              ? `Pago ${item.data_pagamento ? format(new Date(item.data_pagamento + 'T12:00:00'), 'dd/MM') : ''}`
+              : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
+            }
+            {item.recorrente ? ' · Recorrente' : ''}
           </Text>
         </View>
-      </View>
-    </TouchableOpacity>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+            {formatBRL(item.valor)}
+          </Text>
+          <View style={{
+            marginTop: 3,
+            backgroundColor: pago ? C.greenSoft : C.amberSoft,
+            borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+          }}>
+            <Text style={{
+              fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
+              color: pago ? C.green : C.amber,
+              textTransform: 'uppercase',
+            }}>
+              {pago ? 'Pago' : 'Toque p/ pagar'}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => onEditar(item)}
+        style={{
+          width: 28, height: 28, borderRadius: 8,
+          backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+          alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Pencil size={12} color={C.text3} strokeWidth={2} />
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -415,6 +441,319 @@ function ModalMarcarPago({
   );
 }
 
+// ── Modal editar despesa ─────────────────────────────────────
+
+function ModalEditarDespesa({
+  item, onClose, onSalvo,
+}: {
+  item: DespesaItem | null;
+  onClose: () => void;
+  onSalvo: () => void;
+}) {
+  const [descricao,     setDescricao]     = useState('');
+  const [valor,         setValor]         = useState('');
+  const [categoria,     setCategoria]     = useState('');
+  const [recorrente,    setRecorrente]    = useState(false);
+  const [periodicidade, setPeriodicidade] = useState('mensal');
+  const [vencimento,    setVencimento]    = useState('');
+  const [salvando,      setSalvando]      = useState(false);
+  const [excluindo,     setExcluindo]     = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => {
+    if (!item) return;
+    setDescricao(item.descricao);
+    setValor(formatValorMonetarioInput(Number(item.valor)));
+    setCategoria(item.categoria ?? '');
+    setRecorrente(item.recorrente);
+    setPeriodicidade(item.periodicidade ?? 'mensal');
+    if (item.data_vencimento) {
+      const [y, m, d] = item.data_vencimento.split('-');
+      setVencimento(`${d}/${m}/${y}`);
+    } else {
+      setVencimento('');
+    }
+    setConfirmDelete(false);
+  }, [item]);
+
+  function mascaraData(v: string) {
+    const n = v.replace(/\D/g, '').slice(0, 8);
+    if (n.length <= 2) return n;
+    if (n.length <= 4) return `${n.slice(0, 2)}/${n.slice(2)}`;
+    return `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`;
+  }
+
+  function dataParaBanco(v: string): string | null {
+    if (!v) return null;
+    const p = v.split('/');
+    if (p.length !== 3 || p[2].length !== 4) return null;
+    return `${p[2]}-${p[1]}-${p[0]}`;
+  }
+
+  async function salvar() {
+    if (!item) return;
+    const valorN = parseFloat(valor.replace(',', '.'));
+    if (isNaN(valorN) || valorN <= 0) {
+      Alert.alert('Valor inválido', 'Informe um valor maior que zero.'); return;
+    }
+    setSalvando(true);
+    const { error } = await supabase.from('despesas').update({
+      descricao:       descricao.trim(),
+      categoria:       categoria || null,
+      valor:           valorN,
+      recorrente,
+      periodicidade:   recorrente ? periodicidade : null,
+      data_vencimento: dataParaBanco(vencimento),
+    }).eq('id', item.id);
+    setSalvando(false);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    onSalvo();
+    onClose();
+  }
+
+  async function excluir() {
+    if (!item) return;
+    setExcluindo(true);
+    await supabase.from('despesas').delete().eq('id', item.id);
+    setExcluindo(false);
+    onSalvo();
+    onClose();
+  }
+
+  return (
+    <Modal visible={!!item} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={onClose}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' }}
+        />
+        <View style={{ maxHeight: '92%' }}>
+          <ScrollView
+            style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+            contentContainerStyle={{ padding: 24, paddingBottom: 48 }}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+          >
+            {/* Handle */}
+            <View style={{
+              width: 36, height: 4, borderRadius: 2,
+              backgroundColor: C.border, alignSelf: 'center', marginBottom: 20,
+            }} />
+
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text }}>
+                Editar despesa
+              </Text>
+              <TouchableOpacity
+                onPress={onClose}
+                style={{
+                  width: 32, height: 32, borderRadius: 10,
+                  backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <X size={14} color={C.text2} strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Descrição */}
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2, marginBottom: 8 }}>
+              Descrição *
+            </Text>
+            <View style={{
+              backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+              borderRadius: 12, paddingHorizontal: 14, height: 48,
+              justifyContent: 'center', marginBottom: 16,
+            }}>
+              <TextInput
+                value={descricao}
+                onChangeText={setDescricao}
+                placeholder="Ex: Aluguel do espaço"
+                placeholderTextColor={C.text4}
+                style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
+              />
+            </View>
+
+            {/* Valor */}
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2, marginBottom: 8 }}>
+              Valor *
+            </Text>
+            <View style={{
+              backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+              borderRadius: 12, paddingHorizontal: 14, height: 48,
+              flexDirection: 'row', alignItems: 'center', marginBottom: 16,
+            }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text3, marginRight: 6 }}>R$</Text>
+              <TextInput
+                value={valor}
+                onChangeText={setValor}
+                placeholder="0,00"
+                placeholderTextColor={C.text4}
+                keyboardType="decimal-pad"
+                style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}
+              />
+            </View>
+
+            {/* Categoria */}
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2, marginBottom: 8 }}>
+              Categoria
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+              {CATEGORIAS_MOBILE.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => setCategoria(c === categoria ? '' : c)}
+                  style={{
+                    paddingHorizontal: 10, paddingVertical: 5,
+                    borderRadius: 20, borderWidth: 1,
+                    borderColor: categoria === c ? C.primary : C.border,
+                    backgroundColor: categoria === c ? C.primary : C.bg,
+                  }}
+                >
+                  <Text style={{
+                    fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11,
+                    color: categoria === c ? '#fff' : C.text3,
+                  }}>
+                    {c}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Vencimento */}
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2, marginBottom: 8 }}>
+              Data de vencimento
+            </Text>
+            <View style={{
+              backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+              borderRadius: 12, paddingHorizontal: 14, height: 48,
+              justifyContent: 'center', marginBottom: 16,
+            }}>
+              <TextInput
+                value={vencimento}
+                onChangeText={v => setVencimento(mascaraData(v))}
+                placeholder="DD/MM/AAAA"
+                placeholderTextColor={C.text4}
+                keyboardType="numeric"
+                style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
+              />
+            </View>
+
+            {/* Recorrente */}
+            <TouchableOpacity
+              onPress={() => setRecorrente(v => !v)}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+                paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.border, marginBottom: 8,
+              }}
+            >
+              <View style={{
+                width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
+                borderColor: recorrente ? C.primary : C.border,
+                backgroundColor: recorrente ? C.primary : C.bg,
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                {recorrente && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700', lineHeight: 14 }}>✓</Text>}
+              </View>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
+                Despesa recorrente
+              </Text>
+            </TouchableOpacity>
+            {recorrente && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+                {PERIODICIDADES_MOBILE.map(p => (
+                  <TouchableOpacity
+                    key={p.key}
+                    onPress={() => setPeriodicidade(p.key)}
+                    style={{
+                      flex: 1, minWidth: 80, paddingVertical: 8,
+                      borderRadius: 12, borderWidth: 1,
+                      borderColor: periodicidade === p.key ? C.amber : C.border,
+                      backgroundColor: periodicidade === p.key ? C.amberSoft : C.bg,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{
+                      fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11,
+                      color: periodicidade === p.key ? C.amber : C.text3,
+                    }}>
+                      {p.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Excluir */}
+            <View style={{ borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16, marginTop: 4, marginBottom: 20 }}>
+              {confirmDelete ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red, flex: 1 }}>
+                    Confirmar exclusão?
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setConfirmDelete(false)}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: C.border }}
+                  >
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text2 }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={excluir}
+                    disabled={excluindo}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: C.red, opacity: excluindo ? 0.6 : 1 }}
+                  >
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: '#fff' }}>
+                      {excluindo ? 'Excluindo...' : 'Excluir'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity onPress={() => setConfirmDelete(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Trash2 size={13} color={C.red} strokeWidth={2} />
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red }}>
+                    Excluir despesa
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Botões */}
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                onPress={onClose}
+                style={{
+                  flex: 1, height: 52, borderRadius: 14,
+                  borderWidth: 1, borderColor: C.border,
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text2 }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={salvar}
+                disabled={salvando || !descricao.trim() || !valor}
+                style={{
+                  flex: 1, height: 52, borderRadius: 14,
+                  backgroundColor: C.primary,
+                  alignItems: 'center', justifyContent: 'center',
+                  opacity: (salvando || !descricao.trim() || !valor) ? 0.5 : 1,
+                }}
+              >
+                {salvando
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>Salvar alterações</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 // ── Tela principal ───────────────────────────────────────────
 
 export default function Financeiro() {
@@ -422,6 +761,7 @@ export default function Financeiro() {
   const [mesRef, setMesRef] = useState(new Date());
   const isHoje = isSameMonth(mesRef, new Date());
   const [despesaSelecionada, setDespesaSelecionada] = useState<DespesaItem | null>(null);
+  const [despesaParaEditar,  setDespesaParaEditar]  = useState<DespesaItem | null>(null);
 
   const qc = useQueryClient();
   const { resumo, metodos, topServicos, despesas, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
@@ -526,12 +866,11 @@ export default function Financeiro() {
             </View>
 
             <TouchableOpacity
-              onPress={() => !isHoje && setMesRef((m) => addMonths(m, 1))}
+              onPress={() => setMesRef((m) => addMonths(m, 1))}
               style={{
                 width: 28, height: 28, borderRadius: 8,
                 borderWidth: 1, borderColor: C.border,
                 alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg,
-                opacity: isHoje ? 0.3 : 1,
               }}
             >
               <ChevronRight size={14} color={C.text2} strokeWidth={2.5} />
@@ -794,6 +1133,7 @@ export default function Financeiro() {
                   item={d}
                   isLast={i === despesas.length - 1}
                   onMarcarPago={setDespesaSelecionada}
+                  onEditar={setDespesaParaEditar}
                 />
               ))
             )}
@@ -807,6 +1147,16 @@ export default function Financeiro() {
         item={despesaSelecionada}
         onClose={() => setDespesaSelecionada(null)}
         onSalvo={aposMarcarPago}
+      />
+
+      {/* Modal editar despesa */}
+      <ModalEditarDespesa
+        item={despesaParaEditar}
+        onClose={() => setDespesaParaEditar(null)}
+        onSalvo={() => {
+          qc.invalidateQueries({ queryKey: ['fin-resumo'] });
+          qc.invalidateQueries({ queryKey: ['fin-despesas'] });
+        }}
       />
     </View>
   );
