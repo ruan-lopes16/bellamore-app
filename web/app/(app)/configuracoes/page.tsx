@@ -170,7 +170,7 @@ export default function ConfiguracoesPage() {
       setEmailPendente(user.new_email ?? '');
 
       const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id')
+        .from('empresa_membros').select('empresa_id, role')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
 
@@ -198,9 +198,7 @@ export default function ConfiguracoesPage() {
         setTaxaAplicaCancelado(empresa.taxa_cancelamento_aplica_cancelado ?? true);
         setTaxaAplicaFaltou(empresa.taxa_cancelamento_aplica_faltou ?? true);
 
-        const { data: membroRole } = await supabase.from('empresa_membros').select('role')
-          .eq('user_id', user.id).eq('empresa_id', membro.empresa_id).eq('ativo', true).limit(1).maybeSingle();
-        setPodeEditarTaxa(empresa.owner_id === user.id || membroRole?.role === 'gestor');
+        setPodeEditarTaxa(empresa.owner_id === user.id || membro.role === 'gestor');
         if (empresa.horario_funcionamento) {
           setHorarios({ ...HORARIO_DEFAULT, ...(empresa.horario_funcionamento as Horarios) });
         }
