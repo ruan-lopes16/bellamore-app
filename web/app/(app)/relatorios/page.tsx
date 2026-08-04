@@ -375,14 +375,27 @@ export default function RelatoriosPage() {
     montarQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
     tamanhoPagina = 1000,
   ): Promise<T[]> {
-    const todas: T[] = [];
-    let from = 0;
+    const primeira = await montarQuery(0, tamanhoPagina - 1);
+    const todas: T[] = [...(primeira.data ?? [])];
+    if ((primeira.data?.length ?? 0) < tamanhoPagina) return todas;
+
+    // Há mais de uma página — busca em lotes paralelos em vez de sequencial
+    const LOTE = 4;
+    let from = tamanhoPagina;
     for (;;) {
-      const { data } = await montarQuery(from, from + tamanhoPagina - 1);
-      const linhas = data ?? [];
-      todas.push(...linhas);
-      if (linhas.length < tamanhoPagina) break;
-      from += tamanhoPagina;
+      const resultados = await Promise.all(
+        Array.from({ length: LOTE }, (_, i) =>
+          montarQuery(from + i * tamanhoPagina, from + (i + 1) * tamanhoPagina - 1)
+        )
+      );
+      let completou = false;
+      for (const r of resultados) {
+        const linhas = r.data ?? [];
+        todas.push(...linhas);
+        if (linhas.length < tamanhoPagina) { completou = true; break; }
+      }
+      if (completou) break;
+      from += LOTE * tamanhoPagina;
     }
     return todas;
   }

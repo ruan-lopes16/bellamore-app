@@ -160,7 +160,8 @@ export default function ClientesPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
       setEmpresaId(membro.empresa_id);
-      const { data: clData } = await supabase.from('clientes').select('*')
+      const { data: clData } = await supabase.from('clientes')
+        .select('id, empresa_id, nome, telefone, email, data_nascimento, ativo, created_at')
         .eq('empresa_id', membro.empresa_id).eq('ativo', true).order('nome');
       setClientes((clData ?? []) as Cliente[]);
       setLoading(false);

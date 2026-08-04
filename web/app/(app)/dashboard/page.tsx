@@ -401,7 +401,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
           {/* Clientes inativos */}
           {clientesInativos.length > 0 && (
-            <div className="rounded-2xl p-5"
+            <div className={`rounded-2xl p-5${aniversariantes.length === 0 ? ' lg:col-span-2' : ''}`}
               style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' }}>
               <div className="flex items-center gap-2 mb-4">
                 <UserMinus size={14} style={{ color: 'var(--color-rose)' }} strokeWidth={2} />
@@ -438,7 +438,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
           {/* Aniversariantes */}
           {aniversariantes.length > 0 && (
-            <div className="rounded-2xl p-5"
+            <div className={`rounded-2xl p-5${clientesInativos.length === 0 ? ' lg:col-span-2' : ''}`}
               style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' }}>
               <div className="flex items-center gap-2 mb-4">
                 <Cake size={14} style={{ color: 'var(--color-primary)' }} strokeWidth={2} />
