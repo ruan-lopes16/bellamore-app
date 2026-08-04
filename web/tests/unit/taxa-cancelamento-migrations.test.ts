@@ -33,4 +33,15 @@ describe('Migration: taxa de cancelamento — schema', () => {
   it('impede duas taxas para o mesmo agendamento', () => {
     expect(migrations).toMatch(/unique\s*\(agendamento_id\)/);
   });
+
+  it('cria o trigger que gera a taxa ao cancelar/faltar', () => {
+    expect(migrations).toContain('function public.gerar_taxa_cancelamento');
+    expect(migrations).toContain('trg_gerar_taxa_cancelamento');
+    expect(migrations).toMatch(/after update on public\.agendamentos/);
+    expect(migrations).toContain('security definer');
+  });
+
+  it('reverte a taxa pendente quando o agendamento sai de cancelado/faltou', () => {
+    expect(migrations).toMatch(/status\s*=\s*'cancelada'/);
+  });
 });
