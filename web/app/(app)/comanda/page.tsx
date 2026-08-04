@@ -759,11 +759,13 @@ export default function ComandaPage() {
                 {format(dataComanda, 'MMMM yyyy', { locale: ptBR })}
               </p>
               <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Comanda</h1>
-              {!loading && totalDia > 0 && (
-                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-green)', marginTop: 2 }}>
-                  Total do dia: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalDia)}
-                </p>
-              )}
+              <p style={{
+                fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, marginTop: 2, minHeight: 16,
+                color: totalDia > 0 ? 'var(--color-green)' : 'var(--color-ink4)',
+                visibility: loading ? 'hidden' : 'visible',
+              }}>
+                Total do dia: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalDia)}
+              </p>
             </div>
             <div className="bm-comanda-view-toggle ml-auto flex-shrink-0">
               <SmoothTabs
