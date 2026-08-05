@@ -4,7 +4,7 @@ import {
 } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import type { PagamentoMetodo } from '@/types';
+import type { PagamentoMetodo, TaxaCancelamento } from '@/types';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -168,6 +168,24 @@ export function useFinanceiro(mesRef: Date) {
     },
   });
 
+  // ── Taxas de cancelamento do mês ─────────────────────────
+  const taxasCancelamento = useQuery<(TaxaCancelamento & { cliente: { nome: string } | null })[]>({
+    queryKey: ['fin-taxas-cancelamento', empresaId, chave],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('taxas_cancelamento')
+        .select('*, cliente:clientes(nome)')
+        .eq('empresa_id', empresaId!)
+        .neq('status', 'cancelada')
+        .gte('created_at', inicio).lte('created_at', fim)
+        .order('status').order('created_at');
+
+      return (data ?? []) as (TaxaCancelamento & { cliente: { nome: string } | null })[];
+    },
+  });
+
   // ── Evolução últimos 6 meses ─────────────────────────────
   const evolucao = useQuery<EvolucaoMes[]>({
     queryKey: ['fin-evolucao', empresaId, chave],
@@ -199,17 +217,19 @@ export function useFinanceiro(mesRef: Date) {
   const isLoading = resumo.isLoading || metodos.isLoading || topServicos.isLoading;
 
   return {
-    resumo:      resumo.data,
-    metodos:     metodos.data ?? [],
-    topServicos: topServicos.data ?? [],
-    despesas:    despesas.data ?? [],
-    evolucao:    evolucao.data ?? [],
+    resumo:            resumo.data,
+    metodos:           metodos.data ?? [],
+    topServicos:       topServicos.data ?? [],
+    despesas:          despesas.data ?? [],
+    taxasCancelamento: taxasCancelamento.data ?? [],
+    evolucao:          evolucao.data ?? [],
     isLoading,
     refetch: () => {
       resumo.refetch();
       metodos.refetch();
       topServicos.refetch();
       despesas.refetch();
+      taxasCancelamento.refetch();
       evolucao.refetch();
     },
   };

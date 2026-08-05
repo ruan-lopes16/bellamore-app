@@ -35,7 +35,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
-import type { PagamentoMetodo } from '@/types';
+import type { PagamentoMetodo, TaxaCancelamento } from '@/types';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -267,6 +267,70 @@ function DespesaRow({
         <Pencil size={12} color={C.text3} strokeWidth={2} />
       </TouchableOpacity>
     </View>
+  );
+}
+
+// ── Taxa de cancelamento row ─────────────────────────────────
+
+function TaxaCancelamentoRow({
+  item, isLast, onMarcarPago,
+}: {
+  item: TaxaCancelamento & { cliente: { nome: string } | null };
+  isLast: boolean;
+  onMarcarPago: (item: TaxaCancelamento) => void;
+}) {
+  const pago = item.status === 'pago';
+
+  return (
+    <TouchableOpacity
+      activeOpacity={pago ? 1 : 0.7}
+      onPress={() => !pago && onMarcarPago(item)}
+      style={{
+        paddingVertical: 11, paddingHorizontal: 16,
+        flexDirection: 'row', alignItems: 'center', gap: 12,
+        borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
+      }}
+    >
+      <View style={{
+        width: 32, height: 32, borderRadius: 9,
+        backgroundColor: pago ? C.greenSoft : C.amberSoft,
+        alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      }}>
+        {pago
+          ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
+          : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+        }
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
+          {item.cliente?.nome ?? 'Cliente'}
+        </Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
+          {pago
+            ? `Pago ${item.paga_em ? format(new Date(item.paga_em), 'dd/MM') : ''}`
+            : `Gerada ${format(new Date(item.created_at), 'dd/MM')}`
+          }
+        </Text>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+          {formatBRL(item.valor)}
+        </Text>
+        <View style={{
+          marginTop: 3,
+          backgroundColor: pago ? C.greenSoft : C.amberSoft,
+          borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+        }}>
+          <Text style={{
+            fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
+            color: pago ? C.green : C.amber,
+            textTransform: 'uppercase',
+          }}>
+            {pago ? 'Paga' : 'Toque p/ pagar'}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -764,12 +828,21 @@ export default function Financeiro() {
   const [despesaParaEditar,  setDespesaParaEditar]  = useState<DespesaItem | null>(null);
 
   const qc = useQueryClient();
-  const { resumo, metodos, topServicos, despesas, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
+  const { resumo, metodos, topServicos, despesas, taxasCancelamento, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
 
   function aposMarcarPago() {
     qc.invalidateQueries({ queryKey: ['fin-resumo'] });
     qc.invalidateQueries({ queryKey: ['fin-despesas'] });
     qc.invalidateQueries({ queryKey: ['fin-evolucao'] });
+  }
+
+  async function marcarTaxaPaga(item: TaxaCancelamento) {
+    const { error } = await supabase
+      .from('taxas_cancelamento')
+      .update({ status: 'pago', paga_em: new Date().toISOString() })
+      .eq('id', item.id);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    qc.invalidateQueries({ queryKey: ['fin-taxas-cancelamento'] });
   }
 
   const [fontsLoaded] = useFonts({
@@ -1139,6 +1212,36 @@ export default function Financeiro() {
             )}
           </View>
         </MotiView>
+
+        {/* ── Taxas de cancelamento ── */}
+        {(taxasCancelamento ?? []).length > 0 && (
+          <MotiView
+            from={{ opacity: 0, translateY: 6 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 380, delay: 300 }}
+            style={{ marginHorizontal: 24, marginTop: 20 }}
+          >
+            <View style={{
+              backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16,
+              overflow: 'hidden',
+              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+            }}>
+              <View style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 15, color: C.text }}>
+                  Taxas de Cancelamento
+                </Text>
+              </View>
+              {(taxasCancelamento ?? []).map((item, i, arr) => (
+                <TaxaCancelamentoRow
+                  key={item.id}
+                  item={item}
+                  isLast={i === arr.length - 1}
+                  onMarcarPago={marcarTaxaPaga}
+                />
+              ))}
+            </View>
+          </MotiView>
+        )}
 
       </ScrollView>
 
