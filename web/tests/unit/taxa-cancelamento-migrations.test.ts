@@ -52,4 +52,9 @@ describe('Migration: taxa de cancelamento — schema', () => {
   it('guarda o trigger contra agendamento sem cliente_id (evita violar not null e reverter o cancelamento)', () => {
     expect(migrations).toMatch(/new\.cliente_id is null/);
   });
+
+  it('protege owner_id de empresas contra escalacao de privilegio via gestor', () => {
+    expect(migrations).toContain('protege_empresa_owner_id');
+    expect(migrations).toMatch(/new\.owner_id is distinct from old\.owner_id/);
+  });
 });
