@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle, Archive } from 'lucide-react';
+import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle, Archive, Banknote } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import type { Cliente, TaxaCancelamento } from '@/types';
+import type { Cliente, TaxaCancelamento, TaxaReserva } from '@/types';
 import { format, differenceInYears, differenceInDays, addMinutes, parseISO } from 'date-fns';
 import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { ptBR } from 'date-fns/locale';
@@ -263,6 +263,7 @@ export default function ClientePerfilPage() {
   const [historico,     setHistorico]     = useState<HistAg[]>([]);
   const [vendas,        setVendas]        = useState<HistVenda[]>([]);
   const [taxas,         setTaxas]         = useState<TaxaCancelamento[]>([]);
+  const [taxasReserva,  setTaxasReserva]  = useState<TaxaReserva[]>([]);
   const [loadingHist,   setLoadingHist]   = useState(false);
   const [histCarregado, setHistCarregado] = useState(false);
 
@@ -346,7 +347,7 @@ export default function ClientePerfilPage() {
   async function carregarHistorico() {
     if (histCarregado) return;
     setLoadingHist(true);
-    const [ags, vds, txs] = await Promise.all([
+    const [ags, vds, txs, trs] = await Promise.all([
       buscarTodasPaginas<HistAg>((from, to) =>
         supabase
           .from('agendamentos')
@@ -375,10 +376,20 @@ export default function ClientePerfilPage() {
           .order('created_at', { ascending: false })
           .range(from, to) as unknown as PromiseLike<{ data: TaxaCancelamento[] | null; error: unknown }>
       ),
+      buscarTodasPaginas<TaxaReserva>((from, to) =>
+        supabase
+          .from('taxas_reserva')
+          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em')
+          .eq('cliente_id', id)
+          .neq('status', 'retida')
+          .order('created_at', { ascending: false })
+          .range(from, to) as unknown as PromiseLike<{ data: TaxaReserva[] | null; error: unknown }>
+      ),
     ]);
     setHistorico(ags);
     setVendas(vds);
     setTaxas(txs);
+    setTaxasReserva(trs);
     setLoadingHist(false);
     setHistCarregado(true);
   }
@@ -944,6 +955,36 @@ export default function ClientePerfilPage() {
                       <div key={t.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
                         <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-red-soft">
                           <XCircle size={14} strokeWidth={2} className="text-red"/>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-text truncate">
+                            {t.status === 'pago' ? 'Taxa paga' : 'Taxa pendente'}
+                          </p>
+                          <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
+                        </div>
+                        <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(t.valor)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Taxas de reserva ── */}
+            {taxasReserva.length > 0 && (
+              <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                  <p className="font-semibold text-text text-sm">Taxas de reserva</p>
+                  <span className="text-xs text-text-4">{taxasReserva.length} {taxasReserva.length === 1 ? 'taxa' : 'taxas'}</span>
+                </div>
+                <div className="divide-y divide-border">
+                  {taxasReserva.map(t => {
+                    const fmtBRL = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(n);
+                    const dataFmt = format(parseISO(t.created_at), "dd/MM/yyyy 'às' HH:mm");
+                    return (
+                      <div key={t.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-accent-soft">
+                          <Banknote size={14} strokeWidth={2} className="text-accent"/>
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-text truncate">
