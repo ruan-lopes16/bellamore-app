@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
-import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target, Ban } from 'lucide-react';
+import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target, Ban, Banknote } from 'lucide-react';
 import { validaCNPJ } from '@/lib/masks';
 import Image from 'next/image';
 
@@ -115,6 +115,11 @@ export default function ConfiguracoesPage() {
   const [taxaAplicaCancelado, setTaxaAplicaCancelado] = useState(true);
   const [taxaAplicaFaltou, setTaxaAplicaFaltou] = useState(true);
 
+  // Campos taxa de reserva
+  const [reservaAtiva, setReservaAtiva] = useState(false);
+  const [reservaModo, setReservaModo] = useState<'percentual' | 'fixo'>('percentual');
+  const [reservaValor, setReservaValor] = useState('0');
+
   // Campos empresa
   const [nome,      setNome]      = useState('');
   const [segmento,  setSegmento]  = useState('Estúdio');
@@ -177,7 +182,7 @@ export default function ConfiguracoesPage() {
       setEmpresaId(membro.empresa_id);
 
       const [{ data: empresa }, { data: perfil }] = await Promise.all([
-        supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id, meta_mensal, taxa_cancelamento_ativa, taxa_cancelamento_modo, taxa_cancelamento_valor, taxa_cancelamento_aplica_cancelado, taxa_cancelamento_aplica_faltou')
+        supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id, meta_mensal, taxa_cancelamento_ativa, taxa_cancelamento_modo, taxa_cancelamento_valor, taxa_cancelamento_aplica_cancelado, taxa_cancelamento_aplica_faltou, taxa_reserva_ativa, taxa_reserva_modo, taxa_reserva_valor')
           .eq('id', membro.empresa_id).single(),
         supabase.from('users').select('nome, telefone').eq('id', user.id).single(),
       ]);
@@ -197,6 +202,10 @@ export default function ConfiguracoesPage() {
         setTaxaValor(String(empresa.taxa_cancelamento_valor ?? 0).replace('.', ','));
         setTaxaAplicaCancelado(empresa.taxa_cancelamento_aplica_cancelado ?? true);
         setTaxaAplicaFaltou(empresa.taxa_cancelamento_aplica_faltou ?? true);
+
+        setReservaAtiva(empresa.taxa_reserva_ativa ?? false);
+        setReservaModo((empresa.taxa_reserva_modo as 'percentual' | 'fixo') ?? 'percentual');
+        setReservaValor(String(empresa.taxa_reserva_valor ?? 0).replace('.', ','));
 
         setPodeEditarTaxa(empresa.owner_id === user.id || membro.role === 'gestor');
         if (empresa.horario_funcionamento) {
@@ -348,6 +357,9 @@ export default function ConfiguracoesPage() {
       taxa_cancelamento_valor:             parseFloat(taxaValor.replace(',', '.')) || 0,
       taxa_cancelamento_aplica_cancelado:  taxaAplicaCancelado,
       taxa_cancelamento_aplica_faltou:     taxaAplicaFaltou,
+      taxa_reserva_ativa: reservaAtiva,
+      taxa_reserva_modo:  reservaModo,
+      taxa_reserva_valor: parseFloat(reservaValor.replace(',', '.')) || 0,
     }).eq('id', empresaId);
 
     setSalvando(false);
@@ -653,6 +665,54 @@ export default function ConfiguracoesPage() {
                       className="w-4 h-4 rounded border-border accent-primary"/>
                     Aplicar quando o cliente faltar
                   </label>
+                </div>
+              </>
+            )}
+          </SectionCard>
+
+          {/* Taxa de reserva */}
+          <SectionCard title="Taxa de reserva" icon={Banknote} color="accent">
+            <p className="text-xs text-text-3 -mt-2">
+              Quando ativada, o formulário de novo agendamento sugere um valor de
+              taxa de reserva (editável) a ser cobrado do cliente no momento da
+              marcação.
+            </p>
+            <div className="flex items-center gap-3">
+              <button type="button"
+                onClick={() => podeEditarTaxa && setReservaAtiva(v => !v)}
+                disabled={!podeEditarTaxa}
+                className={`relative w-10 h-5 rounded-full transition flex-shrink-0 ${reservaAtiva ? 'bg-primary' : 'bg-border'} ${!podeEditarTaxa ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${reservaAtiva ? 'left-[22px]' : 'left-0.5'}`}/>
+              </button>
+              <span className="text-sm text-text font-semibold">Sugerir taxa de reserva ao agendar</span>
+            </div>
+            {reservaAtiva && (
+              <>
+                <div>
+                  <label className={labelCls}>Modo de cobrança</label>
+                  <div className="flex gap-2">
+                    <button type="button" disabled={!podeEditarTaxa}
+                      onClick={() => setReservaModo('percentual')}
+                      className={`flex-1 h-10 rounded-xl border text-sm font-semibold transition ${reservaModo === 'percentual' ? 'border-primary bg-primary-soft text-primary' : 'border-border text-text-2'}`}>
+                      % do serviço
+                    </button>
+                    <button type="button" disabled={!podeEditarTaxa}
+                      onClick={() => setReservaModo('fixo')}
+                      className={`flex-1 h-10 rounded-xl border text-sm font-semibold transition ${reservaModo === 'fixo' ? 'border-primary bg-primary-soft text-primary' : 'border-border text-text-2'}`}>
+                      Valor fixo (R$)
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className={labelCls}>{reservaModo === 'percentual' ? 'Percentual sugerido' : 'Valor sugerido'}</label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">
+                      {reservaModo === 'percentual' ? '%' : 'R$'}
+                    </span>
+                    <input value={reservaValor} onChange={e => setReservaValor(e.target.value)}
+                      inputMode="decimal" placeholder="0,00" disabled={!podeEditarTaxa}
+                      className={`${inputCls} pl-9`}/>
+                  </div>
                 </div>
               </>
             )}
