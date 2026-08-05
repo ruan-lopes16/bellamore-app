@@ -9,7 +9,7 @@ import { MotiView } from 'moti';
 import {
   Download, TrendingUp, TrendingDown,
   CalendarCheck2, Receipt, UserPlus, RefreshCw,
-  Users, UserCheck, Clock, ChevronLeft, ChevronRight,
+  Users, UserCheck, Clock, ChevronLeft, ChevronRight, XCircle,
 } from 'lucide-react-native';
 import {
   format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameWeek, startOfMonth,
@@ -483,6 +483,14 @@ export default function Relatorios() {
                 ? `${Math.round((clientes.retornaram / clientes.totalAtendidas) * 100)}%`
                 : '—'
               }
+              deltaVal={null}
+            />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
+            <KpiCard
+              icon={<View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: C.roseSoft, alignItems: 'center', justifyContent: 'center' }}><XCircle size={13} color={C.rose} strokeWidth={1.8} /></View>}
+              label="Taxa cancelamento"
+              valor={resumo ? `${resumo.pctCancelamento.toFixed(1)}%` : '—'}
               deltaVal={null}
             />
           </View>

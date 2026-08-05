@@ -20,6 +20,9 @@ export interface ResumoRelatorio {
   atendimentosAnterior: number;
   ticketMedio: number;
   ticketMedioAnterior: number;
+  totalAgendamentos: number;
+  perdidos: number;
+  pctCancelamento: number;
 }
 
 export interface MetricasCliente {
@@ -141,7 +144,7 @@ export function useRelatorios(
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const [pagAtual, pagAnt, agAtual, agAnt] = await Promise.all([
+      const [pagAtual, pagAnt, agAtual, agAnt, agStatusAtual] = await Promise.all([
         buscarTodasPaginas<{ valor: number }>((from, to) =>
           supabase.from('pagamentos').select('valor')
             .eq('empresa_id', empresaId!).eq('status', 'pago')
@@ -166,12 +169,20 @@ export function useRelatorios(
             .gte('data_hora_inicio', iniAntISO).lte('data_hora_inicio', fimAntISO)
             .range(from, to)
         ),
+        buscarTodasPaginas<{ status: string }>((from, to) =>
+          supabase.from('agendamentos').select('status')
+            .eq('empresa_id', empresaId!)
+            .gte('data_hora_inicio', iniISO).lte('data_hora_inicio', fimISO)
+            .range(from, to)
+        ),
       ]);
 
       const fat    = pagAtual.reduce((s, p) => s + Number(p.valor), 0);
       const fatAnt = pagAnt.reduce((s, p) => s + Number(p.valor), 0);
       const atend    = agAtual.length;
       const atendAnt = agAnt.length;
+      const totalAgendamentos = agStatusAtual.length;
+      const perdidos = agStatusAtual.filter(a => a.status === 'cancelado' || a.status === 'faltou').length;
 
       return {
         faturamento:        fat,
@@ -180,6 +191,9 @@ export function useRelatorios(
         atendimentosAnterior: atendAnt,
         ticketMedio:        atend  > 0 ? fat    / atend    : 0,
         ticketMedioAnterior: atendAnt > 0 ? fatAnt / atendAnt : 0,
+        totalAgendamentos,
+        perdidos,
+        pctCancelamento: totalAgendamentos > 0 ? (perdidos / totalAgendamentos) * 100 : 0,
       };
     },
   });
