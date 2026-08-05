@@ -36,4 +36,11 @@ describe('Migration: taxa de reserva — schema', () => {
   it('aceita apenas os status pendente, pago ou retida', () => {
     expect(migrations).toMatch(/taxas_reserva[\s\S]{0,400}status in \('pendente', 'pago', 'retida'\)/);
   });
+
+  it('cria o trigger que retem a taxa de reserva ao cancelar/faltar', () => {
+    expect(migrations).toContain('function public.reter_taxa_reserva');
+    expect(migrations).toContain('trg_reter_taxa_reserva');
+    expect(migrations).toMatch(/after update on public\.agendamentos[\s\S]{0,200}execute function public\.reter_taxa_reserva/);
+    expect(migrations).toMatch(/reter_taxa_reserva[\s\S]{0,600}status = 'retida'/);
+  });
 });
