@@ -16,6 +16,7 @@ export type PagamentoStatus = 'pendente' | 'pago' | 'estornado';
 export type ComissaoStatus  = 'pendente' | 'pago';
 export type DespesaStatus   = 'pendente' | 'pago';
 export type TaxaCancelamentoStatus = 'pendente' | 'pago' | 'cancelada';
+export type TaxaReservaStatus = 'pendente' | 'pago' | 'retida';
 export type ComandaStatus   = 'aberta' | 'fechada';
 export type MovimentoTipo   = 'entrada' | 'saida' | 'ajuste';
 
@@ -48,6 +49,9 @@ export interface Empresa {
   taxa_cancelamento_valor: number;
   taxa_cancelamento_aplica_cancelado: boolean;
   taxa_cancelamento_aplica_faltou: boolean;
+  taxa_reserva_ativa: boolean;
+  taxa_reserva_modo: 'percentual' | 'fixo';
+  taxa_reserva_valor: number;
 }
 
 export interface EmpresaMembro {
@@ -192,6 +196,17 @@ export interface TaxaCancelamento {
   created_at: string;
   paga_em?: string;
   agendamento?: { data_hora_inicio: string; servico?: { nome: string } | null };
+}
+
+export interface TaxaReserva {
+  id: string;
+  empresa_id: string;
+  agendamento_id: string;
+  cliente_id: string | null;
+  valor: number;
+  status: TaxaReservaStatus;
+  created_at: string;
+  paga_em?: string;
 }
 
 export interface AnamneseFicha {
