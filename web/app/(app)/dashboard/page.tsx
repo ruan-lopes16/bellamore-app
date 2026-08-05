@@ -116,7 +116,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       agendamentosHoje, agsMes, agsMesAnt, membros,
       despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
       totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
-      todasAgsCompletas, clientesComAniversario, taxasPagasMes,
+      todasAgsCompletas, clientesComAniversario, taxasPagasMes, taxasReservaPagasMes,
     ],
     agsStatusList,
   ] = await Promise.all([
@@ -168,6 +168,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empresaId).eq('status', 'pago')
         .gte('paga_em', inicioMes).lte('paga_em', fimMes),
+      supabase.from('taxas_reserva').select('valor')
+        .eq('empresa_id', empresaId).eq('status', 'pago')
+        .gte('paga_em', inicioMes).lte('paga_em', fimMes),
     ]),
     buscarTodasPaginas<{ status: string }>((from, to) =>
       supabase.from('agendamentos').select('status')
@@ -184,7 +187,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const brutoConcluido = (agsMes.data ?? []).reduce((s, a) => s + Number(a.valor), 0);
   const brutoVendas    = (vendasMes.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0);
   const brutoTaxas     = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-  const bruto          = brutoConcluido + brutoVendas + brutoTaxas;
+  const brutoReserva   = (taxasReservaPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+  const bruto          = brutoConcluido + brutoVendas + brutoTaxas + brutoReserva;
   const comissoes      = (agsMes.data ?? []).reduce(
     (s, a) => s + Number(a.valor) * (comMap[a.profissional_id] ?? 0) / 100, 0,
   );
