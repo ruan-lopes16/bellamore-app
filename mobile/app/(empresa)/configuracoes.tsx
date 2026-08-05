@@ -142,6 +142,15 @@ export default function Configuracoes() {
   const [taxaAplicaCancelado, setTaxaAplicaCancelado] = useState(empresaAtiva?.taxa_cancelamento_aplica_cancelado ?? true);
   const [taxaAplicaFaltou, setTaxaAplicaFaltou] = useState(empresaAtiva?.taxa_cancelamento_aplica_faltou ?? true);
 
+  // Taxa de reserva
+  const [reservaAtiva, setReservaAtiva] = useState(empresaAtiva?.taxa_reserva_ativa ?? false);
+  const [reservaModo, setReservaModo] = useState<'percentual' | 'fixo'>(
+    (empresaAtiva?.taxa_reserva_modo as 'percentual' | 'fixo') ?? 'percentual'
+  );
+  const [reservaValor, setReservaValor] = useState(
+    formatValorMonetarioInput(Number(empresaAtiva?.taxa_reserva_valor ?? 0))
+  );
+
   // Minha conta
   const [nomeUser,     setNomeUser]     = useState(user?.nome ?? '');
   const [telefoneUser, setTelefoneUser] = useState(user?.telefone ?? '');
@@ -186,6 +195,9 @@ export default function Configuracoes() {
         taxa_cancelamento_valor:            parseValorMonetario(taxaValor) ?? 0,
         taxa_cancelamento_aplica_cancelado: taxaAplicaCancelado,
         taxa_cancelamento_aplica_faltou:    taxaAplicaFaltou,
+        taxa_reserva_ativa:   reservaAtiva,
+        taxa_reserva_modo:    reservaModo,
+        taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
       }).eq('id', empresaAtiva.id),
 
       // Atualiza perfil do usuário
@@ -464,6 +476,66 @@ export default function Configuracoes() {
                       Aplicar quando o cliente faltar
                     </Text>
                   </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </MotiView>
+
+          {/* ── Taxa de Reserva ── */}
+          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 160 }}
+            style={{ marginHorizontal: 24, marginTop: 20 }}
+          >
+            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>
+                Taxa de reserva
+              </Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>
+                Sugere um valor de taxa de reserva (editável) ao criar um novo agendamento.
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Switch
+                  value={reservaAtiva}
+                  onValueChange={v => { if (podeEditarTaxa) setReservaAtiva(v); }}
+                  disabled={!podeEditarTaxa}
+                  trackColor={{ false: C.border, true: C.primary }}
+                  thumbColor="#fff"
+                />
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
+                  Sugerir taxa de reserva ao agendar
+                </Text>
+              </View>
+              {reservaAtiva && (
+                <>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setReservaModo('percentual')}
+                      style={{
+                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1, borderColor: reservaModo === 'percentual' ? C.primary : C.border,
+                        backgroundColor: reservaModo === 'percentual' ? C.primarySoft : 'transparent',
+                      }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === 'percentual' ? C.primary : C.text3 }}>
+                        % do serviço
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setReservaModo('fixo')}
+                      style={{
+                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1, borderColor: reservaModo === 'fixo' ? C.primary : C.border,
+                        backgroundColor: reservaModo === 'fixo' ? C.primarySoft : 'transparent',
+                      }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === 'fixo' ? C.primary : C.text3 }}>
+                        Valor fixo (R$)
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Campo
+                    label={reservaModo === 'percentual' ? 'Percentual sugerido' : 'Valor sugerido'}
+                    icon={<Percent size={16} color={C.text3} />}
+                    value={reservaValor}
+                    onChange={setReservaValor}
+                    placeholder="0,00"
+                    keyboardType="decimal-pad"
+                  />
                 </>
               )}
             </View>
