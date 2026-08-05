@@ -7,7 +7,7 @@ import {
   TrendingUp, CalendarDays, Users, Wallet,
   AlertTriangle, ShoppingBag, Clock, ArrowUp, ArrowDown,
   CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, ChevronLeft, Target,
-  UserMinus, Cake,
+  UserMinus, Cake, XCircle,
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -91,7 +91,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const metaMensal = Number(empresa.meta_mensal ?? 0);
 
   const [
-    agendamentosHoje, agsMes, agsMesAnt, membros,
+    agendamentosHoje, agsMes, agsMesAnt, agsStatusMes, membros,
     despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
     totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
     todasAgsCompletas, clientesComAniversario,
@@ -106,6 +106,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     supabase.from('agendamentos').select('valor')
       .eq('empresa_id', empresaId).eq('status', 'concluido')
       .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
+    supabase.from('agendamentos').select('status')
+      .eq('empresa_id', empresaId)
+      .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
     supabase.from('empresa_membros').select('user_id,percentual_comissao')
       .eq('empresa_id', empresaId).eq('ativo', true),
     supabase.from('despesas').select('valor')
@@ -170,6 +173,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const totalComMes        = (comissoesMes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
   const comPendenteMes     = (comissoesMes.data ?? []).filter(c => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
   const totalAlertas       = estoqueBaixoItems.length + despPendentesItems.length + (totalComPendente > 0 ? 1 : 0);
+
+  const agsStatusList  = agsStatusMes.data ?? [];
+  const totalAgsMes     = agsStatusList.length;
+  const perdidosMes      = agsStatusList.filter(a => a.status === 'cancelado' || a.status === 'faltou').length;
+  const pctCancelamento  = totalAgsMes > 0 ? (perdidosMes / totalAgsMes) * 100 : 0;
 
   const pctBruto = pct(bruto, brutoAnt);
   const pctLucro = pct(lucro, brutoAnt - gastosAnt);
@@ -302,6 +310,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           { label: 'Fat. Líquido',  value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
           { label: 'Lucro do mês',  value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: null, icon: Wallet },
           { label: 'Comissões',     value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} pend.` : 'Em dia', icon: BadgeDollarSign },
+          { label: '% Cancelamento', value: `${pctCancelamento.toFixed(1)}%`, color: 'var(--color-rose)', delta: null, sub: perdidosMes > 0 ? `${perdidosMes} perdido(s)` : null, icon: XCircle },
         ].map(({ label, value, color, delta, sub, icon: Icon }, i) => (
           <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
