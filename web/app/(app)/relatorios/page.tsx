@@ -29,7 +29,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
-  ChevronDown, ChevronLeft, ChevronRight, DollarSign, Target, Activity, User, Check, Star, CreditCard,
+  ChevronDown, ChevronLeft, ChevronRight, DollarSign, Target, Activity, User, Check, Star, CreditCard, XCircle,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
@@ -921,6 +921,10 @@ export default function RelatoriosPage() {
         <KpiCard icon={Scissors}   label="Atendimentos"         value={String(concluidos.length)}   sub="concluídos" cor="#D4608A" loading={loading} />
         <KpiCard icon={Target}     label="Ticket médio"         value={fmtBRL(ticket)}              cor="#B45309" loading={loading} />
         <KpiCard icon={Users}      label="Taxa comparecimento"  value={`${taxa.toFixed(1)}%`}       cor="#1D4ED8" loading={loading} />
+        <KpiCard icon={XCircle} label="Taxa de cancelamento"
+          value={ags.length > 0 ? `${(((cancelados.length + faltaram.length) / ags.length) * 100).toFixed(1)}%` : '—'}
+          sub={cancelados.length + faltaram.length > 0 ? `${cancelados.length + faltaram.length} perdido(s)` : undefined}
+          cor="#DC2626" loading={loading} />
         <KpiCard icon={DollarSign} label="Total comissões"      value={fmtBRL(comTot)}
           sub={comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0) > 0
             ? `${fmtBRL(comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0))} pendentes`
