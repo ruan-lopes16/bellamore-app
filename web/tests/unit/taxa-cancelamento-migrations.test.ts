@@ -48,4 +48,8 @@ describe('Migration: taxa de cancelamento — schema', () => {
   it('permite gestor atualizar empresas (necessario para salvar a taxa de cancelamento)', () => {
     expect(migrations).toMatch(/on public\.empresas for update[\s\S]{0,200}is_gestor_ou_owner/);
   });
+
+  it('guarda o trigger contra agendamento sem cliente_id (evita violar not null e reverter o cancelamento)', () => {
+    expect(migrations).toMatch(/new\.cliente_id is null/);
+  });
 });
