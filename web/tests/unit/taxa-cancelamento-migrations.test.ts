@@ -44,4 +44,8 @@ describe('Migration: taxa de cancelamento — schema', () => {
   it('reverte a taxa pendente quando o agendamento sai de cancelado/faltou', () => {
     expect(migrations).toMatch(/status\s*=\s*'cancelada'/);
   });
+
+  it('permite gestor atualizar empresas (necessario para salvar a taxa de cancelamento)', () => {
+    expect(migrations).toMatch(/on public\.empresas for update[\s\S]{0,200}is_gestor_ou_owner/);
+  });
 });
