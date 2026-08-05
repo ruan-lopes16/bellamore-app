@@ -55,7 +55,7 @@ import {
   resolveFinanceiroKpis,
 } from '@/lib/financeiro/fechamentos-mensais';
 import { getMonthQueryBounds } from '@/lib/financeiro/periodo-mensal';
-import type { TaxaCancelamento } from '@/types';
+import type { TaxaCancelamento, TaxaReserva } from '@/types';
 
 const supabase = createClient();
 
@@ -446,6 +446,8 @@ export default function FinanceiroPage() {
   const [despesas,      setDespesas]      = useState<Despesa[]>([]);
   const [taxasCancelamento,      setTaxasCancelamento]      = useState<TaxaCancelamento[]>([]);
   const [taxasCancelamentoPagas, setTaxasCancelamentoPagas] = useState(0);
+  const [taxasReserva,      setTaxasReserva]      = useState<TaxaReserva[]>([]);
+  const [taxasReservaPagas, setTaxasReservaPagas] = useState(0);
   const [evolucao,      setEvolucao]      = useState<{ mes: string; receita: number; comissoes: number; gastos: number }[]>([]);
 
   // Modais
@@ -485,7 +487,7 @@ export default function FinanceiroPage() {
     const fimA = periodoAnt.endIso;
     const ini6 = periodo6.startIso;
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt] = await Promise.all([
+    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes, reservaPagasAnt] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional e serviço)
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
@@ -557,6 +559,21 @@ export default function FinanceiroPage() {
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('paga_em', iniA).lte('paga_em', fimA),
+      // Lista de taxas de reserva do mês (pendentes + pagas, exclui retidas)
+      supabase.from('taxas_reserva')
+        .select('*, cliente:clientes(nome)')
+        .eq('empresa_id', empId)
+        .neq('status', 'retida')
+        .gte('created_at', ini).lte('created_at', fim)
+        .order('status').order('created_at'),
+      // Taxas de reserva pagas no mês (para somar ao bruto)
+      supabase.from('taxas_reserva').select('valor')
+        .eq('empresa_id', empId).eq('status', 'pago')
+        .gte('paga_em', ini).lte('paga_em', fim),
+      // Taxas de reserva pagas no mês anterior (para somar ao bruto do mês anterior)
+      supabase.from('taxas_reserva').select('valor')
+        .eq('empresa_id', empId).eq('status', 'pago')
+        .gte('paga_em', iniA).lte('paga_em', fimA),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
@@ -577,10 +594,13 @@ export default function FinanceiroPage() {
     const brutoVendas     = ((vendasMes.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
     const brutoTaxasCanc  = ((taxasPagasMes.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
     const brutoTaxasCancAnt = ((taxasPagasAnt.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
-    const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc;
+    const brutoReserva    = ((reservaPagasMes.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
+    const brutoReservaAnt = ((reservaPagasAnt.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
+    const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc + brutoReserva;
     const receitaAntVal   = ((agsAnt.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0)
                           + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0)
-                          + brutoTaxasCancAnt;
+                          + brutoTaxasCancAnt
+                          + brutoReservaAnt;
     const comissoesVal    = calcCom((agsMes.data ?? []) as AgRow[]);
     const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
     const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
@@ -612,6 +632,8 @@ export default function FinanceiroPage() {
     setTaxasCartao(kpisMes.taxasCartao);
     setTaxasCancelamento((taxasLista.data ?? []) as TaxaCancelamento[]);
     setTaxasCancelamentoPagas(brutoTaxasCanc);
+    setTaxasReserva((reservaLista.data ?? []) as TaxaReserva[]);
+    setTaxasReservaPagas(brutoReserva);
 
     // Top serviços
     type TopServicoRow = { servico_id: string | null; valor: number; servico: { nome: string } | null };
@@ -731,6 +753,14 @@ export default function FinanceiroPage() {
     if (empresaId) await carregar(empresaId, mesRef);
   }
 
+  async function marcarReservaPaga(taxa: TaxaReserva) {
+    const { error } = await supabase.from('taxas_reserva')
+      .update({ status: 'pago', paga_em: new Date().toISOString() })
+      .eq('id', taxa.id);
+    if (error) { alert(`Erro ao marcar taxa de reserva como paga: ${error.message}`); return; }
+    if (empresaId) await carregar(empresaId, mesRef);
+  }
+
   const liquidoAposTaxas = receita - taxasCartao;
   const lucro            = liquidoAposTaxas - comissoes - gastos;
   const dReceita         = delta(receita,   receitaAnt);
@@ -820,6 +850,9 @@ export default function FinanceiroPage() {
               { label: 'Lucro Real',          value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        invertDelta: false },
               ...(taxasCancelamentoPagas > 0
                 ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
+                : []),
+              ...(taxasReservaPagas > 0
+                ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
                 : []),
             ].map(({ label, value, d, cor, invertDelta }) => (
               <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
@@ -1090,6 +1123,48 @@ export default function FinanceiroPage() {
                 <div
                   className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
                   onClick={() => t.status === 'pendente' && marcarTaxaPaga(t)}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
+                    {t.status === 'pago'
+                      ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
+                      : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-text truncate">{t.cliente?.nome ?? 'Cliente'}</p>
+                    <p className="text-[10px] text-text-4 mt-0.5">
+                      {t.status === 'pago'
+                        ? `Pago ${t.paga_em ? format(new Date(t.paga_em), 'dd/MM') : ''}`
+                        : `Gerada ${format(new Date(t.created_at), 'dd/MM')}`
+                      }
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-red">{fmtBRL(t.valor)}</p>
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                      t.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
+                    }`}>
+                      {t.status === 'pago' ? 'Paga' : 'Pendente'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Taxas de reserva */}
+        {taxasReserva.length > 0 && (
+          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <p className="font-serif text-lg text-text">Taxas de Reserva</p>
+              <span className="text-xs text-text-4">{taxasReserva.length} lançamento(s)</span>
+            </div>
+            {taxasReserva.map((t, i) => (
+              <div key={t.id}
+                className={`flex items-center gap-2 px-4 py-3 ${i < taxasReserva.length - 1 ? 'border-b border-border' : ''}`}>
+                <div
+                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                  onClick={() => t.status === 'pendente' && marcarReservaPaga(t)}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                     {t.status === 'pago'
                       ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
