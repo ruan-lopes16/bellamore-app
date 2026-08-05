@@ -57,4 +57,9 @@ describe('Migration: taxa de cancelamento — schema', () => {
     expect(migrations).toContain('protege_empresa_owner_id');
     expect(migrations).toMatch(/new\.owner_id is distinct from old\.owner_id/);
   });
+
+  it('reativa a taxa de cancelamento quando o agendamento e cancelado de novo apos um reagendamento', () => {
+    expect(migrations).toMatch(/on conflict \(agendamento_id\) do update/);
+    expect(migrations).toMatch(/where taxas_cancelamento\.status = 'cancelada'/);
+  });
 });
