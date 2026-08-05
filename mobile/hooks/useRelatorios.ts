@@ -144,7 +144,7 @@ export function useRelatorios(
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const [pagAtual, pagAnt, agAtual, agAnt, agStatusAtual] = await Promise.all([
+      const [pagAtual, pagAnt, agAtual, agAnt, agStatusAtual, taxasAtual, taxasAnt] = await Promise.all([
         buscarTodasPaginas<{ valor: number }>((from, to) =>
           supabase.from('pagamentos').select('valor')
             .eq('empresa_id', empresaId!).eq('status', 'pago')
@@ -175,22 +175,32 @@ export function useRelatorios(
             .gte('data_hora_inicio', iniISO).lte('data_hora_inicio', fimISO)
             .range(from, to)
         ),
+        supabase.from('taxas_cancelamento').select('valor')
+          .eq('empresa_id', empresaId!).eq('status', 'pago')
+          .gte('paga_em', iniISO).lte('paga_em', fimISO)
+          .then(({ data }) => data ?? []),
+        supabase.from('taxas_cancelamento').select('valor')
+          .eq('empresa_id', empresaId!).eq('status', 'pago')
+          .gte('paga_em', iniAntISO).lte('paga_em', fimAntISO)
+          .then(({ data }) => data ?? []),
       ]);
 
-      const fat    = pagAtual.reduce((s, p) => s + Number(p.valor), 0);
-      const fatAnt = pagAnt.reduce((s, p) => s + Number(p.valor), 0);
+      const fatServicos    = pagAtual.reduce((s, p) => s + Number(p.valor), 0);
+      const fatServicosAnt = pagAnt.reduce((s, p) => s + Number(p.valor), 0);
+      const fatTaxas       = taxasAtual.reduce((s, t) => s + Number(t.valor), 0);
+      const fatTaxasAnt    = taxasAnt.reduce((s, t) => s + Number(t.valor), 0);
       const atend    = agAtual.length;
       const atendAnt = agAnt.length;
       const totalAgendamentos = agStatusAtual.length;
       const perdidos = agStatusAtual.filter(a => a.status === 'cancelado' || a.status === 'faltou').length;
 
       return {
-        faturamento:        fat,
-        faturamentoAnterior: fatAnt,
+        faturamento:        fatServicos + fatTaxas,
+        faturamentoAnterior: fatServicosAnt + fatTaxasAnt,
         atendimentos:        atend,
         atendimentosAnterior: atendAnt,
-        ticketMedio:        atend  > 0 ? fat    / atend    : 0,
-        ticketMedioAnterior: atendAnt > 0 ? fatAnt / atendAnt : 0,
+        ticketMedio:        atend  > 0 ? fatServicos    / atend    : 0,
+        ticketMedioAnterior: atendAnt > 0 ? fatServicosAnt / atendAnt : 0,
         totalAgendamentos,
         perdidos,
         pctCancelamento: totalAgendamentos > 0 ? (perdidos / totalAgendamentos) * 100 : 0,

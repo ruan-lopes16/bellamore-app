@@ -62,4 +62,8 @@ describe('Migration: taxa de cancelamento — schema', () => {
     expect(migrations).toMatch(/on conflict \(agendamento_id\) do update/);
     expect(migrations).toMatch(/where taxas_cancelamento\.status = 'cancelada'/);
   });
+
+  it('fecha a brecha de owner_id nulo na migration 053 (NULL nao pode mais burlar a protecao)', () => {
+    expect(migrations).toContain('old.owner_id is not null and old.owner_id = auth.uid()');
+  });
 });

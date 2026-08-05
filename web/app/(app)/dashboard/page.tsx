@@ -167,7 +167,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         .not('data_nascimento', 'is', null),
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empresaId).eq('status', 'pago')
-        .gte('paga_em', inicioMes.slice(0,10)).lte('paga_em', fimMes.slice(0,10)),
+        .gte('paga_em', inicioMes).lte('paga_em', fimMes),
     ]),
     buscarTodasPaginas<{ status: string }>((from, to) =>
       supabase.from('agendamentos').select('status')
