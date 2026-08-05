@@ -557,6 +557,37 @@ export default function ClientePerfil() {
                   );
                 })
               )}
+
+              {(cliente.taxasCancelamento ?? []).length > 0 && (
+                <>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text3, marginTop: 14, marginBottom: 4 }}>
+                    TAXAS DE CANCELAMENTO
+                  </Text>
+                  {(cliente.taxasCancelamento ?? []).map(t => (
+                    <View
+                      key={t.id}
+                      style={{
+                        backgroundColor: C.surface, borderWidth: 1,
+                        borderColor: C.border, borderRadius: 14,
+                        padding: 13, flexDirection: 'row',
+                        alignItems: 'center', gap: 12,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
+                          {t.status === 'pago' ? 'Taxa paga' : 'Taxa pendente'}
+                        </Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+                          {format(new Date(t.created_at), 'dd/MM/yyyy')}
+                        </Text>
+                      </View>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
+                        {formatBRL(t.valor)}
+                      </Text>
+                    </View>
+                  ))}
+                </>
+              )}
             </View>
           </MotiView>
         )}
