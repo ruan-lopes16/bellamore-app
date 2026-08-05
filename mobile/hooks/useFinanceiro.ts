@@ -67,17 +67,21 @@ export function useFinanceiro(mesRef: Date) {
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const [pagMes, pagAnt, despMes, despAnt] = await Promise.all([
+      const [pagMes, pagAnt, despMes, despAnt, taxasPagasMes, taxasPagasAnt] = await Promise.all([
         supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', inicio).lte('created_at', fim),
         supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', inicioAnterior).lte('created_at', fimAnterior),
         supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', inicio.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
         supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', inicioAnterior.slice(0,10)).lte('data_pagamento', fimAnterior.slice(0,10)),
+        supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicio).lte('paga_em', fim),
+        supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
       ]);
 
-      const receita         = (pagMes.data  ?? []).reduce((s, p) => s + Number(p.valor), 0);
-      const receitaAnterior = (pagAnt.data  ?? []).reduce((s, p) => s + Number(p.valor), 0);
-      const gastos          = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
-      const gastosAnterior  = (despAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
+      const brutoTaxasMes    = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+      const brutoTaxasAnt    = (taxasPagasAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+      const receita          = (pagMes.data  ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasMes;
+      const receitaAnterior  = (pagAnt.data  ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasAnt;
+      const gastos           = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
+      const gastosAnterior   = (despAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
 
       return { receita, gastos, lucro: receita - gastos, receitaAnterior, gastosAnterior };
     },

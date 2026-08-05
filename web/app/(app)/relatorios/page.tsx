@@ -80,6 +80,7 @@ type Comissao = {
   } | null;
 };
 type Venda      = { valor_final: number; created_at: string };
+type TaxaPaga   = { valor: number; paga_em: string };
 type MovEstoque = {
   produto_id: string; quantidade: number;
   produto: { nome: string; preco_custo: number } | null;
@@ -345,6 +346,7 @@ export default function RelatoriosPage() {
   const [comissoes,  setComissoes]  = useState<Comissao[]>([]);
   const [movs,       setMovs]       = useState<MovEstoque[]>([]);
   const [vendas,     setVendas]     = useState<Venda[]>([]);
+  const [taxas,      setTaxas]      = useState<TaxaPaga[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
   const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null }[]>([]);
 
@@ -400,7 +402,7 @@ export default function RelatoriosPage() {
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rVendas, rPags] = await Promise.all([
+    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       buscarTodasPaginas<Ag>((from, to) =>
         supabase.from('agendamentos')
@@ -452,6 +454,14 @@ export default function RelatoriosPage() {
         .eq('status', 'pago')
         .gte('created_at', isoIni)
         .lte('created_at', isoFim),
+
+      // 6. Taxas de cancelamento pagas no período (somam ao faturamento bruto)
+      supabase.from('taxas_cancelamento')
+        .select('valor, paga_em')
+        .eq('empresa_id', empId)
+        .eq('status', 'pago')
+        .gte('paga_em', isoIni)
+        .lte('paga_em', isoFim),
     ]);
 
     setAgs(rAgs as unknown as Ag[]);
@@ -459,6 +469,7 @@ export default function RelatoriosPage() {
     setComissoes(rCom as unknown as Comissao[]);
     setVendas((rVendas.data ?? []) as Venda[]);
     setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null }[]);
+    setTaxas((rTaxas.data   ?? []) as TaxaPaga[]);
     setLoading(false);
   }, [supabase]);
 
@@ -528,7 +539,8 @@ export default function RelatoriosPage() {
 
   const brutoServicos   = useMemo(() => concluidos.reduce((s, a) => s + a.valor, 0), [concluidos]);
   const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
-  const bruto           = brutoServicos + brutoVendas;
+  const brutoTaxas      = useMemo(() => taxas.reduce((s, t) => s + Number(t.valor), 0), [taxas]);
+  const bruto           = brutoServicos + brutoVendas + brutoTaxas;
   const comTot          = useMemo(
     () => comissoes.reduce((s, c) => s + c.valor_comissao, 0),
     [comissoes],

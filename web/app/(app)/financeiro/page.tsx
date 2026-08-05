@@ -485,7 +485,7 @@ export default function FinanceiroPage() {
     const fimA = periodoAnt.endIso;
     const ini6 = periodo6.startIso;
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes] = await Promise.all([
+    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional e serviço)
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
@@ -553,6 +553,10 @@ export default function FinanceiroPage() {
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('paga_em', ini).lte('paga_em', fim),
+      // Taxas pagas no mês anterior (para somar ao bruto do mês anterior)
+      supabase.from('taxas_cancelamento').select('valor')
+        .eq('empresa_id', empId).eq('status', 'pago')
+        .gte('paga_em', iniA).lte('paga_em', fimA),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
@@ -572,9 +576,11 @@ export default function FinanceiroPage() {
     const brutoServicos   = ((agsMes.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0);
     const brutoVendas     = ((vendasMes.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
     const brutoTaxasCanc  = ((taxasPagasMes.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
+    const brutoTaxasCancAnt = ((taxasPagasAnt.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
     const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc;
     const receitaAntVal   = ((agsAnt.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0)
-                          + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
+                          + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0)
+                          + brutoTaxasCancAnt;
     const comissoesVal    = calcCom((agsMes.data ?? []) as AgRow[]);
     const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
     const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);

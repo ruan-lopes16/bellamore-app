@@ -23,6 +23,27 @@ function pct(atual: number, anterior: number): number | null {
   return ((atual - anterior) / anterior) * 100;
 }
 
+/**
+ * Busca todas as páginas de uma query (o PostgREST limita a 1000 linhas por
+ * requisição por padrão) — evita truncar silenciosamente resultados de
+ * empresas com muito movimento no mês.
+ */
+async function buscarTodasPaginas<T>(
+  montarQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  tamanhoPagina = 1000,
+): Promise<T[]> {
+  const todas: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data } = await montarQuery(from, from + tamanhoPagina - 1);
+    const linhas = data ?? [];
+    todas.push(...linhas);
+    if (linhas.length < tamanhoPagina) break;
+    from += tamanhoPagina;
+  }
+  return todas;
+}
+
 const STATUS_MAP: Record<string, { label: string; tone: string }> = {
   agendado:   { label: 'Agendado',   tone: 'accent'   },
   confirmado: { label: 'Confirmado', tone: 'green'     },
@@ -91,58 +112,69 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const metaMensal = Number(empresa.meta_mensal ?? 0);
 
   const [
-    agendamentosHoje, agsMes, agsMesAnt, agsStatusMes, membros,
-    despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
-    totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
-    todasAgsCompletas, clientesComAniversario,
+    [
+      agendamentosHoje, agsMes, agsMesAnt, membros,
+      despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
+      totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
+      todasAgsCompletas, clientesComAniversario, taxasPagasMes,
+    ],
+    agsStatusList,
   ] = await Promise.all([
-    supabase.from('agendamentos')
-      .select('id,status,valor,data_hora_inicio,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
-      .eq('empresa_id', empresaId).gte('data_hora_inicio', inicioHoje).lte('data_hora_inicio', fimHoje)
-      .order('data_hora_inicio'),
-    supabase.from('agendamentos').select('profissional_id,valor,data_hora_inicio')
-      .eq('empresa_id', empresaId).eq('status', 'concluido')
-      .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
-    supabase.from('agendamentos').select('valor')
-      .eq('empresa_id', empresaId).eq('status', 'concluido')
-      .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
-    supabase.from('agendamentos').select('status')
-      .eq('empresa_id', empresaId)
-      .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
-    supabase.from('empresa_membros').select('user_id,percentual_comissao')
-      .eq('empresa_id', empresaId).eq('ativo', true),
-    supabase.from('despesas').select('valor')
-      .eq('empresa_id', empresaId).eq('status', 'pago')
-      .gte('data_pagamento', inicioMes.slice(0,10)).lte('data_pagamento', fimMes.slice(0,10)),
-    supabase.from('despesas').select('valor')
-      .eq('empresa_id', empresaId).eq('status', 'pago')
-      .gte('data_pagamento', inicioMesAnt.slice(0,10)).lte('data_pagamento', fimMesAnt.slice(0,10)),
-    supabase.from('vendas').select('valor_final,created_at')
-      .eq('empresa_id', empresaId).gte('created_at', inicioMes).lte('created_at', fimMes),
-    supabase.from('vendas').select('valor_final')
-      .eq('empresa_id', empresaId).gte('created_at', inicioMesAnt).lte('created_at', fimMesAnt),
-    supabase.from('vendas').select('valor_final')
-      .eq('empresa_id', empresaId).gte('created_at', inicioHoje).lte('created_at', fimHoje),
-    supabase.from('clientes').select('id', { count: 'exact', head: true })
-      .eq('empresa_id', empresaId).eq('ativo', true),
-    supabase.from('v_produtos_estoque_baixo').select('id,nome,estoque_atual,estoque_minimo')
-      .eq('empresa_id', empresaId).eq('ativo', true),
-    supabase.from('despesas').select('id,descricao,valor,data_vencimento')
-      .eq('empresa_id', empresaId).eq('status', 'pendente')
-      .gte('data_vencimento', hojeStr).lte('data_vencimento', daqui7).order('data_vencimento'),
-    supabase.from('comissoes').select('id,valor_comissao')
-      .eq('empresa_id', empresaId).eq('status', 'pendente'),
-    supabase.from('comissoes').select('valor_comissao,status')
-      .eq('empresa_id', empresaId)
-      .gte('created_at', inicioMes).lte('created_at', fimMes),
-    supabase.from('agendamentos')
-      .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(id, nome)')
-      .eq('empresa_id', empresaId).eq('status', 'concluido')
-      .order('data_hora_inicio', { ascending: false }).limit(3000),
-    supabase.from('clientes')
-      .select('id, nome, data_nascimento, telefone')
-      .eq('empresa_id', empresaId).eq('ativo', true)
-      .not('data_nascimento', 'is', null),
+    Promise.all([
+      supabase.from('agendamentos')
+        .select('id,status,valor,data_hora_inicio,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
+        .eq('empresa_id', empresaId).gte('data_hora_inicio', inicioHoje).lte('data_hora_inicio', fimHoje)
+        .order('data_hora_inicio'),
+      supabase.from('agendamentos').select('profissional_id,valor,data_hora_inicio')
+        .eq('empresa_id', empresaId).eq('status', 'concluido')
+        .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
+      supabase.from('agendamentos').select('valor')
+        .eq('empresa_id', empresaId).eq('status', 'concluido')
+        .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
+      supabase.from('empresa_membros').select('user_id,percentual_comissao')
+        .eq('empresa_id', empresaId).eq('ativo', true),
+      supabase.from('despesas').select('valor')
+        .eq('empresa_id', empresaId).eq('status', 'pago')
+        .gte('data_pagamento', inicioMes.slice(0,10)).lte('data_pagamento', fimMes.slice(0,10)),
+      supabase.from('despesas').select('valor')
+        .eq('empresa_id', empresaId).eq('status', 'pago')
+        .gte('data_pagamento', inicioMesAnt.slice(0,10)).lte('data_pagamento', fimMesAnt.slice(0,10)),
+      supabase.from('vendas').select('valor_final,created_at')
+        .eq('empresa_id', empresaId).gte('created_at', inicioMes).lte('created_at', fimMes),
+      supabase.from('vendas').select('valor_final')
+        .eq('empresa_id', empresaId).gte('created_at', inicioMesAnt).lte('created_at', fimMesAnt),
+      supabase.from('vendas').select('valor_final')
+        .eq('empresa_id', empresaId).gte('created_at', inicioHoje).lte('created_at', fimHoje),
+      supabase.from('clientes').select('id', { count: 'exact', head: true })
+        .eq('empresa_id', empresaId).eq('ativo', true),
+      supabase.from('v_produtos_estoque_baixo').select('id,nome,estoque_atual,estoque_minimo')
+        .eq('empresa_id', empresaId).eq('ativo', true),
+      supabase.from('despesas').select('id,descricao,valor,data_vencimento')
+        .eq('empresa_id', empresaId).eq('status', 'pendente')
+        .gte('data_vencimento', hojeStr).lte('data_vencimento', daqui7).order('data_vencimento'),
+      supabase.from('comissoes').select('id,valor_comissao')
+        .eq('empresa_id', empresaId).eq('status', 'pendente'),
+      supabase.from('comissoes').select('valor_comissao,status')
+        .eq('empresa_id', empresaId)
+        .gte('created_at', inicioMes).lte('created_at', fimMes),
+      supabase.from('agendamentos')
+        .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(id, nome)')
+        .eq('empresa_id', empresaId).eq('status', 'concluido')
+        .order('data_hora_inicio', { ascending: false }).limit(3000),
+      supabase.from('clientes')
+        .select('id, nome, data_nascimento, telefone')
+        .eq('empresa_id', empresaId).eq('ativo', true)
+        .not('data_nascimento', 'is', null),
+      supabase.from('taxas_cancelamento').select('valor')
+        .eq('empresa_id', empresaId).eq('status', 'pago')
+        .gte('paga_em', inicioMes.slice(0,10)).lte('paga_em', fimMes.slice(0,10)),
+    ]),
+    buscarTodasPaginas<{ status: string }>((from, to) =>
+      supabase.from('agendamentos').select('status')
+        .eq('empresa_id', empresaId)
+        .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes)
+        .range(from, to)
+    ),
   ]);
 
   // KPIs
@@ -151,7 +183,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const brutoConcluido = (agsMes.data ?? []).reduce((s, a) => s + Number(a.valor), 0);
   const brutoVendas    = (vendasMes.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0);
-  const bruto          = brutoConcluido + brutoVendas;
+  const brutoTaxas     = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+  const bruto          = brutoConcluido + brutoVendas + brutoTaxas;
   const comissoes      = (agsMes.data ?? []).reduce(
     (s, a) => s + Number(a.valor) * (comMap[a.profissional_id] ?? 0) / 100, 0,
   );
@@ -174,7 +207,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const comPendenteMes     = (comissoesMes.data ?? []).filter(c => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
   const totalAlertas       = estoqueBaixoItems.length + despPendentesItems.length + (totalComPendente > 0 ? 1 : 0);
 
-  const agsStatusList  = agsStatusMes.data ?? [];
   const totalAgsMes     = agsStatusList.length;
   const perdidosMes      = agsStatusList.filter(a => a.status === 'cancelado' || a.status === 'faltou').length;
   const pctCancelamento  = totalAgsMes > 0 ? (perdidosMes / totalAgsMes) * 100 : 0;
