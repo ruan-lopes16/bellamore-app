@@ -606,7 +606,7 @@ export default function ClientePerfil() {
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
-                          {t.status === 'pago' ? 'Taxa paga' : 'Taxa pendente'}
+                          {t.status === 'pago' ? 'Taxa paga' : t.status === 'retida' ? 'Taxa retida' : 'Taxa pendente'}
                         </Text>
                         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
                           {format(new Date(t.created_at), 'dd/MM/yyyy')}

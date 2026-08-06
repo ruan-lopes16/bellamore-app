@@ -238,7 +238,6 @@ export function useClienteDetalhe(clienteId: string) {
           .select('*')
           .eq('empresa_id', empresaId!)
           .eq('cliente_id', clienteId)
-          .neq('status', 'retida')
           .order('created_at', { ascending: false }),
       ]);
 

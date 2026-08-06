@@ -464,11 +464,11 @@ export default function RelatoriosPage() {
         .gte('paga_em', isoIni)
         .lte('paga_em', isoFim),
 
-      // 7. Taxas de reserva pagas no período (somam ao faturamento bruto)
+      // 7. Taxas de reserva pagas no período (somam ao faturamento bruto, inclui retidas apos pagas)
       supabase.from('taxas_reserva')
         .select('valor, paga_em')
         .eq('empresa_id', empId)
-        .eq('status', 'pago')
+        .not('paga_em', 'is', null)
         .gte('paga_em', isoIni)
         .lte('paga_em', isoFim),
     ]);

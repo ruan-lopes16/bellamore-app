@@ -13,7 +13,7 @@ import {
   ChevronLeft, ChevronRight, Download,
   TrendingUp, TrendingDown, Plus,
   Layers, CreditCard, Banknote, Smartphone, Gift,
-  AlertTriangle, CheckCircle2, X, Pencil, Trash2,
+  AlertTriangle, CheckCircle2, Ban, X, Pencil, Trash2,
 } from 'lucide-react-native';
 import {
   Modal, TextInput, KeyboardAvoidingView, Platform,
@@ -344,11 +344,15 @@ function TaxaReservaRow({
   onMarcarPago: (item: TaxaReserva) => void;
 }) {
   const pago = item.status === 'pago';
+  const retida = item.status === 'retida';
+  const acionavel = item.status === 'pendente';
+  const corFundo = pago ? C.greenSoft : retida ? C.border : C.amberSoft;
+  const corTexto = pago ? C.green : retida ? C.text3 : C.amber;
 
   return (
     <TouchableOpacity
-      activeOpacity={pago ? 1 : 0.7}
-      onPress={() => !pago && onMarcarPago(item)}
+      activeOpacity={acionavel ? 0.7 : 1}
+      onPress={() => acionavel && onMarcarPago(item)}
       style={{
         paddingVertical: 11, paddingHorizontal: 16,
         flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -357,12 +361,14 @@ function TaxaReservaRow({
     >
       <View style={{
         width: 32, height: 32, borderRadius: 9,
-        backgroundColor: pago ? C.greenSoft : C.amberSoft,
+        backgroundColor: corFundo,
         alignItems: 'center', justifyContent: 'center', flexShrink: 0,
       }}>
         {pago
           ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
-          : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+          : retida
+            ? <Ban size={14} color={C.text3} strokeWidth={2} />
+            : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
         }
       </View>
       <View style={{ flex: 1 }}>
@@ -370,7 +376,7 @@ function TaxaReservaRow({
           {item.cliente?.nome ?? 'Cliente'}
         </Text>
         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
-          {pago
+          {pago || retida
             ? `Pago ${item.paga_em ? format(new Date(item.paga_em), 'dd/MM') : ''}`
             : `Gerada ${format(new Date(item.created_at), 'dd/MM')}`
           }
@@ -382,15 +388,15 @@ function TaxaReservaRow({
         </Text>
         <View style={{
           marginTop: 3,
-          backgroundColor: pago ? C.greenSoft : C.amberSoft,
+          backgroundColor: corFundo,
           borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
         }}>
           <Text style={{
             fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
-            color: pago ? C.green : C.amber,
+            color: corTexto,
             textTransform: 'uppercase',
           }}>
-            {pago ? 'Paga' : 'Toque p/ pagar'}
+            {pago ? 'Paga' : retida ? 'Retida' : 'Toque p/ pagar'}
           </Text>
         </View>
       </View>

@@ -77,8 +77,8 @@ export function useFinanceiro(mesRef: Date) {
         supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', inicioAnterior.slice(0,10)).lte('data_pagamento', fimAnterior.slice(0,10)),
         supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicio).lte('paga_em', fim),
         supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
-        supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).eq('status','pago').gte('paga_em', inicio).lte('paga_em', fim),
-        supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).eq('status','pago').gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
+        supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).not('paga_em', 'is', null).gte('paga_em', inicio).lte('paga_em', fim),
+        supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).not('paga_em', 'is', null).gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
       ]);
 
       const brutoTaxasMes    = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
@@ -207,7 +207,6 @@ export function useFinanceiro(mesRef: Date) {
         .from('taxas_reserva')
         .select('*, cliente:clientes(nome)')
         .eq('empresa_id', empresaId!)
-        .neq('status', 'retida')
         .gte('created_at', inicio).lte('created_at', fim)
         .order('status').order('created_at');
 

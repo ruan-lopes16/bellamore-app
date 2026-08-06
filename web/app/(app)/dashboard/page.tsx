@@ -117,6 +117,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
       totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
       todasAgsCompletas, clientesComAniversario, taxasPagasMes, taxasReservaPagasMes,
+      taxasPagasMesAnt, taxasReservaPagasMesAnt,
     ],
     agsStatusList,
   ] = await Promise.all([
@@ -169,8 +170,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         .eq('empresa_id', empresaId).eq('status', 'pago')
         .gte('paga_em', inicioMes).lte('paga_em', fimMes),
       supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empresaId).eq('status', 'pago')
+        .eq('empresa_id', empresaId).not('paga_em', 'is', null)
         .gte('paga_em', inicioMes).lte('paga_em', fimMes),
+      supabase.from('taxas_cancelamento').select('valor')
+        .eq('empresa_id', empresaId).eq('status', 'pago')
+        .gte('paga_em', inicioMesAnt).lte('paga_em', fimMesAnt),
+      supabase.from('taxas_reserva').select('valor')
+        .eq('empresa_id', empresaId).not('paga_em', 'is', null)
+        .gte('paga_em', inicioMesAnt).lte('paga_em', fimMesAnt),
     ]),
     buscarTodasPaginas<{ status: string }>((from, to) =>
       supabase.from('agendamentos').select('status')
@@ -196,7 +203,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const gastos   = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
   const lucro    = liquido - gastos;
   const brutoAnt = (agsMesAnt.data ?? []).reduce((s, a) => s + Number(a.valor), 0)
-                 + (vendasMesAnt.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0);
+                 + (vendasMesAnt.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0)
+                 + (taxasPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0)
+                 + (taxasReservaPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
   const gastosAnt = (despMesAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
 
   const agsHoje       = agendamentosHoje.data ?? [];

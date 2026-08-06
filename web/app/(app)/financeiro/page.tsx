@@ -36,7 +36,7 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
-  CheckCircle2, AlertTriangle, X, Layers, Banknote, CreditCard, Gift,
+  CheckCircle2, AlertTriangle, Ban, X, Layers, Banknote, CreditCard, Gift,
   RefreshCw, Check, FileSpreadsheet, Pencil, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
@@ -559,20 +559,19 @@ export default function FinanceiroPage() {
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('paga_em', iniA).lte('paga_em', fimA),
-      // Lista de taxas de reserva do mês (pendentes + pagas, exclui retidas)
+      // Lista de taxas de reserva do mês (pendentes + pagas + retidas)
       supabase.from('taxas_reserva')
         .select('*, cliente:clientes(nome)')
         .eq('empresa_id', empId)
-        .neq('status', 'retida')
         .gte('created_at', ini).lte('created_at', fim)
         .order('status').order('created_at'),
-      // Taxas de reserva pagas no mês (para somar ao bruto)
+      // Taxas de reserva pagas no mês (para somar ao bruto, inclui as posteriormente retidas)
       supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empId).eq('status', 'pago')
+        .eq('empresa_id', empId).not('paga_em', 'is', null)
         .gte('paga_em', ini).lte('paga_em', fim),
       // Taxas de reserva pagas no mês anterior (para somar ao bruto do mês anterior)
       supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empId).eq('status', 'pago')
+        .eq('empresa_id', empId).not('paga_em', 'is', null)
         .gte('paga_em', iniA).lte('paga_em', fimA),
     ]);
 
@@ -1165,16 +1164,20 @@ export default function FinanceiroPage() {
                 <div
                   className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
                   onClick={() => t.status === 'pendente' && marcarReservaPaga(t)}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    t.status === 'pago' ? 'bg-green-soft' : t.status === 'retida' ? 'bg-border' : 'bg-amber-soft'
+                  }`}>
                     {t.status === 'pago'
                       ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
-                      : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
+                      : t.status === 'retida'
+                        ? <Ban size={14} strokeWidth={2} className="text-text-3"/>
+                        : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
                     }
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-text truncate">{t.cliente?.nome ?? 'Cliente'}</p>
                     <p className="text-[10px] text-text-4 mt-0.5">
-                      {t.status === 'pago'
+                      {t.status === 'pago' || t.status === 'retida'
                         ? `Pago ${t.paga_em ? format(new Date(t.paga_em), 'dd/MM') : ''}`
                         : `Gerada ${format(new Date(t.created_at), 'dd/MM')}`
                       }
@@ -1183,9 +1186,9 @@ export default function FinanceiroPage() {
                   <div className="text-right flex-shrink-0">
                     <p className="text-sm font-bold text-red">{fmtBRL(t.valor)}</p>
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
-                      t.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
+                      t.status === 'pago' ? 'bg-green-soft text-green' : t.status === 'retida' ? 'bg-border text-text-3' : 'bg-amber-soft text-amber'
                     }`}>
-                      {t.status === 'pago' ? 'Paga' : 'Pendente'}
+                      {t.status === 'pago' ? 'Paga' : t.status === 'retida' ? 'Retida' : 'Pendente'}
                     </span>
                   </div>
                 </div>

@@ -381,7 +381,6 @@ export default function ClientePerfilPage() {
           .from('taxas_reserva')
           .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em')
           .eq('cliente_id', id)
-          .neq('status', 'retida')
           .order('created_at', { ascending: false })
           .range(from, to) as unknown as PromiseLike<{ data: TaxaReserva[] | null; error: unknown }>
       ),
@@ -988,7 +987,7 @@ export default function ClientePerfilPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-text truncate">
-                            {t.status === 'pago' ? 'Taxa paga' : 'Taxa pendente'}
+                            {t.status === 'pago' ? 'Taxa paga' : t.status === 'retida' ? 'Taxa retida' : 'Taxa pendente'}
                           </p>
                           <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
                         </div>
