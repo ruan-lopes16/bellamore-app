@@ -1,8 +1,8 @@
-const CACHE = 'bellamore-v1';
+const CACHE = 'bellamore-v2';
 
 const PRECACHE = [
   '/offline',
-  '/favicon.svg',
+  '/icon',
 ];
 
 self.addEventListener('install', e => {
