@@ -110,6 +110,11 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   const [salvando,   setSalvando]   = useState(false);
   const [erro,       setErro]       = useState('');
 
+  // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço)
+  const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
+  const [taxaReserva,        setTaxaReserva]        = useState('0');
+  const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+
   const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 
   useEffect(() => {
@@ -124,10 +129,32 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     });
   }, [empresaId]);
 
+  // Configuração de taxa de reserva da empresa
+  useEffect(() => {
+    supabase.from('empresas')
+      .select('taxa_reserva_ativa, taxa_reserva_modo, taxa_reserva_valor')
+      .eq('id', empresaId).single()
+      .then(({ data }: { data: any }) => {
+        if (data) {
+          setTaxaReservaCfg({
+            ativa: data.taxa_reserva_ativa,
+            modo: data.taxa_reserva_modo as 'percentual' | 'fixo',
+            valor: Number(data.taxa_reserva_valor),
+          });
+        }
+      });
+  }, [empresaId]);
+
   function onServicoChange(id: string) {
     setServicoId(id);
     const s = servicos.find(sv => sv.id === id);
     if (s) { setDuracao(s.duracao_minutos); setValor(String(s.preco)); }
+    if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
+      const sugerido = taxaReservaCfg.modo === 'fixo'
+        ? taxaReservaCfg.valor
+        : Math.round((s.preco * taxaReservaCfg.valor / 100) * 100) / 100;
+      setTaxaReserva(String(sugerido).replace('.', ','));
+    }
   }
 
   async function salvar(e: React.FormEvent) {
@@ -135,14 +162,29 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     const [h, m] = hora.split(':').map(Number);
     const inicio = new Date(`${data}T00:00:00`); inicio.setHours(h, m, 0, 0);
     const fim    = addMinutes(inicio, duracao);
-    const { error } = await supabase.from('agendamentos').insert({
+    const { data: ag, error } = await supabase.from('agendamentos').insert({
       empresa_id: empresaId, cliente_id: clienteId, profissional_id: profId,
       servico_id: servicoId, data_hora_inicio: inicio.toISOString(),
       data_hora_fim: fim.toISOString(), status: 'agendado',
       valor: parseFloat(valor) || 0, observacao: obs.trim() || null,
-    });
+    }).select().single();
+    if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
+
+    const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+    if (taxaReservaValorNum > 0) {
+      const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
+        empresa_id: empresaId,
+        agendamento_id: ag.id,
+        cliente_id: clienteId,
+        valor: taxaReservaValorNum,
+        status: 'pendente',
+      });
+      if (erroReserva) {
+        console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
+      }
+    }
+
     setSalvando(false);
-    if (error) { setErro(error.message); return; }
     onSalvo();
   }
 
@@ -198,6 +240,20 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
               <input type="number" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" step="0.01" min="0" className={inputCls}/>
             </div>
           </div>
+          {taxaReservaCfg.ativa && (
+            <div>
+              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Taxa de reserva</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <input
+                  value={taxaReserva}
+                  onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
+                  inputMode="decimal" placeholder="0,00"
+                  className={`${inputCls} pl-9`}
+                />
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Observação <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} placeholder="Notas sobre o atendimento..."
