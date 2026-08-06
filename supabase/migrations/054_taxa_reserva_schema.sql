@@ -32,7 +32,7 @@ alter table public.taxas_reserva enable row level security;
 
 create policy "taxas_reserva: membro insere"
   on public.taxas_reserva for insert
-  with check (empresa_id = any(minha_empresas()));
+  with check (empresa_id in (select minha_empresas()));
 
 create policy "taxas_reserva: gestor ou owner ve"
   on public.taxas_reserva for select
