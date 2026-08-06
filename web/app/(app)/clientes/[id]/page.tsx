@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle, Archive } from 'lucide-react';
+import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle, Archive, Banknote } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import type { Cliente } from '@/types';
+import type { Cliente, TaxaCancelamento, TaxaReserva } from '@/types';
 import { format, differenceInYears, differenceInDays, addMinutes, parseISO } from 'date-fns';
 import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { ptBR } from 'date-fns/locale';
@@ -118,6 +118,11 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   const [salvando,   setSalvando]   = useState(false);
   const [erro,       setErro]       = useState('');
 
+  // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço)
+  const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
+  const [taxaReserva,        setTaxaReserva]        = useState('0');
+  const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+
   const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 
   useEffect(() => {
@@ -132,10 +137,32 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     });
   }, [empresaId]);
 
+  // Configuração de taxa de reserva da empresa
+  useEffect(() => {
+    supabase.from('empresas')
+      .select('taxa_reserva_ativa, taxa_reserva_modo, taxa_reserva_valor')
+      .eq('id', empresaId).single()
+      .then(({ data }: { data: any }) => {
+        if (data) {
+          setTaxaReservaCfg({
+            ativa: data.taxa_reserva_ativa,
+            modo: data.taxa_reserva_modo as 'percentual' | 'fixo',
+            valor: Number(data.taxa_reserva_valor),
+          });
+        }
+      });
+  }, [empresaId]);
+
   function onServicoChange(id: string) {
     setServicoId(id);
     const s = servicos.find(sv => sv.id === id);
     if (s) { setDuracao(s.duracao_minutos); setValor(String(s.preco)); }
+    if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
+      const sugerido = taxaReservaCfg.modo === 'fixo'
+        ? taxaReservaCfg.valor
+        : Math.round((s.preco * taxaReservaCfg.valor / 100) * 100) / 100;
+      setTaxaReserva(String(sugerido).replace('.', ','));
+    }
   }
 
   async function salvar(e: React.FormEvent) {
@@ -143,14 +170,29 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     const [h, m] = hora.split(':').map(Number);
     const inicio = new Date(`${data}T00:00:00`); inicio.setHours(h, m, 0, 0);
     const fim    = addMinutes(inicio, duracao);
-    const { error } = await supabase.from('agendamentos').insert({
+    const { data: ag, error } = await supabase.from('agendamentos').insert({
       empresa_id: empresaId, cliente_id: clienteId, profissional_id: profId,
       servico_id: servicoId, data_hora_inicio: inicio.toISOString(),
       data_hora_fim: fim.toISOString(), status: 'agendado',
       valor: parseFloat(valor) || 0, observacao: obs.trim() || null,
-    });
+    }).select().single();
+    if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
+
+    const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+    if (taxaReservaValorNum > 0) {
+      const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
+        empresa_id: empresaId,
+        agendamento_id: ag.id,
+        cliente_id: clienteId,
+        valor: taxaReservaValorNum,
+        status: 'pendente',
+      });
+      if (erroReserva) {
+        console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
+      }
+    }
+
     setSalvando(false);
-    if (error) { setErro(error.message); return; }
     onSalvo();
   }
 
@@ -206,6 +248,20 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
               <input type="number" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" step="0.01" min="0" className={inputCls}/>
             </div>
           </div>
+          {taxaReservaCfg.ativa && (
+            <div>
+              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Taxa de reserva</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <input
+                  value={taxaReserva}
+                  onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
+                  inputMode="decimal" placeholder="0,00"
+                  className={`${inputCls} pl-9`}
+                />
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Observação <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} placeholder="Notas sobre o atendimento..."
@@ -270,6 +326,8 @@ export default function ClientePerfilPage() {
   // ── Histórico ───────────────────────────────────────────────
   const [historico,     setHistorico]     = useState<HistAg[]>([]);
   const [vendas,        setVendas]        = useState<HistVenda[]>([]);
+  const [taxas,         setTaxas]         = useState<TaxaCancelamento[]>([]);
+  const [taxasReserva,  setTaxasReserva]  = useState<TaxaReserva[]>([]);
   const [loadingHist,   setLoadingHist]   = useState(false);
   const [histCarregado, setHistCarregado] = useState(false);
 
@@ -369,7 +427,7 @@ export default function ClientePerfilPage() {
   async function carregarHistorico() {
     if (histCarregado) return;
     setLoadingHist(true);
-    const [ags, vds, comSvcs] = await Promise.all([
+    const [ags, vds, txs, trs, comSvcs] = await Promise.all([
       buscarTodasPaginas<HistAg>((from, to) =>
         supabase
           .from('agendamentos')
@@ -388,6 +446,23 @@ export default function ClientePerfilPage() {
           .eq('cliente_id', id)
           .order('created_at', { ascending: false })
           .range(from, to) as unknown as PromiseLike<{ data: HistVenda[] | null; error: unknown }>
+      ),
+      buscarTodasPaginas<TaxaCancelamento>((from, to) =>
+        supabase
+          .from('taxas_cancelamento')
+          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em')
+          .eq('cliente_id', id)
+          .neq('status', 'cancelada')
+          .order('created_at', { ascending: false })
+          .range(from, to) as unknown as PromiseLike<{ data: TaxaCancelamento[] | null; error: unknown }>
+      ),
+      buscarTodasPaginas<TaxaReserva>((from, to) =>
+        supabase
+          .from('taxas_reserva')
+          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em')
+          .eq('cliente_id', id)
+          .order('created_at', { ascending: false })
+          .range(from, to) as unknown as PromiseLike<{ data: TaxaReserva[] | null; error: unknown }>
       ),
       // Serviços lançados direto na comanda (sem agendamento prévio, ex: cliente sem hora marcada)
       buscarTodasPaginas<HistComandaServico>((from, to) =>
@@ -418,6 +493,8 @@ export default function ClientePerfilPage() {
 
     setHistorico(historicoCompleto);
     setVendas(vds);
+    setTaxas(txs);
+    setTaxasReserva(trs);
     setLoadingHist(false);
     setHistCarregado(true);
   }
@@ -967,6 +1044,66 @@ export default function ClientePerfilPage() {
                 </div>
               )}
             </div>
+
+            {/* ── Taxas de cancelamento ── */}
+            {taxas.length > 0 && (
+              <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                  <p className="font-semibold text-text text-sm">Taxas de cancelamento</p>
+                  <span className="text-xs text-text-4">{taxas.length} {taxas.length === 1 ? 'taxa' : 'taxas'}</span>
+                </div>
+                <div className="divide-y divide-border">
+                  {taxas.map(t => {
+                    const fmtBRL = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(n);
+                    const dataFmt = format(parseISO(t.created_at), "dd/MM/yyyy 'às' HH:mm");
+                    return (
+                      <div key={t.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-red-soft">
+                          <XCircle size={14} strokeWidth={2} className="text-red"/>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-text truncate">
+                            {t.status === 'pago' ? 'Taxa paga' : 'Taxa pendente'}
+                          </p>
+                          <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
+                        </div>
+                        <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(t.valor)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Taxas de reserva ── */}
+            {taxasReserva.length > 0 && (
+              <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                  <p className="font-semibold text-text text-sm">Taxas de reserva</p>
+                  <span className="text-xs text-text-4">{taxasReserva.length} {taxasReserva.length === 1 ? 'taxa' : 'taxas'}</span>
+                </div>
+                <div className="divide-y divide-border">
+                  {taxasReserva.map(t => {
+                    const fmtBRL = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(n);
+                    const dataFmt = format(parseISO(t.created_at), "dd/MM/yyyy 'às' HH:mm");
+                    return (
+                      <div key={t.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-accent-soft">
+                          <Banknote size={14} strokeWidth={2} className="text-accent"/>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-text truncate">
+                            {t.status === 'pago' ? 'Taxa paga' : t.status === 'retida' ? 'Taxa retida' : 'Taxa pendente'}
+                          </p>
+                          <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
+                        </div>
+                        <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(t.valor)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             </div>
           )}
 

@@ -111,6 +111,11 @@ export default function NovoAgendamento() {
   const { empresaAtiva } = useAuthStore();
   const params = useLocalSearchParams<{ clienteId?: string; hora?: string }>();
 
+  // Config de taxa de reserva da empresa
+  const taxaReservaAtiva    = empresaAtiva?.taxa_reserva_ativa ?? false;
+  const taxaReservaModo     = (empresaAtiva?.taxa_reserva_modo as 'percentual' | 'fixo') ?? 'percentual';
+  const taxaReservaCfgValor = Number(empresaAtiva?.taxa_reserva_valor ?? 0);
+
   // Pré-preenche data/hora se vem da agenda
   const horaInicial = useMemo(() => {
     if (params.hora) return new Date(params.hora);
@@ -127,9 +132,12 @@ export default function NovoAgendamento() {
     params.hora ? { h: horaInicial.getHours(), m: horaInicial.getMinutes() } : null
   );
   const [valor, setValor]       = useState('');
+  const [taxaReserva, setTaxaReserva]             = useState('');
+  const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [obs, setObs]           = useState('');
   const [salvando, setSalvando] = useState(false);
   const [sucesso, setSucesso] = useState<{ clienteNome: string; servicoNome: string; profNome: string; inicio: Date; fim: Date } | null>(null);
+  const [avisoTaxaReserva, setAvisoTaxaReserva] = useState('');
 
   // Pacote do cliente (vincular sessão existente) ou vender um pacote novo agora
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
@@ -281,6 +289,12 @@ export default function NovoAgendamento() {
   function selecionarServico(s: typeof servicos[0]) {
     setServicoSelecionado({ id: s.id, nome: s.nome, preco: s.preco, duracao_minutos: s.duracao_minutos });
     setValor(s.preco.toFixed(2));
+    if (taxaReservaAtiva && !taxaReservaEditada) {
+      const sugerido = taxaReservaModo === 'fixo'
+        ? taxaReservaCfgValor
+        : Math.round((s.preco * taxaReservaCfgValor / 100) * 100) / 100;
+      setTaxaReserva(sugerido.toFixed(2));
+    }
   }
 
   const podeSalvar = !!(
@@ -321,7 +335,7 @@ export default function NovoAgendamento() {
       }
     }
 
-    const { error } = await supabase.from('agendamentos').insert({
+    const { data: novoAg, error } = await supabase.from('agendamentos').insert({
       empresa_id:        empresaAtiva.id,
       profissional_id:   profSelecionado!.id,
       cliente_id:        clienteSelecionado!.id,
@@ -332,7 +346,7 @@ export default function NovoAgendamento() {
       observacao:        obs || null,
       status:            'agendado',
       pacote_cliente_id: pacoteClienteIdFinal,
-    });
+    }).select('id').single();
 
     setSalvando(false);
 
@@ -345,6 +359,21 @@ export default function NovoAgendamento() {
       return;
     }
 
+    const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+    if (taxaReservaValorNum > 0 && novoAg) {
+      const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
+        empresa_id:     empresaAtiva.id,
+        agendamento_id: novoAg.id,
+        cliente_id:     clienteSelecionado!.id,
+        valor:          taxaReservaValorNum,
+        status:         'pendente',
+      });
+      if (erroReserva) {
+        console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
+        setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
+      }
+    }
+
     setSucesso({
       clienteNome: clienteSelecionado!.nome,
       servicoNome: servicoSelecionado!.nome,
@@ -355,7 +384,7 @@ export default function NovoAgendamento() {
 
   useEffect(() => {
     if (!sucesso) return;
-    const t = setTimeout(() => router.back(), 1500);
+    const t = setTimeout(() => router.back(), avisoTaxaReserva ? 2800 : 1500);
     return () => clearTimeout(t);
   }, [sucesso]);
 
@@ -379,6 +408,11 @@ export default function NovoAgendamento() {
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, textAlign: 'center', marginTop: 2 }}>
             {format(sucesso.inicio, 'HH:mm')}–{format(sucesso.fim, 'HH:mm')}
           </Text>
+          {!!avisoTaxaReserva && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: '#B45309', textAlign: 'center', marginTop: 8 }}>
+              {avisoTaxaReserva}
+            </Text>
+          )}
         </MotiView>
       </View>
     );
@@ -752,6 +786,29 @@ export default function NovoAgendamento() {
               </TouchableOpacity>
             )}
           </View>
+
+          {taxaReservaAtiva && (
+            <View style={{
+              marginTop: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+              borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
+              paddingHorizontal: 14,
+              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+            }}>
+              <DollarSign size={16} color={C.text4} strokeWidth={1.8} />
+              <TextInput
+                value={taxaReserva}
+                onChangeText={v => { setTaxaReserva(v); setTaxaReservaEditada(true); }}
+                placeholder="Taxa de reserva (0,00)"
+                placeholderTextColor={C.text4}
+                keyboardType="numeric"
+                style={{
+                  flex: 1, paddingVertical: 14,
+                  fontFamily: 'PlusJakartaSans_600SemiBold',
+                  fontSize: 16, color: C.text,
+                }}
+              />
+            </View>
+          )}
         </Secao>
 
         {/* ── 7. Observação ── */}

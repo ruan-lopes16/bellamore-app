@@ -4,7 +4,7 @@ import {
 } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import type { PagamentoMetodo } from '@/types';
+import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -67,17 +67,28 @@ export function useFinanceiro(mesRef: Date) {
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const [pagMes, pagAnt, despMes, despAnt] = await Promise.all([
+      const [
+        pagMes, pagAnt, despMes, despAnt, taxasPagasMes, taxasPagasAnt,
+        reservasPagasMes, reservasPagasAnt,
+      ] = await Promise.all([
         supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', inicio).lte('created_at', fim),
         supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', inicioAnterior).lte('created_at', fimAnterior),
         supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', inicio.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
         supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', inicioAnterior.slice(0,10)).lte('data_pagamento', fimAnterior.slice(0,10)),
+        supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicio).lte('paga_em', fim),
+        supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
+        supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).not('paga_em', 'is', null).gte('paga_em', inicio).lte('paga_em', fim),
+        supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).not('paga_em', 'is', null).gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
       ]);
 
-      const receita         = (pagMes.data  ?? []).reduce((s, p) => s + Number(p.valor), 0);
-      const receitaAnterior = (pagAnt.data  ?? []).reduce((s, p) => s + Number(p.valor), 0);
-      const gastos          = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
-      const gastosAnterior  = (despAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
+      const brutoTaxasMes    = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+      const brutoTaxasAnt    = (taxasPagasAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+      const brutoReservasMes = (reservasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+      const brutoReservasAnt = (reservasPagasAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+      const receita          = (pagMes.data  ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasMes + brutoReservasMes;
+      const receitaAnterior  = (pagAnt.data  ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasAnt + brutoReservasAnt;
+      const gastos           = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
+      const gastosAnterior   = (despAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
 
       return { receita, gastos, lucro: receita - gastos, receitaAnterior, gastosAnterior };
     },
@@ -168,6 +179,41 @@ export function useFinanceiro(mesRef: Date) {
     },
   });
 
+  // ── Taxas de cancelamento do mês ─────────────────────────
+  const taxasCancelamento = useQuery<(TaxaCancelamento & { cliente: { nome: string } | null })[]>({
+    queryKey: ['fin-taxas-cancelamento', empresaId, chave],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('taxas_cancelamento')
+        .select('*, cliente:clientes(nome)')
+        .eq('empresa_id', empresaId!)
+        .neq('status', 'cancelada')
+        .gte('created_at', inicio).lte('created_at', fim)
+        .order('status').order('created_at');
+
+      return (data ?? []) as (TaxaCancelamento & { cliente: { nome: string } | null })[];
+    },
+  });
+
+  // ── Taxas de reserva do mês ──────────────────────────────
+  const taxasReserva = useQuery<(TaxaReserva & { cliente: { nome: string } | null })[]>({
+    queryKey: ['fin-taxas-reserva', empresaId, chave],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('taxas_reserva')
+        .select('*, cliente:clientes(nome)')
+        .eq('empresa_id', empresaId!)
+        .gte('created_at', inicio).lte('created_at', fim)
+        .order('status').order('created_at');
+
+      return (data ?? []) as (TaxaReserva & { cliente: { nome: string } | null })[];
+    },
+  });
+
   // ── Evolução últimos 6 meses ─────────────────────────────
   const evolucao = useQuery<EvolucaoMes[]>({
     queryKey: ['fin-evolucao', empresaId, chave],
@@ -199,17 +245,21 @@ export function useFinanceiro(mesRef: Date) {
   const isLoading = resumo.isLoading || metodos.isLoading || topServicos.isLoading;
 
   return {
-    resumo:      resumo.data,
-    metodos:     metodos.data ?? [],
-    topServicos: topServicos.data ?? [],
-    despesas:    despesas.data ?? [],
-    evolucao:    evolucao.data ?? [],
+    resumo:            resumo.data,
+    metodos:           metodos.data ?? [],
+    topServicos:       topServicos.data ?? [],
+    despesas:          despesas.data ?? [],
+    taxasCancelamento: taxasCancelamento.data ?? [],
+    taxasReserva:      taxasReserva.data ?? [],
+    evolucao:          evolucao.data ?? [],
     isLoading,
     refetch: () => {
       resumo.refetch();
       metodos.refetch();
       topServicos.refetch();
       despesas.refetch();
+      taxasCancelamento.refetch();
+      taxasReserva.refetch();
       evolucao.refetch();
     },
   };

@@ -10,7 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
   Store, Phone, MapPin, FileText, User, Lock,
-  Camera, LogOut, Save, ChevronLeft, Image as ImageIcon,
+  Camera, LogOut, Save, ChevronLeft, Image as ImageIcon, Percent,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -26,6 +26,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
+import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ function Campo({
   onChange: (v: string) => void;
   placeholder: string;
   secureTextEntry?: boolean;
-  keyboardType?: 'default' | 'phone-pad' | 'numeric';
+  keyboardType?: 'default' | 'phone-pad' | 'numeric' | 'decimal-pad';
 }) {
   return (
     <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border }}>
@@ -113,8 +114,9 @@ function Campo({
 
 export default function Configuracoes() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, user, signOut } = useAuthStore();
+  const { empresaAtiva, user, signOut, roleAtivo, isOwner: souOwner, selecionarEmpresa } = useAuthStore();
   const qc = useQueryClient();
+  const podeEditarTaxa = souOwner || roleAtivo === 'gestor';
 
   // Dados da empresa
   const [nomeEmpresa,  setNomeEmpresa]  = useState(empresaAtiva?.nome ?? '');
@@ -128,6 +130,26 @@ export default function Configuracoes() {
     ...HORARIO_DEFAULT,
     ...horariosRaw,
   }));
+
+  // Taxa de cancelamento
+  const [taxaAtiva, setTaxaAtiva] = useState(empresaAtiva?.taxa_cancelamento_ativa ?? false);
+  const [taxaModo, setTaxaModo] = useState<'percentual' | 'fixo'>(
+    (empresaAtiva?.taxa_cancelamento_modo as 'percentual' | 'fixo') ?? 'percentual'
+  );
+  const [taxaValor, setTaxaValor] = useState(
+    formatValorMonetarioInput(Number(empresaAtiva?.taxa_cancelamento_valor ?? 0))
+  );
+  const [taxaAplicaCancelado, setTaxaAplicaCancelado] = useState(empresaAtiva?.taxa_cancelamento_aplica_cancelado ?? true);
+  const [taxaAplicaFaltou, setTaxaAplicaFaltou] = useState(empresaAtiva?.taxa_cancelamento_aplica_faltou ?? true);
+
+  // Taxa de reserva
+  const [reservaAtiva, setReservaAtiva] = useState(empresaAtiva?.taxa_reserva_ativa ?? false);
+  const [reservaModo, setReservaModo] = useState<'percentual' | 'fixo'>(
+    (empresaAtiva?.taxa_reserva_modo as 'percentual' | 'fixo') ?? 'percentual'
+  );
+  const [reservaValor, setReservaValor] = useState(
+    formatValorMonetarioInput(Number(empresaAtiva?.taxa_reserva_valor ?? 0))
+  );
 
   // Minha conta
   const [nomeUser,     setNomeUser]     = useState(user?.nome ?? '');
@@ -168,6 +190,14 @@ export default function Configuracoes() {
         endereco:             endereco.trim() || null,
         cnpj:                 cnpj.trim() || null,
         horario_funcionamento: horarios,
+        taxa_cancelamento_ativa:            taxaAtiva,
+        taxa_cancelamento_modo:             taxaModo,
+        taxa_cancelamento_valor:            parseValorMonetario(taxaValor) ?? 0,
+        taxa_cancelamento_aplica_cancelado: taxaAplicaCancelado,
+        taxa_cancelamento_aplica_faltou:    taxaAplicaFaltou,
+        taxa_reserva_ativa:   reservaAtiva,
+        taxa_reserva_modo:    reservaModo,
+        taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
       }).eq('id', empresaAtiva.id),
 
       // Atualiza perfil do usuário
@@ -194,6 +224,18 @@ export default function Configuracoes() {
     // Invalida cache para refletir mudanças
     qc.invalidateQueries({ queryKey: ['empresa'] });
     qc.invalidateQueries({ queryKey: ['user'] });
+
+    // Re-busca a empresa atualizada e atualiza o Zustand authStore — a tela de
+    // Novo agendamento lê `empresaAtiva` do authStore (não do React Query),
+    // então sem isso a taxa de reserva/cancelamento só apareceria após reabrir o app.
+    const { data: empresaAtualizada } = await supabase
+      .from('empresas')
+      .select('*')
+      .eq('id', empresaAtiva.id)
+      .single();
+    if (empresaAtualizada) {
+      selecionarEmpresa(empresaAtualizada, roleAtivo ?? 'gestor', souOwner);
+    }
 
     Alert.alert('Salvo!', 'Configurações atualizadas com sucesso.');
     setNovaSenha('');
@@ -372,6 +414,142 @@ export default function Configuracoes() {
                   </View>
                 );
               })}
+            </View>
+          </MotiView>
+
+          {/* ── Taxa de Cancelamento ── */}
+          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 150 }}
+            style={{ marginHorizontal: 24, marginTop: 20 }}
+          >
+            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>
+                Taxa de cancelamento
+              </Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>
+                Gera uma cobrança pendente no Financeiro ao cancelar um agendamento ou registrar falta.
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Switch
+                  value={taxaAtiva}
+                  onValueChange={v => { if (podeEditarTaxa) setTaxaAtiva(v); }}
+                  disabled={!podeEditarTaxa}
+                  trackColor={{ false: C.border, true: C.primary }}
+                  thumbColor="#fff"
+                />
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
+                  Cobrar taxa automaticamente
+                </Text>
+              </View>
+              {taxaAtiva && (
+                <>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setTaxaModo('percentual')}
+                      style={{
+                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1, borderColor: taxaModo === 'percentual' ? C.primary : C.border,
+                        backgroundColor: taxaModo === 'percentual' ? C.primarySoft : 'transparent',
+                      }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: taxaModo === 'percentual' ? C.primary : C.text3 }}>
+                        % do serviço
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setTaxaModo('fixo')}
+                      style={{
+                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1, borderColor: taxaModo === 'fixo' ? C.primary : C.border,
+                        backgroundColor: taxaModo === 'fixo' ? C.primarySoft : 'transparent',
+                      }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: taxaModo === 'fixo' ? C.primary : C.text3 }}>
+                        Valor fixo (R$)
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Campo
+                    label={taxaModo === 'percentual' ? 'Percentual da taxa' : 'Valor da taxa'}
+                    icon={<Percent size={16} color={C.text3} />}
+                    value={taxaValor}
+                    onChange={setTaxaValor}
+                    placeholder="0,00"
+                    keyboardType="decimal-pad"
+                  />
+                  <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setTaxaAplicaCancelado(v => !v)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Switch value={taxaAplicaCancelado} onValueChange={v => { if (podeEditarTaxa) setTaxaAplicaCancelado(v); }}
+                      disabled={!podeEditarTaxa} trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
+                    <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text2 }}>
+                      Aplicar quando cancelado
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setTaxaAplicaFaltou(v => !v)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Switch value={taxaAplicaFaltou} onValueChange={v => { if (podeEditarTaxa) setTaxaAplicaFaltou(v); }}
+                      disabled={!podeEditarTaxa} trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
+                    <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text2 }}>
+                      Aplicar quando o cliente faltar
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </MotiView>
+
+          {/* ── Taxa de Reserva ── */}
+          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 160 }}
+            style={{ marginHorizontal: 24, marginTop: 20 }}
+          >
+            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>
+                Taxa de reserva
+              </Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>
+                Sugere um valor de taxa de reserva (editável) ao criar um novo agendamento.
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Switch
+                  value={reservaAtiva}
+                  onValueChange={v => { if (podeEditarTaxa) setReservaAtiva(v); }}
+                  disabled={!podeEditarTaxa}
+                  trackColor={{ false: C.border, true: C.primary }}
+                  thumbColor="#fff"
+                />
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
+                  Sugerir taxa de reserva ao agendar
+                </Text>
+              </View>
+              {reservaAtiva && (
+                <>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setReservaModo('percentual')}
+                      style={{
+                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1, borderColor: reservaModo === 'percentual' ? C.primary : C.border,
+                        backgroundColor: reservaModo === 'percentual' ? C.primarySoft : 'transparent',
+                      }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === 'percentual' ? C.primary : C.text3 }}>
+                        % do serviço
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setReservaModo('fixo')}
+                      style={{
+                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                        borderWidth: 1, borderColor: reservaModo === 'fixo' ? C.primary : C.border,
+                        backgroundColor: reservaModo === 'fixo' ? C.primarySoft : 'transparent',
+                      }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === 'fixo' ? C.primary : C.text3 }}>
+                        Valor fixo (R$)
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Campo
+                    label={reservaModo === 'percentual' ? 'Percentual sugerido' : 'Valor sugerido'}
+                    icon={<Percent size={16} color={C.text3} />}
+                    value={reservaValor}
+                    onChange={setReservaValor}
+                    placeholder="0,00"
+                    keyboardType="decimal-pad"
+                  />
+                </>
+              )}
             </View>
           </MotiView>
 

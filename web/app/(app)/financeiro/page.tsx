@@ -8,7 +8,7 @@
  * Todos os valores são calculados a partir de agendamentos (status = 'concluido'),
  * NÃO da tabela `comissoes` ou `pagamentos`.
  *
- * - Faturamento Bruto  = soma de agendamentos.valor no mês
+ * - Faturamento Bruto  = soma de agendamentos.valor + vendas.valor_final + taxas_cancelamento pagas no mês
  * - Comissões          = Σ (valor × percentual_comissao / 100) por profissional
  * - Faturamento Líquido = Bruto − Comissões
  * - Gastos             = soma de despesas do mês
@@ -27,12 +27,16 @@
  * - Listagem do mês com status pendente/pago
  * - Modal de nova despesa com suporte a recorrentes
  * - Modal de marcar como pago (registra data e forma de pagamento)
+ *
+ * ## Taxas de cancelamento
+ * - Listagem do mês (pendente/pago) com ação "marcar como paga"
+ * - Taxas pagas no mês entram no Faturamento Bruto
  */
 
 import { useState, useEffect } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
-  CheckCircle2, AlertTriangle, X, Layers, Banknote, CreditCard, Gift,
+  CheckCircle2, AlertTriangle, Ban, X, Layers, Banknote, CreditCard, Gift,
   RefreshCw, Check, FileSpreadsheet, Pencil, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
@@ -51,6 +55,7 @@ import {
   resolveFinanceiroKpis,
 } from '@/lib/financeiro/fechamentos-mensais';
 import { getMonthQueryBounds } from '@/lib/financeiro/periodo-mensal';
+import type { TaxaCancelamento, TaxaReserva } from '@/types';
 
 const supabase = createClient();
 
@@ -439,6 +444,10 @@ export default function FinanceiroPage() {
   const [topServicos,   setTopServicos]   = useState<TopServico[]>([]);
   const [metodos,       setMetodos]       = useState<MetodoPag[]>([]);
   const [despesas,      setDespesas]      = useState<Despesa[]>([]);
+  const [taxasCancelamento,      setTaxasCancelamento]      = useState<TaxaCancelamento[]>([]);
+  const [taxasCancelamentoPagas, setTaxasCancelamentoPagas] = useState(0);
+  const [taxasReserva,      setTaxasReserva]      = useState<TaxaReserva[]>([]);
+  const [taxasReservaPagas, setTaxasReservaPagas] = useState(0);
   const [evolucao,      setEvolucao]      = useState<{ mes: string; receita: number; comissoes: number; gastos: number }[]>([]);
 
   // Modais
@@ -478,7 +487,7 @@ export default function FinanceiroPage() {
     const fimA = periodoAnt.endIso;
     const ini6 = periodo6.startIso;
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m] = await Promise.all([
+    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes, reservaPagasAnt] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional e serviço)
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
@@ -535,6 +544,35 @@ export default function FinanceiroPage() {
         .select('mes, receita_bruta, comissao_paga')
         .eq('empresa_id', empId)
         .gte('mes', periodo6.startDate).lte('mes', periodo.endDate),
+      // Lista de taxas de cancelamento do mês (pendentes + pagas)
+      supabase.from('taxas_cancelamento')
+        .select('*, cliente:clientes(nome)')
+        .eq('empresa_id', empId)
+        .neq('status', 'cancelada')
+        .gte('created_at', ini).lte('created_at', fim)
+        .order('status').order('created_at'),
+      // Taxas pagas no mês (para somar ao bruto)
+      supabase.from('taxas_cancelamento').select('valor')
+        .eq('empresa_id', empId).eq('status', 'pago')
+        .gte('paga_em', ini).lte('paga_em', fim),
+      // Taxas pagas no mês anterior (para somar ao bruto do mês anterior)
+      supabase.from('taxas_cancelamento').select('valor')
+        .eq('empresa_id', empId).eq('status', 'pago')
+        .gte('paga_em', iniA).lte('paga_em', fimA),
+      // Lista de taxas de reserva do mês (pendentes + pagas + retidas)
+      supabase.from('taxas_reserva')
+        .select('*, cliente:clientes(nome)')
+        .eq('empresa_id', empId)
+        .gte('created_at', ini).lte('created_at', fim)
+        .order('status').order('created_at'),
+      // Taxas de reserva pagas no mês (para somar ao bruto, inclui as posteriormente retidas)
+      supabase.from('taxas_reserva').select('valor')
+        .eq('empresa_id', empId).not('paga_em', 'is', null)
+        .gte('paga_em', ini).lte('paga_em', fim),
+      // Taxas de reserva pagas no mês anterior (para somar ao bruto do mês anterior)
+      supabase.from('taxas_reserva').select('valor')
+        .eq('empresa_id', empId).not('paga_em', 'is', null)
+        .gte('paga_em', iniA).lte('paga_em', fimA),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
@@ -550,11 +588,18 @@ export default function FinanceiroPage() {
 
     type ValRow = { valor: number };
     type VendaRow = { valor_final: number };
+    type TaxaRow = { valor: number };
     const brutoServicos   = ((agsMes.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0);
     const brutoVendas     = ((vendasMes.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
-    const receitaVal      = brutoServicos + brutoVendas;
+    const brutoTaxasCanc  = ((taxasPagasMes.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
+    const brutoTaxasCancAnt = ((taxasPagasAnt.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
+    const brutoReserva    = ((reservaPagasMes.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
+    const brutoReservaAnt = ((reservaPagasAnt.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
+    const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc + brutoReserva;
     const receitaAntVal   = ((agsAnt.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0)
-                          + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
+                          + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0)
+                          + brutoTaxasCancAnt
+                          + brutoReservaAnt;
     const comissoesVal    = calcCom((agsMes.data ?? []) as AgRow[]);
     const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
     const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
@@ -584,6 +629,10 @@ export default function FinanceiroPage() {
     setComissoes(kpisMes.comissoes);   setComissoesAnt(kpisAnt.comissoes);
     setGastos(kpisMes.gastos);         setGastosAnt(kpisAnt.gastos);
     setTaxasCartao(kpisMes.taxasCartao);
+    setTaxasCancelamento((taxasLista.data ?? []) as TaxaCancelamento[]);
+    setTaxasCancelamentoPagas(brutoTaxasCanc);
+    setTaxasReserva((reservaLista.data ?? []) as TaxaReserva[]);
+    setTaxasReservaPagas(brutoReserva);
 
     // Top serviços
     type TopServicoRow = { servico_id: string | null; valor: number; servico: { nome: string } | null };
@@ -695,6 +744,22 @@ export default function FinanceiroPage() {
     recarregar();
   }
 
+  async function marcarTaxaPaga(taxa: TaxaCancelamento) {
+    const { error } = await supabase.from('taxas_cancelamento')
+      .update({ status: 'pago', paga_em: new Date().toISOString() })
+      .eq('id', taxa.id);
+    if (error) { alert(`Erro ao marcar taxa como paga: ${error.message}`); return; }
+    if (empresaId) await carregar(empresaId, mesRef);
+  }
+
+  async function marcarReservaPaga(taxa: TaxaReserva) {
+    const { error } = await supabase.from('taxas_reserva')
+      .update({ status: 'pago', paga_em: new Date().toISOString() })
+      .eq('id', taxa.id);
+    if (error) { alert(`Erro ao marcar taxa de reserva como paga: ${error.message}`); return; }
+    if (empresaId) await carregar(empresaId, mesRef);
+  }
+
   const liquidoAposTaxas = receita - taxasCartao;
   const lucro            = liquidoAposTaxas - comissoes - gastos;
   const dReceita         = delta(receita,   receitaAnt);
@@ -782,6 +847,12 @@ export default function FinanceiroPage() {
               { label: 'Comissões',           value: comissoes, d: dComissoes, cor: 'text-amber',                                    invertDelta: true  },
               { label: 'Gastos Operacionais', value: gastos,    d: dGastos,   cor: 'text-rose',                                     invertDelta: true  },
               { label: 'Lucro Real',          value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        invertDelta: false },
+              ...(taxasCancelamentoPagas > 0
+                ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
+                : []),
+              ...(taxasReservaPagas > 0
+                ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
+                : []),
             ].map(({ label, value, d, cor, invertDelta }) => (
               <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
                 <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-2">{label}</p>
@@ -1037,6 +1108,94 @@ export default function FinanceiroPage() {
             ))
           )}
         </div>
+
+        {/* Taxas de cancelamento */}
+        {taxasCancelamento.length > 0 && (
+          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <p className="font-serif text-lg text-text">Taxas de Cancelamento</p>
+              <span className="text-xs text-text-4">{taxasCancelamento.length} lançamento(s)</span>
+            </div>
+            {taxasCancelamento.map((t, i) => (
+              <div key={t.id}
+                className={`flex items-center gap-2 px-4 py-3 ${i < taxasCancelamento.length - 1 ? 'border-b border-border' : ''}`}>
+                <div
+                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                  onClick={() => t.status === 'pendente' && marcarTaxaPaga(t)}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
+                    {t.status === 'pago'
+                      ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
+                      : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-text truncate">{t.cliente?.nome ?? 'Cliente'}</p>
+                    <p className="text-[10px] text-text-4 mt-0.5">
+                      {t.status === 'pago'
+                        ? `Pago ${t.paga_em ? format(new Date(t.paga_em), 'dd/MM') : ''}`
+                        : `Gerada ${format(new Date(t.created_at), 'dd/MM')}`
+                      }
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-red">{fmtBRL(t.valor)}</p>
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                      t.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
+                    }`}>
+                      {t.status === 'pago' ? 'Paga' : 'Pendente'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Taxas de reserva */}
+        {taxasReserva.length > 0 && (
+          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <p className="font-serif text-lg text-text">Taxas de Reserva</p>
+              <span className="text-xs text-text-4">{taxasReserva.length} lançamento(s)</span>
+            </div>
+            {taxasReserva.map((t, i) => (
+              <div key={t.id}
+                className={`flex items-center gap-2 px-4 py-3 ${i < taxasReserva.length - 1 ? 'border-b border-border' : ''}`}>
+                <div
+                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                  onClick={() => t.status === 'pendente' && marcarReservaPaga(t)}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    t.status === 'pago' ? 'bg-green-soft' : t.status === 'retida' ? 'bg-border' : 'bg-amber-soft'
+                  }`}>
+                    {t.status === 'pago'
+                      ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
+                      : t.status === 'retida'
+                        ? <Ban size={14} strokeWidth={2} className="text-text-3"/>
+                        : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-text truncate">{t.cliente?.nome ?? 'Cliente'}</p>
+                    <p className="text-[10px] text-text-4 mt-0.5">
+                      {t.status === 'pago' || t.status === 'retida'
+                        ? `Pago ${t.paga_em ? format(new Date(t.paga_em), 'dd/MM') : ''}`
+                        : `Gerada ${format(new Date(t.created_at), 'dd/MM')}`
+                      }
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-red">{fmtBRL(t.valor)}</p>
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                      t.status === 'pago' ? 'bg-green-soft text-green' : t.status === 'retida' ? 'bg-border text-text-3' : 'bg-amber-soft text-amber'
+                    }`}>
+                      {t.status === 'pago' ? 'Paga' : t.status === 'retida' ? 'Retida' : 'Pendente'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       )}
 

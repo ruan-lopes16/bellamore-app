@@ -212,6 +212,12 @@ function NovoAgModal({
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
   const [sucesso,   setSucesso]   = useState<{ clienteNome: string; profNome: string; servicosNomes: string[]; inicio: Date; fim: Date } | null>(null);
+  const [avisoTaxaReserva, setAvisoTaxaReserva] = useState('');
+
+  // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço)
+  const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
+  const [taxaReserva,        setTaxaReserva]        = useState('0');
+  const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
 
   // Pacote do cliente a consumir neste agendamento (opcional)
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
@@ -268,6 +274,22 @@ function NovoAgModal({
     });
   }, [empresaId]);
 
+  // Configuração de taxa de reserva da empresa
+  useEffect(() => {
+    supabase.from('empresas')
+      .select('taxa_reserva_ativa, taxa_reserva_modo, taxa_reserva_valor')
+      .eq('id', empresaId).single()
+      .then(({ data }: { data: any }) => {
+        if (data) {
+          setTaxaReservaCfg({
+            ativa: data.taxa_reserva_ativa,
+            modo: data.taxa_reserva_modo as 'percentual' | 'fixo',
+            valor: Number(data.taxa_reserva_valor),
+          });
+        }
+      });
+  }, [empresaId]);
+
   // Pacotes ativos do cliente selecionado (para vincular ao agendamento)
   useEffect(() => {
     if (!clienteId) { setPacotesCliente([]); return; }
@@ -299,6 +321,12 @@ function NovoAgModal({
         ? { ...l, servico_id: id, duracao: s?.duracao_minutos ?? 60, valor: s?.preco ?? 0 }
         : l
     ));
+    if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
+      const sugerido = taxaReservaCfg.modo === 'fixo'
+        ? taxaReservaCfg.valor
+        : Math.round((s.preco * taxaReservaCfg.valor / 100) * 100) / 100;
+      setTaxaReserva(String(sugerido).replace('.', ','));
+    }
   }
 
   /** Preenche as linhas de serviço com os serviços inclusos num pacote (sem duplicar já adicionados) */
@@ -418,6 +446,21 @@ function NovoAgModal({
       }).select().single();
       if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
       agId = ag.id;
+
+      const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+      if (taxaReservaValorNum > 0) {
+        const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
+          empresa_id: empresaId,
+          agendamento_id: agId,
+          cliente_id: clienteId,
+          valor: taxaReservaValorNum,
+          status: 'pendente',
+        });
+        if (erroReserva) {
+          console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
+          setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
+        }
+      }
     }
 
     await supabase.from('agendamento_servicos').insert(
@@ -441,7 +484,7 @@ function NovoAgModal({
 
   useEffect(() => {
     if (!sucesso) return;
-    const t = setTimeout(onSalvo, 1300);
+    const t = setTimeout(onSalvo, avisoTaxaReserva ? 2600 : 1300);
     return () => clearTimeout(t);
   }, [sucesso]);
 
@@ -510,6 +553,9 @@ function NovoAgModal({
           <p className="text-xs text-text-4">
             {format(sucesso.inicio, 'HH:mm')}–{format(sucesso.fim, 'HH:mm')}
           </p>
+          {avisoTaxaReserva && (
+            <p className="text-xs text-amber mt-1">{avisoTaxaReserva}</p>
+          )}
         </div>
       </div>
     );
@@ -742,6 +788,21 @@ function NovoAgModal({
               return <p className="text-xs text-text-3 mt-1">Término previsto: {format(fim, 'HH:mm')}</p>;
             })()}
           </div>
+
+          {taxaReservaCfg.ativa && !agEditar && (
+            <div>
+              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Taxa de reserva</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <input
+                  value={taxaReserva}
+                  onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
+                  inputMode="decimal" placeholder="0,00"
+                  className={`${inputClass} pl-9`}
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Observação <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
