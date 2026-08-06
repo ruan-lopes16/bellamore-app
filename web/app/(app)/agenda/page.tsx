@@ -212,6 +212,7 @@ function NovoAgModal({
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
   const [sucesso,   setSucesso]   = useState<{ clienteNome: string; profNome: string; servicosNomes: string[]; inicio: Date; fim: Date } | null>(null);
+  const [avisoTaxaReserva, setAvisoTaxaReserva] = useState('');
 
   // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço)
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
@@ -448,13 +449,17 @@ function NovoAgModal({
 
       const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
       if (taxaReservaValorNum > 0) {
-        await supabase.from('taxas_reserva').insert({
+        const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
           empresa_id: empresaId,
           agendamento_id: agId,
           cliente_id: clienteId,
           valor: taxaReservaValorNum,
           status: 'pendente',
         });
+        if (erroReserva) {
+          console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
+          setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
+        }
       }
     }
 
@@ -479,7 +484,7 @@ function NovoAgModal({
 
   useEffect(() => {
     if (!sucesso) return;
-    const t = setTimeout(onSalvo, 1300);
+    const t = setTimeout(onSalvo, avisoTaxaReserva ? 2600 : 1300);
     return () => clearTimeout(t);
   }, [sucesso]);
 
@@ -548,6 +553,9 @@ function NovoAgModal({
           <p className="text-xs text-text-4">
             {format(sucesso.inicio, 'HH:mm')}–{format(sucesso.fim, 'HH:mm')}
           </p>
+          {avisoTaxaReserva && (
+            <p className="text-xs text-amber mt-1">{avisoTaxaReserva}</p>
+          )}
         </div>
       </div>
     );
@@ -781,7 +789,7 @@ function NovoAgModal({
             })()}
           </div>
 
-          {taxaReservaCfg.ativa && (
+          {taxaReservaCfg.ativa && !agEditar && (
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Taxa de reserva</label>
               <div className="relative">

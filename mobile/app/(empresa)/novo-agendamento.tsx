@@ -137,6 +137,7 @@ export default function NovoAgendamento() {
   const [obs, setObs]           = useState('');
   const [salvando, setSalvando] = useState(false);
   const [sucesso, setSucesso] = useState<{ clienteNome: string; servicoNome: string; profNome: string; inicio: Date; fim: Date } | null>(null);
+  const [avisoTaxaReserva, setAvisoTaxaReserva] = useState('');
 
   // Pacote do cliente (vincular sessão existente) ou vender um pacote novo agora
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
@@ -360,13 +361,17 @@ export default function NovoAgendamento() {
 
     const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
     if (taxaReservaValorNum > 0 && novoAg) {
-      await supabase.from('taxas_reserva').insert({
+      const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
         empresa_id:     empresaAtiva.id,
         agendamento_id: novoAg.id,
         cliente_id:     clienteSelecionado!.id,
         valor:          taxaReservaValorNum,
         status:         'pendente',
       });
+      if (erroReserva) {
+        console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
+        setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
+      }
     }
 
     setSucesso({
@@ -379,7 +384,7 @@ export default function NovoAgendamento() {
 
   useEffect(() => {
     if (!sucesso) return;
-    const t = setTimeout(() => router.back(), 1500);
+    const t = setTimeout(() => router.back(), avisoTaxaReserva ? 2800 : 1500);
     return () => clearTimeout(t);
   }, [sucesso]);
 
@@ -403,6 +408,11 @@ export default function NovoAgendamento() {
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, textAlign: 'center', marginTop: 2 }}>
             {format(sucesso.inicio, 'HH:mm')}–{format(sucesso.fim, 'HH:mm')}
           </Text>
+          {!!avisoTaxaReserva && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: '#B45309', textAlign: 'center', marginTop: 8 }}>
+              {avisoTaxaReserva}
+            </Text>
+          )}
         </MotiView>
       </View>
     );

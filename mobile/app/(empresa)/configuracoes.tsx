@@ -114,7 +114,7 @@ function Campo({
 
 export default function Configuracoes() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, user, signOut, roleAtivo, isOwner: souOwner } = useAuthStore();
+  const { empresaAtiva, user, signOut, roleAtivo, isOwner: souOwner, selecionarEmpresa } = useAuthStore();
   const qc = useQueryClient();
   const podeEditarTaxa = souOwner || roleAtivo === 'gestor';
 
@@ -224,6 +224,18 @@ export default function Configuracoes() {
     // Invalida cache para refletir mudanças
     qc.invalidateQueries({ queryKey: ['empresa'] });
     qc.invalidateQueries({ queryKey: ['user'] });
+
+    // Re-busca a empresa atualizada e atualiza o Zustand authStore — a tela de
+    // Novo agendamento lê `empresaAtiva` do authStore (não do React Query),
+    // então sem isso a taxa de reserva/cancelamento só apareceria após reabrir o app.
+    const { data: empresaAtualizada } = await supabase
+      .from('empresas')
+      .select('*')
+      .eq('id', empresaAtiva.id)
+      .single();
+    if (empresaAtualizada) {
+      selecionarEmpresa(empresaAtualizada, roleAtivo ?? 'gestor', souOwner);
+    }
 
     Alert.alert('Salvo!', 'Configurações atualizadas com sucesso.');
     setNovaSenha('');
