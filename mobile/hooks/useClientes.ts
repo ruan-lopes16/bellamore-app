@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { subDays, startOfDay } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import type { User, AnamneseFicha, Agendamento, TaxaCancelamento } from '@/types';
+import type { User, AnamneseFicha, Agendamento, TaxaCancelamento, TaxaReserva } from '@/types';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -26,6 +26,7 @@ export interface ClienteDetalhe extends ClienteResumo {
     profissional: { nome: string };
   })[];
   taxasCancelamento?: TaxaCancelamento[];
+  taxasReserva?: TaxaReserva[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -209,7 +210,7 @@ export function useClienteDetalhe(clienteId: string) {
     enabled: !!empresaId && !!clienteId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const [userRes, agRes, anamneseRes, taxasRes] = await Promise.all([
+      const [userRes, agRes, anamneseRes, taxasRes, reservaRes] = await Promise.all([
         supabase.from('users').select('*').eq('id', clienteId).single(),
         supabase
           .from('agendamentos')
@@ -232,6 +233,13 @@ export function useClienteDetalhe(clienteId: string) {
           .eq('cliente_id', clienteId)
           .neq('status', 'cancelada')
           .order('created_at', { ascending: false }),
+        supabase
+          .from('taxas_reserva')
+          .select('*')
+          .eq('empresa_id', empresaId!)
+          .eq('cliente_id', clienteId)
+          .neq('status', 'retida')
+          .order('created_at', { ascending: false }),
       ]);
 
       const user = userRes.data;
@@ -251,6 +259,7 @@ export function useClienteDetalhe(clienteId: string) {
         historico: agendamentos,
         anamnese,
         taxasCancelamento: (taxasRes.data ?? []) as TaxaCancelamento[],
+        taxasReserva: (reservaRes.data ?? []) as TaxaReserva[],
       } as ClienteDetalhe;
     },
   });
