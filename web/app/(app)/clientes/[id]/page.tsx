@@ -82,6 +82,14 @@ type HistVenda = {
   venda_itens: { quantidade: number; preco_unitario: number; produto: { nome: string } | null }[];
 };
 
+/** Serviço extra lançado direto na comanda (sem agendamento prévio) — ex: cliente sem hora marcada */
+type HistComandaServico = {
+  id: string; descricao: string; valor_unit: number; quantidade: number; created_at: string;
+  servico: { nome: string } | null;
+  profissional: { nome: string } | null;
+  comanda: { fechada_at: string | null } | null;
+};
+
 type ServicoOpt = { id: string; nome: string; preco: number; duracao_minutos: number };
 
 // ── Modal: novo agendamento com cliente pré-selecionado ───────
@@ -338,7 +346,7 @@ export default function ClientePerfilPage() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: clienteData }, agsStats, { data: { user } }] = await Promise.all([
+      const [{ data: clienteData }, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
         buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null }>((from, to) =>
           supabase.from('agendamentos')
@@ -348,13 +356,29 @@ export default function ClientePerfilPage() {
             .order('data_hora_inicio', { ascending: false })
             .range(from, to)
         ),
+        // Serviços lançados direto na comanda (sem agendamento prévio) também contam como visita
+        buscarTodasPaginas<{ valor_unit: number; quantidade: number; created_at: string; servico: { nome: string } | null; comanda: { fechada_at: string | null } | null }>((from, to) =>
+          supabase.from('comanda_itens')
+            .select('valor_unit, quantidade, created_at, servico:servicos(nome), comanda:comandas!inner(fechada_at)')
+            .eq('tipo', 'servico')
+            .eq('comanda.clientes_id', id)
+            .order('created_at', { ascending: false })
+            .range(from, to) as unknown as PromiseLike<{ data: any[] | null; error: unknown }>
+        ),
         supabase.auth.getUser(),
       ]);
 
       setCliente(clienteData as Cliente);
       setLoading(false);
 
-      const rows = agsStats;
+      const rows = [
+        ...agsStats,
+        ...comSvcsStats.map(cs => ({
+          valor: cs.valor_unit * cs.quantidade,
+          data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
+          servico: cs.servico,
+        })),
+      ].sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
       const totalVisitas = rows.length;
       const totalGasto = rows.reduce((s, a) => s + Number(a.valor ?? 0), 0);
       const ultimaVisita = rows[0]?.data_hora_inicio ?? null;
@@ -403,7 +427,7 @@ export default function ClientePerfilPage() {
   async function carregarHistorico() {
     if (histCarregado) return;
     setLoadingHist(true);
-    const [ags, vds, txs, trs] = await Promise.all([
+    const [ags, vds, txs, trs, comSvcs] = await Promise.all([
       buscarTodasPaginas<HistAg>((from, to) =>
         supabase
           .from('agendamentos')
@@ -440,8 +464,34 @@ export default function ClientePerfilPage() {
           .order('created_at', { ascending: false })
           .range(from, to) as unknown as PromiseLike<{ data: TaxaReserva[] | null; error: unknown }>
       ),
+      // Serviços lançados direto na comanda (sem agendamento prévio, ex: cliente sem hora marcada)
+      buscarTodasPaginas<HistComandaServico>((from, to) =>
+        supabase
+          .from('comanda_itens')
+          .select(`id, descricao, valor_unit, quantidade, created_at,
+            servico:servicos(nome),
+            profissional:users(nome),
+            comanda:comandas!inner(fechada_at)`)
+          .eq('tipo', 'servico')
+          .eq('comanda.clientes_id', id)
+          .order('created_at', { ascending: false })
+          .range(from, to) as unknown as PromiseLike<{ data: HistComandaServico[] | null; error: unknown }>
+      ),
     ]);
-    setHistorico(ags);
+
+    const extras: HistAg[] = comSvcs.map(cs => ({
+      id: cs.id,
+      data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
+      data_hora_fim: cs.comanda?.fechada_at ?? cs.created_at,
+      status: 'concluido',
+      valor: cs.valor_unit * cs.quantidade,
+      servico: cs.servico ?? { nome: cs.descricao },
+      profissional: cs.profissional,
+    }));
+    const historicoCompleto = [...ags, ...extras]
+      .sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
+
+    setHistorico(historicoCompleto);
     setVendas(vds);
     setTaxas(txs);
     setTaxasReserva(trs);

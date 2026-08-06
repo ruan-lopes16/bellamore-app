@@ -195,7 +195,7 @@ html, body {
 
 /* ── Utilitários de press / toque ──────────────────────────── */
 .press { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-.press:active { transform: scale(0.97); transition: transform 140ms cubic-bezier(.2,.8,.3,1); }
+.press:active { transform: scale(0.98); transition: transform 140ms cubic-bezier(.2,.8,.3,1); }
 
 /* Comanda usa painéis com scroll próprio; no mobile, respeita a bottom nav. */
 .bm-comanda-shell {
