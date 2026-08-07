@@ -44,10 +44,11 @@ export default function LoginPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-bg gap-4">
-        <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center"
-          style={{ boxShadow: '0 4px 20px rgba(44,23,80,0.25)' }}>
-          <span className="text-white text-xl font-bold font-serif">✦</span>
-        </div>
+        <img
+          src="/icon.png" alt="Bellamore" width={80} height={80}
+          className="w-20 h-20"
+          style={{ boxShadow: '0 4px 20px rgba(44,23,80,0.25)' }}
+        />
         <p className="text-sm text-text-3 font-medium">Entrando...</p>
       </div>
     );
@@ -58,9 +59,11 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
 
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary mb-4">
-            <span className="text-white text-xl font-bold font-serif">✦</span>
-          </div>
+          <img
+            src="/icon.png" alt="Bellamore" width={80} height={80}
+            className="w-20 h-20 mx-auto mb-4"
+            style={{ boxShadow: '0 4px 20px rgba(44,23,80,0.25)' }}
+          />
           <h1 className="font-serif text-3xl text-text leading-tight">Bem-vindo de volta</h1>
           <p className="text-text-3 text-sm mt-1">Acesse sua conta para continuar</p>
         </div>
