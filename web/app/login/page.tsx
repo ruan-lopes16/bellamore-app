@@ -47,7 +47,7 @@ export default function LoginPage() {
         <img
           src="/icon.png" alt="Bellamore" width={80} height={80}
           className="w-20 h-20"
-          style={{ boxShadow: '0 4px 20px rgba(44,23,80,0.25)' }}
+          style={{ filter: 'drop-shadow(0 4px 16px rgba(44,23,80,0.3))' }}
         />
         <p className="text-sm text-text-3 font-medium">Entrando...</p>
       </div>
@@ -62,7 +62,7 @@ export default function LoginPage() {
           <img
             src="/icon.png" alt="Bellamore" width={80} height={80}
             className="w-20 h-20 mx-auto mb-4"
-            style={{ boxShadow: '0 4px 20px rgba(44,23,80,0.25)' }}
+            style={{ filter: 'drop-shadow(0 4px 16px rgba(44,23,80,0.3))' }}
           />
           <h1 className="font-serif text-3xl text-text leading-tight">Bem-vindo de volta</h1>
           <p className="text-text-3 text-sm mt-1">Acesse sua conta para continuar</p>
