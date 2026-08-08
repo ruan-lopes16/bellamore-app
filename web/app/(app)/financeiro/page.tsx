@@ -64,12 +64,12 @@ const supabase = createClient();
 type Despesa = {
   id: string; descricao: string; categoria?: string;
   valor: number; recorrente: boolean; periodicidade?: string;
-  data_vencimento?: string; data_pagamento?: string;
+  data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
   status: 'pendente' | 'pago';
 };
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
 type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentual: number };
-type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string };
+type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string };
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -115,6 +115,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   const [recorrente,    setRecorrente]    = useState(false);
   const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>('mensal');
   const [vencimento,    setVencimento]    = useState('');
+  const [recorrenciaAte, setRecorrenciaAte] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
 
@@ -132,6 +133,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimento || null,
+      recorrencia_ate: recorrente ? (recorrenciaAte || null) : null,
       status:          'pendente',
     });
     setSalvando(false);
@@ -202,6 +204,11 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
                         : 'bg-bg border-border text-text-3'
                     }`}>{p.label}</button>
                 ))}
+                <div className="w-full mt-1">
+                  <label className={labelClass}>Repetir até (opcional)</label>
+                  <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
+                    type="date" className={inputClass}/>
+                </div>
               </div>
             )}
           </div>
@@ -294,6 +301,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
     (despesa.periodicidade ?? 'mensal') as 'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'
   );
   const [vencimento,    setVencimento]    = useState(despesa.data_vencimento ?? '');
+  const [recorrenciaAte, setRecorrenciaAte] = useState(despesa.recorrencia_ate ?? '');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -312,6 +320,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimento || null,
+      recorrencia_ate: recorrente ? (recorrenciaAte || null) : null,
     }).eq('id', despesa.id);
     setSalvando(false);
     if (error) { setErro(error.message); return; }
@@ -388,6 +397,11 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
                         : 'bg-bg border-border text-text-3'
                     }`}>{p.label}</button>
                 ))}
+                <div className="w-full mt-1">
+                  <label className={labelClass}>Repetir até (opcional)</label>
+                  <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
+                    type="date" className={inputClass}/>
+                </div>
               </div>
             )}
           </div>
