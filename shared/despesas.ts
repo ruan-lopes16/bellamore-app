@@ -78,3 +78,32 @@ export function recorrenciaAindaAtiva(
   if (!recorrenciaAte) return true;
   return recorrenciaAte >= periodoInicioIso;
 }
+
+/**
+ * Dias entre hoje e o vencimento (YYYY-MM-DD). Negativo quando ja atrasada.
+ */
+export function diasParaVencimento(
+  dataVencimento: string,
+  hojeIso: string,
+): number {
+  const venc = new Date(dataVencimento + 'T00:00:00');
+  const hoje = new Date(hojeIso + 'T00:00:00');
+  return Math.round((venc.getTime() - hoje.getTime()) / 86_400_000);
+}
+
+/**
+ * Fracao (0 a 1) do caminho percorrido entre a criacao e o vencimento de uma
+ * despesa. Usada para preencher a barra de progresso na listagem.
+ */
+export function progressoVencimento(
+  criadaEmIso: string,
+  dataVencimento: string,
+  hojeIso: string,
+): number {
+  const inicio = new Date(criadaEmIso.slice(0, 10) + 'T00:00:00').getTime();
+  const fim    = new Date(dataVencimento + 'T00:00:00').getTime();
+  const hoje   = new Date(hojeIso + 'T00:00:00').getTime();
+  if (fim <= inicio) return 1;
+  const fracao = (hoje - inicio) / (fim - inicio);
+  return Math.min(1, Math.max(0, fracao));
+}
