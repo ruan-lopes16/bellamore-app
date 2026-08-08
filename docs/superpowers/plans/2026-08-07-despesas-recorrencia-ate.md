@@ -1,10 +1,10 @@
-# Despesas recorrentes: data de término opcional — Implementation Plan
+# Despesas recorrentes: data de término opcional + progresso de vencimento — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let despesas recorrentes have an optional end date; the web auto-launch flow stops suggesting a recurrence once its end date is in the past, and both web and mobile can set/edit that date.
+**Goal:** Two related, independent additions to despesas in Financeiro: (1) despesas recorrentes gain an optional end date, after which the web auto-launch flow stops suggesting that recurrence; (2) any pending despesa with a due date shows how many days remain (or how overdue it is) plus a thin progress bar, with a pending-total summary above the list. Both ship on web and mobile.
 
-**Architecture:** One new nullable `date` column (`recorrencia_ate`) on `despesas`. A pure, unit-tested helper (`recorrenciaAindaAtiva`) in `shared/despesas.ts` decides whether a recurring template is still active for a given month, used by the web auto-launch loop. UI changes are a single new optional date field, added to the existing "Despesa recorrente" section of four forms (web Nova/Editar, mobile Nova/Editar), following the exact style already used for `data_vencimento` in each file.
+**Architecture:** One new nullable `date` column (`recorrencia_ate`) on `despesas` — no other schema change; the progress feature reuses the existing `created_at`/`data_vencimento` columns. Four pure, unit-tested helpers in `shared/despesas.ts`: `recorrenciaAindaAtiva` (used by the web auto-launch loop), and `diasParaVencimento`/`progressoVencimento` (used by both apps' despesa list rendering). UI changes are additive only — new fields/text/bars alongside existing markup, nothing removed or restructured — added to the existing "Despesa recorrente" section of four forms (web Nova/Editar, mobile Nova/Editar) and the existing despesa list row/header in both apps, following the exact style already used for `data_vencimento` in each file.
 
 **Tech Stack:** Next.js 15 App Router + Supabase (Postgres/RLS) for web; Expo/React Native + `@tanstack/react-query` for mobile; Vitest for unit tests and migration static-content tests.
 
@@ -926,7 +926,614 @@ git commit -m "feat: adiciona campo repetir ate na edicao de despesa (mobile)"
 
 ---
 
-### Task 8: Full verification pass
+### Task 8: Shared helpers `diasParaVencimento` + `progressoVencimento`
+
+**Files:**
+- Modify: `shared/despesas.ts`
+- Modify: `web/tests/unit/despesas.test.ts`
+
+**Interfaces:**
+- Consumes: nothing new (pure functions).
+- Produces: `diasParaVencimento(dataVencimento: string, hojeIso: string): number` and `progressoVencimento(criadaEmIso: string, dataVencimento: string, hojeIso: string): number` — consumed by Task 9 (web) and Task 10 (mobile).
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to the import at the top of `web/tests/unit/despesas.test.ts` (extends the import already updated in Task 2):
+
+```ts
+import {
+  buildDespesaPagamentoUpdate,
+  diasParaVencimento,
+  formatValorMonetarioInput,
+  parseValorMonetario,
+  progressoVencimento,
+  recorrenciaAindaAtiva,
+} from '@shared/despesas';
+```
+
+Add inside the existing `describe('despesas helpers', ...)` block:
+
+```ts
+  it('calcula dias restantes ate o vencimento (negativo quando atrasada)', () => {
+    expect(diasParaVencimento('2026-08-15', '2026-08-07')).toBe(8);
+    expect(diasParaVencimento('2026-08-07', '2026-08-07')).toBe(0);
+    expect(diasParaVencimento('2026-08-01', '2026-08-07')).toBe(-6);
+  });
+
+  it('calcula o progresso entre a criacao e o vencimento, limitado entre 0 e 1', () => {
+    expect(progressoVencimento('2026-08-01T10:00:00.000Z', '2026-08-11', '2026-08-06')).toBe(0.5);
+    expect(progressoVencimento('2026-08-01T10:00:00.000Z', '2026-08-11', '2026-07-30')).toBe(0);
+    expect(progressoVencimento('2026-08-01T10:00:00.000Z', '2026-08-11', '2026-08-20')).toBe(1);
+  });
+
+  it('nao divide por zero quando o vencimento e anterior ou igual a criacao', () => {
+    expect(progressoVencimento('2026-08-05T00:00:00.000Z', '2026-08-05', '2026-08-05')).toBe(1);
+    expect(progressoVencimento('2026-08-05T00:00:00.000Z', '2026-08-01', '2026-08-05')).toBe(1);
+  });
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run (from `web/`): `npm run test -- despesas`
+Expected: FAIL — `diasParaVencimento`/`progressoVencimento` don't exist in `shared/despesas.ts` yet.
+
+- [ ] **Step 3: Implement the helpers**
+
+Add to `shared/despesas.ts`, after `recorrenciaAindaAtiva`:
+
+```ts
+/**
+ * Dias entre hoje e o vencimento (YYYY-MM-DD). Negativo quando ja atrasada.
+ */
+export function diasParaVencimento(
+  dataVencimento: string,
+  hojeIso: string,
+): number {
+  const venc = new Date(dataVencimento + 'T00:00:00');
+  const hoje = new Date(hojeIso + 'T00:00:00');
+  return Math.round((venc.getTime() - hoje.getTime()) / 86_400_000);
+}
+
+/**
+ * Fracao (0 a 1) do caminho percorrido entre a criacao e o vencimento de uma
+ * despesa. Usada para preencher a barra de progresso na listagem.
+ */
+export function progressoVencimento(
+  criadaEmIso: string,
+  dataVencimento: string,
+  hojeIso: string,
+): number {
+  const inicio = new Date(criadaEmIso.slice(0, 10) + 'T00:00:00').getTime();
+  const fim    = new Date(dataVencimento + 'T00:00:00').getTime();
+  const hoje   = new Date(hojeIso + 'T00:00:00').getTime();
+  if (fim <= inicio) return 1;
+  const fracao = (hoje - inicio) / (fim - inicio);
+  return Math.min(1, Math.max(0, fracao));
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run (from `web/`): `npm run test -- despesas`
+Expected: PASS (all tests in `despesas.test.ts`, including the 3 new ones from this task and the 3 from Task 2).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add shared/despesas.ts web/tests/unit/despesas.test.ts
+git commit -m "feat: adiciona calculo de dias e progresso ate o vencimento"
+```
+
+---
+
+### Task 9: Web UI — resumo e barra de progresso na listagem de despesas
+
+**Files:**
+- Modify: `web/app/(app)/financeiro/page.tsx`
+
+**Interfaces:**
+- Consumes: `diasParaVencimento`, `progressoVencimento` from `@shared/despesas` (Task 8).
+- Produces: visual only — no new exports, no new consumers.
+
+- [ ] **Step 1: Import the new helpers**
+
+Current (this line was set by Task 5, Step 1):
+```tsx
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, recorrenciaAindaAtiva } from '@shared/despesas';
+```
+
+New:
+```tsx
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, recorrenciaAindaAtiva, diasParaVencimento, progressoVencimento } from '@shared/despesas';
+```
+
+- [ ] **Step 2: Add `created_at` to the local `Despesa` type**
+
+Current (this block was set by Task 4, Step 1):
+```tsx
+type Despesa = {
+  id: string; descricao: string; categoria?: string;
+  valor: number; recorrente: boolean; periodicidade?: string;
+  data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
+  status: 'pendente' | 'pago';
+};
+```
+
+New:
+```tsx
+type Despesa = {
+  id: string; descricao: string; categoria?: string;
+  valor: number; recorrente: boolean; periodicidade?: string;
+  data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
+  created_at?: string;
+  status: 'pendente' | 'pago';
+};
+```
+
+- [ ] **Step 3: Compute the pending summary**
+
+Current (lines 763-767):
+```tsx
+  const liquidoAposTaxas = receita - taxasCartao;
+  const lucro            = liquidoAposTaxas - comissoes - gastos;
+  const dReceita         = delta(receita,   receitaAnt);
+  const dComissoes       = delta(comissoes, comissoesAnt);
+  const dGastos          = delta(gastos,    gastosAnt);
+```
+
+New (append after):
+```tsx
+  const liquidoAposTaxas = receita - taxasCartao;
+  const lucro            = liquidoAposTaxas - comissoes - gastos;
+  const dReceita         = delta(receita,   receitaAnt);
+  const dComissoes       = delta(comissoes, comissoesAnt);
+  const dGastos          = delta(gastos,    gastosAnt);
+  const hojeIso           = format(new Date(), 'yyyy-MM-dd');
+  const despesasPendentes = despesas.filter(d => d.status === 'pendente');
+  const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
+```
+
+- [ ] **Step 4: Show the summary in the "Despesas" header**
+
+Current (lines 1029-1032):
+```tsx
+        {/* Despesas */}
+        <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <p className="font-serif text-lg text-text">Despesas</p>
+```
+
+New:
+```tsx
+        {/* Despesas */}
+        <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div>
+              <p className="font-serif text-lg text-text">Despesas</p>
+              {despesasPendentes.length > 0 && (
+                <p className="text-[10px] text-text-4 mt-0.5">
+                  {fmtBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
+```
+
+- [ ] **Step 5: Add the complementary text and progress bar to each pending row**
+
+Current (lines 1070-1108):
+```tsx
+            despesas.map((d, i) => (
+              <div key={d.id}
+                className={`flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
+                <div
+                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                  onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
+                    {d.status === 'pago'
+                      ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
+                      : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                    <p className="text-[10px] text-text-4 mt-0.5">
+                      {d.status === 'pago'
+                        ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
+                        : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
+                      }
+                      {d.recorrente && ' · Recorrente'}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                      d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
+                    }`}>
+                      {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditarDespesa(d)}
+                  title="Editar despesa"
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
+                  <Pencil size={12} strokeWidth={2}/>
+                </button>
+              </div>
+            ))
+```
+
+New:
+```tsx
+            despesas.map((d, i) => {
+              const dias = d.status === 'pendente' && d.data_vencimento
+                ? diasParaVencimento(d.data_vencimento, hojeIso)
+                : null;
+              const progresso = d.status === 'pendente' && d.data_vencimento
+                ? progressoVencimento(d.created_at ?? hojeIso, d.data_vencimento, hojeIso)
+                : null;
+              const labelDias = dias === null ? '' :
+                dias < 0 ? `atrasada há ${Math.abs(dias)} dia${Math.abs(dias) === 1 ? '' : 's'}` :
+                dias === 0 ? 'vence hoje' :
+                `faltam ${dias} dia${dias === 1 ? '' : 's'}`;
+
+              return (
+                <div key={d.id}
+                  className={`relative flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
+                  <div
+                    className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                    onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
+                      {d.status === 'pago'
+                        ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
+                        : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                      <p className="text-[10px] text-text-4 mt-0.5">
+                        {d.status === 'pago'
+                          ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
+                          : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
+                        }
+                        {d.recorrente && ' · Recorrente'}
+                        {labelDias && ` · ${labelDias}`}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                        d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
+                      }`}>
+                        {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setEditarDespesa(d)}
+                    title="Editar despesa"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
+                    <Pencil size={12} strokeWidth={2}/>
+                  </button>
+                  {progresso !== null && (
+                    <div className="absolute left-4 right-4 bottom-0 h-0.5 rounded-full overflow-hidden bg-border">
+                      <div className={`h-full ${dias !== null && dias < 0 ? 'bg-red' : 'bg-amber'}`} style={{ width: `${progresso * 100}%` }}/>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+```
+
+- [ ] **Step 6: Verify types compile**
+
+Run (from `web/`): `npx tsc --noEmit`
+Expected: no errors.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add "web/app/(app)/financeiro/page.tsx"
+git commit -m "feat: mostra resumo e progresso de vencimento nas despesas (web)"
+```
+
+---
+
+### Task 10: Mobile UI — resumo e barra de progresso na listagem de despesas
+
+**Files:**
+- Modify: `mobile/hooks/useFinanceiro.ts` (`DespesaItem.created_at`)
+- Modify: `mobile/app/(empresa)/financeiro.tsx` (import, `DespesaRow`, section header, pending summary)
+
+**Interfaces:**
+- Consumes: `diasParaVencimento`, `progressoVencimento` from `@shared/despesas` (Task 8); `DespesaItem.created_at` (this task, Step 1).
+- Produces: visual only.
+
+- [ ] **Step 1: Add `created_at` to `DespesaItem`**
+
+Current (this block was set by Task 3, Step 3):
+```ts
+export interface DespesaItem {
+  id: string;
+  descricao: string;
+  categoria?: string;
+  valor: number;
+  recorrente: boolean;
+  periodicidade?: string;
+  data_vencimento?: string;
+  recorrencia_ate?: string;
+  data_pagamento?: string;
+  status: 'pendente' | 'pago';
+}
+```
+
+New:
+```ts
+export interface DespesaItem {
+  id: string;
+  descricao: string;
+  categoria?: string;
+  valor: number;
+  recorrente: boolean;
+  periodicidade?: string;
+  data_vencimento?: string;
+  recorrencia_ate?: string;
+  data_pagamento?: string;
+  created_at?: string;
+  status: 'pendente' | 'pago';
+}
+```
+
+- [ ] **Step 2: Import the new helpers in `financeiro.tsx`**
+
+Current (line 39):
+```tsx
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
+```
+
+New:
+```tsx
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento } from '@shared/despesas';
+```
+
+- [ ] **Step 3: Add the complementary text and progress bar to `DespesaRow`**
+
+Current (lines 197-269, full component):
+```tsx
+function DespesaRow({
+  item, isLast, onMarcarPago, onEditar,
+}: {
+  item: DespesaItem;
+  isLast: boolean;
+  onMarcarPago: (item: DespesaItem) => void;
+  onEditar: (item: DespesaItem) => void;
+}) {
+  const pago = item.status === 'pago';
+
+  return (
+    <View style={{
+      paddingVertical: 11, paddingHorizontal: 16,
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
+    }}>
+      <TouchableOpacity
+        activeOpacity={pago ? 1 : 0.7}
+        onPress={() => !pago && onMarcarPago(item)}
+        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+      >
+        <View style={{
+          width: 32, height: 32, borderRadius: 9,
+          backgroundColor: pago ? C.greenSoft : C.amberSoft,
+          alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>
+          {pago
+            ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
+            : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+          }
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
+            {item.descricao}
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
+            {pago
+              ? `Pago ${item.data_pagamento ? format(new Date(item.data_pagamento + 'T12:00:00'), 'dd/MM') : ''}`
+              : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
+            }
+            {item.recorrente ? ' · Recorrente' : ''}
+          </Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+            {formatBRL(item.valor)}
+          </Text>
+          <View style={{
+            marginTop: 3,
+            backgroundColor: pago ? C.greenSoft : C.amberSoft,
+            borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+          }}>
+            <Text style={{
+              fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
+              color: pago ? C.green : C.amber,
+              textTransform: 'uppercase',
+            }}>
+              {pago ? 'Pago' : 'Toque p/ pagar'}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => onEditar(item)}
+        style={{
+          width: 28, height: 28, borderRadius: 8,
+          backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+          alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Pencil size={12} color={C.text3} strokeWidth={2} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+```
+
+New:
+```tsx
+function DespesaRow({
+  item, isLast, onMarcarPago, onEditar,
+}: {
+  item: DespesaItem;
+  isLast: boolean;
+  onMarcarPago: (item: DespesaItem) => void;
+  onEditar: (item: DespesaItem) => void;
+}) {
+  const pago = item.status === 'pago';
+  const hojeIso = format(new Date(), 'yyyy-MM-dd');
+  const dias = !pago && item.data_vencimento
+    ? diasParaVencimento(item.data_vencimento, hojeIso)
+    : null;
+  const progresso = !pago && item.data_vencimento
+    ? progressoVencimento(item.created_at ?? hojeIso, item.data_vencimento, hojeIso)
+    : null;
+  const labelDias = dias === null ? '' :
+    dias < 0 ? `atrasada há ${Math.abs(dias)} dia${Math.abs(dias) === 1 ? '' : 's'}` :
+    dias === 0 ? 'vence hoje' :
+    `faltam ${dias} dia${dias === 1 ? '' : 's'}`;
+
+  return (
+    <View style={{
+      paddingVertical: 11, paddingHorizontal: 16,
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
+      position: 'relative',
+    }}>
+      <TouchableOpacity
+        activeOpacity={pago ? 1 : 0.7}
+        onPress={() => !pago && onMarcarPago(item)}
+        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+      >
+        <View style={{
+          width: 32, height: 32, borderRadius: 9,
+          backgroundColor: pago ? C.greenSoft : C.amberSoft,
+          alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>
+          {pago
+            ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
+            : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+          }
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
+            {item.descricao}
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
+            {pago
+              ? `Pago ${item.data_pagamento ? format(new Date(item.data_pagamento + 'T12:00:00'), 'dd/MM') : ''}`
+              : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
+            }
+            {item.recorrente ? ' · Recorrente' : ''}
+            {labelDias ? ` · ${labelDias}` : ''}
+          </Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+            {formatBRL(item.valor)}
+          </Text>
+          <View style={{
+            marginTop: 3,
+            backgroundColor: pago ? C.greenSoft : C.amberSoft,
+            borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+          }}>
+            <Text style={{
+              fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
+              color: pago ? C.green : C.amber,
+              textTransform: 'uppercase',
+            }}>
+              {pago ? 'Pago' : 'Toque p/ pagar'}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => onEditar(item)}
+        style={{
+          width: 28, height: 28, borderRadius: 8,
+          backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+          alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Pencil size={12} color={C.text3} strokeWidth={2} />
+      </TouchableOpacity>
+      {progresso !== null && (
+        <View style={{
+          position: 'absolute', left: 16, right: 16, bottom: 0,
+          height: 2, borderRadius: 1, backgroundColor: C.border, overflow: 'hidden',
+        }}>
+          <View style={{
+            width: `${progresso * 100}%`, height: '100%',
+            backgroundColor: dias !== null && dias < 0 ? C.red : C.amber,
+          }} />
+        </View>
+      )}
+    </View>
+  );
+}
+```
+
+- [ ] **Step 4: Show the pending summary in the "Despesas" section header**
+
+Current (lines 1255-1258):
+```tsx
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>
+              Despesas
+            </Text>
+```
+
+New:
+```tsx
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <View>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>
+                Despesas
+              </Text>
+              {despesasPendentes.length > 0 && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
+                  {formatBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                </Text>
+              )}
+            </View>
+```
+
+- [ ] **Step 5: Compute the pending summary values**
+
+Current (the destructuring of `useFinanceiro` — search for `const { resumo, metodos, topServicos, despesas` in this file):
+```tsx
+  const { resumo, metodos, topServicos, despesas, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
+```
+
+New (add the two lines right after):
+```tsx
+  const { resumo, metodos, topServicos, despesas, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
+  const despesasPendentes = despesas.filter(d => d.status === 'pendente');
+  const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
+```
+
+- [ ] **Step 6: Verify types compile**
+
+Run (from `mobile/`): `npx tsc --noEmit`
+Expected: no errors.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add mobile/hooks/useFinanceiro.ts "mobile/app/(empresa)/financeiro.tsx"
+git commit -m "feat: mostra resumo e progresso de vencimento nas despesas (mobile)"
+```
+
+---
+
+### Task 11: Full verification pass
 
 **Files:** none (verification only).
 
@@ -935,7 +1542,9 @@ git commit -m "feat: adiciona campo repetir ate na edicao de despesa (mobile)"
 - [ ] **Step 1: Run the full web unit test suite**
 
 Run (from `web/`): `npm run test`
-Expected: PASS, all suites (including the new migration test and the 3 new `recorrenciaAindaAtiva` tests).
+Expected: PASS, all suites — including the migration test, the 3
+`recorrenciaAindaAtiva` tests, and the 3 `diasParaVencimento`/
+`progressoVencimento` tests.
 
 - [ ] **Step 2: Full TypeScript check — web**
 
@@ -947,7 +1556,7 @@ Expected: no errors.
 Run (from `mobile/`): `npx tsc --noEmit`
 Expected: no errors.
 
-- [ ] **Step 4: Manual walkthrough (web)**
+- [ ] **Step 4: Manual walkthrough (web) — recorrência com data de término**
 
 1. Start the web dev server, open Financeiro.
 2. Create a despesa recorrente mensal with "Repetir até" set to a date in the *current* viewed month.
@@ -955,11 +1564,20 @@ Expected: no errors.
 4. Navigate one more month forward — confirm the banner no longer offers it (end date is now before that month's start).
 5. Edit an existing despesa recorrente, set "Repetir até" to a past date, save, reload — confirm the field persists and the banner behavior matches step 4 for the currently viewed month.
 
-- [ ] **Step 5: Manual walkthrough (mobile)**
+- [ ] **Step 5: Manual walkthrough (web) — progresso de vencimento**
+
+1. In the same Financeiro page, confirm the "Despesas" card header now shows "R$ X pendente · Y despesas" matching the sum/count of pending rows.
+2. Create a despesa avulsa (not recorrente) with `data_vencimento` a few days out — confirm its row shows "· faltam N dias" and a thin amber bar under the row, partially filled.
+3. Edit that despesa's `data_vencimento` to today — confirm the row shows "· vence hoje".
+4. Edit it to a past date — confirm the row shows "· atrasada há N dias" and the bar turns red and full.
+5. Mark a pending despesa as paid — confirm the bar and days text disappear (only pending despesas with a due date show them).
+
+- [ ] **Step 6: Manual walkthrough (mobile)**
 
 1. Open the mobile app, go to Financeiro → Nova despesa, mark "Despesa recorrente", fill "Repetir até" with a date.
 2. Save, then open the same despesa in "Editar despesa" — confirm the date shows correctly (DD/MM/AAAA) and can be edited.
+3. On the Financeiro screen, confirm the "Despesas" section header shows the pending summary, and that pending rows with a due date show the days-remaining text and progress bar (mirroring the web behavior from Step 5 above).
 
-- [ ] **Step 6: Update CLAUDE.md audit log**
+- [ ] **Step 7: Update CLAUDE.md audit log**
 
 Add an entry to the "HISTÓRICO DE AUDITORIAS" section following the existing format (see the 2026-06-06 sessions), summarizing this feature's delivery. This step has no code — just document what shipped, matching the project's existing self-audit convention.
