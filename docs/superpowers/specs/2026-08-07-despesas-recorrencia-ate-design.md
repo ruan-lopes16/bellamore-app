@@ -53,14 +53,14 @@ filtros de data do Financeiro (`periodo.startDate`). Testável isoladamente.
 ## Auto-lançamento (web)
 
 Em `carregar()`, a query que busca o histórico de templates mensais
-(`recMesAnt`) passa a selecionar também `recorrencia_ate` e a filtrar via
-`.or('recorrencia_ate.is.null,recorrencia_ate.gte.' + periodo.startDate)` —
-templates cuja recorrência já terminou antes do mês visualizado são excluídos
-na própria query.
+(`recMesAnt`) passa a selecionar também `recorrencia_ate` (sem mudança nos
+filtros SQL existentes).
 
-Ao montar `recorrentesParaLancar` (agrupamento por chave composta, mantendo o
-template mais recente), nenhuma mudança adicional é necessária: a exclusão já
-ocorreu na query.
+Ao montar `recorrentesParaLancar` — loop que agrupa por chave composta
+(`descricao+categoria`), mantendo o template mais recente por chave — cada
+registro passa primeiro por `recorrenciaAindaAtiva(r.recorrencia_ate,
+periodo.startDate)`; se `false`, o registro é ignorado (não entra em
+`porChave`) e portanto não é sugerido para lançamento naquele mês.
 
 Em `lancarRecorrentes()`, o insert passa a copiar `recorrencia_ate` do
 template para a nova despesa, para a checagem continuar válida nos meses
