@@ -716,14 +716,18 @@ export default function FinanceiroPage() {
     // e ignora templates cuja recorrência já terminou antes do mês visualizado.
     const porChave: Record<string, RecorrenteTemplate> = {};
     for (const r of todasMensais) {
-      if (!recorrenciaAindaAtiva(r.recorrencia_ate, periodo.startDate)) continue;
       const chave = `${r.descricao}||${r.categoria ?? ''}`;
       if (!porChave[chave]) porChave[chave] = r;   // primeiro = mais recente
     }
+    // Só depois de achar a versão mais recente de cada chave é que filtramos
+    // as recorrências já encerradas — senão uma linha antiga (sem data de término)
+    // poderia "reviver" uma recorrência que o usuário já finalizou.
+    const templatesAtivos = Object.values(porChave)
+      .filter(r => recorrenciaAindaAtiva(r.recorrencia_ate, periodo.startDate));
     // Compara com o mês atual pela mesma chave composta
     const despAtual = (despLista.data ?? []) as { descricao: string; categoria?: string }[];
     const chavesMesAtual = new Set(despAtual.map(d => `${d.descricao}||${d.categoria ?? ''}`));
-    setRecorrentesParaLancar(Object.values(porChave).filter(r =>
+    setRecorrentesParaLancar(templatesAtivos.filter(r =>
       !chavesMesAtual.has(`${r.descricao}||${r.categoria ?? ''}`)
     ));
 
