@@ -195,20 +195,21 @@ function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean })
 // ── Despesa row ──────────────────────────────────────────────
 
 function DespesaRow({
-  item, isLast, onMarcarPago, onEditar,
+  item, isLast, hojeIso, onMarcarPago, onEditar,
 }: {
   item: DespesaItem;
   isLast: boolean;
+  hojeIso: string;
   onMarcarPago: (item: DespesaItem) => void;
   onEditar: (item: DespesaItem) => void;
 }) {
   const pago = item.status === 'pago';
-  const hojeIso = format(new Date(), 'yyyy-MM-dd');
-  const dias = !pago && item.data_vencimento
-    ? diasParaVencimento(item.data_vencimento, hojeIso)
+  const vencimentoPendente = !pago ? item.data_vencimento : undefined;
+  const dias = vencimentoPendente
+    ? diasParaVencimento(vencimentoPendente, hojeIso)
     : null;
-  const progresso = !pago && item.data_vencimento
-    ? progressoVencimento(item.created_at ?? hojeIso, item.data_vencimento, hojeIso)
+  const progresso = vencimentoPendente
+    ? progressoVencimento(item.created_at ?? hojeIso, vencimentoPendente, hojeIso)
     : null;
   const labelDias = dias === null ? '' :
     dias < 0 ? `atrasada há ${Math.abs(dias)} dia${Math.abs(dias) === 1 ? '' : 's'}` :
@@ -952,6 +953,7 @@ export default function Financeiro() {
   const { resumo, metodos, topServicos, despesas, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
+  const hojeIso            = format(new Date(), 'yyyy-MM-dd');
 
   function aposMarcarPago() {
     qc.invalidateQueries({ queryKey: ['fin-resumo'] });
@@ -1344,6 +1346,7 @@ export default function Financeiro() {
                   key={d.id}
                   item={d}
                   isLast={i === despesas.length - 1}
+                  hojeIso={hojeIso}
                   onMarcarPago={setDespesaSelecionada}
                   onEditar={setDespesaParaEditar}
                 />

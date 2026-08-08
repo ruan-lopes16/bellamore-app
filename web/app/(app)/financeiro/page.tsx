@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, recorrenciaAindaAtiva, diasParaVencimento, progressoVencimento } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -711,26 +711,16 @@ export default function FinanceiroPage() {
     setDespesas((despLista.data ?? []) as Despesa[]);
 
     // Auto-lançamento robusto: pega o template mais recente por (descricao+categoria),
-    // independente de quantos meses foram pulados.
+    // independente de quantos meses foram pulados, ignorando recorrências já
+    // encerradas e as que já existem no mês atual. Composição (agrupar por chave
+    // antes de filtrar por término) coberta por teste em
+    // shared/despesas.ts::templatesRecorrentesParaLancar — não reordenar sem testes.
     const todasMensais = (recMesAnt.data ?? []) as RecorrenteTemplate[];
-    // Agrupa por chave composta — preserva a versão mais recente (já vem desc por data)
-    // e ignora templates cuja recorrência já terminou antes do mês visualizado.
-    const porChave: Record<string, RecorrenteTemplate> = {};
-    for (const r of todasMensais) {
-      const chave = `${r.descricao}||${r.categoria ?? ''}`;
-      if (!porChave[chave]) porChave[chave] = r;   // primeiro = mais recente
-    }
-    // Só depois de achar a versão mais recente de cada chave é que filtramos
-    // as recorrências já encerradas — senão uma linha antiga (sem data de término)
-    // poderia "reviver" uma recorrência que o usuário já finalizou.
-    const templatesAtivos = Object.values(porChave)
-      .filter(r => recorrenciaAindaAtiva(r.recorrencia_ate, periodo.startDate));
-    // Compara com o mês atual pela mesma chave composta
     const despAtual = (despLista.data ?? []) as { descricao: string; categoria?: string }[];
     const chavesMesAtual = new Set(despAtual.map(d => `${d.descricao}||${d.categoria ?? ''}`));
-    setRecorrentesParaLancar(templatesAtivos.filter(r =>
-      !chavesMesAtual.has(`${r.descricao}||${r.categoria ?? ''}`)
-    ));
+    setRecorrentesParaLancar(
+      templatesRecorrentesParaLancar(todasMensais, chavesMesAtual, periodo.startDate)
+    );
 
     setLoading(false);
   }
@@ -1100,11 +1090,12 @@ export default function FinanceiroPage() {
             </div>
           ) : (
             despesas.map((d, i) => {
-              const dias = d.status === 'pendente' && d.data_vencimento
-                ? diasParaVencimento(d.data_vencimento, hojeIso)
+              const vencimentoPendente = d.status === 'pendente' ? d.data_vencimento : undefined;
+              const dias = vencimentoPendente
+                ? diasParaVencimento(vencimentoPendente, hojeIso)
                 : null;
-              const progresso = d.status === 'pendente' && d.data_vencimento
-                ? progressoVencimento(d.created_at ?? hojeIso, d.data_vencimento, hojeIso)
+              const progresso = vencimentoPendente
+                ? progressoVencimento(d.created_at ?? hojeIso, vencimentoPendente, hojeIso)
                 : null;
               const labelDias = dias === null ? '' :
                 dias < 0 ? `atrasada há ${Math.abs(dias)} dia${Math.abs(dias) === 1 ? '' : 's'}` :

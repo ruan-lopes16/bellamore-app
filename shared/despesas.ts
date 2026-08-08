@@ -79,6 +79,41 @@ export function recorrenciaAindaAtiva(
   return recorrenciaAte >= periodoInicioIso;
 }
 
+export type RecorrenteTemplateHistorico = {
+  descricao: string;
+  categoria?: string;
+  valor: number;
+  periodicidade?: string;
+  data_vencimento?: string;
+  recorrencia_ate?: string;
+};
+
+/**
+ * A partir do historico de despesas recorrentes mensais (mais recente primeiro),
+ * retorna o template mais recente de cada chave composta (descricao+categoria)
+ * cuja recorrencia ainda esta ativa no mes visualizado, excluindo os que ja
+ * existem no mes atual.
+ *
+ * A ordem importa: primeiro agrupamos por chave (mantendo a linha mais recente
+ * de cada uma), so depois filtramos por recorrencia encerrada. Filtrar antes de
+ * agrupar deixaria uma linha antiga sem `recorrencia_ate` "reviver" uma
+ * recorrencia que uma linha mais recente ja tinha encerrado.
+ */
+export function templatesRecorrentesParaLancar(
+  historico: RecorrenteTemplateHistorico[],
+  chavesMesAtual: Set<string>,
+  periodoInicioIso: string,
+): RecorrenteTemplateHistorico[] {
+  const porChave: Record<string, RecorrenteTemplateHistorico> = {};
+  for (const r of historico) {
+    const chave = `${r.descricao}||${r.categoria ?? ''}`;
+    if (!porChave[chave]) porChave[chave] = r;   // primeiro = mais recente
+  }
+  return Object.values(porChave)
+    .filter(r => recorrenciaAindaAtiva(r.recorrencia_ate, periodoInicioIso))
+    .filter(r => !chavesMesAtual.has(`${r.descricao}||${r.categoria ?? ''}`));
+}
+
 /**
  * Dias entre hoje e o vencimento (YYYY-MM-DD). Negativo quando ja atrasada.
  */
