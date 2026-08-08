@@ -590,6 +590,7 @@ function ModalEditarDespesa({
   const [recorrente,    setRecorrente]    = useState(false);
   const [periodicidade, setPeriodicidade] = useState('mensal');
   const [vencimento,    setVencimento]    = useState('');
+  const [recorrenciaAte, setRecorrenciaAte] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -606,6 +607,12 @@ function ModalEditarDespesa({
       setVencimento(`${d}/${m}/${y}`);
     } else {
       setVencimento('');
+    }
+    if (item.recorrencia_ate) {
+      const [y, m, d] = item.recorrencia_ate.split('-');
+      setRecorrenciaAte(`${d}/${m}/${y}`);
+    } else {
+      setRecorrenciaAte('');
     }
     setConfirmDelete(false);
   }, [item]);
@@ -638,6 +645,7 @@ function ModalEditarDespesa({
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: dataParaBanco(vencimento),
+      recorrencia_ate: recorrente ? dataParaBanco(recorrenciaAte) : null,
     }).eq('id', item.id);
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
@@ -817,6 +825,25 @@ function ModalEditarDespesa({
                     </Text>
                   </TouchableOpacity>
                 ))}
+                <View style={{ width: '100%', marginTop: 4 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2, marginBottom: 8 }}>
+                    Repetir até (opcional)
+                  </Text>
+                  <View style={{
+                    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                    borderRadius: 12, paddingHorizontal: 14, height: 48,
+                    justifyContent: 'center',
+                  }}>
+                    <TextInput
+                      value={recorrenciaAte}
+                      onChangeText={v => setRecorrenciaAte(mascaraData(v))}
+                      placeholder="DD/MM/AAAA"
+                      placeholderTextColor={C.text4}
+                      keyboardType="numeric"
+                      style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
+                    />
+                  </View>
+                </View>
               </View>
             )}
 
