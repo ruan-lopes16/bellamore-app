@@ -41,6 +41,7 @@ export interface DespesaItem {
   data_vencimento?: string;
   recorrencia_ate?: string;
   data_pagamento?: string;
+  created_at?: string;
   status: 'pendente' | 'pago';
 }
 

@@ -36,7 +36,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -203,12 +203,24 @@ function DespesaRow({
   onEditar: (item: DespesaItem) => void;
 }) {
   const pago = item.status === 'pago';
+  const hojeIso = format(new Date(), 'yyyy-MM-dd');
+  const dias = !pago && item.data_vencimento
+    ? diasParaVencimento(item.data_vencimento, hojeIso)
+    : null;
+  const progresso = !pago && item.data_vencimento
+    ? progressoVencimento(item.created_at ?? hojeIso, item.data_vencimento, hojeIso)
+    : null;
+  const labelDias = dias === null ? '' :
+    dias < 0 ? `atrasada há ${Math.abs(dias)} dia${Math.abs(dias) === 1 ? '' : 's'}` :
+    dias === 0 ? 'vence hoje' :
+    `faltam ${dias} dia${dias === 1 ? '' : 's'}`;
 
   return (
     <View style={{
       paddingVertical: 11, paddingHorizontal: 16,
       flexDirection: 'row', alignItems: 'center', gap: 8,
       borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
+      position: 'relative',
     }}>
       <TouchableOpacity
         activeOpacity={pago ? 1 : 0.7}
@@ -235,6 +247,7 @@ function DespesaRow({
               : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
             }
             {item.recorrente ? ' · Recorrente' : ''}
+            {labelDias ? ` · ${labelDias}` : ''}
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
@@ -266,6 +279,17 @@ function DespesaRow({
       >
         <Pencil size={12} color={C.text3} strokeWidth={2} />
       </TouchableOpacity>
+      {progresso !== null && (
+        <View style={{
+          position: 'absolute', left: 16, right: 16, bottom: 0,
+          height: 2, borderRadius: 1, backgroundColor: C.border, overflow: 'hidden',
+        }}>
+          <View style={{
+            width: `${progresso * 100}%`, height: '100%',
+            backgroundColor: dias !== null && dias < 0 ? C.red : C.amber,
+          }} />
+        </View>
+      )}
     </View>
   );
 }
@@ -926,6 +950,8 @@ export default function Financeiro() {
 
   const qc = useQueryClient();
   const { resumo, metodos, topServicos, despesas, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
+  const despesasPendentes = despesas.filter(d => d.status === 'pendente');
+  const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
 
   function aposMarcarPago() {
     qc.invalidateQueries({ queryKey: ['fin-resumo'] });
@@ -1280,9 +1306,16 @@ export default function Financeiro() {
           style={{ marginHorizontal: 24 }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>
-              Despesas
-            </Text>
+            <View>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>
+                Despesas
+              </Text>
+              {despesasPendentes.length > 0 && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
+                  {formatBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                </Text>
+              )}
+            </View>
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/nova-despesa' as any)}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
