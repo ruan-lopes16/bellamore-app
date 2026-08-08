@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, recorrenciaAindaAtiva } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -549,7 +549,7 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId).gte('created_at', ini6).lte('created_at', fim),
       // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
       supabase.from('despesas')
-        .select('descricao, categoria, valor, periodicidade, data_vencimento')
+        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate')
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
         .lt('data_vencimento', periodo.startDate)   // somente meses passados
         .order('data_vencimento', { ascending: false }),
@@ -713,8 +713,10 @@ export default function FinanceiroPage() {
     // independente de quantos meses foram pulados.
     const todasMensais = (recMesAnt.data ?? []) as RecorrenteTemplate[];
     // Agrupa por chave composta — preserva a versão mais recente (já vem desc por data)
+    // e ignora templates cuja recorrência já terminou antes do mês visualizado.
     const porChave: Record<string, RecorrenteTemplate> = {};
     for (const r of todasMensais) {
+      if (!recorrenciaAindaAtiva(r.recorrencia_ate, periodo.startDate)) continue;
       const chave = `${r.descricao}||${r.categoria ?? ''}`;
       if (!porChave[chave]) porChave[chave] = r;   // primeiro = mais recente
     }
@@ -750,6 +752,7 @@ export default function FinanceiroPage() {
           const ultimo = new Date(ano, mes + 1, 0).getDate();
           return format(new Date(ano, mes, Math.min(dia, ultimo)), 'yyyy-MM-dd');
         })(),
+        recorrencia_ate: r.recorrencia_ate ?? null,
         status:          'pendente',
       }))
     );
