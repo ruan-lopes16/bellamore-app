@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, recorrenciaAindaAtiva } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, recorrenciaAindaAtiva, diasParaVencimento, progressoVencimento } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -65,6 +65,7 @@ type Despesa = {
   id: string; descricao: string; categoria?: string;
   valor: number; recorrente: boolean; periodicidade?: string;
   data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
+  created_at?: string;
   status: 'pendente' | 'pago';
 };
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
@@ -786,6 +787,9 @@ export default function FinanceiroPage() {
   const dReceita         = delta(receita,   receitaAnt);
   const dComissoes       = delta(comissoes, comissoesAnt);
   const dGastos          = delta(gastos,    gastosAnt);
+  const hojeIso           = format(new Date(), 'yyyy-MM-dd');
+  const despesasPendentes = despesas.filter(d => d.status === 'pendente');
+  const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const maxEvolucao = Math.max(...evolucao.flatMap(e => [e.receita, e.gastos, e.comissoes ?? 0]), 1);
 
   return (
@@ -1050,7 +1054,14 @@ export default function FinanceiroPage() {
         {/* Despesas */}
         <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <p className="font-serif text-lg text-text">Despesas</p>
+            <div>
+              <p className="font-serif text-lg text-text">Despesas</p>
+              {despesasPendentes.length > 0 && (
+                <p className="text-[10px] text-text-4 mt-0.5">
+                  {fmtBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               <button onClick={() => setModalImportCnpj(true)}
                 className="flex items-center gap-1.5 text-xs text-text-3 font-semibold hover:text-accent transition">
@@ -1088,45 +1099,64 @@ export default function FinanceiroPage() {
               </button>
             </div>
           ) : (
-            despesas.map((d, i) => (
-              <div key={d.id}
-                className={`flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
-                <div
-                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
-                    {d.status === 'pago'
-                      ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
-                      : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
-                    }
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
-                    <p className="text-[10px] text-text-4 mt-0.5">
+            despesas.map((d, i) => {
+              const dias = d.status === 'pendente' && d.data_vencimento
+                ? diasParaVencimento(d.data_vencimento, hojeIso)
+                : null;
+              const progresso = d.status === 'pendente' && d.data_vencimento
+                ? progressoVencimento(d.created_at ?? hojeIso, d.data_vencimento, hojeIso)
+                : null;
+              const labelDias = dias === null ? '' :
+                dias < 0 ? `atrasada há ${Math.abs(dias)} dia${Math.abs(dias) === 1 ? '' : 's'}` :
+                dias === 0 ? 'vence hoje' :
+                `faltam ${dias} dia${dias === 1 ? '' : 's'}`;
+
+              return (
+                <div key={d.id}
+                  className={`relative flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
+                  <div
+                    className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                    onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                       {d.status === 'pago'
-                        ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
-                        : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
+                        ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
+                        : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
                       }
-                      {d.recorrente && ' · Recorrente'}
-                    </p>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                      <p className="text-[10px] text-text-4 mt-0.5">
+                        {d.status === 'pago'
+                          ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
+                          : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
+                        }
+                        {d.recorrente && ' · Recorrente'}
+                        {labelDias && ` · ${labelDias}`}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                        d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
+                      }`}>
+                        {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
-                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
-                      d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
-                    }`}>
-                      {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
-                    </span>
-                  </div>
+                  <button
+                    onClick={() => setEditarDespesa(d)}
+                    title="Editar despesa"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
+                    <Pencil size={12} strokeWidth={2}/>
+                  </button>
+                  {progresso !== null && (
+                    <div className="absolute left-4 right-4 bottom-0 h-0.5 rounded-full overflow-hidden bg-border">
+                      <div className={`h-full ${dias !== null && dias < 0 ? 'bg-red' : 'bg-amber'}`} style={{ width: `${progresso * 100}%` }}/>
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={() => setEditarDespesa(d)}
-                  title="Editar despesa"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
-                  <Pencil size={12} strokeWidth={2}/>
-                </button>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
