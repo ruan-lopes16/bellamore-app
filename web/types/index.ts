@@ -163,6 +163,7 @@ export interface Despesa {
   recorrente: boolean;
   periodicidade?: 'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual';
   data_vencimento?: string;
+  recorrencia_ate?: string;
   data_pagamento?: string;
   status: DespesaStatus;
   created_at: string;
