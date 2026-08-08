@@ -1,4 +1,4 @@
-# Despesas recorrentes: data de término opcional
+# Despesas recorrentes: data de término opcional + progresso de vencimento
 
 ## Contexto
 
@@ -91,6 +91,79 @@ O mobile não ganha auto-lançamento — isso continua exclusivo do web (decisã
 já registrada na spec de 2026-07-08). O campo no mobile serve para
 cadastrar/editar a data, que é lida pelo auto-lançamento do web.
 
+## Progresso de vencimento ("quanto falta")
+
+Pedido adicional do usuário, incorporado nesta mesma spec porque nada tinha
+sido implementado ainda. Diferente da seção anterior: aplica-se a **qualquer**
+despesa pendente com `data_vencimento` — recorrente ou avulsa — e não depende
+de `recorrencia_ate`. Sem migration nova: usa colunas já existentes
+(`created_at`, `data_vencimento`).
+
+Cada despesa pendente com vencimento passa a mostrar quantos dias faltam (ou
+o atraso) e uma barra fina que enche conforme o vencimento se aproxima. Acima
+da lista, um resumo mostra o valor total pendente do mês e a quantidade de
+despesas pendentes. Tudo é aditivo — nenhum texto, botão ou comportamento
+existente é removido ou alterado.
+
+### Cálculo (`shared/despesas.ts`)
+
+Duas funções puras novas, ao lado de `recorrenciaAindaAtiva`:
+
+```ts
+export function diasParaVencimento(
+  dataVencimento: string,
+  hojeIso: string,
+): number {
+  const venc = new Date(dataVencimento + 'T00:00:00');
+  const hoje = new Date(hojeIso + 'T00:00:00');
+  return Math.round((venc.getTime() - hoje.getTime()) / 86_400_000);
+}
+
+export function progressoVencimento(
+  criadaEmIso: string,
+  dataVencimento: string,
+  hojeIso: string,
+): number {
+  const inicio = new Date(criadaEmIso.slice(0, 10) + 'T00:00:00').getTime();
+  const fim    = new Date(dataVencimento + 'T00:00:00').getTime();
+  const hoje   = new Date(hojeIso + 'T00:00:00').getTime();
+  if (fim <= inicio) return 1;
+  const fracao = (hoje - inicio) / (fim - inicio);
+  return Math.min(1, Math.max(0, fracao));
+}
+```
+
+`diasParaVencimento` pode retornar negativo (atrasada, já passou do
+vencimento). `progressoVencimento` sempre retorna um número entre 0 e 1 — a
+barra usa isso como largura/`flex`. Se `data_vencimento <= created_at` (caso
+de borda, despesa criada no próprio dia do vencimento ou com datas
+inconsistentes), a barra nasce cheia (`1`) em vez de dividir por zero.
+
+### UI — Web
+
+Na listagem de despesas (`web/app/(app)/financeiro/page.tsx`, bloco que
+renderiza `despesas.map(...)`), para cada despesa `pendente` com
+`data_vencimento`:
+- O texto que já existe ("Vence dd/MM") ganha um complemento, no mesmo padrão
+  de concatenação já usado para `· Recorrente`: "· faltam N dias", "· vence
+  hoje" ou "· atrasada há N dias".
+- Uma barra fina (2px de altura) é renderizada logo abaixo da linha da
+  despesa, com largura proporcional a `progressoVencimento(...)`. Cor âmbar
+  (mesma paleta já usada para status pendente); vermelha quando
+  `diasParaVencimento < 0` (atrasada).
+
+Acima da lista, no cabeçalho da seção "Despesas" (ao lado do título), um novo
+texto pequeno resume o mês: "R$ {total pendente} pendente · {N} despesa(s)",
+calculado a partir de `despesas.filter(d => d.status === 'pendente')` —
+dados já carregados, sem query nova.
+
+### UI — Mobile
+
+Mesmo comportamento em `mobile/app/(empresa)/financeiro.tsx` (componente
+`DespesaRow` e o cabeçalho da seção de despesas na tela principal): texto
+complementar concatenado à linha "Vence dd/MM" existente, barra fina abaixo
+da linha, resumo no cabeçalho da seção.
+
 ## Fora de escopo
 
 - Indicador visual de "recorrência encerrada" na listagem web ou mobile.
@@ -99,13 +172,28 @@ cadastrar/editar a data, que é lida pelo auto-lançamento do web.
   data de término anterior ao vencimento). Campo de data simples, sem regras
   adicionais.
 - Notificar o usuário quando uma recorrência está prestes a terminar.
+- Configurar a janela de "urgência" da barra (ex.: cor amarela x dias antes)
+  — só duas cores: âmbar (dentro do prazo) e vermelho (atrasada).
+- Parcelamentos (compras parceladas) e qualquer fluxo de "Renegociar/Quitar"
+  — fora do escopo desta spec; as capturas de tela do usuário foram só
+  referência visual, não pedido de implementação.
 
 ## Verificação
 
 - Teste unitário para `recorrenciaAindaAtiva` (sem data → true; data futura ou
   igual ao início do período → true; data passada → false).
+- Teste unitário para `diasParaVencimento` (futuro → positivo; hoje → zero;
+  passado → negativo).
+- Teste unitário para `progressoVencimento` (metade do caminho → ~0.5; antes
+  da criação → clamp em 0; depois do vencimento → clamp em 1; vencimento no
+  mesmo dia da criação → 1, sem divisão por zero).
 - `npx tsc --noEmit` no web e no mobile.
-- Teste manual: criar despesa recorrente mensal com `recorrencia_ate` no mês
-  atual, avançar o mês visualizado no Financeiro (web) e confirmar que o
-  banner de auto-lançamento não sugere mais essa despesa.
+- Teste manual (recorrência): criar despesa recorrente mensal com
+  `recorrencia_ate` no mês atual, avançar o mês visualizado no Financeiro
+  (web) e confirmar que o banner de auto-lançamento não sugere mais essa
+  despesa.
+- Teste manual (progresso): criar despesa avulsa com vencimento em alguns
+  dias, confirmar que a barra e o texto "faltam N dias" aparecem; editar o
+  vencimento para uma data passada e confirmar que vira "atrasada há N dias"
+  com a barra vermelha.
 - Auditoria de qualidade conforme `CLAUDE.md`.
