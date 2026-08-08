@@ -3,6 +3,7 @@ import {
   buildDespesaPagamentoUpdate,
   formatValorMonetarioInput,
   parseValorMonetario,
+  recorrenciaAindaAtiva,
 } from '@shared/despesas';
 
 describe('despesas helpers', () => {
@@ -29,5 +30,21 @@ describe('despesas helpers', () => {
 
   it('formata valor numerico para input monetario editavel', () => {
     expect(formatValorMonetarioInput(980.5)).toBe('980,50');
+  });
+
+  it('considera recorrencia sem data de termino sempre ativa', () => {
+    expect(recorrenciaAindaAtiva(null, '2026-08-01')).toBe(true);
+    expect(recorrenciaAindaAtiva(undefined, '2026-08-01')).toBe(true);
+  });
+
+  it('considera ativa quando o termino cai no mes visualizado ou depois', () => {
+    expect(recorrenciaAindaAtiva('2026-08-01', '2026-08-01')).toBe(true);
+    expect(recorrenciaAindaAtiva('2026-08-15', '2026-08-01')).toBe(true);
+    expect(recorrenciaAindaAtiva('2026-12-01', '2026-08-01')).toBe(true);
+  });
+
+  it('considera encerrada quando o termino ja passou antes do mes visualizado', () => {
+    expect(recorrenciaAindaAtiva('2026-07-31', '2026-08-01')).toBe(false);
+    expect(recorrenciaAindaAtiva('2026-01-01', '2026-08-01')).toBe(false);
   });
 });

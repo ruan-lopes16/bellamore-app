@@ -65,3 +65,16 @@ export function buildDespesaPagamentoUpdate(
     valor,
   };
 }
+
+/**
+ * Indica se uma recorrencia mensal ainda deve ser sugerida para o mes
+ * cujo inicio (YYYY-MM-DD) e `periodoInicioIso`. Sem data de termino,
+ * a recorrencia nunca encerra.
+ */
+export function recorrenciaAindaAtiva(
+  recorrenciaAte: string | null | undefined,
+  periodoInicioIso: string,
+): boolean {
+  if (!recorrenciaAte) return true;
+  return recorrenciaAte >= periodoInicioIso;
+}
