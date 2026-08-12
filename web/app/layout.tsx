@@ -24,7 +24,6 @@ const jakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: 'Bellamore',
   description: 'Gestão de salões e estúdios de estética',
-  icons: { icon: '/favicon.svg' },
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable:       true,
