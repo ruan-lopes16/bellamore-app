@@ -129,6 +129,35 @@
 
 ---
 
+### Sessão 2026-08-08 — Despesas recorrentes: data de término + progresso de vencimento
+
+*Escopo: campo opcional `recorrencia_ate` em despesas recorrentes (web + mobile), auto-lançamento*
+*mensal (web) para de sugerir recorrências encerradas, indicador "faltam N dias / atrasada há N dias"*
+*com barra de progresso e resumo de valor pendente na listagem de despesas (web + mobile).*
+*Executado via superpowers:subagent-driven-development — 11 tarefas, implementer + reviewer*
+*dedicados por tarefa, todos os subagents dispatched com model explícito (haiku para tarefas*
+*mecânicas, sonnet para lógica de negócio e math).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web em todas as 11 tarefas; mobile mantém os 10 erros pré-existentes (não relacionados, verificados contra a main antes de começar) sem nenhum erro novo |
+| UX / Padrões    | 9.0  | Campo "Repetir até" reaproveita `inputClass`/`labelClass` (web) e `mascaraData`/`dataParaBanco` (mobile) sem inventar padrão novo; barra de progresso e resumo são 100% aditivos, nada removido |
+| Segurança       | 9.0  | Migration único `alter table add column` nullable, sem novas políticas RLS necessárias (cobertura existente já cobre a coluna) |
+| Documentação    | 9.0  | Spec e plano completos em `docs/superpowers/specs/` e `docs/superpowers/plans/`; JSDoc pt-BR nos 4 helpers novos em `shared/despesas.ts` |
+| Arquitetura     | 9.0  | Lógica de datas extraída para funções puras testáveis (`recorrenciaAindaAtiva`, `diasParaVencimento`, `progressoVencimento`) em vez de inline; auto-lançamento filtra em JS (não via query PostgREST) para manter testabilidade |
+| Performance     | 9.0  | Sem query nova para o progresso de vencimento (reaproveita `created_at`/`data_vencimento` já carregados); auto-lançamento continua uma única query de histórico |
+| Visual (UI)     | —    | Sem conta de teste disponível para login no navegador local — verificação visual não executada nesta sessão (decisão do usuário) |
+| **Completude**  | 9.5  | Recorrência com fim + indicador de vencimento entregues em web e mobile, 4 modais tocados, auto-lançamento ajustado; 1 bug real de lógica encontrado e corrigido antes do merge |
+| **Proatividade**| 9.5  | Revisor encontrou e eu corrigi um bug de ordenação (filtro antes do dedup) que reviveria recorrências já encerradas — pego antes de chegar no usuário; escopo dos testes (tsc mobile) documentado como baseline pré-existente para não confundir auditorias futuras |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Bug encontrado e corrigido nesta sessão (revisão de subagent, Task 5):**
+- Auto-lançamento: o filtro de recorrência encerrada rodava *antes* do dedup por chave composta, então uma linha antiga sem `recorrencia_ate` podia vencer sobre a linha mais recente que continha a data de término real — revivendo uma recorrência que o usuário já tinha encerrado, e apagando a data de término permanentemente nos meses seguintes. Corrigido: dedup primeiro, filtro depois.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

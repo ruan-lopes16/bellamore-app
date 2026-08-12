@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -64,12 +64,13 @@ const supabase = createClient();
 type Despesa = {
   id: string; descricao: string; categoria?: string;
   valor: number; recorrente: boolean; periodicidade?: string;
-  data_vencimento?: string; data_pagamento?: string;
+  data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
+  created_at?: string;
   status: 'pendente' | 'pago';
 };
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
 type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentual: number };
-type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string };
+type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string };
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -115,6 +116,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   const [recorrente,    setRecorrente]    = useState(false);
   const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>('mensal');
   const [vencimento,    setVencimento]    = useState('');
+  const [recorrenciaAte, setRecorrenciaAte] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
 
@@ -132,6 +134,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimento || null,
+      recorrencia_ate: recorrente ? (recorrenciaAte || null) : null,
       status:          'pendente',
     });
     setSalvando(false);
@@ -202,6 +205,11 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
                         : 'bg-bg border-border text-text-3'
                     }`}>{p.label}</button>
                 ))}
+                <div className="w-full mt-1">
+                  <label className={labelClass}>Repetir até (opcional)</label>
+                  <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
+                    type="date" className={inputClass}/>
+                </div>
               </div>
             )}
           </div>
@@ -294,6 +302,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
     (despesa.periodicidade ?? 'mensal') as 'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'
   );
   const [vencimento,    setVencimento]    = useState(despesa.data_vencimento ?? '');
+  const [recorrenciaAte, setRecorrenciaAte] = useState(despesa.recorrencia_ate ?? '');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -312,6 +321,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimento || null,
+      recorrencia_ate: recorrente ? (recorrenciaAte || null) : null,
     }).eq('id', despesa.id);
     setSalvando(false);
     if (error) { setErro(error.message); return; }
@@ -388,6 +398,11 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
                         : 'bg-bg border-border text-text-3'
                     }`}>{p.label}</button>
                 ))}
+                <div className="w-full mt-1">
+                  <label className={labelClass}>Repetir até (opcional)</label>
+                  <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
+                    type="date" className={inputClass}/>
+                </div>
               </div>
             )}
           </div>
@@ -535,7 +550,7 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId).gte('created_at', ini6).lte('created_at', fim),
       // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
       supabase.from('despesas')
-        .select('descricao, categoria, valor, periodicidade, data_vencimento')
+        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate')
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
         .lt('data_vencimento', periodo.startDate)   // somente meses passados
         .order('data_vencimento', { ascending: false }),
@@ -696,20 +711,16 @@ export default function FinanceiroPage() {
     setDespesas((despLista.data ?? []) as Despesa[]);
 
     // Auto-lançamento robusto: pega o template mais recente por (descricao+categoria),
-    // independente de quantos meses foram pulados.
+    // independente de quantos meses foram pulados, ignorando recorrências já
+    // encerradas e as que já existem no mês atual. Composição (agrupar por chave
+    // antes de filtrar por término) coberta por teste em
+    // shared/despesas.ts::templatesRecorrentesParaLancar — não reordenar sem testes.
     const todasMensais = (recMesAnt.data ?? []) as RecorrenteTemplate[];
-    // Agrupa por chave composta — preserva a versão mais recente (já vem desc por data)
-    const porChave: Record<string, RecorrenteTemplate> = {};
-    for (const r of todasMensais) {
-      const chave = `${r.descricao}||${r.categoria ?? ''}`;
-      if (!porChave[chave]) porChave[chave] = r;   // primeiro = mais recente
-    }
-    // Compara com o mês atual pela mesma chave composta
     const despAtual = (despLista.data ?? []) as { descricao: string; categoria?: string }[];
     const chavesMesAtual = new Set(despAtual.map(d => `${d.descricao}||${d.categoria ?? ''}`));
-    setRecorrentesParaLancar(Object.values(porChave).filter(r =>
-      !chavesMesAtual.has(`${r.descricao}||${r.categoria ?? ''}`)
-    ));
+    setRecorrentesParaLancar(
+      templatesRecorrentesParaLancar(todasMensais, chavesMesAtual, periodo.startDate)
+    );
 
     setLoading(false);
   }
@@ -736,6 +747,7 @@ export default function FinanceiroPage() {
           const ultimo = new Date(ano, mes + 1, 0).getDate();
           return format(new Date(ano, mes, Math.min(dia, ultimo)), 'yyyy-MM-dd');
         })(),
+        recorrencia_ate: r.recorrencia_ate ?? null,
         status:          'pendente',
       }))
     );
@@ -765,6 +777,9 @@ export default function FinanceiroPage() {
   const dReceita         = delta(receita,   receitaAnt);
   const dComissoes       = delta(comissoes, comissoesAnt);
   const dGastos          = delta(gastos,    gastosAnt);
+  const hojeIso           = format(new Date(), 'yyyy-MM-dd');
+  const despesasPendentes = despesas.filter(d => d.status === 'pendente');
+  const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const maxEvolucao = Math.max(...evolucao.flatMap(e => [e.receita, e.gastos, e.comissoes ?? 0]), 1);
 
   return (
@@ -1029,7 +1044,14 @@ export default function FinanceiroPage() {
         {/* Despesas */}
         <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <p className="font-serif text-lg text-text">Despesas</p>
+            <div>
+              <p className="font-serif text-lg text-text">Despesas</p>
+              {despesasPendentes.length > 0 && (
+                <p className="text-[10px] text-text-4 mt-0.5">
+                  {fmtBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               <button onClick={() => setModalImportCnpj(true)}
                 className="flex items-center gap-1.5 text-xs text-text-3 font-semibold hover:text-accent transition">
@@ -1067,45 +1089,65 @@ export default function FinanceiroPage() {
               </button>
             </div>
           ) : (
-            despesas.map((d, i) => (
-              <div key={d.id}
-                className={`flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
-                <div
-                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
-                    {d.status === 'pago'
-                      ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
-                      : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
-                    }
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
-                    <p className="text-[10px] text-text-4 mt-0.5">
+            despesas.map((d, i) => {
+              const vencimentoPendente = d.status === 'pendente' ? d.data_vencimento : undefined;
+              const dias = vencimentoPendente
+                ? diasParaVencimento(vencimentoPendente, hojeIso)
+                : null;
+              const progresso = vencimentoPendente
+                ? progressoVencimento(d.created_at ?? hojeIso, vencimentoPendente, hojeIso)
+                : null;
+              const labelDias = dias === null ? '' :
+                dias < 0 ? `atrasada há ${Math.abs(dias)} dia${Math.abs(dias) === 1 ? '' : 's'}` :
+                dias === 0 ? 'vence hoje' :
+                `faltam ${dias} dia${dias === 1 ? '' : 's'}`;
+
+              return (
+                <div key={d.id}
+                  className={`relative flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
+                  <div
+                    className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                    onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                       {d.status === 'pago'
-                        ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
-                        : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
+                        ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
+                        : <AlertTriangle size={14} strokeWidth={2} className="text-amber"/>
                       }
-                      {d.recorrente && ' · Recorrente'}
-                    </p>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                      <p className="text-[10px] text-text-4 mt-0.5">
+                        {d.status === 'pago'
+                          ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
+                          : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
+                        }
+                        {d.recorrente && ' · Recorrente'}
+                        {labelDias && ` · ${labelDias}`}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                        d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
+                      }`}>
+                        {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
-                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
-                      d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
-                    }`}>
-                      {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
-                    </span>
-                  </div>
+                  <button
+                    onClick={() => setEditarDespesa(d)}
+                    title="Editar despesa"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
+                    <Pencil size={12} strokeWidth={2}/>
+                  </button>
+                  {progresso !== null && (
+                    <div className="absolute left-4 right-4 bottom-0 h-0.5 rounded-full overflow-hidden bg-border">
+                      <div className={`h-full ${dias !== null && dias < 0 ? 'bg-red' : 'bg-amber'}`} style={{ width: `${progresso * 100}%` }}/>
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={() => setEditarDespesa(d)}
-                  title="Editar despesa"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
-                  <Pencil size={12} strokeWidth={2}/>
-                </button>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 

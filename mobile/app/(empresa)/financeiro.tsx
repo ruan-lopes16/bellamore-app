@@ -36,7 +36,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -195,20 +195,33 @@ function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean })
 // ── Despesa row ──────────────────────────────────────────────
 
 function DespesaRow({
-  item, isLast, onMarcarPago, onEditar,
+  item, isLast, hojeIso, onMarcarPago, onEditar,
 }: {
   item: DespesaItem;
   isLast: boolean;
+  hojeIso: string;
   onMarcarPago: (item: DespesaItem) => void;
   onEditar: (item: DespesaItem) => void;
 }) {
   const pago = item.status === 'pago';
+  const vencimentoPendente = !pago ? item.data_vencimento : undefined;
+  const dias = vencimentoPendente
+    ? diasParaVencimento(vencimentoPendente, hojeIso)
+    : null;
+  const progresso = vencimentoPendente
+    ? progressoVencimento(item.created_at ?? hojeIso, vencimentoPendente, hojeIso)
+    : null;
+  const labelDias = dias === null ? '' :
+    dias < 0 ? `atrasada há ${Math.abs(dias)} dia${Math.abs(dias) === 1 ? '' : 's'}` :
+    dias === 0 ? 'vence hoje' :
+    `faltam ${dias} dia${dias === 1 ? '' : 's'}`;
 
   return (
     <View style={{
       paddingVertical: 11, paddingHorizontal: 16,
       flexDirection: 'row', alignItems: 'center', gap: 8,
       borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
+      position: 'relative',
     }}>
       <TouchableOpacity
         activeOpacity={pago ? 1 : 0.7}
@@ -235,6 +248,7 @@ function DespesaRow({
               : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
             }
             {item.recorrente ? ' · Recorrente' : ''}
+            {labelDias ? ` · ${labelDias}` : ''}
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
@@ -266,6 +280,17 @@ function DespesaRow({
       >
         <Pencil size={12} color={C.text3} strokeWidth={2} />
       </TouchableOpacity>
+      {progresso !== null && (
+        <View style={{
+          position: 'absolute', left: 16, right: 16, bottom: 0,
+          height: 2, borderRadius: 1, backgroundColor: C.border, overflow: 'hidden',
+        }}>
+          <View style={{
+            width: `${progresso * 100}%`, height: '100%',
+            backgroundColor: dias !== null && dias < 0 ? C.red : C.amber,
+          }} />
+        </View>
+      )}
     </View>
   );
 }
@@ -590,6 +615,7 @@ function ModalEditarDespesa({
   const [recorrente,    setRecorrente]    = useState(false);
   const [periodicidade, setPeriodicidade] = useState('mensal');
   const [vencimento,    setVencimento]    = useState('');
+  const [recorrenciaAte, setRecorrenciaAte] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -606,6 +632,12 @@ function ModalEditarDespesa({
       setVencimento(`${d}/${m}/${y}`);
     } else {
       setVencimento('');
+    }
+    if (item.recorrencia_ate) {
+      const [y, m, d] = item.recorrencia_ate.split('-');
+      setRecorrenciaAte(`${d}/${m}/${y}`);
+    } else {
+      setRecorrenciaAte('');
     }
     setConfirmDelete(false);
   }, [item]);
@@ -638,6 +670,7 @@ function ModalEditarDespesa({
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: dataParaBanco(vencimento),
+      recorrencia_ate: recorrente ? dataParaBanco(recorrenciaAte) : null,
     }).eq('id', item.id);
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
@@ -817,6 +850,25 @@ function ModalEditarDespesa({
                     </Text>
                   </TouchableOpacity>
                 ))}
+                <View style={{ width: '100%', marginTop: 4 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2, marginBottom: 8 }}>
+                    Repetir até (opcional)
+                  </Text>
+                  <View style={{
+                    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                    borderRadius: 12, paddingHorizontal: 14, height: 48,
+                    justifyContent: 'center',
+                  }}>
+                    <TextInput
+                      value={recorrenciaAte}
+                      onChangeText={v => setRecorrenciaAte(mascaraData(v))}
+                      placeholder="DD/MM/AAAA"
+                      placeholderTextColor={C.text4}
+                      keyboardType="numeric"
+                      style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
+                    />
+                  </View>
+                </View>
               </View>
             )}
 
@@ -899,6 +951,9 @@ export default function Financeiro() {
 
   const qc = useQueryClient();
   const { resumo, metodos, topServicos, despesas, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
+  const despesasPendentes = despesas.filter(d => d.status === 'pendente');
+  const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
+  const hojeIso            = format(new Date(), 'yyyy-MM-dd');
 
   function aposMarcarPago() {
     qc.invalidateQueries({ queryKey: ['fin-resumo'] });
@@ -1253,9 +1308,16 @@ export default function Financeiro() {
           style={{ marginHorizontal: 24 }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>
-              Despesas
-            </Text>
+            <View>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>
+                Despesas
+              </Text>
+              {despesasPendentes.length > 0 && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
+                  {formatBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                </Text>
+              )}
+            </View>
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/nova-despesa' as any)}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
@@ -1284,6 +1346,7 @@ export default function Financeiro() {
                   key={d.id}
                   item={d}
                   isLast={i === despesas.length - 1}
+                  hojeIso={hojeIso}
                   onMarcarPago={setDespesaSelecionada}
                   onEditar={setDespesaParaEditar}
                 />

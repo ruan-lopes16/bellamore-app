@@ -65,3 +65,80 @@ export function buildDespesaPagamentoUpdate(
     valor,
   };
 }
+
+/**
+ * Indica se uma recorrencia mensal ainda deve ser sugerida para o mes
+ * cujo inicio (YYYY-MM-DD) e `periodoInicioIso`. Sem data de termino,
+ * a recorrencia nunca encerra.
+ */
+export function recorrenciaAindaAtiva(
+  recorrenciaAte: string | null | undefined,
+  periodoInicioIso: string,
+): boolean {
+  if (!recorrenciaAte) return true;
+  return recorrenciaAte >= periodoInicioIso;
+}
+
+export type RecorrenteTemplateHistorico = {
+  descricao: string;
+  categoria?: string;
+  valor: number;
+  periodicidade?: string;
+  data_vencimento?: string;
+  recorrencia_ate?: string;
+};
+
+/**
+ * A partir do historico de despesas recorrentes mensais (mais recente primeiro),
+ * retorna o template mais recente de cada chave composta (descricao+categoria)
+ * cuja recorrencia ainda esta ativa no mes visualizado, excluindo os que ja
+ * existem no mes atual.
+ *
+ * A ordem importa: primeiro agrupamos por chave (mantendo a linha mais recente
+ * de cada uma), so depois filtramos por recorrencia encerrada. Filtrar antes de
+ * agrupar deixaria uma linha antiga sem `recorrencia_ate` "reviver" uma
+ * recorrencia que uma linha mais recente ja tinha encerrado.
+ */
+export function templatesRecorrentesParaLancar(
+  historico: RecorrenteTemplateHistorico[],
+  chavesMesAtual: Set<string>,
+  periodoInicioIso: string,
+): RecorrenteTemplateHistorico[] {
+  const porChave: Record<string, RecorrenteTemplateHistorico> = {};
+  for (const r of historico) {
+    const chave = `${r.descricao}||${r.categoria ?? ''}`;
+    if (!porChave[chave]) porChave[chave] = r;   // primeiro = mais recente
+  }
+  return Object.values(porChave)
+    .filter(r => recorrenciaAindaAtiva(r.recorrencia_ate, periodoInicioIso))
+    .filter(r => !chavesMesAtual.has(`${r.descricao}||${r.categoria ?? ''}`));
+}
+
+/**
+ * Dias entre hoje e o vencimento (YYYY-MM-DD). Negativo quando ja atrasada.
+ */
+export function diasParaVencimento(
+  dataVencimento: string,
+  hojeIso: string,
+): number {
+  const venc = new Date(dataVencimento + 'T00:00:00');
+  const hoje = new Date(hojeIso + 'T00:00:00');
+  return Math.round((venc.getTime() - hoje.getTime()) / 86_400_000);
+}
+
+/**
+ * Fracao (0 a 1) do caminho percorrido entre a criacao e o vencimento de uma
+ * despesa. Usada para preencher a barra de progresso na listagem.
+ */
+export function progressoVencimento(
+  criadaEmIso: string,
+  dataVencimento: string,
+  hojeIso: string,
+): number {
+  const inicio = new Date(criadaEmIso.slice(0, 10) + 'T00:00:00').getTime();
+  const fim    = new Date(dataVencimento + 'T00:00:00').getTime();
+  const hoje   = new Date(hojeIso + 'T00:00:00').getTime();
+  if (fim <= inicio) return 1;
+  const fracao = (hoje - inicio) / (fim - inicio);
+  return Math.min(1, Math.max(0, fracao));
+}

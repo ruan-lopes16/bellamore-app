@@ -73,6 +73,7 @@ export default function NovaDespesa() {
   const [recorrente, setRecorrente]     = useState(false);
   const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>('mensal');
   const [vencimento, setVencimento]     = useState('');
+  const [recorrenciaAte, setRecorrenciaAte] = useState('');
   const [salvando, setSalvando]         = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -112,6 +113,7 @@ export default function NovaDespesa() {
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: dataParaBanco(vencimento),
+      recorrencia_ate: recorrente ? dataParaBanco(recorrenciaAte) : null,
       status:          'pendente',
     });
 
@@ -270,6 +272,21 @@ export default function NovaDespesa() {
                     </Text>
                   </TouchableOpacity>
                 ))}
+              </View>
+              <View style={{ marginTop: 16 }}>
+                <Campo label="Repetir até (opcional)">
+                  <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 }}>
+                    <Calendar size={16} color={C.text4} strokeWidth={1.8} style={{ marginRight: 10 }} />
+                    <TextInput
+                      value={recorrenciaAte}
+                      onChangeText={(v) => setRecorrenciaAte(mascaraData(v))}
+                      placeholder="DD/MM/AAAA"
+                      placeholderTextColor={C.text4}
+                      keyboardType="numeric"
+                      style={{ flex: 1, paddingVertical: 14, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text }}
+                    />
+                  </View>
+                </Campo>
               </View>
             </MotiView>
           )}
