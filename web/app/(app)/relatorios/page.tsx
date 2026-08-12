@@ -13,7 +13,7 @@
  *
  * ## Queries (single range, sem N+1)
  * 1. agendamentos (todos os status) + joins servicos / users / clientes — paginado
- * 2. despesas     (filtro por data_vencimento)
+ * 2. despesas     (status = 'pago', filtro por data_pagamento — mesmo critério de financeiro/dashboard)
  * 3. comissoes    (filtro por created_at) — paginado
  * 4. estoque_movimentos saídas (filtro por created_at) — lazy, só ao abrir a aba Estoque
  * 5. avaliacoes   (filtro por created_at) — lazy, só ao abrir a aba Avaliações
@@ -430,12 +430,15 @@ export default function RelatoriosPage() {
           .range(from, to)
       ),
 
-      // 2. Despesas do período (filtro por data de vencimento)
+      // 2. Despesas pagas no período (mesmo critério de financeiro/dashboard:
+      // status = 'pago' e filtro por data_pagamento, não data_vencimento —
+      // despesa pendente ainda não foi de fato gasta).
       supabase.from('despesas')
         .select('valor, categoria')
         .eq('empresa_id', empId)
-        .gte('data_vencimento', dateIni)
-        .lte('data_vencimento', dateFim),
+        .eq('status', 'pago')
+        .gte('data_pagamento', dateIni)
+        .lte('data_pagamento', dateFim),
 
       // 3. Comissões geradas no período (com detalhes para o relatório)
       buscarTodasPaginas<Comissao>((from, to) =>
