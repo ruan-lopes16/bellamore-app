@@ -162,15 +162,19 @@ export default function NovaComandaScreen() {
       // Taxas de reserva já pagas — buscadas só depois de sabermos os
       // agendamentos do dia, e escopadas a esses ids via `.in(...)`. NUNCA
       // buscar sem esse filtro: o PostgREST limita a 1000 linhas por
-      // requisição por padrão e, sem ORDER BY, a truncagem descarta as
-      // linhas mais antigas primeiro — o que, contraintuitivamente, é
-      // seguro aqui porque é exatamente a taxa paga HOJE (mais recente)
-      // que precisamos enxergar para o desconto funcionar.
+      // requisição por padrão e, sem ORDER BY, a truncagem mantém um
+      // recorte arbitrário (na prática, as linhas mais antigas) e descarta
+      // o resto — é exatamente aí que a taxa paga HOJE cairia sem este
+      // filtro, zerando o desconto em silêncio.
       const agIds = agsDoDia.map(ag => ag.id);
       const rTaxasReserva = agIds.length > 0
         ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
             .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
-        : { data: [] as { agendamento_id: string; valor: number }[] };
+        : { data: [] as { agendamento_id: string; valor: number }[], error: null };
+
+      if (rTaxasReserva.error) {
+        console.error('Erro ao buscar taxas de reserva pagas:', rTaxasReserva.error.message);
+      }
 
       setAgDia(agsDoDia);
       setServicos((rServs.data ?? []) as any[]);
