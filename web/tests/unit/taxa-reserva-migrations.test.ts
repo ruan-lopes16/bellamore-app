@@ -24,9 +24,14 @@ describe('Migration: taxa de reserva — schema', () => {
     expect(migrations).toMatch(/alter table public\.taxas_reserva\s+enable row level security/);
   });
 
-  it('restringe select/update a gestor ou owner, e insert a membro da empresa', () => {
-    expect(migrations).toMatch(/taxas_reserva[\s\S]{0,400}is_gestor_ou_owner/);
+  it('restringe update a gestor ou owner, e insert a membro da empresa', () => {
+    expect(migrations).toMatch(/taxas_reserva[\s\S]{0,600}for update[\s\S]{0,200}is_gestor_ou_owner/);
     expect(migrations).toMatch(/taxas_reserva[\s\S]{0,600}for insert[\s\S]{0,200}minha_empresas/);
+  });
+
+  it('libera select para gestor/owner ou para o profissional dono do agendamento', () => {
+    expect(migrations).toMatch(/taxas_reserva: profissional ou gestor ve/);
+    expect(migrations).toMatch(/taxas_reserva[\s\S]{0,600}for select[\s\S]{0,300}is_gestor_ou_owner[\s\S]{0,300}a\.profissional_id = auth\.uid\(\)/);
   });
 
   it('impede duas taxas de reserva para o mesmo agendamento', () => {
