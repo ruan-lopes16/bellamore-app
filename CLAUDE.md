@@ -158,6 +158,40 @@
 
 ---
 
+### Sessão 2026-08-12 — Correção de KPI em Relatórios + taxa de reserva cobrada e descontada na comanda
+
+*Escopo: (1) correção do "Lucro Real" em Relatórios, que contava despesas pendentes como gasto*
+*(deveria contar só pagas, mesmo critério de Financeiro/Dashboard); (2) dois novos KPIs de valor*
+*(Taxa de reserva, Taxa de cancelamento em R$) em Relatórios; (3) feature nova: toggle "Já foi*
+*cobrada?" na taxa de reserva ao criar agendamento (web ×2 telas + mobile), e desconto automático*
+*dessa taxa já paga no total da comanda ao fechar (web + mobile), com linha explícita no resumo.*
+*Executado via superpowers:subagent-driven-development — 8 tarefas na feature de comanda,*
+*implementer + reviewer dedicados por tarefa; a correção de Relatórios e os KPIs foram*
+*implementados diretamente (escopo pequeno o bastante para dispensar o plano formal).*
+*(Itens (1) e (2) de Relatórios foram entregues em branch separada da feature de comanda —*
+*quem revisar o diff do branch `feat/taxa-reserva-desconto-comanda` não vai encontrá-los ali.)*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web em todas as entregas; mobile mantém os 10 erros pré-existentes (verificados contra a baseline antes de começar), sem nenhum erro novo |
+| UX / Padrões    | 8.5  | Checkbox "Já foi cobrada?" inicialmente usou classe Tailwind incorreta (`text-primary`/`focus:ring-accent`, sem efeito real em checkbox nativo sem plugin de forms) — corrigido para `accent-primary`, padrão já usado em 3 outros arquivos; corrigido antes de replicar o erro nas telas seguintes |
+| Segurança       | 8.5  | Migrations aditivas (`ADD COLUMN` apenas); revisão de subagent encontrou uma lacuna real de RLS (SELECT de `taxas_reserva` só liberado para gestor/owner, zerando silenciosamente o desconto para profissionais fechando a própria comanda) — corrigida com nova policy espelhando o padrão já usado em `045_rls_comandas_pagamentos_por_profissional.sql`, sem afetar UPDATE |
+| Documentação    | 9.0  | Specs e plano completos em `docs/superpowers/specs/` e `docs/superpowers/plans/`; JSDoc pt-BR nos 3 helpers novos em `shared/taxa-reserva.ts` |
+| Arquitetura     | 9.0  | Lógica de desconto extraída para funções puras testáveis (`buildTaxaReservaInsert`, `somarTaxasReservaPagas`, `aplicarDescontoReserva`), mesmo padrão de `shared/despesas.ts`; comanda web/mobile compartilham os mesmos helpers apesar de manterem duplicação de UI já existente no projeto |
+| Performance     | 8.5  | Query de taxas pagas na comanda não filtrava por agendamento (trazia todo o histórico `pago` da empresa) — na revisão final do branch isso foi reclassificado de "ponto de atenção para escala futura" para bug de corretude real: sem filtro nem `ORDER BY`, o limite padrão de 1000 linhas do PostgREST podia truncar exatamente a taxa paga mais recente, zerando o desconto e cobrando o cliente em dobro; corrigido em 2026-08-13 com `.in('agendamento_id', ...)` escopado aos agendamentos do dia, antes do merge |
+| Visual (UI)     | —    | Sem conta de teste disponível para login no navegador local — verificação visual não executada nesta sessão |
+| **Completude**  | 9.0  | Correção de Relatórios + 2 KPIs + feature completa de taxa de reserva na comanda entregues em web e mobile; 2 bugs reais encontrados em revisão e corrigidos antes do merge |
+| **Proatividade**| 9.5  | Revisor encontrou proativamente a lacuna de RLS que teria zerado a feature em silêncio para o papel "profissional" — corrigida antes de chegar ao usuário; erro de estilo do checkbox identificado e corrigido preventivamente nas tarefas seguintes da mesma sessão |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `8.9 / 10` → **A**
+
+**Bugs encontrados e corrigidos nesta sessão:**
+- Relatórios: KPI "Lucro Real" somava despesas com qualquer status (inclusive pendentes) filtradas por `data_vencimento`, enquanto Financeiro e Dashboard já usavam `status = 'pago'` + `data_pagamento` — números divergiam entre telas para o mesmo período. Corrigido para o mesmo critério das outras duas telas.
+- Comanda (Task 6, revisão de subagent): a policy de SELECT de `taxas_reserva` (criada na feature anterior) só liberava leitura para gestor/owner. Como profissionais já podem fechar suas próprias comandas, a query de desconto retornava lista vazia via RLS para esse papel — sem erro, sem aviso, só descontando R$ 0 mesmo com a taxa paga. Corrigido com nova migration liberando SELECT também para o profissional dono do agendamento (UPDATE continua restrito a gestor/owner).
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

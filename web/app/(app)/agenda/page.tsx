@@ -37,6 +37,7 @@ import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { maskPhone } from '@/lib/masks';
 import { CATEGORIA_COR, CATEGORIA_BG, CATEGORIA_LABEL, type CategoriaServico } from '@shared/categorias';
+import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 
 const supabase = createClient();
 
@@ -218,6 +219,7 @@ function NovoAgModal({
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
   const [taxaReserva,        setTaxaReserva]        = useState('0');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+  const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
 
   // Pacote do cliente a consumir neste agendamento (opcional)
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
@@ -448,14 +450,12 @@ function NovoAgModal({
       agId = ag.id;
 
       const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
-      if (taxaReservaValorNum > 0) {
-        const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
-          empresa_id: empresaId,
-          agendamento_id: agId,
-          cliente_id: clienteId,
-          valor: taxaReservaValorNum,
-          status: 'pendente',
-        });
+      const taxaReservaPayload = buildTaxaReservaInsert({
+        empresaId, agendamentoId: agId, clienteId, valor: taxaReservaValorNum,
+        jaCobrada: taxaReservaCobrada,
+      }, new Date().toISOString());
+      if (taxaReservaPayload) {
+        const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
         if (erroReserva) {
           console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
           setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
@@ -801,6 +801,17 @@ function NovoAgModal({
                   className={`${inputClass} pl-9`}
                 />
               </div>
+              {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+                <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={taxaReservaCobrada}
+                    onChange={e => setTaxaReservaCobrada(e.target.checked)}
+                    className="w-4 h-4 rounded border-border accent-primary"
+                  />
+                  <span className="text-xs text-text-2">Já foi cobrada?</span>
+                </label>
+              )}
             </div>
           )}
 

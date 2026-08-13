@@ -11,6 +11,7 @@ import { ptBR } from 'date-fns/locale';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 
 const supabase = createClient();
 
@@ -122,6 +123,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
   const [taxaReserva,        setTaxaReserva]        = useState('0');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+  const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
 
   const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 
@@ -179,14 +181,12 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
 
     const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
-    if (taxaReservaValorNum > 0) {
-      const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
-        empresa_id: empresaId,
-        agendamento_id: ag.id,
-        cliente_id: clienteId,
-        valor: taxaReservaValorNum,
-        status: 'pendente',
-      });
+    const taxaReservaPayload = buildTaxaReservaInsert({
+      empresaId, agendamentoId: ag.id, clienteId, valor: taxaReservaValorNum,
+      jaCobrada: taxaReservaCobrada,
+    }, new Date().toISOString());
+    if (taxaReservaPayload) {
+      const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
       if (erroReserva) {
         console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
       }
@@ -260,6 +260,17 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
                   className={`${inputCls} pl-9`}
                 />
               </div>
+              {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+                <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={taxaReservaCobrada}
+                    onChange={e => setTaxaReservaCobrada(e.target.checked)}
+                    className="w-4 h-4 rounded border-border accent-primary"
+                  />
+                  <span className="text-xs text-text-2">Já foi cobrada?</span>
+                </label>
+              )}
             </div>
           )}
           <div>

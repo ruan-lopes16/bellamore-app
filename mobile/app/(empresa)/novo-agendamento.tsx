@@ -34,6 +34,7 @@ import { useServicosEmpresa } from '@/hooks/useCliente';
 import { useClientes } from '@/hooks/useClientes';
 import { supabase } from '@/lib/supabase';
 import SuccessCheck from '@/components/SuccessCheck';
+import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -134,6 +135,7 @@ export default function NovoAgendamento() {
   const [valor, setValor]       = useState('');
   const [taxaReserva, setTaxaReserva]             = useState('');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+  const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
   const [obs, setObs]           = useState('');
   const [salvando, setSalvando] = useState(false);
   const [sucesso, setSucesso] = useState<{ clienteNome: string; servicoNome: string; profNome: string; inicio: Date; fim: Date } | null>(null);
@@ -360,17 +362,18 @@ export default function NovoAgendamento() {
     }
 
     const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
-    if (taxaReservaValorNum > 0 && novoAg) {
-      const { error: erroReserva } = await supabase.from('taxas_reserva').insert({
-        empresa_id:     empresaAtiva.id,
-        agendamento_id: novoAg.id,
-        cliente_id:     clienteSelecionado!.id,
-        valor:          taxaReservaValorNum,
-        status:         'pendente',
-      });
-      if (erroReserva) {
-        console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
-        setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
+    if (novoAg) {
+      const taxaReservaPayload = buildTaxaReservaInsert({
+        empresaId: empresaAtiva.id, agendamentoId: novoAg.id,
+        clienteId: clienteSelecionado!.id, valor: taxaReservaValorNum,
+        jaCobrada: taxaReservaCobrada,
+      }, new Date().toISOString());
+      if (taxaReservaPayload) {
+        const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
+        if (erroReserva) {
+          console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
+          setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
+        }
       }
     }
 
@@ -808,6 +811,24 @@ export default function NovoAgendamento() {
                 }}
               />
             </View>
+          )}
+          {taxaReservaAtiva && (parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+            <TouchableOpacity
+              onPress={() => setTaxaReservaCobrada(v => !v)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}
+            >
+              <View style={{
+                width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
+                borderColor: taxaReservaCobrada ? C.primary : C.border,
+                backgroundColor: taxaReservaCobrada ? C.primary : C.surface,
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                {taxaReservaCobrada && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700', lineHeight: 14 }}>✓</Text>}
+              </View>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
+                Já foi cobrada?
+              </Text>
+            </TouchableOpacity>
           )}
         </Secao>
 
