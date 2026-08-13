@@ -45,6 +45,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
 import { toWhatsApp } from '@/lib/masks';
+import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 
 const supabase = createClient();
 
@@ -184,6 +185,7 @@ export default function ComandaPage() {
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
+  const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
   const [dataComanda,       setDataComanda]       = useState<Date>(new Date());
   const [view,              setView]              = useState<'semana' | 'mes'>('semana');
   const [semana,            setSemana]            = useState<Date[]>(() =>
@@ -259,7 +261,11 @@ export default function ComandaPage() {
         .select('user_id, users:users!empresa_membros_user_id_fkey(nome)')
         .eq('empresa_id', empresaId).eq('ativo', true),
       supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
-    ]).then(([rAgs, rServs, rProds, rMembros, rPacotes]) => {
+
+      // Taxas de reserva já pagas — usadas para descontar da comanda
+      supabase.from('taxas_reserva').select('agendamento_id, valor')
+        .eq('empresa_id', empresaId).eq('status', 'pago'),
+    ]).then(([rAgs, rServs, rProds, rMembros, rPacotes, rTaxasReserva]) => {
       setAgDia((rAgs.data ?? []) as unknown as AgDia[]);
       setServicos((rServs.data ?? []) as { id: string; nome: string; preco: number }[]);
       setProdutos((rProds.data ?? []) as { id: string; nome: string; preco_venda: number }[]);
@@ -267,6 +273,7 @@ export default function ComandaPage() {
         id: m.user_id, nome: m.users?.nome ?? 'Profissional',
       })));
       setPacotesCat((rPacotes.data ?? []) as { id: string; nome: string; preco: number; validade_dias: number | null }[]);
+      setTaxasReservaPagas((rTaxasReserva.data ?? []) as { agendamento_id: string; valor: number }[]);
       setLoading(false);
     });
   }, [empresaId, dataComanda]);
@@ -455,7 +462,7 @@ export default function ComandaPage() {
     setFechando(true); setErro('');
 
     const { error: errCmd } = await supabase.from('comandas')
-      .update({ valor_total: subtotal, desconto: descontoN })
+      .update({ valor_total: subtotal, desconto: descontoN + descontoReservaAplicado, desconto_reserva: descontoReservaAplicado })
       .eq('id', comandaId);
     if (errCmd) { setErro(errCmd.message); setFechando(false); return; }
 
@@ -506,10 +513,10 @@ export default function ComandaPage() {
     const telefoneCliente = clienteSel?.telefone;
     const reciboItens = [...itens];
     const reciboSplits = [...splits];
-    const reciboDesconto = descontoN;
+    const reciboDesconto = descontoN + descontoReservaAplicado;
     setClienteSel(null);
     setComandaExistenteId(null);
-    setSucesso({ nome: nomeCliente, valor: subtotal - descontoN, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
+    setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
   }
 
   // ── Itens: adicionar/remover
@@ -556,7 +563,9 @@ export default function ComandaPage() {
   const subtotal  = itens.reduce((s, i) => s + i.valor * i.quantidade, 0);
   const descontoPctN = parseFloat(descontoPct.replace(',', '.')) || 0;
   const descontoN    = subtotal * (descontoPctN / 100);
-  const total        = Math.max(subtotal - descontoN, 0);
+  const agendamentoIdsNaComanda = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
+  const descontoReservaN = somarTaxasReservaPagas(agendamentoIdsNaComanda, taxasReservaPagas);
+  const { total, descontoReservaAplicado } = aplicarDescontoReserva(subtotal, descontoN, descontoReservaN);
   const recebido  = splits.reduce((s, x) => s + (parseFloat(x.valor.replace(',', '.')) || 0), 0);
   const restante  = total - recebido;
 
@@ -593,7 +602,8 @@ export default function ComandaPage() {
         empresa_id:  empresaId,
         clientes_id: clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: subtotal,
-        desconto:    descontoN,
+        desconto:    descontoN + descontoReservaAplicado,
+        desconto_reserva: descontoReservaAplicado,
         status:      'fechada',
         fechada_at:  new Date().toISOString(),
       }).select('id').single();
@@ -737,10 +747,10 @@ export default function ComandaPage() {
     const telefoneCliente = clienteSel.telefone;
     const reciboItens = [...itens];
     const reciboSplits = [...splits];
-    const reciboDesconto = descontoN;
+    const reciboDesconto = descontoN + descontoReservaAplicado;
     setProximoCliente(proximoClienteAberto(clienteSel.id));
     setClienteSel(null);
-    setSucesso({ nome: nomeCliente, valor: subtotal - descontoN, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
+    setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -1204,6 +1214,12 @@ export default function ComandaPage() {
                     <span className="text-sm text-text-2">Subtotal</span>
                     <span className="text-sm font-semibold text-text">{fmtBRL(subtotal)}</span>
                   </div>
+                  {descontoReservaAplicado > 0 && (
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                      <span className="text-sm text-text-2">Taxa de reserva paga</span>
+                      <span className="text-sm font-semibold text-red">− {fmtBRL(descontoReservaAplicado)}</span>
+                    </div>
+                  )}
                   {descontoN > 0 && (
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                       <span className="text-sm text-text-2">(−) Desconto <span className="text-xs text-text-4">{descontoPctN}%</span></span>
