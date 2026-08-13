@@ -13,7 +13,7 @@
  *
  * ## Queries (single range, sem N+1)
  * 1. agendamentos (todos os status) + joins servicos / users / clientes — paginado
- * 2. despesas     (filtro por data_vencimento)
+ * 2. despesas     (status = 'pago', filtro por data_pagamento — mesmo critério de financeiro/dashboard)
  * 3. comissoes    (filtro por created_at) — paginado
  * 4. estoque_movimentos saídas (filtro por created_at) — lazy, só ao abrir a aba Estoque
  * 5. avaliacoes   (filtro por created_at) — lazy, só ao abrir a aba Avaliações
@@ -30,6 +30,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
   ChevronDown, ChevronLeft, ChevronRight, DollarSign, Target, Activity, User, Check, Star, CreditCard, XCircle,
+  CalendarCheck, Receipt,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
@@ -430,12 +431,15 @@ export default function RelatoriosPage() {
           .range(from, to)
       ),
 
-      // 2. Despesas do período (filtro por data de vencimento)
+      // 2. Despesas pagas no período (mesmo critério de financeiro/dashboard:
+      // status = 'pago' e filtro por data_pagamento, não data_vencimento —
+      // despesa pendente ainda não foi de fato gasta).
       supabase.from('despesas')
         .select('valor, categoria')
         .eq('empresa_id', empId)
-        .gte('data_vencimento', dateIni)
-        .lte('data_vencimento', dateFim),
+        .eq('status', 'pago')
+        .gte('data_pagamento', dateIni)
+        .lte('data_pagamento', dateFim),
 
       // 3. Comissões geradas no período (com detalhes para o relatório)
       buscarTodasPaginas<Comissao>((from, to) =>
@@ -961,6 +965,12 @@ export default function RelatoriosPage() {
           value={ags.length > 0 ? `${(((cancelados.length + faltaram.length) / ags.length) * 100).toFixed(1)}%` : '—'}
           sub={cancelados.length + faltaram.length > 0 ? `${cancelados.length + faltaram.length} perdido(s)` : undefined}
           cor="#DC2626" loading={loading} />
+        {brutoReserva > 0 && (
+          <KpiCard icon={CalendarCheck} label="Taxa de reserva"          value={fmtBRL(brutoReserva)}        cor="#1D4ED8" loading={loading} />
+        )}
+        {brutoTaxas > 0 && (
+          <KpiCard icon={Receipt}       label="Taxa de cancelamento (R$)" value={fmtBRL(brutoTaxas)}          cor="#DC2626" loading={loading} />
+        )}
         <KpiCard icon={DollarSign} label="Total comissões"      value={fmtBRL(comTot)}
           sub={comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0) > 0
             ? `${fmtBRL(comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0))} pendentes`
