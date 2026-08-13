@@ -807,7 +807,7 @@ function NovoAgModal({
                     type="checkbox"
                     checked={taxaReservaCobrada}
                     onChange={e => setTaxaReservaCobrada(e.target.checked)}
-                    className="w-4 h-4 rounded border-border text-primary focus:ring-accent"
+                    className="w-4 h-4 rounded border-border accent-primary"
                   />
                   <span className="text-xs text-text-2">Já foi cobrada?</span>
                 </label>
