@@ -29,6 +29,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import SuccessCheck from '@/components/SuccessCheck';
+import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -111,6 +112,7 @@ export default function NovaComandaScreen() {
 
   const [loading, setLoading] = useState(true);
   const [agDia, setAgDia] = useState<AgDia[]>([]);
+  const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
   const [servicos, setServicos] = useState<{ id: string; nome: string; preco: number }[]>([]);
   const [produtos, setProdutos] = useState<{ id: string; nome: string; preco_venda: number }[]>([]);
 
@@ -152,10 +154,13 @@ export default function NovaComandaScreen() {
         .order('data_hora_inicio'),
       supabase.from('servicos').select('id, nome, preco').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       supabase.from('produtos').select('id, nome, preco_venda').eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
-    ]).then(([rAgs, rServs, rProds]) => {
+      supabase.from('taxas_reserva').select('agendamento_id, valor')
+        .eq('empresa_id', empresaId).eq('status', 'pago'),
+    ]).then(([rAgs, rServs, rProds, rTaxasReserva]) => {
       setAgDia((rAgs.data ?? []) as unknown as AgDia[]);
       setServicos((rServs.data ?? []) as any[]);
       setProdutos((rProds.data ?? []) as any[]);
+      setTaxasReservaPagas((rTaxasReserva.data ?? []) as { agendamento_id: string; valor: number }[]);
       setLoading(false);
     });
   }, [empresaId]);
@@ -225,7 +230,9 @@ export default function NovaComandaScreen() {
 
   const subtotal  = itens.reduce((s, i) => s + i.valor * i.quantidade, 0);
   const descontoN = parseFloat(desconto.replace(',', '.')) || 0;
-  const total     = Math.max(subtotal - descontoN, 0);
+  const agendamentoIdsNaComanda = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
+  const descontoReservaN = somarTaxasReservaPagas(agendamentoIdsNaComanda, taxasReservaPagas);
+  const { total, descontoReservaAplicado } = aplicarDescontoReserva(subtotal, descontoN, descontoReservaN);
   const recebido  = splits.reduce((s, x) => s + (parseFloat(x.valor.replace(',', '.')) || 0), 0);
   const restante  = total - recebido;
 
@@ -243,7 +250,8 @@ export default function NovaComandaScreen() {
       .from('comandas').insert({
         empresa_id: empresaId,
         clientes_id: clienteSel.id === '__sem__' ? null : clienteSel.id,
-        valor_total: subtotal, desconto: descontoN,
+        valor_total: subtotal, desconto: descontoN + descontoReservaAplicado,
+        desconto_reserva: descontoReservaAplicado,
         status: 'fechada', fechada_at: new Date().toISOString(),
       }).select('id').single();
 
@@ -315,7 +323,7 @@ export default function NovaComandaScreen() {
     setProximoCliente(proximoClienteAberto(clienteSel.id));
     setSucessoData({
       nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
-      splits: splitsValidos, itensCount: itens.length, desconto: descontoN,
+      splits: splitsValidos, itensCount: itens.length, desconto: descontoN + descontoReservaAplicado,
     });
     setEtapa('sucesso');
   }
@@ -650,6 +658,12 @@ export default function NovaComandaScreen() {
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Subtotal</Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{fmtBRL(subtotal)}</Text>
             </View>
+            {descontoReservaAplicado > 0 && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Taxa de reserva paga</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.red }}>− {fmtBRL(descontoReservaAplicado)}</Text>
+              </View>
+            )}
             {descontoN > 0 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>(−) Desconto</Text>
