@@ -116,6 +116,7 @@ export interface Comanda {
   status: ComandaStatus;
   valor_total: number;
   desconto: number;
+  desconto_reserva?: number;
   valor_final: number;
   observacao?: string;
   fechada_at?: string;
