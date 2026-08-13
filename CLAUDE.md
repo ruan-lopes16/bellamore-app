@@ -168,6 +168,8 @@
 *Executado via superpowers:subagent-driven-development — 8 tarefas na feature de comanda,*
 *implementer + reviewer dedicados por tarefa; a correção de Relatórios e os KPIs foram*
 *implementados diretamente (escopo pequeno o bastante para dispensar o plano formal).*
+*(Itens (1) e (2) de Relatórios foram entregues em branch separada da feature de comanda —*
+*quem revisar o diff do branch `feat/taxa-reserva-desconto-comanda` não vai encontrá-los ali.)*
 
 | Critério        | Nota | Observação |
 |-----------------|------|------------|
@@ -176,7 +178,7 @@
 | Segurança       | 8.5  | Migrations aditivas (`ADD COLUMN` apenas); revisão de subagent encontrou uma lacuna real de RLS (SELECT de `taxas_reserva` só liberado para gestor/owner, zerando silenciosamente o desconto para profissionais fechando a própria comanda) — corrigida com nova policy espelhando o padrão já usado em `045_rls_comandas_pagamentos_por_profissional.sql`, sem afetar UPDATE |
 | Documentação    | 9.0  | Specs e plano completos em `docs/superpowers/specs/` e `docs/superpowers/plans/`; JSDoc pt-BR nos 3 helpers novos em `shared/taxa-reserva.ts` |
 | Arquitetura     | 9.0  | Lógica de desconto extraída para funções puras testáveis (`buildTaxaReservaInsert`, `somarTaxasReservaPagas`, `aplicarDescontoReserva`), mesmo padrão de `shared/despesas.ts`; comanda web/mobile compartilham os mesmos helpers apesar de manterem duplicação de UI já existente no projeto |
-| Performance     | 8.5  | Query de taxas pagas na comanda não é filtrada por data (traz todo o histórico da empresa) — funcionalmente correta hoje, mas sinalizada como ponto de atenção para escala futura |
+| Performance     | 8.5  | Query de taxas pagas na comanda não filtrava por agendamento (trazia todo o histórico `pago` da empresa) — na revisão final do branch isso foi reclassificado de "ponto de atenção para escala futura" para bug de corretude real: sem filtro nem `ORDER BY`, o limite padrão de 1000 linhas do PostgREST podia truncar exatamente a taxa paga mais recente, zerando o desconto e cobrando o cliente em dobro; corrigido em 2026-08-13 com `.in('agendamento_id', ...)` escopado aos agendamentos do dia, antes do merge |
 | Visual (UI)     | —    | Sem conta de teste disponível para login no navegador local — verificação visual não executada nesta sessão |
 | **Completude**  | 9.0  | Correção de Relatórios + 2 KPIs + feature completa de taxa de reserva na comanda entregues em web e mobile; 2 bugs reais encontrados em revisão e corrigidos antes do merge |
 | **Proatividade**| 9.5  | Revisor encontrou proativamente a lacuna de RLS que teria zerado a feature em silêncio para o papel "profissional" — corrigida antes de chegar ao usuário; erro de estilo do checkbox identificado e corrigido preventivamente nas tarefas seguintes da mesma sessão |

@@ -124,7 +124,9 @@ export default function NovaComandaScreen() {
   const [fechando, setFechando] = useState(false);
   const [sucessoData, setSucessoData] = useState<{
     nome: string; valor: number; telefone?: string;
-    splits: Split[]; itensCount: number; desconto: number;
+    splits: Split[]; itensCount: number;
+    desconto: number;          // desconto manual, sem a taxa de reserva
+    descontoReserva: number;   // taxa de reserva já paga, descontada separadamente do total
   } | null>(null);
   const [showExtras, setShowExtras] = useState(false);
   // Próximo cliente da fila (comanda aberta + horário já passou) — avança sem precisar voltar
@@ -154,10 +156,23 @@ export default function NovaComandaScreen() {
         .order('data_hora_inicio'),
       supabase.from('servicos').select('id, nome, preco').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       supabase.from('produtos').select('id, nome, preco_venda').eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
-      supabase.from('taxas_reserva').select('agendamento_id, valor')
-        .eq('empresa_id', empresaId).eq('status', 'pago'),
-    ]).then(([rAgs, rServs, rProds, rTaxasReserva]) => {
-      setAgDia((rAgs.data ?? []) as unknown as AgDia[]);
+    ]).then(async ([rAgs, rServs, rProds]) => {
+      const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
+
+      // Taxas de reserva já pagas — buscadas só depois de sabermos os
+      // agendamentos do dia, e escopadas a esses ids via `.in(...)`. NUNCA
+      // buscar sem esse filtro: o PostgREST limita a 1000 linhas por
+      // requisição por padrão e, sem ORDER BY, a truncagem descarta as
+      // linhas mais antigas primeiro — o que, contraintuitivamente, é
+      // seguro aqui porque é exatamente a taxa paga HOJE (mais recente)
+      // que precisamos enxergar para o desconto funcionar.
+      const agIds = agsDoDia.map(ag => ag.id);
+      const rTaxasReserva = agIds.length > 0
+        ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
+            .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
+        : { data: [] as { agendamento_id: string; valor: number }[] };
+
+      setAgDia(agsDoDia);
       setServicos((rServs.data ?? []) as any[]);
       setProdutos((rProds.data ?? []) as any[]);
       setTaxasReservaPagas((rTaxasReserva.data ?? []) as { agendamento_id: string; valor: number }[]);
@@ -323,7 +338,8 @@ export default function NovaComandaScreen() {
     setProximoCliente(proximoClienteAberto(clienteSel.id));
     setSucessoData({
       nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
-      splits: splitsValidos, itensCount: itens.length, desconto: descontoN + descontoReservaAplicado,
+      splits: splitsValidos, itensCount: itens.length,
+      desconto: descontoN, descontoReserva: descontoReservaAplicado,
     });
     setEtapa('sucesso');
   }
@@ -410,6 +426,7 @@ export default function NovaComandaScreen() {
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300, delay: 450 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, textAlign: 'center', marginTop: 10 }}>
               {sucessoData.itensCount} {sucessoData.itensCount === 1 ? 'item' : 'itens'}
+              {sucessoData.descontoReserva > 0 && ` · Taxa de reserva paga ${fmtBRL(sucessoData.descontoReserva)}`}
               {sucessoData.desconto > 0 && ` · Desconto ${fmtBRL(sucessoData.desconto)}`}
             </Text>
             {proximoCliente && (

@@ -15,15 +15,20 @@
  *    - Botão "Fechar comanda"
  *
  * ## Ao fechar
- * 1. INSERT em `comandas` (status = 'fechada', clientes_id, valor_total, desconto)
+ * 1. INSERT em `comandas` (status = 'fechada', clientes_id, valor_total, desconto, desconto_reserva)
+ *    — `desconto` já vem somado com a taxa de reserva paga aplicada (para o
+ *    `valor_final` gerado continuar correto sem mexer na coluna gerada);
+ *    `desconto_reserva` guarda só a parte da taxa de reserva, para auditoria.
  * 2. UPDATE em `agendamentos` → status = 'concluido', comanda_id = novo id
  *    (o trigger trg_gerar_comissao dispara automaticamente)
  * 3. INSERT em `comanda_itens` para itens extras (serviços/produtos manuais)
  * 4. INSERT em `pagamentos` para cada split de pagamento
  *
  * ## Cálculo de totais
- * subtotal = Σ (valor × quantidade) de todos os itens
- * total    = subtotal − desconto
+ * subtotal        = Σ (valor × quantidade) de todos os itens
+ * descontoReserva = taxas_reserva pagas dos agendamentos presentes na comanda
+ *                   (via `shared/taxa-reserva.ts`), aplicada só depois do desconto manual
+ * total    = subtotal − desconto (manual) − descontoReserva (nunca deixa o total negativo)
  * restante = total − Σ splits registrados
  */
 
@@ -142,7 +147,8 @@ type SucessoRecibo = {
   telefone?: string;
   itens: ComandaItem[];
   splits: Split[];
-  desconto: number;
+  desconto: number;         // desconto manual (percentual aplicado sobre o subtotal), sem a taxa de reserva
+  descontoReserva: number;  // taxa de reserva já paga, descontada separadamente do total
   data: Date;
 };
 
@@ -163,6 +169,7 @@ function gerarTextoRecibo(s: SucessoRecibo): string {
     ``,
     `*Serviços:*`,
     ...s.itens.map(i => `• ${i.descricao}${i.quantidade > 1 ? ` (${i.quantidade}x)` : ''} — ${fmtBRL(i.valor * i.quantidade)}`),
+    ...(s.descontoReserva > 0 ? [`• Taxa de reserva paga — −${fmtBRL(s.descontoReserva)}`] : []),
     ...(s.desconto > 0 ? [`• Desconto — −${fmtBRL(s.desconto)}`] : []),
     ``,
     `💰 *Total: ${fmtBRL(s.valor)}*`,
@@ -261,12 +268,23 @@ export default function ComandaPage() {
         .select('user_id, users:users!empresa_membros_user_id_fkey(nome)')
         .eq('empresa_id', empresaId).eq('ativo', true),
       supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
+    ]).then(async ([rAgs, rServs, rProds, rMembros, rPacotes]) => {
+      const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
 
-      // Taxas de reserva já pagas — usadas para descontar da comanda
-      supabase.from('taxas_reserva').select('agendamento_id, valor')
-        .eq('empresa_id', empresaId).eq('status', 'pago'),
-    ]).then(([rAgs, rServs, rProds, rMembros, rPacotes, rTaxasReserva]) => {
-      setAgDia((rAgs.data ?? []) as unknown as AgDia[]);
+      // Taxas de reserva já pagas — buscadas só depois de sabermos os
+      // agendamentos do dia, e escopadas a esses ids via `.in(...)`. NUNCA
+      // buscar sem esse filtro: o PostgREST limita a 1000 linhas por
+      // requisição por padrão e, sem ORDER BY, a truncagem descarta as
+      // linhas mais antigas primeiro — o que, contraintuitivamente, é
+      // seguro aqui porque é exatamente a taxa paga HOJE (mais recente)
+      // que precisamos enxergar para o desconto funcionar.
+      const agIds = agsDoDia.map(ag => ag.id);
+      const rTaxasReserva = agIds.length > 0
+        ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
+            .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
+        : { data: [] as { agendamento_id: string; valor: number }[] };
+
+      setAgDia(agsDoDia);
       setServicos((rServs.data ?? []) as { id: string; nome: string; preco: number }[]);
       setProdutos((rProds.data ?? []) as { id: string; nome: string; preco_venda: number }[]);
       setMembros((rMembros.data ?? []).map((m: any) => ({
@@ -513,10 +531,11 @@ export default function ComandaPage() {
     const telefoneCliente = clienteSel?.telefone;
     const reciboItens = [...itens];
     const reciboSplits = [...splits];
-    const reciboDesconto = descontoN + descontoReservaAplicado;
+    const reciboDesconto = descontoN;
+    const reciboDescontoReserva = descontoReservaAplicado;
     setClienteSel(null);
     setComandaExistenteId(null);
-    setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
+    setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, descontoReserva: reciboDescontoReserva, data: new Date() });
   }
 
   // ── Itens: adicionar/remover
@@ -747,10 +766,11 @@ export default function ComandaPage() {
     const telefoneCliente = clienteSel.telefone;
     const reciboItens = [...itens];
     const reciboSplits = [...splits];
-    const reciboDesconto = descontoN + descontoReservaAplicado;
+    const reciboDesconto = descontoN;
+    const reciboDescontoReserva = descontoReservaAplicado;
     setProximoCliente(proximoClienteAberto(clienteSel.id));
     setClienteSel(null);
-    setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, data: new Date() });
+    setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, descontoReserva: reciboDescontoReserva, data: new Date() });
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -1005,6 +1025,7 @@ export default function ComandaPage() {
             <div className="flex items-center gap-1.5 text-xs text-text-3">
               <span>
                 {sucesso.itens.length} {sucesso.itens.length === 1 ? 'item' : 'itens'}
+                {sucesso.descontoReserva > 0 && ` · Taxa de reserva paga ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.descontoReserva)}`}
                 {sucesso.desconto > 0 && ` · Desconto ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.desconto)}`}
               </span>
               <span title={`Fechada em ${format(sucesso.data, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}`}>
