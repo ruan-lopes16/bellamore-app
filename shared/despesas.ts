@@ -142,3 +142,25 @@ export function progressoVencimento(
   const fracao = (hoje - inicio) / (fim - inicio);
   return Math.min(1, Math.max(0, fracao));
 }
+
+/**
+ * Calcula a data de vencimento da ultima parcela a partir da data de
+ * vencimento da parcela sendo cadastrada agora, do total de parcelas do
+ * contrato e de qual parcela essa e (1 = primeira). Usado para preencher
+ * `recorrencia_ate` automaticamente quando o usuario escolhe informar
+ * quantidade de parcelas em vez de digitar uma data.
+ */
+export function calcularRecorrenciaAtePorParcelas(
+  dataVencimento: string,
+  totalParcelas: number,
+  parcelaAtual: number,
+): string {
+  const mesesRestantes = totalParcelas - parcelaAtual;
+  const [ano, mes, dia] = dataVencimento.split('-').map(Number);
+  const anoAlvo = ano + Math.floor((mes - 1 + mesesRestantes) / 12);
+  const mesAlvo = (mes - 1 + mesesRestantes) % 12;
+  const ultimoDia = new Date(anoAlvo, mesAlvo + 1, 0).getDate();
+  const diaAlvo = Math.min(dia, ultimoDia);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${anoAlvo}-${pad(mesAlvo + 1)}-${pad(diaAlvo)}`;
+}

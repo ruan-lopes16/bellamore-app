@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDespesaPagamentoUpdate,
+  calcularRecorrenciaAtePorParcelas,
   diasParaVencimento,
   formatValorMonetarioInput,
   parseValorMonetario,
@@ -115,6 +116,28 @@ describe('despesas helpers', () => {
       const resultado = templatesRecorrentesParaLancar(historico, chavesMesAtual, '2026-08-01');
 
       expect(resultado).toEqual([]);
+    });
+  });
+
+  describe('calcularRecorrenciaAtePorParcelas', () => {
+    it('contrato novo: parcela 1 de 12, conta 11 meses a partir do vencimento', () => {
+      expect(calcularRecorrenciaAtePorParcelas('2026-08-13', 12, 1)).toBe('2027-07-13');
+    });
+
+    it('contrato ja em andamento: parcela 5 de 12, conta 7 meses a partir do vencimento (exemplo do pedido original)', () => {
+      expect(calcularRecorrenciaAtePorParcelas('2026-08-13', 12, 5)).toBe('2027-03-13');
+    });
+
+    it('ultima parcela: parcela atual igual ao total, recorrencia_ate e o proprio vencimento', () => {
+      expect(calcularRecorrenciaAtePorParcelas('2026-08-13', 12, 12)).toBe('2026-08-13');
+    });
+
+    it('faz o clamp do dia quando o mes calculado tem menos dias (31 de janeiro + 1 mes cai em fevereiro)', () => {
+      expect(calcularRecorrenciaAtePorParcelas('2026-01-31', 2, 1)).toBe('2026-02-28');
+    });
+
+    it('atravessa a virada de ano corretamente', () => {
+      expect(calcularRecorrenciaAtePorParcelas('2026-11-10', 6, 4)).toBe('2027-01-10');
     });
   });
 });
