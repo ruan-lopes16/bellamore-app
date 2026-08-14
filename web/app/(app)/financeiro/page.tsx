@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -65,12 +65,13 @@ type Despesa = {
   id: string; descricao: string; categoria?: string;
   valor: number; recorrente: boolean; periodicidade?: string;
   data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
+  parcela_atual?: number; total_parcelas?: number;
   created_at?: string;
   status: 'pendente' | 'pago';
 };
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
 type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentual: number };
-type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string };
+type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number };
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -117,6 +118,10 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>('mensal');
   const [vencimento,    setVencimento]    = useState('');
   const [recorrenciaAte, setRecorrenciaAte] = useState('');
+  const [modoRepeticao, setModoRepeticao] = useState<'data' | 'parcelas'>('data');
+  const [quantidadeParcelas, setQuantidadeParcelas] = useState('');
+  const [contratoEmAndamento, setContratoEmAndamento] = useState(false);
+  const [parcelaAtualInput, setParcelaAtualInput] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
 
@@ -126,6 +131,12 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
     if (isNaN(valorN) || valorN <= 0) {
       setErro('Informe um valor maior que zero.'); setSalvando(false); return;
     }
+    const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+    const parcelaAtualNum  = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const usaParcelas = modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimento;
+    const recorrenciaAteFinal = usaParcelas
+      ? calcularRecorrenciaAtePorParcelas(vencimento, totalParcelasNum, parcelaAtualNum)
+      : recorrenciaAte;
     const { error } = await supabase.from('despesas').insert({
       empresa_id:      empresaId,
       descricao:       descricao.trim(),
@@ -134,7 +145,9 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimento || null,
-      recorrencia_ate: recorrente ? (recorrenciaAte || null) : null,
+      recorrencia_ate: recorrente ? (recorrenciaAteFinal || null) : null,
+      parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
+      total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
       status:          'pendente',
     });
     setSalvando(false);
@@ -207,8 +220,41 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
                 ))}
                 <div className="w-full mt-1">
                   <label className={labelClass}>Repetir até (opcional)</label>
-                  <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
-                    type="date" className={inputClass}/>
+                  {periodicidade === 'mensal' && (
+                    <div className="flex gap-2 mb-2">
+                      <button type="button" onClick={() => setModoRepeticao('data')}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                          modoRepeticao === 'data' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                        }`}>Por data</button>
+                      <button type="button" onClick={() => setModoRepeticao('parcelas')}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                          modoRepeticao === 'parcelas' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                        }`}>Por quantidade de parcelas</button>
+                    </div>
+                  )}
+                  {periodicidade === 'mensal' && modoRepeticao === 'parcelas' ? (
+                    <div className="flex flex-col gap-2">
+                      <input value={quantidadeParcelas} onChange={e => setQuantidadeParcelas(e.target.value)}
+                        inputMode="numeric" placeholder="Quantidade de parcelas" className={inputClass}/>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setContratoEmAndamento(false)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            !contratoEmAndamento ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Novo</button>
+                        <button type="button" onClick={() => setContratoEmAndamento(true)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            contratoEmAndamento ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Já em andamento</button>
+                      </div>
+                      {contratoEmAndamento && (
+                        <input value={parcelaAtualInput} onChange={e => setParcelaAtualInput(e.target.value)}
+                          inputMode="numeric" placeholder="Parcela atual" className={inputClass}/>
+                      )}
+                    </div>
+                  ) : (
+                    <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
+                      type="date" className={inputClass}/>
+                  )}
                 </div>
               </div>
             )}
@@ -303,6 +349,10 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   );
   const [vencimento,    setVencimento]    = useState(despesa.data_vencimento ?? '');
   const [recorrenciaAte, setRecorrenciaAte] = useState(despesa.recorrencia_ate ?? '');
+  const [modoRepeticao, setModoRepeticao] = useState<'data' | 'parcelas'>(despesa.total_parcelas ? 'parcelas' : 'data');
+  const [quantidadeParcelas, setQuantidadeParcelas] = useState(despesa.total_parcelas ? String(despesa.total_parcelas) : '');
+  const [contratoEmAndamento, setContratoEmAndamento] = useState((despesa.parcela_atual ?? 1) > 1);
+  const [parcelaAtualInput, setParcelaAtualInput] = useState(despesa.parcela_atual ? String(despesa.parcela_atual) : '');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -314,6 +364,12 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
     if (isNaN(valorN) || valorN <= 0) {
       setErro('Informe um valor maior que zero.'); setSalvando(false); return;
     }
+    const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+    const parcelaAtualNum  = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const usaParcelas = modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimento;
+    const recorrenciaAteFinal = usaParcelas
+      ? calcularRecorrenciaAtePorParcelas(vencimento, totalParcelasNum, parcelaAtualNum)
+      : recorrenciaAte;
     const { error } = await supabase.from('despesas').update({
       descricao:       descricao.trim(),
       categoria:       categoria || null,
@@ -321,7 +377,9 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimento || null,
-      recorrencia_ate: recorrente ? (recorrenciaAte || null) : null,
+      recorrencia_ate: recorrente ? (recorrenciaAteFinal || null) : null,
+      parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
+      total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
     }).eq('id', despesa.id);
     setSalvando(false);
     if (error) { setErro(error.message); return; }
@@ -400,8 +458,41 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
                 ))}
                 <div className="w-full mt-1">
                   <label className={labelClass}>Repetir até (opcional)</label>
-                  <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
-                    type="date" className={inputClass}/>
+                  {periodicidade === 'mensal' && (
+                    <div className="flex gap-2 mb-2">
+                      <button type="button" onClick={() => setModoRepeticao('data')}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                          modoRepeticao === 'data' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                        }`}>Por data</button>
+                      <button type="button" onClick={() => setModoRepeticao('parcelas')}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                          modoRepeticao === 'parcelas' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                        }`}>Por quantidade de parcelas</button>
+                    </div>
+                  )}
+                  {periodicidade === 'mensal' && modoRepeticao === 'parcelas' ? (
+                    <div className="flex flex-col gap-2">
+                      <input value={quantidadeParcelas} onChange={e => setQuantidadeParcelas(e.target.value)}
+                        inputMode="numeric" placeholder="Quantidade de parcelas" className={inputClass}/>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setContratoEmAndamento(false)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            !contratoEmAndamento ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Novo</button>
+                        <button type="button" onClick={() => setContratoEmAndamento(true)}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            contratoEmAndamento ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Já em andamento</button>
+                      </div>
+                      {contratoEmAndamento && (
+                        <input value={parcelaAtualInput} onChange={e => setParcelaAtualInput(e.target.value)}
+                          inputMode="numeric" placeholder="Parcela atual" className={inputClass}/>
+                      )}
+                    </div>
+                  ) : (
+                    <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
+                      type="date" className={inputClass}/>
+                  )}
                 </div>
               </div>
             )}
