@@ -183,6 +183,8 @@ export interface Despesa {
   periodicidade?: 'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual';
   data_vencimento?: string;
   recorrencia_ate?: string;
+  parcela_atual?: number;
+  total_parcelas?: number;
   data_pagamento?: string;
   status: DespesaStatus;
   created_at: string;
