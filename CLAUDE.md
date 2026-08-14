@@ -192,6 +192,38 @@
 
 ---
 
+### Sessão 2026-08-13 — Quantidade de parcelas em despesas recorrentes
+
+*Escopo: extensão de despesas recorrentes (web + mobile) para definir o término da recorrência*
+*por quantidade de parcelas em vez de digitar uma data — pedido do usuário a partir de uma*
+*captura de tela de outro app, usada só como referência. No campo "Repetir até" (só quando*
+*periodicidade = mensal), um toggle "Por data"/"Por quantidade de parcelas" permite informar o*
+*total de parcelas e, se o contrato já estava em andamento, em qual parcela o cadastro começa —*
+*o app calcula `recorrencia_ate` sozinho. Auto-lançamento mensal passa a incrementar um contador*
+*"Parcela X de Y" a cada mês, mostrado na listagem. Executado via*
+*superpowers:subagent-driven-development — 7 tarefas, implementer + reviewer dedicados por tarefa.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web em todas as entregas; mobile mantém os 10 erros pré-existentes (verificados contra a baseline antes de começar), sem nenhum erro novo |
+| UX / Padrões    | 9.0  | Toggle "Por data"/"Por quantidade de parcelas" reaproveita o padrão visual já usado pelos chips de periodicidade (mesmas cores/estados); nenhum campo existente foi removido, só adicionado |
+| Segurança       | 9.0  | Migration aditiva (`ADD COLUMN` apenas, 2 colunas nullable); sem política de RLS nova — já coberto pela regra existente de `despesas` (UPDATE restrito a gestor/owner desde a migration 003) |
+| Documentação    | 9.0  | Spec e plano completos em `docs/superpowers/specs/` e `docs/superpowers/plans/`; JSDoc pt-BR no helper novo em `shared/despesas.ts`, incluindo a precondição de clamp documentada após a correção |
+| Arquitetura     | 9.0  | Cálculo de data extraído para função pura testável (`calcularRecorrenciaAtePorParcelas`), mesmo padrão de `recorrenciaAindaAtiva`/`diasParaVencimento`; nenhuma mudança na lógica já testada de quando o auto-lançamento para (`recorrencia_ate` continua sendo a única fonte de verdade) |
+| Performance     | 9.0  | Sem query nova — reaproveita a consulta de histórico de recorrentes já existente, só adicionando duas colunas ao SELECT |
+| Visual (UI)     | —    | Sem conta de teste disponível para login no navegador local — verificação visual não executada nesta sessão |
+| **Completude**  | 9.0  | Feature completa em 4 modais (web ×2, mobile ×2) mais auto-lançamento e listagem; 2 bugs reais encontrados em revisão e corrigidos antes do merge |
+| **Proatividade**| 9.5  | O mesmo bug (falta de checagem de periodicidade mensal) foi encontrado uma vez no web e evitado proativamente nas duas tarefas mobile seguintes, avisando cada implementador antes de despachar; bug de data inválida (`parcelaAtual > totalParcelas`) encontrado na revisão da função pura antes de qualquer UI consumi-la |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Bugs encontrados e corrigidos nesta sessão:**
+- `shared/despesas.ts` (Task 2, revisão de subagent): `calcularRecorrenciaAtePorParcelas` gerava strings de data inválidas (ex.: mês `"00"` ou `"-3"`) quando `parcelaAtual` era maior que `totalParcelas` — entrada real e alcançável, já que a UI não impede o usuário de digitar um número de parcela fora do intervalo. Corrigido com clamp defensivo de `parcelaAtual` para `[1, totalParcelas]` dentro da própria função, fechando a classe inteira do bug (verificado para valores muito altos, zero e negativos, não só o caso testado).
+- `web/app/(app)/financeiro/page.tsx` (Task 3, revisão de subagent): a lógica de salvar calculava `usaParcelas` sem checar `periodicidade === 'mensal'` — só a interface escondia o toggle fora do modo mensal, mas nada impedia gravar `parcela_atual`/`total_parcelas` numa despesa não-mensal se o usuário trocasse a periodicidade depois de escolher "por quantidade". Corrigido adicionando a checagem em ambos os modais (Nova e Editar); o mesmo gap existia no texto do plano para as tarefas mobile seguintes e foi evitado proativamente antes de despachar cada uma.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
