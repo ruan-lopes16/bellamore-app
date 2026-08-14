@@ -133,7 +133,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
     }
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
     const parcelaAtualNum  = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
-    const usaParcelas = modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimento;
+    const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimento;
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimento, totalParcelasNum, parcelaAtualNum)
       : recorrenciaAte;
@@ -366,7 +366,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
     }
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
     const parcelaAtualNum  = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
-    const usaParcelas = modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimento;
+    const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimento;
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimento, totalParcelasNum, parcelaAtualNum)
       : recorrenciaAte;
