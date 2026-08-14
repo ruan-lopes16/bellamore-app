@@ -157,7 +157,7 @@ export function calcularRecorrenciaAtePorParcelas(
   totalParcelas: number,
   parcelaAtual: number,
 ): string {
-  const parcelaAtualClamped = Math.min(Math.max(parcelaAtual, 1), totalParcelas);
+  const parcelaAtualClamped = clampParcelaAtual(parcelaAtual, totalParcelas);
   const mesesRestantes = totalParcelas - parcelaAtualClamped;
   const [ano, mes, dia] = dataVencimento.split('-').map(Number);
   const anoAlvo = ano + Math.floor((mes - 1 + mesesRestantes) / 12);
@@ -166,4 +166,32 @@ export function calcularRecorrenciaAtePorParcelas(
   const diaAlvo = Math.min(dia, ultimoDia);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${anoAlvo}-${pad(mesAlvo + 1)}-${pad(diaAlvo)}`;
+}
+
+/**
+ * Garante que `parcelaAtual` fique dentro de `[1, totalParcelas]` antes de
+ * persistir ou usar em calculos — evita salvar um numero de parcela maior
+ * que o total do contrato (ex: usuario digita 15 em um contrato de 12).
+ */
+export function clampParcelaAtual(parcelaAtual: number, totalParcelas: number): number {
+  return Math.min(Math.max(parcelaAtual, 1), totalParcelas);
+}
+
+/**
+ * Calcula o numero da parcela ao lancar a recorrencia no mes de referencia,
+ * contando os meses realmente decorridos desde o vencimento do template em
+ * vez de sempre somar 1 — o auto-lancamento so roda quando alguem abre o
+ * Financeiro, entao meses podem ter sido pulados sem que a despesa fosse
+ * lancada neles. Nunca ultrapassa `totalParcelas`.
+ */
+export function proximaParcelaAtual(
+  parcelaAtualTemplate: number,
+  totalParcelas: number,
+  dataVencimentoTemplate: string,
+  anoReferencia: number,
+  mesReferencia: number, // 1-based (1 = janeiro)
+): number {
+  const [anoTemplate, mesTemplate] = dataVencimentoTemplate.split('-').map(Number);
+  const mesesDecorridos = (anoReferencia - anoTemplate) * 12 + (mesReferencia - mesTemplate);
+  return Math.min(parcelaAtualTemplate + Math.max(mesesDecorridos, 1), totalParcelas);
 }

@@ -36,7 +36,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -674,7 +674,20 @@ function ModalEditarDespesa({
     setSalvando(true);
     const vencimentoBanco = dataParaBanco(vencimento);
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
-    const parcelaAtualNum  = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
+      if (totalParcelasNum < 1) {
+        setSalvando(false);
+        Alert.alert('Quantidade inválida', 'Informe a quantidade de parcelas.');
+        return;
+      }
+      if (!vencimentoBanco) {
+        setSalvando(false);
+        Alert.alert('Vencimento obrigatório', 'Informe a data de vencimento para calcular o término das parcelas.');
+        return;
+      }
+    }
     const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimentoBanco;
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimentoBanco!, totalParcelasNum, parcelaAtualNum)

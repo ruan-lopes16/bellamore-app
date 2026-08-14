@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDespesaPagamentoUpdate,
   calcularRecorrenciaAtePorParcelas,
+  clampParcelaAtual,
   diasParaVencimento,
   formatValorMonetarioInput,
   parseValorMonetario,
   progressoVencimento,
+  proximaParcelaAtual,
   recorrenciaAindaAtiva,
   templatesRecorrentesParaLancar,
 } from '@shared/despesas';
@@ -142,6 +144,34 @@ describe('despesas helpers', () => {
 
     it('clampa parcela atual maior que o total em vez de gerar data invalida', () => {
       expect(calcularRecorrenciaAtePorParcelas('2026-01-15', 3, 4)).toBe('2026-01-15');
+    });
+  });
+
+  describe('clampParcelaAtual', () => {
+    it('clampa para o total quando parcela atual excede o total', () => {
+      expect(clampParcelaAtual(15, 12)).toBe(12);
+    });
+
+    it('clampa para 1 quando parcela atual e menor que 1', () => {
+      expect(clampParcelaAtual(0, 12)).toBe(1);
+    });
+  });
+
+  describe('proximaParcelaAtual', () => {
+    it('mes seguinte sem pular: incrementa em 1', () => {
+      expect(proximaParcelaAtual(5, 12, '2026-08-13', 2026, 9)).toBe(6);
+    });
+
+    it('pulando um mes: incrementa pelos meses realmente decorridos', () => {
+      expect(proximaParcelaAtual(6, 12, '2026-09-13', 2026, 11)).toBe(8);
+    });
+
+    it('faz o clamp no total quando os meses pulados ultrapassariam o total de parcelas', () => {
+      expect(proximaParcelaAtual(11, 12, '2027-02-13', 2027, 4)).toBe(12);
+    });
+
+    it('atravessa a virada de ano corretamente', () => {
+      expect(proximaParcelaAtual(10, 12, '2026-11-13', 2027, 1)).toBe(12);
     });
   });
 });

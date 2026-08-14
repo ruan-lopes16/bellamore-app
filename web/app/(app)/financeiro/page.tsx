@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -132,7 +132,16 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
       setErro('Informe um valor maior que zero.'); setSalvando(false); return;
     }
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
-    const parcelaAtualNum  = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
+      if (totalParcelasNum < 1) {
+        setErro('Informe a quantidade de parcelas.'); setSalvando(false); return;
+      }
+      if (!vencimento) {
+        setErro('Informe a data de vencimento para calcular o término das parcelas.'); setSalvando(false); return;
+      }
+    }
     const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimento;
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimento, totalParcelasNum, parcelaAtualNum)
@@ -365,7 +374,16 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
       setErro('Informe um valor maior que zero.'); setSalvando(false); return;
     }
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
-    const parcelaAtualNum  = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
+      if (totalParcelasNum < 1) {
+        setErro('Informe a quantidade de parcelas.'); setSalvando(false); return;
+      }
+      if (!vencimento) {
+        setErro('Informe a data de vencimento para calcular o término das parcelas.'); setSalvando(false); return;
+      }
+    }
     const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimento;
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimento, totalParcelasNum, parcelaAtualNum)
@@ -840,8 +858,8 @@ export default function FinanceiroPage() {
         })(),
         recorrencia_ate: r.recorrencia_ate ?? null,
         total_parcelas:  r.total_parcelas ?? null,
-        parcela_atual:   r.total_parcelas != null && r.parcela_atual != null
-          ? r.parcela_atual + 1
+        parcela_atual:   r.total_parcelas != null && r.parcela_atual != null && r.data_vencimento
+          ? proximaParcelaAtual(r.parcela_atual, r.total_parcelas, r.data_vencimento, mesRef.getFullYear(), mesRef.getMonth() + 1)
           : null,
         status:          'pendente',
       }))
