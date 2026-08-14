@@ -149,13 +149,16 @@ export function progressoVencimento(
  * contrato e de qual parcela essa e (1 = primeira). Usado para preencher
  * `recorrencia_ate` automaticamente quando o usuario escolhe informar
  * quantidade de parcelas em vez de digitar uma data.
+ * `parcelaAtual` fora do intervalo `[1, totalParcelas]` e ajustado (clamp)
+ * para dentro do intervalo em vez de gerar uma data invalida.
  */
 export function calcularRecorrenciaAtePorParcelas(
   dataVencimento: string,
   totalParcelas: number,
   parcelaAtual: number,
 ): string {
-  const mesesRestantes = totalParcelas - parcelaAtual;
+  const parcelaAtualClamped = Math.min(Math.max(parcelaAtual, 1), totalParcelas);
+  const mesesRestantes = totalParcelas - parcelaAtualClamped;
   const [ano, mes, dia] = dataVencimento.split('-').map(Number);
   const anoAlvo = ano + Math.floor((mes - 1 + mesesRestantes) / 12);
   const mesAlvo = (mes - 1 + mesesRestantes) % 12;

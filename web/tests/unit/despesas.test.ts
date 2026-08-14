@@ -139,5 +139,9 @@ describe('despesas helpers', () => {
     it('atravessa a virada de ano corretamente', () => {
       expect(calcularRecorrenciaAtePorParcelas('2026-11-10', 6, 4)).toBe('2027-01-10');
     });
+
+    it('clampa parcela atual maior que o total em vez de gerar data invalida', () => {
+      expect(calcularRecorrenciaAtePorParcelas('2026-01-15', 3, 4)).toBe('2026-01-15');
+    });
   });
 });
