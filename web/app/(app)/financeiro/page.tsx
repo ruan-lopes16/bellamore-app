@@ -641,7 +641,7 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId).gte('created_at', ini6).lte('created_at', fim),
       // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
       supabase.from('despesas')
-        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate')
+        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas')
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
         .lt('data_vencimento', periodo.startDate)   // somente meses passados
         .order('data_vencimento', { ascending: false }),
@@ -839,6 +839,10 @@ export default function FinanceiroPage() {
           return format(new Date(ano, mes, Math.min(dia, ultimo)), 'yyyy-MM-dd');
         })(),
         recorrencia_ate: r.recorrencia_ate ?? null,
+        total_parcelas:  r.total_parcelas ?? null,
+        parcela_atual:   r.total_parcelas != null && r.parcela_atual != null
+          ? r.parcela_atual + 1
+          : null,
         status:          'pendente',
       }))
     );
@@ -1213,6 +1217,7 @@ export default function FinanceiroPage() {
                           : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
                         }
                         {d.recorrente && ' · Recorrente'}
+                        {d.total_parcelas ? ` · Parcela ${d.parcela_atual ?? 1} de ${d.total_parcelas}` : ''}
                         {labelDias && ` · ${labelDias}`}
                       </p>
                     </div>
