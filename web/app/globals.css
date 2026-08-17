@@ -279,3 +279,10 @@ html, body {
 
 /* ── Trava scroll de fundo quando há modal aberto ─────────── */
 html:has(.bm-modal) { overflow: hidden; }
+
+/* Mesma trava, mas só abaixo do breakpoint md — para modais cujo estado
+   (ex: seleção na Timeline) também é alcançável no desktop, onde o elemento
+   fica display:none mas :has() ainda casaria com ele se não escopado aqui. */
+@media (max-width: 767px) {
+  html:has(.bm-modal-mobile) { overflow: hidden; }
+}

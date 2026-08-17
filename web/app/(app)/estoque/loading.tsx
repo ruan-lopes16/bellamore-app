@@ -58,7 +58,7 @@ export default function EstoqueLoading() {
       </div>
 
       {/* Tabela grid-cols-12 com scroll horizontal no mobile */}
-      <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+      <div className="bg-surface border border-border rounded-2xl overflow-y-hidden shadow-sm overflow-x-auto">
         {/* Cabeçalho */}
         <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg min-w-[560px] gap-2">
           {[

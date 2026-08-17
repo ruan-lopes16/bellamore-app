@@ -1330,21 +1330,22 @@ function TimelineView({
       {/* ── Painel lateral — detalhes do agendamento ── */}
       {agSel && (
         <>
-          {/* Mobile: backdrop + bottom sheet ancorado acima do bottom nav */}
-          <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={() => setAgSel(null)} />
-          <div className="md:hidden fixed left-3 right-3 z-50 bg-surface border border-border rounded-2xl shadow-xl"
-            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 76px)' }}>
-            <div className="flex items-center justify-between p-3 border-b border-border">
-              <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
-              <button onClick={() => setAgSel(null)}
-                className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
-                <X size={14} />
-              </button>
-            </div>
-            <div className="p-3 max-h-[50vh] overflow-y-auto">
-              <AgCard ag={agSel} empresaId={empresaId}
-                onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
-                onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
+          {/* Mobile: modal centralizado — mesmo padrão dos modais de despesa */}
+          <div className="md:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAgSel(null)} />
+            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
+                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
+                <button onClick={() => setAgSel(null)}
+                  className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="p-3 overflow-y-auto flex-1">
+                <AgCard ag={agSel} empresaId={empresaId}
+                  onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
+                  onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
+              </div>
             </div>
           </div>
 
@@ -1665,8 +1666,8 @@ export default function AgendaPage() {
             ] as const).map(({ key, label }) => (
               <button key={key} onClick={() => setView(key)}
                 style={view === key
-                  ? { background: 'var(--color-primary)', color: '#fff', fontWeight: 700, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '8px 14px' }
-                  : { color: 'var(--color-ink3)', fontWeight: 600, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '8px 14px' }}
+                  ? { background: 'var(--color-primary)', color: '#fff', fontWeight: 700, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '16px 12px' }
+                  : { color: 'var(--color-ink3)', fontWeight: 600, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '16px 12px' }}
                 className="transition">{label}</button>
             ))}
           </div>

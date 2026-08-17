@@ -1010,7 +1010,7 @@ export default function EstoquePage() {
           )}
         </div>
       ) : (
-        <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm overflow-x-auto">
+        <div className="bg-surface border border-border rounded-2xl overflow-y-hidden shadow-sm overflow-x-auto max-md:shadow-[inset_-12px_0_12px_-12px_rgba(0,0,0,0.15)]">
           {/* Cabeçalho */}
           <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg text-xs font-semibold text-text-3 uppercase tracking-wide min-w-[720px]">
             <div className="col-span-3">Produto</div>

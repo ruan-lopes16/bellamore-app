@@ -39,4 +39,32 @@ describe('mobile layout regressions', () => {
     expect(css).toContain('.bm-mobile-page-header');
     expect(css).toContain('.bm-mobile-stock-actions');
   });
+
+  it('declara viewport-fit=cover para env(safe-area-inset-*) funcionar no PWA iOS', () => {
+    const layout = read('app/layout.tsx');
+
+    expect(layout).toMatch(/export const viewport/);
+    expect(layout).toContain("viewportFit: 'cover'");
+  });
+
+  it('nao usa overflow-hidden junto de overflow-x-auto na tabela do Estoque (ambiguidade de cascata)', () => {
+    const pagina  = read('app/(app)/estoque/page.tsx');
+    const loading = read('app/(app)/estoque/loading.tsx');
+
+    expect(pagina).not.toMatch(/overflow-hidden[^"]*overflow-x-auto/);
+    expect(pagina).toMatch(/overflow-y-hidden[^"]*overflow-x-auto/);
+    expect(pagina).toContain('max-md:shadow-[inset_-12px_0_12px_-12px_rgba(0,0,0,0.15)]');
+    expect(loading).not.toMatch(/overflow-hidden[^"]*overflow-x-auto/);
+    expect(loading).toMatch(/overflow-y-hidden[^"]*overflow-x-auto/);
+  });
+
+  it('usa a variante de modal escopada ao mobile no painel Detalhes da Agenda (evita travar scroll do desktop)', () => {
+    const css = read('app/globals.css');
+    const agenda = read('app/(app)/agenda/page.tsx');
+
+    expect(css).toContain('.bm-modal-mobile');
+    expect(css).toMatch(/max-width:\s*767px[\s\S]{0,80}html:has\(\.bm-modal-mobile\)/);
+    expect(agenda).toContain('bm-modal-mobile');
+    expect(agenda).not.toMatch(/className="md:hidden bm-modal fixed/);
+  });
 });
