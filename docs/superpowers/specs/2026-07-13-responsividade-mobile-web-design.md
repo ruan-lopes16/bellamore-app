@@ -78,6 +78,12 @@ que **neutraliza silenciosamente** o trabalho da parte 1, mais 4 pontos fora do 
 10. No card Comissões do Dashboard, trocar o texto do valor pendente para deixar a relação explícita, ex:
     `"{fmt(comPendenteMes)} de {fmt(totalComMes)} pendente"` em vez de só `"{fmt(comPendenteMes)} pend."`.
 
+### Status — Parte 2 implementada (17/08)
+
+Os 5 itens acima (6-10) foram implementados e commitados na branch `fix/responsividade-mobile-pwa`, seguindo
+o plano `docs/superpowers/plans/2026-08-14-responsividade-mobile-web-parte2.md`. A verificação final (testes
+unitários, TypeScript, lint e build) passou limpa, incluindo os novos testes de regressão de layout mobile.
+
 ### Fora de escopo (parte 2)
 
 - A barra de navegação "aparecendo no meio da tela" num dos screenshots do Estoque não foi reproduzida como
