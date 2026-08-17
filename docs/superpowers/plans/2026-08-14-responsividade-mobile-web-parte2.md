@@ -157,6 +157,17 @@ Notas sobre a troca:
   até a bottom nav.
 - O painel de desktop (`{/* Desktop: painel lateral */}`, `hidden md:block`, linhas seguintes) **não muda**.
 
+> **Nota da revisão final de branch (17/08):** a troca de `max-h-[50vh]` para
+> `max-h-[85vh]` não é, sozinha, a correção do sintoma relatado. O conteúdo do
+> `AgCard` é pequeno (~130-175px) e nunca chegava perto do teto de 50vh — o
+> teto nunca foi o fator limitante. A centralização e a trava de scroll de
+> fundo são ganhos reais, mas o corte do dropdown de status (que abre para
+> baixo via `position: absolute` e pode ser clipado pelo wrapper
+> `overflow-y-auto`) provavelmente continua acontecendo, igual a antes da
+> branch. Não corrigido aqui — precisa de validação em dispositivo real antes
+> de escolher entre reservar espaço no wrapper ou inverter a direção do
+> dropdown.
+
 - [ ] **Passo 3: Rodar TypeScript**
 
 Run: `cd web && npx tsc --noEmit`
@@ -188,6 +199,19 @@ Tailwind as emite no CSS compilado — uma disputa de cascata que não deveria e
 trocar `overflow-hidden` por `overflow-y-hidden`, que só afeta o eixo vertical (suficiente para o
 `rounded-2xl` recortar cantos corretamente) e elimina qualquer ambiguidade no eixo horizontal, onde
 `overflow-x-auto` passa a ser a única regra em jogo.
+
+> **Nota da revisão final de branch (17/08):** a alegação de "disputa de cascata"
+> acima não se sustentou. Inspeção do CSS compilado de produção
+> (`web/.next/static/chunks/*.css`) mostra que `.overflow-x-auto` já era emitido
+> DEPOIS de `.overflow-hidden` no bundle antes desta branch — ou seja, o eixo X
+> já estava em `auto`, não `hidden`, mesmo com as duas classes juntas. A troca
+> para `overflow-y-hidden` continua sendo uma correção válida (remove uma
+> ambiguidade real de especificidade, mesmo que ela não estivesse decidindo a
+> favor do bug), mas **não está confirmado que ela resolve o sintoma relatado**
+> (arrastar não revela as colunas cortadas no iPhone). A causa real do sintoma
+> continua desconhecida — não foi possível descartar `touch-action` herdado,
+> conflito de gesto com scroll vertical, ou outra causa sem um dispositivo real
+> para testar.
 
 - [ ] **Passo 1: Escrever o teste que falha**
 

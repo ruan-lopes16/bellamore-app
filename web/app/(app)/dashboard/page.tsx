@@ -371,7 +371,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               </span>
             )}
             {sub !== null && (
-              <p className="truncate mt-1.5" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}>{sub}</p>
+              <p className="mt-1.5 leading-tight sm:truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}>{sub}</p>
             )}
           </div>
         ))}

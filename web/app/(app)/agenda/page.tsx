@@ -1331,7 +1331,7 @@ function TimelineView({
       {agSel && (
         <>
           {/* Mobile: modal centralizado — mesmo padrão dos modais de despesa */}
-          <div className="md:hidden bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="md:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAgSel(null)} />
             <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[85vh] flex flex-col">
               <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
@@ -1666,8 +1666,8 @@ export default function AgendaPage() {
             ] as const).map(({ key, label }) => (
               <button key={key} onClick={() => setView(key)}
                 style={view === key
-                  ? { background: 'var(--color-primary)', color: '#fff', fontWeight: 700, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '6px 12px' }
-                  : { color: 'var(--color-ink3)', fontWeight: 600, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '6px 12px' }}
+                  ? { background: 'var(--color-primary)', color: '#fff', fontWeight: 700, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '16px 12px' }
+                  : { color: 'var(--color-ink3)', fontWeight: 600, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '16px 12px' }}
                 className="transition">{label}</button>
             ))}
           </div>

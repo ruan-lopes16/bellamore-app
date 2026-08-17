@@ -110,6 +110,16 @@ unitários, TypeScript, lint e build) passou limpa, incluindo os novos testes de
   cortar, centralizado na tela.
 - A tabela de Estoque permite ver as colunas cortadas por gesto horizontal em toque real (não só com mouse).
 - O seletor Semana/Mês/Timeline ocupa uma altura proporcional ao restante dos controles da Agenda no mobile.
+
+> **Status desses 3 critérios após a revisão final de branch (17/08): não verificados.**
+> A implementação foi feita e o código commitado, mas a revisão encontrou que as causas
+> raiz documentadas para os itens "Detalhes sem cortar" e "rolagem lateral do Estoque"
+> não se confirmaram sob inspeção mais profunda (ver notas correspondentes no plano
+> `docs/superpowers/plans/2026-08-14-responsividade-mobile-web-parte2.md`), e o item do
+> seletor Semana/Mês/Timeline teve seu padding reajustado nesta mesma revisão para não
+> violar a regra de 44px de alvo de toque. Os três dependem de validação visual num
+> iPhone real antes de serem considerados fechados — nenhuma sessão até agora teve
+> acesso a um dispositivo físico ou conta de teste para essa validação.
 - O card Comissões do Dashboard deixa explícito que o valor pendente é uma parte do valor total.
 
 ## Validação

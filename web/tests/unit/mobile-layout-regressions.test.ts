@@ -57,4 +57,14 @@ describe('mobile layout regressions', () => {
     expect(loading).not.toMatch(/overflow-hidden[^"]*overflow-x-auto/);
     expect(loading).toMatch(/overflow-y-hidden[^"]*overflow-x-auto/);
   });
+
+  it('usa a variante de modal escopada ao mobile no painel Detalhes da Agenda (evita travar scroll do desktop)', () => {
+    const css = read('app/globals.css');
+    const agenda = read('app/(app)/agenda/page.tsx');
+
+    expect(css).toContain('.bm-modal-mobile');
+    expect(css).toMatch(/max-width:\s*767px[\s\S]{0,80}html:has\(\.bm-modal-mobile\)/);
+    expect(agenda).toContain('bm-modal-mobile');
+    expect(agenda).not.toMatch(/className="md:hidden bm-modal fixed/);
+  });
 });
