@@ -354,7 +354,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           { label: 'Fat. Bruto',    value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
           { label: 'Fat. Líquido',  value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
           { label: 'Lucro do mês',  value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: null, icon: Wallet },
-          { label: 'Comissões',     value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} pend.` : 'Em dia', icon: BadgeDollarSign },
+          { label: 'Comissões',     value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} de ${fmt(totalComMes)} pendente` : 'Em dia', icon: BadgeDollarSign },
           { label: '% Cancelamento', value: `${pctCancelamento.toFixed(1)}%`, color: 'var(--color-rose)', delta: null, sub: perdidosMes > 0 ? `${perdidosMes} perdido(s)` : null, icon: XCircle },
         ].map(({ label, value, color, delta, sub, icon: Icon }, i) => (
           <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
