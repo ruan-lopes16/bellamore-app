@@ -40,6 +40,8 @@ export interface DespesaItem {
   periodicidade?: string;
   data_vencimento?: string;
   recorrencia_ate?: string;
+  parcela_atual?: number;
+  total_parcelas?: number;
   data_pagamento?: string;
   created_at?: string;
   status: 'pendente' | 'pago';

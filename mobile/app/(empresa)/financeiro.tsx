@@ -36,7 +36,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -248,6 +248,7 @@ function DespesaRow({
               : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
             }
             {item.recorrente ? ' · Recorrente' : ''}
+            {item.total_parcelas ? ` · Parcela ${item.parcela_atual ?? 1} de ${item.total_parcelas}` : ''}
             {labelDias ? ` · ${labelDias}` : ''}
           </Text>
         </View>
@@ -616,6 +617,10 @@ function ModalEditarDespesa({
   const [periodicidade, setPeriodicidade] = useState('mensal');
   const [vencimento,    setVencimento]    = useState('');
   const [recorrenciaAte, setRecorrenciaAte] = useState('');
+  const [modoRepeticao, setModoRepeticao] = useState<'data' | 'parcelas'>('data');
+  const [quantidadeParcelas, setQuantidadeParcelas] = useState('');
+  const [contratoEmAndamento, setContratoEmAndamento] = useState(false);
+  const [parcelaAtualInput, setParcelaAtualInput] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -639,6 +644,10 @@ function ModalEditarDespesa({
     } else {
       setRecorrenciaAte('');
     }
+    setModoRepeticao(item.total_parcelas ? 'parcelas' : 'data');
+    setQuantidadeParcelas(item.total_parcelas ? String(item.total_parcelas) : '');
+    setContratoEmAndamento((item.parcela_atual ?? 1) > 1);
+    setParcelaAtualInput(item.parcela_atual ? String(item.parcela_atual) : '');
     setConfirmDelete(false);
   }, [item]);
 
@@ -663,14 +672,36 @@ function ModalEditarDespesa({
       Alert.alert('Valor inválido', 'Informe um valor maior que zero.'); return;
     }
     setSalvando(true);
+    const vencimentoBanco = dataParaBanco(vencimento);
+    const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+    const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
+    const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
+      if (totalParcelasNum < 1) {
+        setSalvando(false);
+        Alert.alert('Quantidade inválida', 'Informe a quantidade de parcelas.');
+        return;
+      }
+      if (!vencimentoBanco) {
+        setSalvando(false);
+        Alert.alert('Vencimento obrigatório', 'Informe a data de vencimento para calcular o término das parcelas.');
+        return;
+      }
+    }
+    const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimentoBanco;
+    const recorrenciaAteFinal = usaParcelas
+      ? calcularRecorrenciaAtePorParcelas(vencimentoBanco!, totalParcelasNum, parcelaAtualNum)
+      : dataParaBanco(recorrenciaAte);
     const { error } = await supabase.from('despesas').update({
       descricao:       descricao.trim(),
       categoria:       categoria || null,
       valor:           valorN,
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
-      data_vencimento: dataParaBanco(vencimento),
-      recorrencia_ate: recorrente ? dataParaBanco(recorrenciaAte) : null,
+      data_vencimento: vencimentoBanco,
+      recorrencia_ate: recorrente ? recorrenciaAteFinal : null,
+      parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
+      total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
     }).eq('id', item.id);
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
@@ -854,20 +885,107 @@ function ModalEditarDespesa({
                   <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2, marginBottom: 8 }}>
                     Repetir até (opcional)
                   </Text>
-                  <View style={{
-                    backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
-                    borderRadius: 12, paddingHorizontal: 14, height: 48,
-                    justifyContent: 'center',
-                  }}>
-                    <TextInput
-                      value={recorrenciaAte}
-                      onChangeText={v => setRecorrenciaAte(mascaraData(v))}
-                      placeholder="DD/MM/AAAA"
-                      placeholderTextColor={C.text4}
-                      keyboardType="numeric"
-                      style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
-                    />
-                  </View>
+                  {periodicidade === 'mensal' && (
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => setModoRepeticao('data')}
+                        style={{
+                          flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
+                          backgroundColor: modoRepeticao === 'data' ? C.amberSoft : C.bg,
+                          borderWidth: 1, borderColor: modoRepeticao === 'data' ? C.amber : C.border,
+                        }}
+                      >
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoRepeticao === 'data' ? C.amber : C.text3 }}>
+                          Por data
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setModoRepeticao('parcelas')}
+                        style={{
+                          flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
+                          backgroundColor: modoRepeticao === 'parcelas' ? C.amberSoft : C.bg,
+                          borderWidth: 1, borderColor: modoRepeticao === 'parcelas' ? C.amber : C.border,
+                        }}
+                      >
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoRepeticao === 'parcelas' ? C.amber : C.text3 }}>
+                          Por quantidade de parcelas
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {periodicidade === 'mensal' && modoRepeticao === 'parcelas' ? (
+                    <View style={{ gap: 8 }}>
+                      <View style={{
+                        backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                        borderRadius: 12, paddingHorizontal: 14, height: 48, justifyContent: 'center',
+                      }}>
+                        <TextInput
+                          value={quantidadeParcelas}
+                          onChangeText={setQuantidadeParcelas}
+                          placeholder="Quantidade de parcelas"
+                          placeholderTextColor={C.text4}
+                          keyboardType="numeric"
+                          style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
+                        />
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={() => setContratoEmAndamento(false)}
+                          style={{
+                            flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
+                            backgroundColor: !contratoEmAndamento ? C.amberSoft : C.bg,
+                            borderWidth: 1, borderColor: !contratoEmAndamento ? C.amber : C.border,
+                          }}
+                        >
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: !contratoEmAndamento ? C.amber : C.text3 }}>
+                            Novo
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setContratoEmAndamento(true)}
+                          style={{
+                            flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
+                            backgroundColor: contratoEmAndamento ? C.amberSoft : C.bg,
+                            borderWidth: 1, borderColor: contratoEmAndamento ? C.amber : C.border,
+                          }}
+                        >
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: contratoEmAndamento ? C.amber : C.text3 }}>
+                            Já em andamento
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      {contratoEmAndamento && (
+                        <View style={{
+                          backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                          borderRadius: 12, paddingHorizontal: 14, height: 48, justifyContent: 'center',
+                        }}>
+                          <TextInput
+                            value={parcelaAtualInput}
+                            onChangeText={setParcelaAtualInput}
+                            placeholder="Parcela atual"
+                            placeholderTextColor={C.text4}
+                            keyboardType="numeric"
+                            style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
+                          />
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={{
+                      backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                      borderRadius: 12, paddingHorizontal: 14, height: 48,
+                      justifyContent: 'center',
+                    }}>
+                      <TextInput
+                        value={recorrenciaAte}
+                        onChangeText={v => setRecorrenciaAte(mascaraData(v))}
+                        placeholder="DD/MM/AAAA"
+                        placeholderTextColor={C.text4}
+                        keyboardType="numeric"
+                        style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
+                      />
+                    </View>
+                  )}
                 </View>
               </View>
             )}

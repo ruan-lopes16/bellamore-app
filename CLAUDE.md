@@ -192,6 +192,45 @@
 
 ---
 
+### Sessão 2026-08-13 — Quantidade de parcelas em despesas recorrentes
+
+*Escopo: extensão de despesas recorrentes (web + mobile) para definir o término da recorrência*
+*por quantidade de parcelas em vez de digitar uma data — pedido do usuário a partir de uma*
+*captura de tela de outro app, usada só como referência. No campo "Repetir até" (só quando*
+*periodicidade = mensal), um toggle "Por data"/"Por quantidade de parcelas" permite informar o*
+*total de parcelas e, se o contrato já estava em andamento, em qual parcela o cadastro começa —*
+*o app calcula `recorrencia_ate` sozinho. Auto-lançamento mensal passa a incrementar um contador*
+*"Parcela X de Y" a cada mês, mostrado na listagem. Executado via*
+*superpowers:subagent-driven-development — 7 tarefas, implementer + reviewer dedicados por tarefa.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web em todas as entregas; mobile mantém os 10 erros pré-existentes (verificados contra a baseline antes de começar), sem nenhum erro novo |
+| UX / Padrões    | 9.0  | Toggle "Por data"/"Por quantidade de parcelas" reaproveita o padrão visual já usado pelos chips de periodicidade (mesmas cores/estados); nenhum campo existente foi removido, só adicionado |
+| Segurança       | 9.0  | Migration aditiva (`ADD COLUMN` apenas, 2 colunas nullable); sem política de RLS nova — já coberto pela regra existente de `despesas` (UPDATE restrito a gestor/owner desde a migration 003) |
+| Documentação    | 9.0  | Spec e plano completos em `docs/superpowers/specs/` e `docs/superpowers/plans/`; JSDoc pt-BR no helper novo em `shared/despesas.ts`, incluindo a precondição de clamp documentada após a correção |
+| Arquitetura     | 9.0  | Cálculo de data extraído para função pura testável (`calcularRecorrenciaAtePorParcelas`), mesmo padrão de `recorrenciaAindaAtiva`/`diasParaVencimento`; nenhuma mudança na lógica já testada de quando o auto-lançamento para (`recorrencia_ate` continua sendo a única fonte de verdade) |
+| Performance     | 9.0  | Sem query nova — reaproveita a consulta de histórico de recorrentes já existente, só adicionando duas colunas ao SELECT |
+| Visual (UI)     | —    | Sem conta de teste disponível para login no navegador local — verificação visual não executada nesta sessão |
+| **Completude**  | 9.0  | Feature completa em 4 modais (web ×2, mobile ×2) mais auto-lançamento e listagem; 2 bugs reais encontrados em revisão de tarefa + 3 encontrados na revisão final de branch (visão que nenhuma revisão por tarefa isolada conseguiria ter), todos corrigidos antes do PR |
+| **Proatividade**| 9.5  | O mesmo bug (falta de checagem de periodicidade mensal) foi encontrado uma vez no web e evitado proativamente nas duas tarefas mobile seguintes, avisando cada implementador antes de despachar; bug de data inválida (`parcelaAtual > totalParcelas`) encontrado na revisão da função pura antes de qualquer UI consumi-la; revisão final de branch (opus) despachada por disciplina do processo, não por sinal de problema — e mesmo assim encontrou 3 falhas reais na costura entre as 4 telas |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Bugs encontrados e corrigidos nesta sessão:**
+- `shared/despesas.ts` (Task 2, revisão de subagent): `calcularRecorrenciaAtePorParcelas` gerava strings de data inválidas (ex.: mês `"00"` ou `"-3"`) quando `parcelaAtual` era maior que `totalParcelas` — entrada real e alcançável, já que a UI não impede o usuário de digitar um número de parcela fora do intervalo. Corrigido com clamp defensivo de `parcelaAtual` para `[1, totalParcelas]` dentro da própria função, fechando a classe inteira do bug (verificado para valores muito altos, zero e negativos, não só o caso testado).
+- `web/app/(app)/financeiro/page.tsx` (Task 3, revisão de subagent): a lógica de salvar calculava `usaParcelas` sem checar `periodicidade === 'mensal'` — só a interface escondia o toggle fora do modo mensal, mas nada impedia gravar `parcela_atual`/`total_parcelas` numa despesa não-mensal se o usuário trocasse a periodicidade depois de escolher "por quantidade". Corrigido adicionando a checagem em ambos os modais (Nova e Editar); o mesmo gap existia no texto do plano para as tarefas mobile seguintes e foi evitado proativamente antes de despachar cada uma.
+
+**Bugs encontrados e corrigidos na revisão final de branch (opus, após os 7 tasks já aprovados individualmente):**
+- Selecionar "por quantidade de parcelas" e deixar a quantidade ou o vencimento em branco gravava `recorrencia_ate: null` em silêncio — uma despesa que nunca para de ser auto-lançada, sem erro nenhum na tela, porque o campo de data que acusaria o problema fica escondido atrás do toggle. Corrigido bloqueando o salvamento com mensagem de erro nos 4 pontos (web novo/editar, mobile novo/editar).
+- O contador "Parcela X de Y" do auto-lançamento sempre somava +1 por lançamento, mesmo quando um ou mais meses eram pulados (usuário não abre o Financeiro todo mês) — o contador ficava permanentemente atrasado em relação à parcela real, contradizendo a garantia já existente de que o auto-lançamento é robusto a meses pulados (que vale para `recorrencia_ate`, mas não valia para esse contador). Corrigido com `proximaParcelaAtual`, que conta os meses realmente decorridos desde o vencimento do template em vez de somar 1 fixo.
+- O clamp de `parcelaAtual` corrigido na Task 2 protegia o cálculo da data, mas não o valor gravado na coluna `parcela_atual` — digitar "15" numa despesa com 12 parcelas salvava `parcela_atual: 15, total_parcelas: 12` e exibia "Parcela 15 de 12" para sempre. Corrigido reusando o mesmo clamp (`clampParcelaAtual`, extraído da função de cálculo de data) nos 4 pontos de salvamento antes de persistir.
+
+Nenhuma revisão por tarefa isolada poderia ter visto essas três falhas — cada uma vive na costura entre partes que, individualmente, passaram: a divergência entre a condição de visibilidade da UI e a condição de salvamento (achado 1), o comportamento do auto-lançamento ao longo de vários meses em vez de um só lançamento (achado 2), e a duplicação entre "calcular a data" e "persistir o número" que só aparece quando as duas coisas são comparadas lado a lado (achado 3). Reforça o valor da revisão final de branch mesmo quando todas as tarefas já vieram aprovadas.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
