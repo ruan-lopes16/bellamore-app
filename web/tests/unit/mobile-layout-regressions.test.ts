@@ -39,4 +39,11 @@ describe('mobile layout regressions', () => {
     expect(css).toContain('.bm-mobile-page-header');
     expect(css).toContain('.bm-mobile-stock-actions');
   });
+
+  it('declara viewport-fit=cover para env(safe-area-inset-*) funcionar no PWA iOS', () => {
+    const layout = read('app/layout.tsx');
+
+    expect(layout).toMatch(/export const viewport/);
+    expect(layout).toContain("viewportFit: 'cover'");
+  });
 });
