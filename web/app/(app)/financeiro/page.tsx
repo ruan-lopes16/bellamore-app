@@ -37,10 +37,9 @@ import { useState, useEffect } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, Ban, X, Layers, Banknote, CreditCard, Gift,
-  RefreshCw, Check, FileSpreadsheet, Pencil, Trash2,
+  RefreshCw, Check, Pencil, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
-import { CnpjFinanceiroImporter } from '@/components/CnpjFinanceiroImporter';
 import { FinanceMonthCalendar } from '@/components/FinanceMonthCalendar';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
@@ -576,7 +575,6 @@ export default function FinanceiroPage() {
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
-  const [modalImportCnpj, setModalImportCnpj] = useState(false);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
@@ -1166,10 +1164,6 @@ export default function FinanceiroPage() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setModalImportCnpj(true)}
-                className="flex items-center gap-1.5 text-xs text-text-3 font-semibold hover:text-accent transition">
-                <FileSpreadsheet size={12}/> Importar CNPJ
-              </button>
               <button onClick={() => setModalDespesa(true)}
                 className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
                 style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
@@ -1357,9 +1351,6 @@ export default function FinanceiroPage() {
 
       {modalDespesa && empresaId && (
         <NovaDespesaModal empresaId={empresaId} onClose={() => setModalDespesa(false)} onSalvo={() => { setModalDespesa(false); recarregar(); }}/>
-      )}
-      {modalImportCnpj && empresaId && (
-        <CnpjFinanceiroImporter empresaId={empresaId} onClose={() => setModalImportCnpj(false)} onImported={recarregar}/>
       )}
       {marcarPago && (
         <MarcarPagoModal despesa={marcarPago} onClose={() => setMarcarPago(null)} onSalvo={() => { setMarcarPago(null); recarregar(); }}/>
