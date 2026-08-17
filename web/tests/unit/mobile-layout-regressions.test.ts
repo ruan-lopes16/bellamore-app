@@ -46,4 +46,15 @@ describe('mobile layout regressions', () => {
     expect(layout).toMatch(/export const viewport/);
     expect(layout).toContain("viewportFit: 'cover'");
   });
+
+  it('nao usa overflow-hidden junto de overflow-x-auto na tabela do Estoque (ambiguidade de cascata)', () => {
+    const pagina  = read('app/(app)/estoque/page.tsx');
+    const loading = read('app/(app)/estoque/loading.tsx');
+
+    expect(pagina).not.toMatch(/overflow-hidden[^"]*overflow-x-auto/);
+    expect(pagina).toMatch(/overflow-y-hidden[^"]*overflow-x-auto/);
+    expect(pagina).toContain('max-md:shadow-[inset_-12px_0_12px_-12px_rgba(0,0,0,0.15)]');
+    expect(loading).not.toMatch(/overflow-hidden[^"]*overflow-x-auto/);
+    expect(loading).toMatch(/overflow-y-hidden[^"]*overflow-x-auto/);
+  });
 });
