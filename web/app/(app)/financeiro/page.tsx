@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -580,6 +580,7 @@ export default function FinanceiroPage() {
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
+  const [historicoMensal, setHistoricoMensal] = useState<RecorrenteTemplate[]>([]);
   const [lancandoRec,           setLancandoRec]           = useState(false);
   const [editarDespesa,         setEditarDespesa]         = useState<Despesa | null>(null);
 
@@ -830,6 +831,7 @@ export default function FinanceiroPage() {
     setRecorrentesParaLancar(
       templatesRecorrentesParaLancar(todasMensais, chavesMesAtual, periodo.startDate)
     );
+    setHistoricoMensal(todasMensais);
 
     setLoading(false);
   }
@@ -1235,7 +1237,14 @@ export default function FinanceiroPage() {
                           : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
                         }
                         {d.recorrente && ' · Recorrente'}
-                        {d.total_parcelas ? ` · Parcela ${d.parcela_atual ?? 1} de ${d.total_parcelas}` : ''}
+                        {(() => {
+                          if (d.total_parcelas) return ` · (${d.parcela_atual ?? 1}/${d.total_parcelas})`;
+                          if (d.recorrente && d.periodicidade === 'mensal' && d.recorrencia_ate && d.data_vencimento) {
+                            const derivada = calcularParcelaDerivada(d.descricao, d.categoria, d.data_vencimento, d.recorrencia_ate, historicoMensal);
+                            return derivada ? ` · (${derivada.atual}/${derivada.total})` : '';
+                          }
+                          return '';
+                        })()}
                         {labelDias && ` · ${labelDias}`}
                       </p>
                     </div>
