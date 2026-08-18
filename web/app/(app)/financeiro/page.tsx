@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -122,18 +122,31 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   const [quantidadeParcelas, setQuantidadeParcelas] = useState('');
   const [contratoEmAndamento, setContratoEmAndamento] = useState(false);
   const [parcelaAtualInput, setParcelaAtualInput] = useState('');
+  const [modoValor, setModoValor] = useState<'parcela' | 'total'>('parcela');
+  const [valorTotalCompra, setValorTotalCompra] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro(''); setSalvando(true);
-    const valorN = parseFloat(valor.replace(',', '.'));
-    if (isNaN(valorN) || valorN <= 0) {
-      setErro('Informe um valor maior que zero.'); setSalvando(false); return;
-    }
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
     const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
     const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    const usaValorDividido = recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas' && modoValor === 'total';
+    let valorN: number;
+    let valorTotalCompraNum: number | null = null;
+    if (usaValorDividido) {
+      valorTotalCompraNum = parseFloat(valorTotalCompra.replace(',', '.'));
+      if (isNaN(valorTotalCompraNum) || valorTotalCompraNum <= 0) {
+        setErro('Informe o valor total da compra.'); setSalvando(false); return;
+      }
+      valorN = dividirValorCompra(valorTotalCompraNum, totalParcelasNum || 1).valorParcelaAtual;
+    } else {
+      valorN = parseFloat(valor.replace(',', '.'));
+      if (isNaN(valorN) || valorN <= 0) {
+        setErro('Informe um valor maior que zero.'); setSalvando(false); return;
+      }
+    }
     if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
       if (totalParcelasNum < 1) {
         setErro('Informe a quantidade de parcelas.'); setSalvando(false); return;
@@ -157,12 +170,19 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
       recorrencia_ate: recorrente ? (recorrenciaAteFinal || null) : null,
       parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
       total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
+      valor_total_compra: usaValorDividido ? valorTotalCompraNum : null,
       status:          'pendente',
     });
     setSalvando(false);
     if (error) { setErro(error.message); return; }
     onSalvo();
   }
+
+  const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+  const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
+  const valorCalculadoPreview = modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+    ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
+    : null;
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -182,8 +202,11 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
             <label className={labelClass}>Valor *</label>
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
-              <input value={valor} onChange={e => setValor(e.target.value)}
-                inputMode="decimal" placeholder="0,00" required className={`${inputClass} pl-9`}/>
+              <input value={valorCalculadoPreview !== null ? formatValorMonetarioInput(valorCalculadoPreview) : valor}
+                onChange={e => setValor(e.target.value)}
+                readOnly={valorCalculadoPreview !== null}
+                inputMode="decimal" placeholder="0,00" required
+                className={`${inputClass} pl-9 ${valorCalculadoPreview !== null ? 'bg-bg text-text-3' : ''}`}/>
             </div>
           </div>
           <div>
@@ -258,6 +281,20 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
                       {contratoEmAndamento && (
                         <input value={parcelaAtualInput} onChange={e => setParcelaAtualInput(e.target.value)}
                           inputMode="numeric" placeholder="Parcela atual" className={inputClass}/>
+                      )}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setModoValor('parcela')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            modoValor === 'parcela' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Valor da parcela</button>
+                        <button type="button" onClick={() => setModoValor('total')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            modoValor === 'total' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Valor total da compra</button>
+                      </div>
+                      {modoValor === 'total' && (
+                        <input value={valorTotalCompra} onChange={e => setValorTotalCompra(e.target.value)}
+                          inputMode="decimal" placeholder="Valor total da compra" className={inputClass}/>
                       )}
                     </div>
                   ) : (
@@ -362,6 +399,8 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   const [quantidadeParcelas, setQuantidadeParcelas] = useState(despesa.total_parcelas ? String(despesa.total_parcelas) : '');
   const [contratoEmAndamento, setContratoEmAndamento] = useState((despesa.parcela_atual ?? 1) > 1);
   const [parcelaAtualInput, setParcelaAtualInput] = useState(despesa.parcela_atual ? String(despesa.parcela_atual) : '');
+  const [modoValor, setModoValor] = useState<'parcela' | 'total'>(despesa.valor_total_compra ? 'total' : 'parcela');
+  const [valorTotalCompra, setValorTotalCompra] = useState(despesa.valor_total_compra ? formatValorMonetarioInput(Number(despesa.valor_total_compra)) : '');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -369,13 +408,24 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro(''); setSalvando(true);
-    const valorN = parseFloat(valor.replace(',', '.'));
-    if (isNaN(valorN) || valorN <= 0) {
-      setErro('Informe um valor maior que zero.'); setSalvando(false); return;
-    }
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
     const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
     const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    const usaValorDividido = recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas' && modoValor === 'total';
+    let valorN: number;
+    let valorTotalCompraNum: number | null = null;
+    if (usaValorDividido) {
+      valorTotalCompraNum = parseFloat(valorTotalCompra.replace(',', '.'));
+      if (isNaN(valorTotalCompraNum) || valorTotalCompraNum <= 0) {
+        setErro('Informe o valor total da compra.'); setSalvando(false); return;
+      }
+      valorN = dividirValorCompra(valorTotalCompraNum, totalParcelasNum || 1).valorParcelaAtual;
+    } else {
+      valorN = parseFloat(valor.replace(',', '.'));
+      if (isNaN(valorN) || valorN <= 0) {
+        setErro('Informe um valor maior que zero.'); setSalvando(false); return;
+      }
+    }
     if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
       if (totalParcelasNum < 1) {
         setErro('Informe a quantidade de parcelas.'); setSalvando(false); return;
@@ -398,6 +448,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
       recorrencia_ate: recorrente ? (recorrenciaAteFinal || null) : null,
       parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
       total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
+      valor_total_compra: usaValorDividido ? valorTotalCompraNum : null,
     }).eq('id', despesa.id);
     setSalvando(false);
     if (error) { setErro(error.message); return; }
@@ -410,6 +461,12 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
     setExcluindo(false);
     onSalvo();
   }
+
+  const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+  const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
+  const valorCalculadoPreview = modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+    ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
+    : null;
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -429,8 +486,11 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
             <label className={labelClass}>Valor *</label>
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
-              <input value={valor} onChange={e => setValor(e.target.value)}
-                inputMode="decimal" placeholder="0,00" required className={`${inputClass} pl-9`}/>
+              <input value={valorCalculadoPreview !== null ? formatValorMonetarioInput(valorCalculadoPreview) : valor}
+                onChange={e => setValor(e.target.value)}
+                readOnly={valorCalculadoPreview !== null}
+                inputMode="decimal" placeholder="0,00" required
+                className={`${inputClass} pl-9 ${valorCalculadoPreview !== null ? 'bg-bg text-text-3' : ''}`}/>
             </div>
           </div>
           <div>
@@ -505,6 +565,20 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
                       {contratoEmAndamento && (
                         <input value={parcelaAtualInput} onChange={e => setParcelaAtualInput(e.target.value)}
                           inputMode="numeric" placeholder="Parcela atual" className={inputClass}/>
+                      )}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setModoValor('parcela')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            modoValor === 'parcela' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Valor da parcela</button>
+                        <button type="button" onClick={() => setModoValor('total')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            modoValor === 'total' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Valor total da compra</button>
+                      </div>
+                      {modoValor === 'total' && (
+                        <input value={valorTotalCompra} onChange={e => setValorTotalCompra(e.target.value)}
+                          inputMode="decimal" placeholder="Valor total da compra" className={inputClass}/>
                       )}
                     </div>
                   ) : (
