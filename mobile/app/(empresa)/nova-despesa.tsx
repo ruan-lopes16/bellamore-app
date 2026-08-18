@@ -93,7 +93,7 @@ export default function NovaDespesa() {
 
   const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
   const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
-  const valorCalculadoPreview = modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+  const valorCalculadoPreview = recorrente && periodicidade === 'mensal' && modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
     ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
     : null;
 

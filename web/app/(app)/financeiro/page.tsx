@@ -180,7 +180,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
 
   const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
   const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
-  const valorCalculadoPreview = modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+  const valorCalculadoPreview = recorrente && periodicidade === 'mensal' && modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
     ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
     : null;
 
@@ -464,7 +464,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 
   const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
   const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
-  const valorCalculadoPreview = modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+  const valorCalculadoPreview = recorrente && periodicidade === 'mensal' && modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
     ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
     : null;
 
@@ -737,7 +737,9 @@ export default function FinanceiroPage() {
         .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas, valor_total_compra')
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
         .lt('data_vencimento', periodo.startDate)   // somente meses passados
-        .order('data_vencimento', { ascending: false }),
+        .order('data_vencimento', { ascending: false })
+        .limit(5000),  // teto explicito: a contagem derivada (calcularParcelaDerivada) depende
+                        // da linha mais antiga de cada serie estar presente no historico
       // Fechamentos importados para meses sem historico operacional completo.
       supabase.from('financeiro_ajustes_mensais')
         .select('mes, receita_bruta, comissao_paga')

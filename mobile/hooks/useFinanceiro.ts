@@ -198,7 +198,7 @@ export function useFinanceiro(mesRef: Date) {
         .eq('recorrente', true)
         .eq('periodicidade', 'mensal')
         .lt('data_vencimento', inicio.slice(0, 10))
-        .order('data_vencimento', { ascending: false });
+        .order('data_vencimento', { ascending: true });
 
       return (data ?? []) as OcorrenciaHistorico[];
     },

@@ -215,6 +215,13 @@ describe('despesas helpers', () => {
       );
       expect(resultado).toEqual({ atual: 1, total: 6 });
     });
+
+    it('retorna null quando recorrencia_ate e anterior ao vencimento (total nao positivo)', () => {
+      const resultado = calcularParcelaDerivada(
+        'Assinatura', 'Software', '2026-08-13', '2026-06-13', [],
+      );
+      expect(resultado).toBeNull();
+    });
   });
 
   describe('dividirValorCompra', () => {
@@ -227,6 +234,18 @@ describe('despesas helpers', () => {
       expect(resultado.valorBase).toBe(33.33);
       expect(resultado.valorParcelaAtual).toBe(33.34);
       expect(Math.round((resultado.valorBase * 2 + resultado.valorParcelaAtual) * 100) / 100).toBe(100);
+    });
+
+    it('nao erra por ponto flutuante numa divisao exata (R$3.071,16 / 12 = R$255,93 exato)', () => {
+      const resultado = dividirValorCompra(3071.16, 12);
+      expect(resultado.valorBase).toBe(255.93);
+      expect(resultado.valorParcelaAtual).toBe(255.93);
+    });
+
+    it('protege contra totalParcelas zero (clamp defensivo Math.max(...,1))', () => {
+      const resultado = dividirValorCompra(100, 0);
+      expect(resultado.valorBase).toBe(100);
+      expect(resultado.valorParcelaAtual).toBe(100);
     });
   });
 });

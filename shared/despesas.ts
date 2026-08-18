@@ -241,6 +241,7 @@ export function calcularParcelaDerivada(
   };
 
   const total = mesesEntre(ancora, recorrenciaAte) + 1;
+  if (total < 1) return null;
   const atual = mesesEntre(ancora, dataVencimento) + 1;
 
   return { atual: Math.min(Math.max(atual, 1), total), total };
@@ -257,8 +258,11 @@ export function dividirValorCompra(
   valorTotal: number,
   totalParcelas: number,
 ): { valorBase: number; valorParcelaAtual: number } {
-  const totalParcelasClamped = Math.max(totalParcelas, 1);
-  const valorBase = Math.floor((valorTotal / totalParcelasClamped) * 100) / 100;
-  const valorParcelaAtual = Math.round((valorTotal - valorBase * (totalParcelasClamped - 1)) * 100) / 100;
-  return { valorBase, valorParcelaAtual };
+  const n = Math.max(totalParcelas, 1);
+  const centavosTotal = Math.round(valorTotal * 100);
+  const centavosBase = Math.floor(centavosTotal / n);
+  return {
+    valorBase: centavosBase / 100,
+    valorParcelaAtual: (centavosTotal - centavosBase * (n - 1)) / 100,
+  };
 }
