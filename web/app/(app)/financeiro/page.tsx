@@ -311,7 +311,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
               Cancelar
             </button>
-            <button type="submit" disabled={salvando || !descricao.trim() || !valor}
+            <button type="submit" disabled={salvando || !descricao.trim() || (valorCalculadoPreview === null && !valor)}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
               {salvando ? 'Salvando...' : 'Registrar'}
             </button>
@@ -613,7 +613,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
               Cancelar
             </button>
-            <button type="submit" disabled={salvando || !descricao.trim() || !valor}
+            <button type="submit" disabled={salvando || !descricao.trim() || (valorCalculadoPreview === null && !valor)}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
               {salvando ? 'Salvando...' : 'Salvar alterações'}
             </button>
