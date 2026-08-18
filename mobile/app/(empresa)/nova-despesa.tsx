@@ -147,6 +147,11 @@ export default function NovaDespesa() {
       valorFinal = dividirValorCompra(valorTotalCompraNum, totalParcelasNum || 1).valorParcelaAtual;
     } else {
       valorFinal = parseFloat(valor.replace(',', '.'));
+      if (isNaN(valorFinal) || valorFinal <= 0) {
+        setSalvando(false);
+        Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
+        return;
+      }
     }
     const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimentoBanco;
     const recorrenciaAteFinal = usaParcelas
