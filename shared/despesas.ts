@@ -195,3 +195,70 @@ export function proximaParcelaAtual(
   const mesesDecorridos = (anoReferencia - anoTemplate) * 12 + (mesReferencia - mesTemplate);
   return Math.min(parcelaAtualTemplate + Math.max(mesesDecorridos, 1), totalParcelas);
 }
+
+export type OcorrenciaHistorico = {
+  descricao: string;
+  categoria?: string;
+  data_vencimento?: string;
+  recorrencia_ate?: string;
+};
+
+/**
+ * Deriva a posicao (atual/total) de uma despesa recorrente mensal dentro da sua
+ * serie, a partir da data de vencimento mais antiga entre as ocorrencias
+ * anteriores com a mesma descricao+categoria+recorrencia_ate (a "ancora" da
+ * serie). Se nao houver ocorrencia anterior, a propria despesa e a ancora
+ * (mostra "1 de Y"). Retorna null se nao houver recorrenciaAte (recorrencia sem
+ * termino nao tem contagem). Usada como alternativa a `total_parcelas`/
+ * `parcela_atual` para despesas criadas so com data (modo "Por data"), sem
+ * gravar nada novo — o calculo e refeito a cada exibicao.
+ */
+export function calcularParcelaDerivada(
+  descricao: string,
+  categoria: string | undefined,
+  dataVencimento: string,
+  recorrenciaAte: string | null | undefined,
+  historico: OcorrenciaHistorico[],
+): { atual: number; total: number } | null {
+  if (!recorrenciaAte) return null;
+
+  const mesmaSerie = historico.filter(h =>
+    h.descricao === descricao &&
+    (h.categoria ?? '') === (categoria ?? '') &&
+    h.recorrencia_ate === recorrenciaAte &&
+    !!h.data_vencimento,
+  );
+
+  const ancora = mesmaSerie.reduce(
+    (menor, h) => (h.data_vencimento! < menor ? h.data_vencimento! : menor),
+    dataVencimento,
+  );
+
+  const mesesEntre = (deIso: string, ateIso: string): number => {
+    const [anoDe, mesDe] = deIso.split('-').map(Number);
+    const [anoAte, mesAte] = ateIso.split('-').map(Number);
+    return (anoAte - anoDe) * 12 + (mesAte - mesDe);
+  };
+
+  const total = mesesEntre(ancora, recorrenciaAte) + 1;
+  const atual = mesesEntre(ancora, dataVencimento) + 1;
+
+  return { atual: Math.min(Math.max(atual, 1), total), total };
+}
+
+/**
+ * Divide o valor total de uma compra parcelada pela quantidade de parcelas.
+ * A parcela sendo cadastrada agora absorve toda a diferenca de arredondamento
+ * (ex: R$100 / 3 = R$33,33 + R$33,33 + R$33,34), para a soma da serie bater
+ * exatamente com o valor total informado. As demais parcelas (lancadas
+ * automaticamente depois) recebem sempre o valor-base, sem a diferenca.
+ */
+export function dividirValorCompra(
+  valorTotal: number,
+  totalParcelas: number,
+): { valorBase: number; valorParcelaAtual: number } {
+  const totalParcelasClamped = Math.max(totalParcelas, 1);
+  const valorBase = Math.floor((valorTotal / totalParcelasClamped) * 100) / 100;
+  const valorParcelaAtual = Math.round((valorTotal - valorBase * (totalParcelasClamped - 1)) * 100) / 100;
+  return { valorBase, valorParcelaAtual };
+}

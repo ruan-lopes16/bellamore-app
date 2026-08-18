@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDespesaPagamentoUpdate,
+  calcularParcelaDerivada,
   calcularRecorrenciaAtePorParcelas,
   clampParcelaAtual,
   diasParaVencimento,
+  dividirValorCompra,
   formatValorMonetarioInput,
   parseValorMonetario,
   progressoVencimento,
   proximaParcelaAtual,
   recorrenciaAindaAtiva,
   templatesRecorrentesParaLancar,
+  type OcorrenciaHistorico,
 } from '@shared/despesas';
 
 describe('despesas helpers', () => {
@@ -172,6 +175,58 @@ describe('despesas helpers', () => {
 
     it('atravessa a virada de ano corretamente', () => {
       expect(proximaParcelaAtual(10, 12, '2026-11-13', 2027, 1)).toBe(12);
+    });
+  });
+
+  describe('calcularParcelaDerivada', () => {
+    it('primeira ocorrencia sem historico vira a propria ancora', () => {
+      const resultado = calcularParcelaDerivada(
+        'Financiamento notebook', 'Equipamentos', '2026-08-13', '2027-03-13', [],
+      );
+      expect(resultado).toEqual({ atual: 1, total: 8 });
+    });
+
+    it('ocorrencia no meio de uma serie usa a data mais antiga do historico como ancora', () => {
+      const historico: OcorrenciaHistorico[] = [
+        { descricao: 'Financiamento notebook', categoria: 'Equipamentos', data_vencimento: '2026-08-13', recorrencia_ate: '2027-03-13' },
+        { descricao: 'Financiamento notebook', categoria: 'Equipamentos', data_vencimento: '2026-09-13', recorrencia_ate: '2027-03-13' },
+        { descricao: 'Financiamento notebook', categoria: 'Equipamentos', data_vencimento: '2026-10-13', recorrencia_ate: '2027-03-13' },
+        { descricao: 'Financiamento notebook', categoria: 'Equipamentos', data_vencimento: '2026-11-13', recorrencia_ate: '2027-03-13' },
+      ];
+      const resultado = calcularParcelaDerivada(
+        'Financiamento notebook', 'Equipamentos', '2026-12-13', '2027-03-13', historico,
+      );
+      expect(resultado).toEqual({ atual: 5, total: 8 });
+    });
+
+    it('sem recorrencia_ate retorna null (recorrencia sem termino nao tem contagem)', () => {
+      const resultado = calcularParcelaDerivada(
+        'Aluguel', 'Aluguel', '2026-08-13', null, [],
+      );
+      expect(resultado).toBeNull();
+    });
+
+    it('duas series diferentes com a mesma descricao nao se confundem (recorrencia_ate diferente)', () => {
+      const historico: OcorrenciaHistorico[] = [
+        { descricao: 'Máquina de cartão', categoria: 'Equipamentos', data_vencimento: '2024-01-10', recorrencia_ate: '2024-06-10' },
+      ];
+      const resultado = calcularParcelaDerivada(
+        'Máquina de cartão', 'Equipamentos', '2026-08-13', '2027-01-13', historico,
+      );
+      expect(resultado).toEqual({ atual: 1, total: 6 });
+    });
+  });
+
+  describe('dividirValorCompra', () => {
+    it('divisao exata: valor base e a parcela atual sao iguais', () => {
+      expect(dividirValorCompra(1200, 12)).toEqual({ valorBase: 100, valorParcelaAtual: 100 });
+    });
+
+    it('divisao com resto: a parcela atual absorve a diferenca de centavos', () => {
+      const resultado = dividirValorCompra(100, 3);
+      expect(resultado.valorBase).toBe(33.33);
+      expect(resultado.valorParcelaAtual).toBe(33.34);
+      expect(Math.round((resultado.valorBase * 2 + resultado.valorParcelaAtual) * 100) / 100).toBe(100);
     });
   });
 });
