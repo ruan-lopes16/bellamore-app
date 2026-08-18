@@ -36,7 +36,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada } from '@shared/despesas';
+import type { OcorrenciaHistorico } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -195,11 +196,12 @@ function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean })
 // ── Despesa row ──────────────────────────────────────────────
 
 function DespesaRow({
-  item, isLast, hojeIso, onMarcarPago, onEditar,
+  item, isLast, hojeIso, historico, onMarcarPago, onEditar,
 }: {
   item: DespesaItem;
   isLast: boolean;
   hojeIso: string;
+  historico: OcorrenciaHistorico[];
   onMarcarPago: (item: DespesaItem) => void;
   onEditar: (item: DespesaItem) => void;
 }) {
@@ -248,7 +250,14 @@ function DespesaRow({
               : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
             }
             {item.recorrente ? ' · Recorrente' : ''}
-            {item.total_parcelas ? ` · Parcela ${item.parcela_atual ?? 1} de ${item.total_parcelas}` : ''}
+            {(() => {
+              if (item.total_parcelas) return ` · (${item.parcela_atual ?? 1}/${item.total_parcelas})`;
+              if (item.recorrente && item.periodicidade === 'mensal' && item.recorrencia_ate && item.data_vencimento) {
+                const derivada = calcularParcelaDerivada(item.descricao, item.categoria, item.data_vencimento, item.recorrencia_ate, historico);
+                return derivada ? ` · (${derivada.atual}/${derivada.total})` : '';
+              }
+              return '';
+            })()}
             {labelDias ? ` · ${labelDias}` : ''}
           </Text>
         </View>
@@ -1068,7 +1077,7 @@ export default function Financeiro() {
   const [despesaParaEditar,  setDespesaParaEditar]  = useState<DespesaItem | null>(null);
 
   const qc = useQueryClient();
-  const { resumo, metodos, topServicos, despesas, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
+  const { resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const hojeIso            = format(new Date(), 'yyyy-MM-dd');
@@ -1465,6 +1474,7 @@ export default function Financeiro() {
                   item={d}
                   isLast={i === despesas.length - 1}
                   hojeIso={hojeIso}
+                  historico={despesasHistorico}
                   onMarcarPago={setDespesaSelecionada}
                   onEditar={setDespesaParaEditar}
                 />
