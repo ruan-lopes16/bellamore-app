@@ -36,7 +36,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
+import type { OcorrenciaHistorico } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -195,11 +196,12 @@ function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean })
 // ── Despesa row ──────────────────────────────────────────────
 
 function DespesaRow({
-  item, isLast, hojeIso, onMarcarPago, onEditar,
+  item, isLast, hojeIso, historico, onMarcarPago, onEditar,
 }: {
   item: DespesaItem;
   isLast: boolean;
   hojeIso: string;
+  historico: OcorrenciaHistorico[];
   onMarcarPago: (item: DespesaItem) => void;
   onEditar: (item: DespesaItem) => void;
 }) {
@@ -248,7 +250,14 @@ function DespesaRow({
               : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
             }
             {item.recorrente ? ' · Recorrente' : ''}
-            {item.total_parcelas ? ` · Parcela ${item.parcela_atual ?? 1} de ${item.total_parcelas}` : ''}
+            {(() => {
+              if (item.total_parcelas) return ` · (${item.parcela_atual ?? 1}/${item.total_parcelas})`;
+              if (item.recorrente && item.periodicidade === 'mensal' && item.recorrencia_ate && item.data_vencimento) {
+                const derivada = calcularParcelaDerivada(item.descricao, item.categoria, item.data_vencimento, item.recorrencia_ate, historico);
+                return derivada ? ` · (${derivada.atual}/${derivada.total})` : '';
+              }
+              return '';
+            })()}
             {labelDias ? ` · ${labelDias}` : ''}
           </Text>
         </View>
@@ -621,6 +630,8 @@ function ModalEditarDespesa({
   const [quantidadeParcelas, setQuantidadeParcelas] = useState('');
   const [contratoEmAndamento, setContratoEmAndamento] = useState(false);
   const [parcelaAtualInput, setParcelaAtualInput] = useState('');
+  const [modoValor, setModoValor] = useState<'parcela' | 'total'>('parcela');
+  const [valorTotalCompra, setValorTotalCompra] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -648,8 +659,16 @@ function ModalEditarDespesa({
     setQuantidadeParcelas(item.total_parcelas ? String(item.total_parcelas) : '');
     setContratoEmAndamento((item.parcela_atual ?? 1) > 1);
     setParcelaAtualInput(item.parcela_atual ? String(item.parcela_atual) : '');
+    setModoValor(item.valor_total_compra ? 'total' : 'parcela');
+    setValorTotalCompra(item.valor_total_compra ? formatValorMonetarioInput(Number(item.valor_total_compra)) : '');
     setConfirmDelete(false);
   }, [item]);
+
+  const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+  const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
+  const valorCalculadoPreview = recorrente && periodicidade === 'mensal' && modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+    ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
+    : null;
 
   function mascaraData(v: string) {
     const n = v.replace(/\D/g, '').slice(0, 8);
@@ -667,15 +686,12 @@ function ModalEditarDespesa({
 
   async function salvar() {
     if (!item) return;
-    const valorN = parseFloat(valor.replace(',', '.'));
-    if (isNaN(valorN) || valorN <= 0) {
-      Alert.alert('Valor inválido', 'Informe um valor maior que zero.'); return;
-    }
     setSalvando(true);
     const vencimentoBanco = dataParaBanco(vencimento);
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
     const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
     const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    const usaValorDividido = recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas' && modoValor === 'total';
     if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
       if (totalParcelasNum < 1) {
         setSalvando(false);
@@ -688,6 +704,24 @@ function ModalEditarDespesa({
         return;
       }
     }
+    let valorFinal: number;
+    let valorTotalCompraNum: number | null = null;
+    if (usaValorDividido) {
+      valorTotalCompraNum = parseFloat(valorTotalCompra.replace(',', '.'));
+      if (isNaN(valorTotalCompraNum) || valorTotalCompraNum <= 0) {
+        setSalvando(false);
+        Alert.alert('Valor inválido', 'Informe o valor total da compra.');
+        return;
+      }
+      valorFinal = dividirValorCompra(valorTotalCompraNum, totalParcelasNum || 1).valorParcelaAtual;
+    } else {
+      valorFinal = parseFloat(valor.replace(',', '.'));
+      if (isNaN(valorFinal) || valorFinal <= 0) {
+        setSalvando(false);
+        Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
+        return;
+      }
+    }
     const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimentoBanco;
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimentoBanco!, totalParcelasNum, parcelaAtualNum)
@@ -695,13 +729,14 @@ function ModalEditarDespesa({
     const { error } = await supabase.from('despesas').update({
       descricao:       descricao.trim(),
       categoria:       categoria || null,
-      valor:           valorN,
+      valor:           valorFinal,
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimentoBanco,
       recorrencia_ate: recorrente ? recorrenciaAteFinal : null,
       parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
       total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
+      valor_total_compra: usaValorDividido ? valorTotalCompraNum : null,
     }).eq('id', item.id);
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
@@ -785,12 +820,13 @@ function ModalEditarDespesa({
             }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text3, marginRight: 6 }}>R$</Text>
               <TextInput
-                value={valor}
+                value={valorCalculadoPreview !== null ? valorCalculadoPreview.toFixed(2).replace('.', ',') : valor}
                 onChangeText={setValor}
+                editable={valorCalculadoPreview === null}
                 placeholder="0,00"
                 placeholderTextColor={C.text4}
                 keyboardType="decimal-pad"
-                style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}
+                style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: valorCalculadoPreview !== null ? C.text3 : C.text }}
               />
             </View>
 
@@ -969,6 +1005,47 @@ function ModalEditarDespesa({
                           />
                         </View>
                       )}
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={() => setModoValor('parcela')}
+                          style={{
+                            flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
+                            backgroundColor: modoValor === 'parcela' ? C.amberSoft : C.bg,
+                            borderWidth: 1, borderColor: modoValor === 'parcela' ? C.amber : C.border,
+                          }}
+                        >
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoValor === 'parcela' ? C.amber : C.text3 }}>
+                            Valor da parcela
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setModoValor('total')}
+                          style={{
+                            flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
+                            backgroundColor: modoValor === 'total' ? C.amberSoft : C.bg,
+                            borderWidth: 1, borderColor: modoValor === 'total' ? C.amber : C.border,
+                          }}
+                        >
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoValor === 'total' ? C.amber : C.text3 }}>
+                            Valor total da compra
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      {modoValor === 'total' && (
+                        <View style={{
+                          backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                          borderRadius: 12, paddingHorizontal: 14, height: 48, justifyContent: 'center',
+                        }}>
+                          <TextInput
+                            value={valorTotalCompra}
+                            onChangeText={setValorTotalCompra}
+                            placeholder="Valor total da compra"
+                            placeholderTextColor={C.text4}
+                            keyboardType="numeric"
+                            style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
+                          />
+                        </View>
+                      )}
                     </View>
                   ) : (
                     <View style={{
@@ -1068,7 +1145,7 @@ export default function Financeiro() {
   const [despesaParaEditar,  setDespesaParaEditar]  = useState<DespesaItem | null>(null);
 
   const qc = useQueryClient();
-  const { resumo, metodos, topServicos, despesas, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
+  const { resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const hojeIso            = format(new Date(), 'yyyy-MM-dd');
@@ -1465,6 +1542,7 @@ export default function Financeiro() {
                   item={d}
                   isLast={i === despesas.length - 1}
                   hojeIso={hojeIso}
+                  historico={despesasHistorico}
                   onMarcarPago={setDespesaSelecionada}
                   onEditar={setDespesaParaEditar}
                 />

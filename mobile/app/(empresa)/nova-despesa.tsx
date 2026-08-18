@@ -22,7 +22,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
-import { calcularRecorrenciaAtePorParcelas, clampParcelaAtual } from '@shared/despesas';
+import { calcularRecorrenciaAtePorParcelas, clampParcelaAtual, dividirValorCompra } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -79,6 +79,8 @@ export default function NovaDespesa() {
   const [quantidadeParcelas, setQuantidadeParcelas] = useState('');
   const [contratoEmAndamento, setContratoEmAndamento] = useState(false);
   const [parcelaAtualInput, setParcelaAtualInput] = useState('');
+  const [modoValor, setModoValor] = useState<'parcela' | 'total'>('parcela');
+  const [valorTotalCompra, setValorTotalCompra] = useState('');
   const [salvando, setSalvando]         = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -88,6 +90,12 @@ export default function NovaDespesa() {
     PlusJakartaSans_600SemiBold,
     PlusJakartaSans_700Bold,
   });
+
+  const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+  const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
+  const valorCalculadoPreview = recorrente && periodicidade === 'mensal' && modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+    ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
+    : null;
 
   if (!fontsLoaded) return null;
 
@@ -104,7 +112,7 @@ export default function NovaDespesa() {
     return `${p[2]}-${p[1]}-${p[0]}`;
   }
 
-  const podeSalvar = descricao.trim().length > 1 && parseFloat(valor.replace(',', '.')) > 0;
+  const podeSalvar = descricao.trim().length > 1 && (valorCalculadoPreview !== null || parseFloat(valor.replace(',', '.')) > 0);
 
   async function salvar() {
     if (!podeSalvar || !empresaAtiva) return;
@@ -114,6 +122,7 @@ export default function NovaDespesa() {
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
     const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
     const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    const usaValorDividido = recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas' && modoValor === 'total';
     if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
       if (totalParcelasNum < 1) {
         setSalvando(false);
@@ -126,6 +135,24 @@ export default function NovaDespesa() {
         return;
       }
     }
+    let valorFinal: number;
+    let valorTotalCompraNum: number | null = null;
+    if (usaValorDividido) {
+      valorTotalCompraNum = parseFloat(valorTotalCompra.replace(',', '.'));
+      if (isNaN(valorTotalCompraNum) || valorTotalCompraNum <= 0) {
+        setSalvando(false);
+        Alert.alert('Valor inválido', 'Informe o valor total da compra.');
+        return;
+      }
+      valorFinal = dividirValorCompra(valorTotalCompraNum, totalParcelasNum || 1).valorParcelaAtual;
+    } else {
+      valorFinal = parseFloat(valor.replace(',', '.'));
+      if (isNaN(valorFinal) || valorFinal <= 0) {
+        setSalvando(false);
+        Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
+        return;
+      }
+    }
     const usaParcelas = periodicidade === 'mensal' && modoRepeticao === 'parcelas' && totalParcelasNum > 0 && !!vencimentoBanco;
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimentoBanco!, totalParcelasNum, parcelaAtualNum)
@@ -135,13 +162,14 @@ export default function NovaDespesa() {
       empresa_id:      empresaAtiva.id,
       descricao:       descricao.trim(),
       categoria:       categoria || null,
-      valor:           parseFloat(valor.replace(',', '.')),
+      valor:           valorFinal,
       recorrente,
       periodicidade:   recorrente ? periodicidade : null,
       data_vencimento: vencimentoBanco,
       recorrencia_ate: recorrente ? recorrenciaAteFinal : null,
       parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
       total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
+      valor_total_compra: usaValorDividido ? valorTotalCompraNum : null,
       status:          'pendente',
     });
 
@@ -209,15 +237,16 @@ export default function NovaDespesa() {
 
           {/* Valor */}
           <Campo label="Valor *">
-            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 }}>
+            <View style={{ backgroundColor: valorCalculadoPreview !== null ? C.bg : C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 }}>
               <DollarSign size={16} color={C.text4} strokeWidth={1.8} style={{ marginRight: 10 }} />
               <TextInput
-                value={valor}
+                value={valorCalculadoPreview !== null ? valorCalculadoPreview.toFixed(2).replace('.', ',') : valor}
                 onChangeText={setValor}
+                editable={valorCalculadoPreview === null}
                 placeholder="0,00"
                 placeholderTextColor={C.text4}
                 keyboardType="numeric"
-                style={{ flex: 1, paddingVertical: 14, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 18, color: C.text, letterSpacing: -0.5 }}
+                style={{ flex: 1, paddingVertical: 14, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 18, color: valorCalculadoPreview !== null ? C.text3 : C.text, letterSpacing: -0.5 }}
               />
             </View>
           </Campo>
@@ -375,6 +404,44 @@ export default function NovaDespesa() {
                             value={parcelaAtualInput}
                             onChangeText={setParcelaAtualInput}
                             placeholder="Parcela atual"
+                            placeholderTextColor={C.text4}
+                            keyboardType="numeric"
+                            style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text }}
+                          />
+                        </View>
+                      )}
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={() => setModoValor('parcela')}
+                          style={{
+                            flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
+                            backgroundColor: modoValor === 'parcela' ? C.amberSoft : C.surface,
+                            borderWidth: 1, borderColor: modoValor === 'parcela' ? C.amber : C.border,
+                          }}
+                        >
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoValor === 'parcela' ? C.amber : C.text3 }}>
+                            Valor da parcela
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setModoValor('total')}
+                          style={{
+                            flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
+                            backgroundColor: modoValor === 'total' ? C.amberSoft : C.surface,
+                            borderWidth: 1, borderColor: modoValor === 'total' ? C.amber : C.border,
+                          }}
+                        >
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoValor === 'total' ? C.amber : C.text3 }}>
+                            Valor total da compra
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      {modoValor === 'total' && (
+                        <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 14 }}>
+                          <TextInput
+                            value={valorTotalCompra}
+                            onChangeText={setValorTotalCompra}
+                            placeholder="Valor total da compra"
                             placeholderTextColor={C.text4}
                             keyboardType="numeric"
                             style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text }}

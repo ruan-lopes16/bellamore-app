@@ -47,7 +47,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -64,13 +64,13 @@ type Despesa = {
   id: string; descricao: string; categoria?: string;
   valor: number; recorrente: boolean; periodicidade?: string;
   data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
-  parcela_atual?: number; total_parcelas?: number;
+  parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number;
   created_at?: string;
   status: 'pendente' | 'pago';
 };
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
 type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentual: number };
-type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number };
+type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number };
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -121,18 +121,31 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   const [quantidadeParcelas, setQuantidadeParcelas] = useState('');
   const [contratoEmAndamento, setContratoEmAndamento] = useState(false);
   const [parcelaAtualInput, setParcelaAtualInput] = useState('');
+  const [modoValor, setModoValor] = useState<'parcela' | 'total'>('parcela');
+  const [valorTotalCompra, setValorTotalCompra] = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro(''); setSalvando(true);
-    const valorN = parseFloat(valor.replace(',', '.'));
-    if (isNaN(valorN) || valorN <= 0) {
-      setErro('Informe um valor maior que zero.'); setSalvando(false); return;
-    }
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
     const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
     const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    const usaValorDividido = recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas' && modoValor === 'total';
+    let valorN: number;
+    let valorTotalCompraNum: number | null = null;
+    if (usaValorDividido) {
+      valorTotalCompraNum = parseFloat(valorTotalCompra.replace(',', '.'));
+      if (isNaN(valorTotalCompraNum) || valorTotalCompraNum <= 0) {
+        setErro('Informe o valor total da compra.'); setSalvando(false); return;
+      }
+      valorN = dividirValorCompra(valorTotalCompraNum, totalParcelasNum || 1).valorParcelaAtual;
+    } else {
+      valorN = parseFloat(valor.replace(',', '.'));
+      if (isNaN(valorN) || valorN <= 0) {
+        setErro('Informe um valor maior que zero.'); setSalvando(false); return;
+      }
+    }
     if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
       if (totalParcelasNum < 1) {
         setErro('Informe a quantidade de parcelas.'); setSalvando(false); return;
@@ -156,12 +169,19 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
       recorrencia_ate: recorrente ? (recorrenciaAteFinal || null) : null,
       parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
       total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
+      valor_total_compra: usaValorDividido ? valorTotalCompraNum : null,
       status:          'pendente',
     });
     setSalvando(false);
     if (error) { setErro(error.message); return; }
     onSalvo();
   }
+
+  const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+  const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
+  const valorCalculadoPreview = recorrente && periodicidade === 'mensal' && modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+    ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
+    : null;
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -181,8 +201,11 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
             <label className={labelClass}>Valor *</label>
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
-              <input value={valor} onChange={e => setValor(e.target.value)}
-                inputMode="decimal" placeholder="0,00" required className={`${inputClass} pl-9`}/>
+              <input value={valorCalculadoPreview !== null ? formatValorMonetarioInput(valorCalculadoPreview) : valor}
+                onChange={e => setValor(e.target.value)}
+                readOnly={valorCalculadoPreview !== null}
+                inputMode="decimal" placeholder="0,00" required
+                className={`${inputClass} pl-9 ${valorCalculadoPreview !== null ? 'bg-bg text-text-3' : ''}`}/>
             </div>
           </div>
           <div>
@@ -258,6 +281,20 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
                         <input value={parcelaAtualInput} onChange={e => setParcelaAtualInput(e.target.value)}
                           inputMode="numeric" placeholder="Parcela atual" className={inputClass}/>
                       )}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setModoValor('parcela')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            modoValor === 'parcela' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Valor da parcela</button>
+                        <button type="button" onClick={() => setModoValor('total')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            modoValor === 'total' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Valor total da compra</button>
+                      </div>
+                      {modoValor === 'total' && (
+                        <input value={valorTotalCompra} onChange={e => setValorTotalCompra(e.target.value)}
+                          inputMode="decimal" placeholder="Valor total da compra" className={inputClass}/>
+                      )}
                     </div>
                   ) : (
                     <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
@@ -273,7 +310,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
               Cancelar
             </button>
-            <button type="submit" disabled={salvando || !descricao.trim() || !valor}
+            <button type="submit" disabled={salvando || !descricao.trim() || (valorCalculadoPreview === null && !valor)}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
               {salvando ? 'Salvando...' : 'Registrar'}
             </button>
@@ -361,6 +398,8 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   const [quantidadeParcelas, setQuantidadeParcelas] = useState(despesa.total_parcelas ? String(despesa.total_parcelas) : '');
   const [contratoEmAndamento, setContratoEmAndamento] = useState((despesa.parcela_atual ?? 1) > 1);
   const [parcelaAtualInput, setParcelaAtualInput] = useState(despesa.parcela_atual ? String(despesa.parcela_atual) : '');
+  const [modoValor, setModoValor] = useState<'parcela' | 'total'>(despesa.valor_total_compra ? 'total' : 'parcela');
+  const [valorTotalCompra, setValorTotalCompra] = useState(despesa.valor_total_compra ? formatValorMonetarioInput(Number(despesa.valor_total_compra)) : '');
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -368,13 +407,24 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro(''); setSalvando(true);
-    const valorN = parseFloat(valor.replace(',', '.'));
-    if (isNaN(valorN) || valorN <= 0) {
-      setErro('Informe um valor maior que zero.'); setSalvando(false); return;
-    }
     const totalParcelasNum = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
     const parcelaAtualNumRaw = contratoEmAndamento ? (parseInt(parcelaAtualInput, 10) || 1) : 1;
     const parcelaAtualNum = totalParcelasNum > 0 ? clampParcelaAtual(parcelaAtualNumRaw, totalParcelasNum) : parcelaAtualNumRaw;
+    const usaValorDividido = recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas' && modoValor === 'total';
+    let valorN: number;
+    let valorTotalCompraNum: number | null = null;
+    if (usaValorDividido) {
+      valorTotalCompraNum = parseFloat(valorTotalCompra.replace(',', '.'));
+      if (isNaN(valorTotalCompraNum) || valorTotalCompraNum <= 0) {
+        setErro('Informe o valor total da compra.'); setSalvando(false); return;
+      }
+      valorN = dividirValorCompra(valorTotalCompraNum, totalParcelasNum || 1).valorParcelaAtual;
+    } else {
+      valorN = parseFloat(valor.replace(',', '.'));
+      if (isNaN(valorN) || valorN <= 0) {
+        setErro('Informe um valor maior que zero.'); setSalvando(false); return;
+      }
+    }
     if (recorrente && periodicidade === 'mensal' && modoRepeticao === 'parcelas') {
       if (totalParcelasNum < 1) {
         setErro('Informe a quantidade de parcelas.'); setSalvando(false); return;
@@ -397,6 +447,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
       recorrencia_ate: recorrente ? (recorrenciaAteFinal || null) : null,
       parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
       total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
+      valor_total_compra: usaValorDividido ? valorTotalCompraNum : null,
     }).eq('id', despesa.id);
     setSalvando(false);
     if (error) { setErro(error.message); return; }
@@ -409,6 +460,12 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
     setExcluindo(false);
     onSalvo();
   }
+
+  const totalParcelasPreview = modoRepeticao === 'parcelas' ? (parseInt(quantidadeParcelas, 10) || 0) : 0;
+  const valorTotalCompraPreviewNum = parseFloat(valorTotalCompra.replace(',', '.'));
+  const valorCalculadoPreview = recorrente && periodicidade === 'mensal' && modoValor === 'total' && totalParcelasPreview > 0 && !isNaN(valorTotalCompraPreviewNum) && valorTotalCompraPreviewNum > 0
+    ? dividirValorCompra(valorTotalCompraPreviewNum, totalParcelasPreview).valorParcelaAtual
+    : null;
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -428,8 +485,11 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
             <label className={labelClass}>Valor *</label>
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
-              <input value={valor} onChange={e => setValor(e.target.value)}
-                inputMode="decimal" placeholder="0,00" required className={`${inputClass} pl-9`}/>
+              <input value={valorCalculadoPreview !== null ? formatValorMonetarioInput(valorCalculadoPreview) : valor}
+                onChange={e => setValor(e.target.value)}
+                readOnly={valorCalculadoPreview !== null}
+                inputMode="decimal" placeholder="0,00" required
+                className={`${inputClass} pl-9 ${valorCalculadoPreview !== null ? 'bg-bg text-text-3' : ''}`}/>
             </div>
           </div>
           <div>
@@ -505,6 +565,20 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
                         <input value={parcelaAtualInput} onChange={e => setParcelaAtualInput(e.target.value)}
                           inputMode="numeric" placeholder="Parcela atual" className={inputClass}/>
                       )}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setModoValor('parcela')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            modoValor === 'parcela' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Valor da parcela</button>
+                        <button type="button" onClick={() => setModoValor('total')}
+                          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                            modoValor === 'total' ? 'bg-amber-soft border-amber/30 text-amber' : 'bg-bg border-border text-text-3'
+                          }`}>Valor total da compra</button>
+                      </div>
+                      {modoValor === 'total' && (
+                        <input value={valorTotalCompra} onChange={e => setValorTotalCompra(e.target.value)}
+                          inputMode="decimal" placeholder="Valor total da compra" className={inputClass}/>
+                      )}
                     </div>
                   ) : (
                     <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
@@ -538,7 +612,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
               Cancelar
             </button>
-            <button type="submit" disabled={salvando || !descricao.trim() || !valor}
+            <button type="submit" disabled={salvando || !descricao.trim() || (valorCalculadoPreview === null && !valor)}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
               {salvando ? 'Salvando...' : 'Salvar alterações'}
             </button>
@@ -578,6 +652,7 @@ export default function FinanceiroPage() {
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
+  const [historicoMensal, setHistoricoMensal] = useState<RecorrenteTemplate[]>([]);
   const [lancandoRec,           setLancandoRec]           = useState(false);
   const [editarDespesa,         setEditarDespesa]         = useState<Despesa | null>(null);
 
@@ -657,10 +732,12 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId).gte('created_at', ini6).lte('created_at', fim),
       // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
       supabase.from('despesas')
-        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas')
+        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas, valor_total_compra')
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
         .lt('data_vencimento', periodo.startDate)   // somente meses passados
-        .order('data_vencimento', { ascending: false }),
+        .order('data_vencimento', { ascending: false })
+        .limit(5000),  // teto explicito: a contagem derivada (calcularParcelaDerivada) depende
+                        // da linha mais antiga de cada serie estar presente no historico
       // Fechamentos importados para meses sem historico operacional completo.
       supabase.from('financeiro_ajustes_mensais')
         .select('mes, receita_bruta, comissao_paga')
@@ -828,6 +905,7 @@ export default function FinanceiroPage() {
     setRecorrentesParaLancar(
       templatesRecorrentesParaLancar(todasMensais, chavesMesAtual, periodo.startDate)
     );
+    setHistoricoMensal(todasMensais);
 
     setLoading(false);
   }
@@ -842,7 +920,9 @@ export default function FinanceiroPage() {
         empresa_id:      empresaId,
         descricao:       r.descricao,
         categoria:       r.categoria ?? null,
-        valor:           r.valor,
+        valor:           r.valor_total_compra != null && r.total_parcelas != null
+          ? dividirValorCompra(r.valor_total_compra, r.total_parcelas).valorBase
+          : r.valor,
         recorrente:      true,
         periodicidade:   r.periodicidade ?? 'mensal',
         data_vencimento: (() => {
@@ -859,6 +939,7 @@ export default function FinanceiroPage() {
         parcela_atual:   r.total_parcelas != null && r.parcela_atual != null && r.data_vencimento
           ? proximaParcelaAtual(r.parcela_atual, r.total_parcelas, r.data_vencimento, mesRef.getFullYear(), mesRef.getMonth() + 1)
           : null,
+        valor_total_compra: r.valor_total_compra ?? null,
         status:          'pendente',
       }))
     );
@@ -1229,7 +1310,14 @@ export default function FinanceiroPage() {
                           : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`
                         }
                         {d.recorrente && ' · Recorrente'}
-                        {d.total_parcelas ? ` · Parcela ${d.parcela_atual ?? 1} de ${d.total_parcelas}` : ''}
+                        {(() => {
+                          if (d.total_parcelas) return ` · (${d.parcela_atual ?? 1}/${d.total_parcelas})`;
+                          if (d.recorrente && d.periodicidade === 'mensal' && d.recorrencia_ate && d.data_vencimento) {
+                            const derivada = calcularParcelaDerivada(d.descricao, d.categoria, d.data_vencimento, d.recorrencia_ate, historicoMensal);
+                            return derivada ? ` · (${derivada.atual}/${derivada.total})` : '';
+                          }
+                          return '';
+                        })()}
                         {labelDias && ` · ${labelDias}`}
                       </p>
                     </div>

@@ -5,6 +5,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
+import type { OcorrenciaHistorico } from '@shared/despesas';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ export interface DespesaItem {
   recorrencia_ate?: string;
   parcela_atual?: number;
   total_parcelas?: number;
+  valor_total_compra?: number;
   data_pagamento?: string;
   created_at?: string;
   status: 'pendente' | 'pago';
@@ -183,6 +185,25 @@ export function useFinanceiro(mesRef: Date) {
     },
   });
 
+  // ── Histórico de despesas recorrentes mensais (para contagem derivada) ──
+  const despesasHistorico = useQuery<OcorrenciaHistorico[]>({
+    queryKey: ['fin-despesas-historico', empresaId, chave],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('despesas')
+        .select('descricao, categoria, data_vencimento, recorrencia_ate')
+        .eq('empresa_id', empresaId!)
+        .eq('recorrente', true)
+        .eq('periodicidade', 'mensal')
+        .lt('data_vencimento', inicio.slice(0, 10))
+        .order('data_vencimento', { ascending: true });
+
+      return (data ?? []) as OcorrenciaHistorico[];
+    },
+  });
+
   // ── Taxas de cancelamento do mês ─────────────────────────
   const taxasCancelamento = useQuery<(TaxaCancelamento & { cliente: { nome: string } | null })[]>({
     queryKey: ['fin-taxas-cancelamento', empresaId, chave],
@@ -253,6 +274,7 @@ export function useFinanceiro(mesRef: Date) {
     metodos:           metodos.data ?? [],
     topServicos:       topServicos.data ?? [],
     despesas:          despesas.data ?? [],
+    despesasHistorico: despesasHistorico.data ?? [],
     taxasCancelamento: taxasCancelamento.data ?? [],
     taxasReserva:      taxasReserva.data ?? [],
     evolucao:          evolucao.data ?? [],
@@ -262,6 +284,7 @@ export function useFinanceiro(mesRef: Date) {
       metodos.refetch();
       topServicos.refetch();
       despesas.refetch();
+      despesasHistorico.refetch();
       taxasCancelamento.refetch();
       taxasReserva.refetch();
       evolucao.refetch();

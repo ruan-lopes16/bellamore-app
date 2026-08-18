@@ -185,6 +185,7 @@ export interface Despesa {
   recorrencia_ate?: string;
   parcela_atual?: number;
   total_parcelas?: number;
+  valor_total_compra?: number;
   data_pagamento?: string;
   status: DespesaStatus;
   created_at: string;

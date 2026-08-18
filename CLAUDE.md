@@ -231,6 +231,55 @@ Nenhuma revisão por tarefa isolada poderia ter visto essas três falhas — cad
 
 ---
 
+### Sessão 2026-08-14/18 — Responsividade mobile PWA (parte 2) + remoção Importar CNPJ + recorrências (contagem derivada + valor dividido)
+
+*Escopo: (1) correção de 5 problemas de UI mobile reportados por screenshot real do PWA no*
+*iPhone (`viewport-fit=cover` ausente neutralizando todo `env(safe-area-inset-*)`, modal de*
+*Detalhes do agendamento, rolagem lateral do Estoque, seletor Semana/Mês/Timeline, clareza do*
+*card Comissões do Dashboard); (2) remoção do botão/feature "Importar CNPJ" do Financeiro,*
+*sem mais nenhum uso no projeto; (3) feature maior: contagem "(X/Y)" de parcelas passa a*
+*aparecer também para despesas recorrentes criadas só com data de término (calculada na hora*
+*de exibir, sem gravar nada novo — funciona até em despesas já existentes), mais um novo modo*
+*"Valor total da compra" que divide automaticamente entre as parcelas, com a diferença de*
+*centavos absorvida só pela parcela sendo cadastrada agora e o auto-lançamento recalculando*
+*(não copiando) o valor de cada mês futuro. Três branches/PRs separados*
+*(#104, #105, #106), os dois primeiros via superpowers:subagent-driven-development (6 e 0*
+*tasks — CNPJ foi direto, sem plano formal, escopo pequeno o bastante), o terceiro com 9 tasks.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web em todas as entregas; mobile mantém os mesmos ~10 erros pré-existentes (reconfirmados a cada task), sem nenhum erro novo em nenhum dos 3 branches |
+| UX / Padrões    | 9.0  | Toggle "Valor da parcela"/"Valor total da compra" e formato compacto "(X/Y)" reaproveitam padrões visuais já estabelecidos; nenhuma tela perdeu função — a remoção do CNPJ foi a única exceção deliberada, pedida explicitamente |
+| Segurança       | 9.0  | Migrations aditivas (`viewport` é config, não schema; `valor_total_compra numeric(10,2)` nullable sem default); nenhuma RLS nova necessária nos 3 branches |
+| Documentação    | 9.0  | Spec e plano completos para os branches de responsividade e recorrências; CLAUDE.md atualizado; JSDoc pt-BR nos 4 helpers novos (`calcularParcelaDerivada`, `dividirValorCompra`, mais os 2 já existentes de `shared/despesas.ts` referenciados) |
+| Arquitetura     | 9.5  | A contagem derivada foi desenhada para não exigir nenhuma migration nem backfill — reaproveita histórico já carregado (web) ou uma consulta nova leve (mobile), calculando na exibição em vez de persistir; o valor dividido recalcula a cada mês a partir de `valor_total_compra`/`total_parcelas` propagados, herdando a mesma robustez a meses pulados que `parcela_atual` já tinha, sem introduzir uma segunda forma de deriva |
+| Performance     | 8.5  | Sem query nova cara — reaproveita dados já carregados (web) ou adiciona 1 query leve (mobile); a revisão final encontrou e corrigiu um risco real de escala (ver bugs abaixo) antes de virar problema em produção |
+| Visual (UI)     | —    | Sem conta de teste disponível para login no navegador local — verificação visual não executada nesta sessão |
+| **Completude**  | 9.0  | 3 entregas completas em web e mobile onde aplicável; 8 bugs reais encontrados em revisão (1 na branch de responsividade, 3 na branch de recorrências por task, 4 na revisão final de branch de recorrências), todos corrigidos antes do PR |
+| **Proatividade**| 9.5  | O mesmo bug do botão "travado" (condição de `disabled`/`podeSalvar` dependendo de um campo que virou somente-leitura) foi encontrado uma vez no web (Task 4) e evitado proativamente no mobile (Task 7) só com um aviso no dispatch, antes de qualquer revisão apontar; a Task 9 (verificação final) encontrou por conta própria uma 4ª divergência entre os pontos de formulário que não estava no roteiro pedido |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Bugs encontrados e corrigidos na revisão final da branch de responsividade (opus):**
+- Modal de Detalhes usava a classe `bm-modal` compartilhada (`html:has(.bm-modal) { overflow: hidden }`), que casa mesmo em elemento `display:none` — como o estado que abre esse modal também é setado pela Timeline (visível no desktop), selecionar um agendamento no desktop travava o scroll da página inteira. Corrigido com uma variante `bm-modal-mobile` escopada por media query.
+- Duas causas-raiz documentadas na spec (dropdown de status cortado; rolagem lateral do Estoque) não se sustentaram sob inspeção mais profunda — uma delas contradita diretamente pelo CSS compilado do próprio projeto. Código mantido (a higiene de CSS continua válida), mas os 3 critérios de aceite correspondentes foram marcados como "não verificados" na spec, pendentes de validação num iPhone real.
+
+**Bugs encontrados e corrigidos por task na branch de recorrências:**
+- Task 4 (Critical): botão "Registrar"/"Salvar" ficava preso desabilitado ao usar "Valor total da compra" pelo caminho natural (campo Valor vira somente-leitura, `onChange` não dispara, `disabled={... || !valor}` nunca destrava). Corrigido nos 2 modais web.
+- Task 7: mesmo padrão evitado proativamente no mobile (`podeSalvar`) antes de qualquer revisão apontar, só com um aviso explícito no dispatch citando o achado da Task 4.
+- Task 9 (verificação final do plano): `mobile/nova-despesa.tsx` não validava valor inválido/zero no modo não-dividido, diferente dos outros 3 pontos — encontrado só por comparar os 4 lado a lado, corrigido replicando o padrão já usado nos outros 3.
+
+**Bugs encontrados e corrigidos na revisão final da branch de recorrências (opus, após as 9 tasks já aprovadas individualmente):**
+- O preview de valor calculado (`valorCalculadoPreview`) não checava `recorrente`/`periodicidade === 'mensal'`, diferente da condição real de salvar (`usaValorDividido`) — nos modais de **edição** isso não dava erro nenhum (o campo `valor` já vinha preenchido da despesa existente), só gravava silenciosamente um valor diferente do que a tela estava mostrando. Corrigido nos 4 pontos de formulário de uma vez.
+- `dividirValorCompra` usava ponto flutuante puro (`Math.floor((total/n)*100)/100`), que erra em divisões decimais *exatas* (ex: R$3.071,16 ÷ 12) por causa de arredondamento binário — uma varredura de todos os valores de R$1 a R$5.000 encontrou 59.116 casos divergentes do correto. Reescrita com aritmética inteira em centavos, eliminando a classe inteira do bug.
+- `calcularParcelaDerivada` não validava se `total` era positivo — encerrar uma recorrência numa data já passada produzia "(0/0)" ou contagem negativa na listagem. Corrigido para retornar "sem contagem" nesse caso.
+- As duas consultas de histórico usadas pela contagem derivada não tinham `.limit()` explícito — o teto padrão de 1000 linhas do PostgREST descartaria exatamente as linhas *mais antigas*, que são a "âncora" de que o cálculo depende, em empresas com muitos anos de despesas recorrentes acumuladas. Protegido nas duas plataformas (mobile inverteu a ordem da consulta, gratuito; web adicionou `.limit(5000)` explícito, já que a consulta é compartilhada com o auto-lançamento).
+
+Nenhuma das quatro falhas da revisão final de recorrências seria visível numa revisão por task isolada: a primeira só aparece comparando a condição de exibição com a condição de salvar lado a lado nos 4 pontos; a segunda exige rodar a função contra uma faixa ampla de valores, não só os 2 casos de teste escolhidos na Task 2; a terceira e a quarta exigem imaginar cenários de uso fora do caminho feliz (encerrar uma recorrência retroativamente; anos de histórico acumulado) que nenhuma task individual tinha motivo para considerar.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
