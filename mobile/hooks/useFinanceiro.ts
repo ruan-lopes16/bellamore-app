@@ -42,6 +42,7 @@ export interface DespesaItem {
   recorrencia_ate?: string;
   parcela_atual?: number;
   total_parcelas?: number;
+  valor_total_compra?: number;
   data_pagamento?: string;
   created_at?: string;
   status: 'pendente' | 'pago';

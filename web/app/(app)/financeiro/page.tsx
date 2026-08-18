@@ -65,13 +65,13 @@ type Despesa = {
   id: string; descricao: string; categoria?: string;
   valor: number; recorrente: boolean; periodicidade?: string;
   data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
-  parcela_atual?: number; total_parcelas?: number;
+  parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number;
   created_at?: string;
   status: 'pendente' | 'pago';
 };
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
 type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentual: number };
-type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number };
+type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number };
 
 // ── Helpers ───────────────────────────────────────────────────
 
