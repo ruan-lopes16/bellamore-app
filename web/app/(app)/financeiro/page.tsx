@@ -734,7 +734,7 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId).gte('created_at', ini6).lte('created_at', fim),
       // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
       supabase.from('despesas')
-        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas')
+        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas, valor_total_compra')
         .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
         .lt('data_vencimento', periodo.startDate)   // somente meses passados
         .order('data_vencimento', { ascending: false }),
@@ -920,7 +920,9 @@ export default function FinanceiroPage() {
         empresa_id:      empresaId,
         descricao:       r.descricao,
         categoria:       r.categoria ?? null,
-        valor:           r.valor,
+        valor:           r.valor_total_compra != null && r.total_parcelas != null
+          ? dividirValorCompra(r.valor_total_compra, r.total_parcelas).valorBase
+          : r.valor,
         recorrente:      true,
         periodicidade:   r.periodicidade ?? 'mensal',
         data_vencimento: (() => {
@@ -937,6 +939,7 @@ export default function FinanceiroPage() {
         parcela_atual:   r.total_parcelas != null && r.parcela_atual != null && r.data_vencimento
           ? proximaParcelaAtual(r.parcela_atual, r.total_parcelas, r.data_vencimento, mesRef.getFullYear(), mesRef.getMonth() + 1)
           : null,
+        valor_total_compra: r.valor_total_compra ?? null,
         status:          'pendente',
       }))
     );
