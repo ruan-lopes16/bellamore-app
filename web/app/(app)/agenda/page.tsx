@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { maskPhone } from '@/lib/masks';
@@ -201,6 +202,7 @@ function NovoAgModal({
   horaInicial?: string;
   profIdInicial?: string;
 }) {
+  useScrollLock();
   const [clientes,      setClientes]      = useState<ClienteOpt[]>([]);
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<Servico[]>([]);
@@ -915,6 +917,7 @@ function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }:
   onClose: () => void;
   onSalvo: (b: Bloqueio) => void;
 }) {
+  useScrollLock();
   const [titulo,   setTitulo]   = useState('');
   const [profId,   setProfId]   = useState('');
   const [horaIni,  setHoraIni]  = useState('08:00');
@@ -1838,6 +1841,7 @@ function AvaliacaoModal({ clienteNome, onClose, onSalvar }: {
   onClose: () => void;
   onSalvar: (nota: number, comentario: string) => Promise<void>;
 }) {
+  useScrollLock();
   const [nota,       setNota]       = useState(0);
   const [hover,      setHover]      = useState(0);
   const [comentario, setComentario] = useState('');

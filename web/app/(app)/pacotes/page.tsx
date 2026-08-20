@@ -31,6 +31,7 @@ import {
   AlertCircle, Tag, Clock,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente as ClienteBase, Servico as ServicoBase } from '@/types';
 import { ExportButton } from '@/components/ExportButton';
 import { Sk } from '@/components/Skeleton';
@@ -104,6 +105,7 @@ function PacoteModal({
   onClose:   () => void;
   onSalvo:   () => void;
 }) {
+  useScrollLock();
   const [nome,          setNome]          = useState(pacote?.nome ?? '');
   const [preco,         setPreco]         = useState(pacote?.preco.toFixed(2).replace('.', ',') ?? '');
   const [validade,      setValidade]      = useState(pacote ? (pacote.validade_dias != null ? String(pacote.validade_dias) : '') : '90');
@@ -309,6 +311,7 @@ function VenderModal({
   onClose:   () => void;
   onSalvo:   () => void;
 }) {
+  useScrollLock();
   const [clienteId,  setClienteId]  = useState('');
   const [dataInicio, setDataInicio] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [valorPago,  setValorPago]  = useState(pacote.preco.toFixed(2).replace('.', ','));
@@ -465,6 +468,7 @@ function SessaoModal({
   onClose:   () => void;
   onSalvo:   () => void;
 }) {
+  useScrollLock();
   const [servId,  setServId]  = useState('');
   const [obs,     setObs]     = useState('');
   const [salvando,setSalvando]= useState(false);

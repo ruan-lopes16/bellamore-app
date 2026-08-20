@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, UserPlus, Phone, Mail, X, ChevronRight, Users, UserCheck, CalendarPlus, Crown, AlertTriangle, Sparkles, LayoutGrid, List } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente } from '@/types';
 import { format, startOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
@@ -30,6 +31,7 @@ const inputClass = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg tex
 function NovoClienteModal({ empresaId, onClose }: {
   empresaId: string; onClose: () => void;
 }) {
+  useScrollLock();
   const router   = useRouter();
   const [nome,     setNome]     = useState('');
   const [telefone, setTelefone] = useState('');

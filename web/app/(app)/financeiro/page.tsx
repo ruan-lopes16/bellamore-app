@@ -42,6 +42,7 @@ import {
 import { ExportButton } from '@/components/ExportButton';
 import { FinanceMonthCalendar } from '@/components/FinanceMonthCalendar';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import {
   format, addMonths, subMonths, isSameMonth,
@@ -110,6 +111,7 @@ const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-w
 function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   empresaId: string; onClose: () => void; onSalvo: () => void;
 }) {
+  useScrollLock();
   const [descricao,     setDescricao]     = useState('');
   const [valor,         setValor]         = useState('');
   const [categoria,     setCategoria]     = useState('');
@@ -326,6 +328,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
 function MarcarPagoModal({ despesa, onClose, onSalvo }: {
   despesa: Despesa; onClose: () => void; onSalvo: () => void;
 }) {
+  useScrollLock();
   const [data,    setData]    = useState(format(new Date(), 'yyyy-MM-dd'));
   const [valor,   setValor]   = useState(formatValorMonetarioInput(Number(despesa.valor)));
   const [salvando,setSalvando]= useState(false);
@@ -385,6 +388,7 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
 function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   despesa: Despesa; onClose: () => void; onSalvo: () => void;
 }) {
+  useScrollLock();
   const [descricao,     setDescricao]     = useState(despesa.descricao);
   const [valor,         setValor]         = useState(formatValorMonetarioInput(Number(despesa.valor)));
   const [categoria,     setCategoria]     = useState(despesa.categoria ?? '');

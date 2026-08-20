@@ -34,6 +34,7 @@ import {
 import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
@@ -129,6 +130,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
   onSalvo: (p: Produto) => void;
   onExcluido: (id: string) => void;
 }) {
+  useScrollLock();
 
   const ed = state.modo === 'editar' ? state.produto : null;
 
@@ -408,6 +410,7 @@ function MovModal({ produto, onClose, onSalvo }: {
   onClose: () => void;
   onSalvo: (novoEstoque: number, tipo: 'entrada' | 'saida', qtd: number) => void;
 }) {
+  useScrollLock();
 
   const [tipo,     setTipo]     = useState<'entrada' | 'saida'>('entrada');
   const [qtd,      setQtd]      = useState('');

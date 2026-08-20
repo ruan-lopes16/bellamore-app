@@ -7,6 +7,7 @@ import {
   IconPele, IconDermaplaning, IconMaquiagem, IconOutros,
 } from '@/components/CategoriaIcon';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ExportButton } from '@/components/ExportButton';
@@ -86,6 +87,7 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
   onClose: () => void;
   onSalvo: (s: Servico) => void;
 }) {
+  useScrollLock();
   const editando = state.modo === 'editar' ? state.servico : null;
   const catInicial: CategoriaKey = editando?.categoria ?? (state.modo === 'criar' ? (state.categoria ?? 'outros') : 'outros');
 

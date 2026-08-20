@@ -7,6 +7,7 @@ import {
 import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { maskPhone } from '@/lib/masks';
@@ -65,6 +66,7 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   onClose: () => void;
   onSalvo: (p: Profissional, mensagem?: string) => void;
 }) {
+  useScrollLock();
   const [nome,          setNome]          = useState('');
   const [telefone,      setTelefone]      = useState('');
   const [email,         setEmail]         = useState('');
@@ -202,6 +204,7 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
   onClose: () => void;
   onSalvo: (dados: { nome: string; telefone: string; email: string; comissao: number }) => void;
 }) {
+  useScrollLock();
   const [nome,     setNome]     = useState(prof.user.nome);
   const [telefone, setTelefone] = useState(prof.user.telefone ?? '');
   const [email,    setEmail]    = useState(prof.user.email ?? '');
