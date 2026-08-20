@@ -1054,6 +1054,10 @@ function TimelineView({
   onDeletarBloqueio: (id: string) => void;
 }) {
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
+  // O painel Detalhes so vira modal no mobile (md:hidden). No desktop ele e um
+  // painel lateral e travar a pagina seria bug — foi exatamente o problema que
+  // motivou a variante .bm-modal-mobile no globals.css.
+  useScrollLock(!!agSel, { apenasMobile: true });
   const [hoverInfo, setHoverInfo] = useState<{ profId: string; y: number; horaStr: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 

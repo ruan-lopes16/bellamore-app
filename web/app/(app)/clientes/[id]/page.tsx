@@ -353,6 +353,7 @@ export default function ClientePerfilPage() {
   const [modalAg,         setModalAg]         = useState(false);
   const [confirmArquivar, setConfirmArquivar] = useState(false);
   const [modalRemover,    setModalRemover]    = useState(false);
+  useScrollLock(modalRemover);
   const [confirmExcluir,  setConfirmExcluir]  = useState(false);
   const [excluindo,       setExcluindo]       = useState(false);
   const [erroExcluir,     setErroExcluir]     = useState('');

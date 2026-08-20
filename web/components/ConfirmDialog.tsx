@@ -1,6 +1,7 @@
 'use client';
 
 import { AlertTriangle, Trash2, X } from 'lucide-react';
+import { useScrollLock } from '@/lib/useScrollLock';
 
 interface ConfirmDialogProps {
   open:           boolean;
@@ -20,6 +21,8 @@ export function ConfirmDialog({
   loading = false,
   onConfirm, onCancel,
 }: ConfirmDialogProps) {
+  useScrollLock(open);
+
   if (!open) return null;
 
   const isDanger  = variant === 'danger';
