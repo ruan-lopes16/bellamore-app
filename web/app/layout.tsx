@@ -32,9 +32,18 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * maximumScale + userScalable desligam o pinch-zoom. O iOS ignora os dois no
+ * Safari em aba normal (decisao de acessibilidade da Apple desde o iOS 10), mas
+ * respeita no PWA instalado na tela de inicio — que e como o app e usado. Quem
+ * de fato resolve o zoom de foco em todos os contextos e a regra de 16px em
+ * globals.css; isto aqui e reforco.
+ */
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: 'cover',
 };
 
