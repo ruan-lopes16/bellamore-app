@@ -186,7 +186,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] flex flex-col">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
           <h2 className="font-serif text-xl text-text">Nova despesa</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
@@ -348,7 +348,7 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
         <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Confirmar pagamento</p>
         <p className="font-serif text-xl text-text mb-4">{despesa.descricao}</p>
         <div className="bg-red-soft rounded-xl p-4 mb-4">
@@ -470,7 +470,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] flex flex-col">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
           <h2 className="font-serif text-xl text-text">Editar despesa</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>

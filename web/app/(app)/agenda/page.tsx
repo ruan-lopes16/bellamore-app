@@ -564,7 +564,7 @@ function NovoAgModal({
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
@@ -1152,7 +1152,7 @@ function TimelineView({
         </div>
 
         {/* Área scrollável */}
-        <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: '62vh' }}>
+        <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: '62dvh' }}>
           <div className="flex">
 
             {/* Coluna de horas */}
@@ -1333,7 +1333,7 @@ function TimelineView({
           {/* Mobile: modal centralizado — mesmo padrão dos modais de despesa */}
           <div className="md:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAgSel(null)} />
-            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[85vh] flex flex-col">
+            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[85dvh] flex flex-col">
               <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
                 <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
                 <button onClick={() => setAgSel(null)}

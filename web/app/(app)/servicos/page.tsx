@@ -231,7 +231,7 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] flex flex-col">
 
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">

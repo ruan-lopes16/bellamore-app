@@ -32,3 +32,39 @@ describe('bloqueio de zoom em inputs (web/PWA)', () => {
     expect(read('app/globals.css')).toMatch(/scrollbar-gutter:\s*stable/);
   });
 });
+
+describe('modais ancorados no viewport dinamico', () => {
+  const arquivos = [
+    'app/(app)/agenda/page.tsx',
+    'app/(app)/clientes/page.tsx',
+    'app/(app)/clientes/[id]/page.tsx',
+    'app/(app)/equipe/page.tsx',
+    'app/(app)/estoque/page.tsx',
+    'app/(app)/financeiro/page.tsx',
+    'app/(app)/pacotes/page.tsx',
+    'app/(app)/servicos/page.tsx',
+    'app/(app)/vendas/page.tsx',
+  ];
+
+  // `vh` mede o viewport grande no iOS (barra de URL escondida): o modal fica
+  // mais alto que a area visivel e muda de altura sozinho quando a barra
+  // aparece/some. O padrao \dvh casa "90vh" (digito antes de "vh") mas nao
+  // casa "90dvh" (o caractere antes de "vh" e o "d").
+  it.each(arquivos)('%s nao usa mais unidades vh', (arquivo) => {
+    expect(read(arquivo)).not.toMatch(/\dvh/);
+  });
+
+  it('preserva as alturas originais, agora em dvh', () => {
+    const agenda = read('app/(app)/agenda/page.tsx');
+    expect(agenda).toContain('max-h-[90dvh]');
+    expect(agenda).toContain('max-h-[85dvh]');
+    expect(agenda).toContain("maxHeight: '62dvh'");
+
+    expect(read('app/(app)/financeiro/page.tsx')).toContain('max-h-[90dvh]');
+    expect(read('app/(app)/pacotes/page.tsx')).toContain('max-h-[94dvh]');
+
+    const vendas = read('app/(app)/vendas/page.tsx');
+    expect(vendas).toContain('max-h-[50dvh]');
+    expect(vendas).toContain('md:h-[calc(100dvh-220px)]');
+  });
+});
