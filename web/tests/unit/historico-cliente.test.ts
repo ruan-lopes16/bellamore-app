@@ -60,3 +60,33 @@ describe('modal de detalhe do atendimento no web', () => {
     expect(read(arquivo)).toContain('setDetalheAberto(');
   });
 });
+
+const leMobile = (f: string) => readFileSync(resolve(__dirname, '../../..', f), 'utf8');
+
+describe('historico da cliente no mobile', () => {
+  const hook = 'mobile/hooks/useClientes.ts';
+
+  it('nao trunca o historico em 20', () => {
+    expect(leMobile(hook)).not.toContain('.limit(20)');
+  });
+
+  it('inclui os servicos lancados direto na comanda', () => {
+    const src = leMobile(hook);
+    expect(src).toContain("from('comanda_itens')");
+    expect(src).toContain("eq('comanda.clientes_id'");
+  });
+
+  it('calcula total gasto e visitas sobre a lista completa', () => {
+    const src = leMobile(hook);
+    // A agregacao antiga somava so `agendamentos`, ja truncado em 20
+    expect(src).not.toContain('const concluidos = agendamentos.filter');
+    expect(src).toContain('linhasDeVisita');
+  });
+
+  it('web e mobile usam o mesmo paginador', () => {
+    expect(leMobile(hook)).toContain("from '@shared/paginacao'");
+    expect(read('app/(app)/clientes/[id]/page.tsx')).toContain("from '@shared/paginacao'");
+    // a copia local do web nao pode sobreviver
+    expect(read('app/(app)/clientes/[id]/page.tsx')).not.toContain('async function buscarTodasPaginas');
+  });
+});

@@ -13,6 +13,7 @@ import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { buscarTodasPaginas } from '@shared/paginacao';
 import {
   descreverServicos, montarDetalheAtendimento,
   type DetalheAtendimento,
@@ -24,27 +25,6 @@ type Endereco = { logradouro: string; numero: string; bairro: string; complement
 
 function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
-}
-
-/**
- * Busca todas as páginas de uma query (o PostgREST limita a 1000 linhas por
- * requisição por padrão) — evita truncar silenciosamente o histórico de
- * clientes muito antigos/frequentes.
- */
-async function buscarTodasPaginas<T>(
-  montarQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
-  tamanhoPagina = 1000,
-): Promise<T[]> {
-  const todas: T[] = [];
-  let from = 0;
-  for (;;) {
-    const { data } = await montarQuery(from, from + tamanhoPagina - 1);
-    const linhas = data ?? [];
-    todas.push(...linhas);
-    if (linhas.length < tamanhoPagina) break;
-    from += tamanhoPagina;
-  }
-  return todas;
 }
 
 function parseEndereco(raw?: string): Endereco {
