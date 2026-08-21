@@ -90,3 +90,21 @@ describe('historico da cliente no mobile', () => {
     expect(read('app/(app)/clientes/[id]/page.tsx')).not.toContain('async function buscarTodasPaginas');
   });
 });
+
+describe('lista do historico no mobile', () => {
+  const tela = 'mobile/app/(empresa)/cliente/[id].tsx';
+
+  it('mostra todos os servicos do atendimento', () => {
+    const src = leMobile(tela);
+    expect(src).toContain("from '@shared/atendimento-detalhe'");
+    expect(src).toContain('descreverServicos(ag)');
+    expect(src).not.toContain("{ag.servico?.nome ?? 'Serviço'}");
+  });
+
+  it('roteia o extra de comanda por comanda, nao por agendamento', () => {
+    // Passar um id de comanda_itens para /agendamento/[id] abriria tela quebrada
+    const src = leMobile(tela);
+    expect(src).toContain('tipo=comanda');
+    expect(src).toContain('eExtraDeComanda');
+  });
+});
