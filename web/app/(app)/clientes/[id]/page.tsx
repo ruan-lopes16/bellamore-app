@@ -13,6 +13,7 @@ import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { descreverServicos } from '@shared/atendimento-detalhe';
 
 const supabase = createClient();
 
@@ -77,6 +78,11 @@ type HistAg = {
   status: string; valor: number; observacao?: string;
   servico: { nome: string } | null;
   profissional: { nome: string } | null;
+  agendamento_servicos?: { ordem: number; servico: { nome: string } | null }[] | null;
+  /** comanda que fechou este atendimento — null enquanto nao foi fechado */
+  comanda_id?: string | null;
+  /** true quando a linha veio de comanda_itens (servico avulso, sem agendamento) */
+  eExtraDeComanda?: boolean;
 };
 
 type HistVenda = {
@@ -86,7 +92,8 @@ type HistVenda = {
 
 /** Serviço extra lançado direto na comanda (sem agendamento prévio) — ex: cliente sem hora marcada */
 type HistComandaServico = {
-  id: string; descricao: string; valor_unit: number; quantidade: number; created_at: string;
+  id: string; comanda_id: string; descricao: string; valor_unit: number;
+  quantidade: number; created_at: string;
   servico: { nome: string } | null;
   profissional: { nome: string } | null;
   comanda: { fechada_at: string | null } | null;
@@ -362,9 +369,10 @@ export default function ClientePerfilPage() {
     (async () => {
       const [{ data: clienteData }, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
-        buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null }>((from, to) =>
+        buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null;
+          agendamento_servicos: { ordem: number; servico: { nome: string } | null }[] | null }>((from, to) =>
           supabase.from('agendamentos')
-            .select('valor, data_hora_inicio, servico:servicos(nome)')
+            .select('valor, data_hora_inicio, servico:servicos(nome), agendamento_servicos(ordem, servico:servicos(nome))')
             .eq('cliente_id', id)
             .eq('status', 'concluido')
             .order('data_hora_inicio', { ascending: false })
@@ -391,13 +399,22 @@ export default function ClientePerfilPage() {
           valor: cs.valor_unit * cs.quantidade,
           data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
           servico: cs.servico,
+          agendamento_servicos: null,   // extra de comanda nunca e multi-servico
         })),
       ].sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
       const totalVisitas = rows.length;
       const totalGasto = rows.reduce((s, a) => s + Number(a.valor ?? 0), 0);
       const ultimaVisita = rows[0]?.data_hora_inicio ?? null;
+      // Um atendimento multi-servico conta uma vez para CADA servico feito —
+      // contar so o servico legado subestimava todos os demais.
       const svcCount: Record<string, number> = {};
-      rows.forEach(a => { if (a.servico?.nome) svcCount[a.servico.nome] = (svcCount[a.servico.nome] ?? 0) + 1; });
+      rows.forEach(a => {
+        const nomesDeServicos = (a.agendamento_servicos ?? []).length > 0
+          ? (a.agendamento_servicos ?? []).map((l: { servico: { nome: string } | null }) => l.servico?.nome)
+              .filter((n: string | undefined): n is string => !!n)
+          : (a.servico?.nome ? [a.servico.nome] : []);
+        nomesDeServicos.forEach((nome: string) => { svcCount[nome] = (svcCount[nome] ?? 0) + 1; });
+      });
       const servicoFavorito = Object.entries(svcCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
       setStats({ totalVisitas, totalGasto, ultimaVisita, servicoFavorito });
 
@@ -445,8 +462,9 @@ export default function ClientePerfilPage() {
       buscarTodasPaginas<HistAg>((from, to) =>
         supabase
           .from('agendamentos')
-          .select(`id, data_hora_inicio, data_hora_fim, status, valor, observacao,
+          .select(`id, data_hora_inicio, data_hora_fim, status, valor, observacao, comanda_id,
             servico:servicos(nome),
+            agendamento_servicos(ordem, servico:servicos(nome)),
             profissional:users!agendamentos_profissional_id_fkey(nome)`)
           .eq('cliente_id', id)
           .order('data_hora_inicio', { ascending: false })
@@ -482,7 +500,7 @@ export default function ClientePerfilPage() {
       buscarTodasPaginas<HistComandaServico>((from, to) =>
         supabase
           .from('comanda_itens')
-          .select(`id, descricao, valor_unit, quantidade, created_at,
+          .select(`id, comanda_id, descricao, valor_unit, quantidade, created_at,
             servico:servicos(nome),
             profissional:users(nome),
             comanda:comandas!inner(fechada_at)`)
@@ -501,6 +519,8 @@ export default function ClientePerfilPage() {
       valor: cs.valor_unit * cs.quantidade,
       servico: cs.servico ?? { nome: cs.descricao },
       profissional: cs.profissional,
+      comanda_id: cs.comanda_id ?? null,
+      eExtraDeComanda: true,
     }));
     const historicoCompleto = [...ags, ...extras]
       .sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
@@ -983,7 +1003,7 @@ export default function ClientePerfilPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-text truncate">
-                            {(ag.servico as any)?.nome ?? '—'}
+                            {descreverServicos(ag) ?? '—'}
                           </p>
                           <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
                           {ag.profissional && (
