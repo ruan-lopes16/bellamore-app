@@ -136,6 +136,11 @@ html, body {
   max-width: 100vw;
 }
 
+/* Reserva a calha da scrollbar permanentemente. Sem isso, a trava de fundo dos
+   modais (html:has(.bm-modal){overflow:hidden}) remove a scrollbar de 5px
+   definida abaixo e desloca a página inteira 5px ao abrir qualquer modal. */
+html { scrollbar-gutter: stable; }
+
 /* Garante que Fraunces carregue via next/font — a classe Tailwind
    font-serif não resolve a CSS var corretamente em todos os contextos */
 .font-serif {
@@ -272,9 +277,20 @@ html, body {
   }
 }
 
-/* ── Mobile: previne zoom automático do iOS ao focar inputs ── */
+/* ── Mobile: previne zoom automático do iOS ao focar inputs ──
+   O iOS Safari dá zoom em qualquer campo com fonte < 16px e não desfaz ao
+   desfocar. O !important é necessário: os inputClass do projeto usam a classe
+   `text-sm` do Tailwind, que vale 13px no mobile (--text-sm em @theme) e vence
+   qualquer seletor de elemento na cascata — era por isso que a regra anterior,
+   sem !important, nunca teve efeito. Verificado que nenhum campo do projeto usa
+   fonte maior que a base, então travar em 16px não encolhe nada. Checkbox e
+   radio ficam de fora: não têm texto e a fonte altera o tamanho da caixa. */
 @media (max-width: 767px) {
-  input, select, textarea { font-size: max(16px, var(--text-base)); }
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* ── Trava scroll de fundo quando há modal aberto ─────────── */

@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { maskPhone } from '@/lib/masks';
@@ -201,6 +202,7 @@ function NovoAgModal({
   horaInicial?: string;
   profIdInicial?: string;
 }) {
+  useScrollLock();
   const [clientes,      setClientes]      = useState<ClienteOpt[]>([]);
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<Servico[]>([]);
@@ -564,7 +566,7 @@ function NovoAgModal({
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
@@ -915,6 +917,7 @@ function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }:
   onClose: () => void;
   onSalvo: (b: Bloqueio) => void;
 }) {
+  useScrollLock();
   const [titulo,   setTitulo]   = useState('');
   const [profId,   setProfId]   = useState('');
   const [horaIni,  setHoraIni]  = useState('08:00');
@@ -1051,6 +1054,10 @@ function TimelineView({
   onDeletarBloqueio: (id: string) => void;
 }) {
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
+  // O painel Detalhes so vira modal no mobile (md:hidden). No desktop ele e um
+  // painel lateral e travar a pagina seria bug — foi exatamente o problema que
+  // motivou a variante .bm-modal-mobile no globals.css.
+  useScrollLock(!!agSel, { apenasMobile: true });
   const [hoverInfo, setHoverInfo] = useState<{ profId: string; y: number; horaStr: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -1152,7 +1159,7 @@ function TimelineView({
         </div>
 
         {/* Área scrollável */}
-        <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: '62vh' }}>
+        <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: '62dvh' }}>
           <div className="flex">
 
             {/* Coluna de horas */}
@@ -1333,7 +1340,7 @@ function TimelineView({
           {/* Mobile: modal centralizado — mesmo padrão dos modais de despesa */}
           <div className="md:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAgSel(null)} />
-            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[85vh] flex flex-col">
+            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[85dvh] flex flex-col">
               <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
                 <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
                 <button onClick={() => setAgSel(null)}
@@ -1838,6 +1845,7 @@ function AvaliacaoModal({ clienteNome, onClose, onSalvar }: {
   onClose: () => void;
   onSalvar: (nota: number, comentario: string) => Promise<void>;
 }) {
+  useScrollLock();
   const [nota,       setNota]       = useState(0);
   const [hover,      setHover]      = useState(0);
   const [comentario, setComentario] = useState('');

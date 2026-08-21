@@ -7,6 +7,7 @@ import {
 import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { maskPhone } from '@/lib/masks';
@@ -65,6 +66,7 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   onClose: () => void;
   onSalvo: (p: Profissional, mensagem?: string) => void;
 }) {
+  useScrollLock();
   const [nome,          setNome]          = useState('');
   const [telefone,      setTelefone]      = useState('');
   const [email,         setEmail]         = useState('');
@@ -110,7 +112,7 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <h2 className="font-serif text-xl text-text">Nova profissional</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
@@ -202,6 +204,7 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
   onClose: () => void;
   onSalvo: (dados: { nome: string; telefone: string; email: string; comissao: number }) => void;
 }) {
+  useScrollLock();
   const [nome,     setNome]     = useState(prof.user.nome);
   const [telefone, setTelefone] = useState(prof.user.telefone ?? '');
   const [email,    setEmail]    = useState(prof.user.email ?? '');
@@ -237,7 +240,7 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <h2 className="font-serif text-xl text-text">Editar profissional</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">

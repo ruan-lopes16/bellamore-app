@@ -7,6 +7,7 @@ import {
   IconPele, IconDermaplaning, IconMaquiagem, IconOutros,
 } from '@/components/CategoriaIcon';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ExportButton } from '@/components/ExportButton';
@@ -86,6 +87,7 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
   onClose: () => void;
   onSalvo: (s: Servico) => void;
 }) {
+  useScrollLock();
   const editando = state.modo === 'editar' ? state.servico : null;
   const catInicial: CategoriaKey = editando?.categoria ?? (state.modo === 'criar' ? (state.categoria ?? 'outros') : 'outros');
 
@@ -231,7 +233,7 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] flex flex-col">
 
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">

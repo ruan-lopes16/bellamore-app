@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, Banknote, CircleCheck, X, ChevronDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { ExportButton } from '@/components/ExportButton';
 import { CategoriaIcon, CATEGORIA_COR, CATEGORIA_BG } from '@/components/CategoriaIcon';
@@ -158,6 +159,7 @@ export default function ComissoesGestorView() {
   const [filtro,    setFiltro]    = useState<Filtro>('todas');
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const [pagando,   setPagando]   = useState<string | null>(null);
+  useScrollLock(!!pagando);
   const [salvando,  setSalvando]  = useState(false);
   const [toast,     setToast]     = useState('');
 

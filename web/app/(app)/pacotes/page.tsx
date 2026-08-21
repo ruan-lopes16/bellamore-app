@@ -31,6 +31,7 @@ import {
   AlertCircle, Tag, Clock,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente as ClienteBase, Servico as ServicoBase } from '@/types';
 import { ExportButton } from '@/components/ExportButton';
 import { Sk } from '@/components/Skeleton';
@@ -104,6 +105,7 @@ function PacoteModal({
   onClose:   () => void;
   onSalvo:   () => void;
 }) {
+  useScrollLock();
   const [nome,          setNome]          = useState(pacote?.nome ?? '');
   const [preco,         setPreco]         = useState(pacote?.preco.toFixed(2).replace('.', ',') ?? '');
   const [validade,      setValidade]      = useState(pacote ? (pacote.validade_dias != null ? String(pacote.validade_dias) : '') : '90');
@@ -186,7 +188,7 @@ function PacoteModal({
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className={`relative bg-surface rounded-2xl shadow-xl w-full flex flex-col transition-all duration-200 ${addindoServico ? 'max-w-lg max-h-[94vh]' : 'max-w-md max-h-[90vh]'}`}>
+      <div className={`relative bg-surface rounded-2xl shadow-xl w-full flex flex-col transition-all duration-200 ${addindoServico ? 'max-w-lg max-h-[94dvh]' : 'max-w-md max-h-[90dvh]'}`}>
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
           <h2 className="font-serif text-xl text-text">{pacote ? 'Editar pacote' : 'Novo pacote'}</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
@@ -309,6 +311,7 @@ function VenderModal({
   onClose:   () => void;
   onSalvo:   () => void;
 }) {
+  useScrollLock();
   const [clienteId,  setClienteId]  = useState('');
   const [dataInicio, setDataInicio] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [valorPago,  setValorPago]  = useState(pacote.preco.toFixed(2).replace('.', ','));
@@ -379,7 +382,7 @@ function VenderModal({
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
             <h2 className="font-serif text-xl text-text">Vender pacote</h2>
@@ -465,6 +468,7 @@ function SessaoModal({
   onClose:   () => void;
   onSalvo:   () => void;
 }) {
+  useScrollLock();
   const [servId,  setServId]  = useState('');
   const [obs,     setObs]     = useState('');
   const [salvando,setSalvando]= useState(false);
@@ -494,7 +498,7 @@ function SessaoModal({
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
             <h2 className="font-serif text-xl text-text">Registrar sessão</h2>

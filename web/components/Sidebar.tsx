@@ -9,6 +9,7 @@ import {
   Banknote, X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { temPermissao, type Permissao } from '@/lib/permissions';
@@ -79,6 +80,8 @@ export default function Sidebar({
   const [alertCount,     setAlertCount]     = useState(0);
   const [comissoesCount, setComissoesCount] = useState(0);
   const [maisAberto,     setMaisAberto]     = useState(false);
+  // O drawer "Mais" e md:hidden — so existe no mobile.
+  useScrollLock(maisAberto, { apenasMobile: true });
 
   const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
   const navFiltrado          = NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));

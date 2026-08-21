@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, UserPlus, Phone, Mail, X, ChevronRight, Users, UserCheck, CalendarPlus, Crown, AlertTriangle, Sparkles, LayoutGrid, List } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente } from '@/types';
 import { format, startOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
@@ -30,6 +31,7 @@ const inputClass = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg tex
 function NovoClienteModal({ empresaId, onClose }: {
   empresaId: string; onClose: () => void;
 }) {
+  useScrollLock();
   const router   = useRouter();
   const [nome,     setNome]     = useState('');
   const [telefone, setTelefone] = useState('');
@@ -87,7 +89,7 @@ function NovoClienteModal({ empresaId, onClose }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <h2 className="font-serif text-xl text-text">Novo cliente</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>

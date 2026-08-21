@@ -355,10 +355,10 @@ export default function VendasPage() {
 
       {/* ══════════ TAB: PDV ══════════ */}
       {aba === 'pdv' && (
-        <div className="flex flex-col md:flex-row gap-6 md:h-[calc(100vh-220px)]">
+        <div className="flex flex-col md:flex-row gap-6 md:h-[calc(100dvh-220px)]">
 
           {/* ── Coluna esquerda: produtos ── */}
-          <div className="w-full md:w-[300px] md:flex-shrink-0 flex flex-col gap-3 max-h-[50vh] md:max-h-none overflow-y-auto md:overflow-visible">
+          <div className="w-full md:w-[300px] md:flex-shrink-0 flex flex-col gap-3 max-h-[50dvh] md:max-h-none overflow-y-auto md:overflow-visible">
             {/* Busca */}
             <div className="relative">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-4 pointer-events-none"/>

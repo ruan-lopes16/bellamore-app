@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle, Archive, Banknote } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente, TaxaCancelamento, TaxaReserva } from '@/types';
 import { format, differenceInYears, differenceInDays, addMinutes, parseISO } from 'date-fns';
 import { maskPhone, toWhatsApp } from '@/lib/masks';
@@ -107,6 +108,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   empresaId: string; clienteId: string; clienteNome: string;
   onClose: () => void; onSalvo: () => void;
 }) {
+  useScrollLock();
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<ServicoOpt[]>([]);
   const [servicoId,  setServicoId]  = useState('');
@@ -199,7 +201,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
             <h2 className="font-serif text-xl text-text">Novo agendamento</h2>
@@ -351,6 +353,7 @@ export default function ClientePerfilPage() {
   const [modalAg,         setModalAg]         = useState(false);
   const [confirmArquivar, setConfirmArquivar] = useState(false);
   const [modalRemover,    setModalRemover]    = useState(false);
+  useScrollLock(modalRemover);
   const [confirmExcluir,  setConfirmExcluir]  = useState(false);
   const [excluindo,       setExcluindo]       = useState(false);
   const [erroExcluir,     setErroExcluir]     = useState('');
