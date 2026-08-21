@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { subDays, startOfDay } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { buscarTodasPaginas } from '@shared/paginacao';
 import type { User, AnamneseFicha, Agendamento, TaxaCancelamento, TaxaReserva } from '@/types';
 
 // ── Tipos ────────────────────────────────────────────────────
@@ -210,16 +211,35 @@ export function useClienteDetalhe(clienteId: string) {
     enabled: !!empresaId && !!clienteId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const [userRes, agRes, anamneseRes, taxasRes, reservaRes] = await Promise.all([
+      const [userRes, agLinhas, comandaItens, anamneseRes, taxasRes, reservaRes] = await Promise.all([
         supabase.from('users').select('*').eq('id', clienteId).single(),
-        supabase
-          .from('agendamentos')
-          .select(`*, servico:servicos(nome), profissional:users!agendamentos_profissional_id_fkey(nome)`)
-          .eq('empresa_id', empresaId!)
-          .eq('cliente_id', clienteId)
-          .neq('status', 'cancelado')
-          .order('data_hora_inicio', { ascending: false })
-          .limit(20),
+        buscarTodasPaginas<any>((from, to) =>
+          supabase
+            .from('agendamentos')
+            .select(`*, comanda_id,
+              servico:servicos(nome),
+              agendamento_servicos(ordem, servico:servicos(nome)),
+              profissional:users!agendamentos_profissional_id_fkey(nome)`)
+            .eq('empresa_id', empresaId!)
+            .eq('cliente_id', clienteId)
+            .neq('status', 'cancelado')
+            .order('data_hora_inicio', { ascending: false })
+            .range(from, to) as any
+        ),
+        // Servicos lancados direto na comanda (cliente sem hora marcada) — o web
+        // ja contava como visita; sem isso os totais divergem entre plataformas.
+        buscarTodasPaginas<any>((from, to) =>
+          supabase
+            .from('comanda_itens')
+            .select(`id, comanda_id, descricao, valor_unit, quantidade, created_at,
+              servico:servicos(nome),
+              profissional:users(nome),
+              comanda:comandas!inner(fechada_at, clientes_id)`)
+            .eq('tipo', 'servico')
+            .eq('comanda.clientes_id', clienteId)
+            .order('created_at', { ascending: false })
+            .range(from, to) as any
+        ),
         supabase
           .from('anamnese_fichas')
           .select('*')
@@ -242,20 +262,33 @@ export function useClienteDetalhe(clienteId: string) {
       ]);
 
       const user = userRes.data;
-      const agendamentos = agRes.data ?? [];
+      const agendamentos = agLinhas;
       const anamnese = anamneseRes.data;
 
-      const concluidos = agendamentos.filter((a) => a.status === 'concluido');
-      const totalGasto = concluidos.reduce((acc, a) => acc + Number(a.valor), 0);
-      const ultimaVisita = concluidos[0]?.data_hora_inicio ?? null;
+      // Extras de comanda (servico lancado sem hora marcada) tambem sao visita —
+      // e a lista nao e mais truncada, entao os totais batem com os do web.
+      const extrasDeComanda = comandaItens.map((cs: any) => ({
+        ...cs,
+        status: 'concluido',
+        valor: Number(cs.valor_unit) * Number(cs.quantidade),
+        data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
+        eExtraDeComanda: true,
+      }));
+
+      const historicoCompleto = [...agendamentos, ...extrasDeComanda]
+        .sort((a: any, b: any) => String(b.data_hora_inicio).localeCompare(String(a.data_hora_inicio)));
+
+      const linhasDeVisita = historicoCompleto.filter((a: any) => a.status === 'concluido');
+      const totalGasto = linhasDeVisita.reduce((acc: number, a: any) => acc + Number(a.valor ?? 0), 0);
+      const ultimaVisita = linhasDeVisita[0]?.data_hora_inicio ?? null;
 
       return {
         ...user,
         total_gasto: totalGasto,
-        total_visitas: concluidos.length,
+        total_visitas: linhasDeVisita.length,
         ultima_visita: ultimaVisita,
-        tags: calcularTags(concluidos.length, totalGasto, ultimaVisita),
-        historico: agendamentos,
+        tags: calcularTags(linhasDeVisita.length, totalGasto, ultimaVisita),
+        historico: historicoCompleto,
         anamnese,
         taxasCancelamento: (taxasRes.data ?? []) as TaxaCancelamento[],
         taxasReserva: (reservaRes.data ?? []) as TaxaReserva[],

@@ -58,11 +58,12 @@ describe('trava de scroll nos modais embutidos', () => {
   });
 
   it('nenhum componente com .bm-modal ficou sem a trava', () => {
-    // 21 componentes no total: 16 autonomos (Task 4) + 5 embutidos.
+    // 22 componentes: 16 autonomos + 5 embutidos da entrega de zoom, mais o
+    // DetalheAtendimentoModal do historico da cliente.
     const porArquivo: Record<string, number> = {
       'app/(app)/agenda/page.tsx':                   4,
       'app/(app)/clientes/page.tsx':                 1,
-      'app/(app)/clientes/[id]/page.tsx':            2,
+      'app/(app)/clientes/[id]/page.tsx':            3,
       'app/(app)/comissoes/ComissoesGestorView.tsx': 1,
       'app/(app)/equipe/page.tsx':                   2,
       'app/(app)/estoque/page.tsx':                  2,

@@ -28,6 +28,7 @@ import { format, differenceInDays, differenceInYears } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useClienteDetalhe, type ClienteTag } from '@/hooks/useClientes';
+import { descreverServicos } from '@shared/atendimento-detalhe';
 import { supabase } from '@/lib/supabase';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -516,7 +517,11 @@ export default function ClientePerfil() {
                   return (
                     <TouchableOpacity
                       key={ag.id}
-                      onPress={() => router.push(`/(empresa)/agendamento/${ag.id}` as any)}
+                      onPress={() => router.push(
+                        ((ag as any).eExtraDeComanda
+                          ? `/(empresa)/agendamento/${(ag as any).comanda_id}?tipo=comanda`
+                          : `/(empresa)/agendamento/${ag.id}`) as any
+                      )}
                       style={{
                         backgroundColor: C.surface, borderWidth: 1,
                         borderColor: C.border, borderRadius: 14,
@@ -537,7 +542,7 @@ export default function ClientePerfil() {
                       <View style={{ width: 1, height: 32, backgroundColor: C.border }} />
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
-                          {ag.servico?.nome ?? 'Serviço'}
+                          {descreverServicos(ag) ?? 'Serviço'}
                         </Text>
                         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
                           {ag.profissional?.nome ?? 'Profissional'}
