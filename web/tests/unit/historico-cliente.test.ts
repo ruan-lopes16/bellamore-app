@@ -108,3 +108,24 @@ describe('lista do historico no mobile', () => {
     expect(src).toContain('eExtraDeComanda');
   });
 });
+
+describe('detalhe do atendimento no mobile', () => {
+  const tela = 'mobile/app/(empresa)/agendamento/[id].tsx';
+
+  it('monta o detalhe com a funcao compartilhada', () => {
+    const src = leMobile(tela);
+    expect(src).toContain('montarDetalheAtendimento');
+    expect(src).toContain('.maybeSingle()');
+  });
+
+  it('aceita o modo comanda vindo da lista', () => {
+    expect(leMobile(tela)).toContain("tipo === 'comanda'");
+  });
+
+  it('trata as tres situacoes possiveis', () => {
+    const src = leMobile(tela);
+    expect(src).toContain("'bloqueado_por_rls'");
+    expect(src).toContain("'sem_comanda'");
+    expect(src).toContain('Detalhes financeiros disponíveis apenas para quem atendeu');
+  });
+});
