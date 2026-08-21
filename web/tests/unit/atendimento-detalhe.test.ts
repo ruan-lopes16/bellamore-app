@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { descreverServicos, montarDetalheAtendimento } from '@shared/atendimento-detalhe';
+import { descreverServicos, listarServicos, montarDetalheAtendimento } from '@shared/atendimento-detalhe';
 import type { EntradaDetalhe } from '@shared/atendimento-detalhe';
 
 type ServicoDoAgendamentoTeste = { ordem: number; servico: { nome: string } | null };
@@ -183,5 +183,26 @@ describe('montarDetalheAtendimento', () => {
 
   it('reporta completo quando a comanda veio', () => {
     expect(montarDetalheAtendimento(entrada()).situacao).toBe('completo');
+  });
+});
+
+describe('listarServicos', () => {
+  it('devolve os nomes em ordem, um a um', () => {
+    expect(listarServicos({
+      servico: { nome: 'Sobrancelha' },
+      agendamento_servicos: [
+        { ordem: 1, servico: { nome: 'Buco' } },
+        { ordem: 0, servico: { nome: 'Sobrancelha' } },
+      ],
+    })).toEqual(['Sobrancelha', 'Buco']);
+  });
+
+  it('devolve o servico legado sozinho quando nao ha multi-servico', () => {
+    expect(listarServicos({ servico: { nome: 'Limpeza de pele' } })).toEqual(['Limpeza de pele']);
+  });
+
+  it('devolve lista vazia quando nao ha nome nenhum', () => {
+    expect(listarServicos({})).toEqual([]);
+    expect(listarServicos({ servico: null, agendamento_servicos: [] })).toEqual([]);
   });
 });

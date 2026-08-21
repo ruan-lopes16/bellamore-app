@@ -15,7 +15,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import {
-  descreverServicos, montarDetalheAtendimento,
+  descreverServicos, listarServicos, montarDetalheAtendimento,
   type DetalheAtendimento,
 } from '@shared/atendimento-detalhe';
 
@@ -567,11 +567,7 @@ export default function ClientePerfilPage() {
       // contar so o servico legado subestimava todos os demais.
       const svcCount: Record<string, number> = {};
       rows.forEach(a => {
-        const nomesDeServicos = (a.agendamento_servicos ?? []).length > 0
-          ? (a.agendamento_servicos ?? []).map((l: { servico: { nome: string } | null }) => l.servico?.nome)
-              .filter((n: string | undefined): n is string => !!n)
-          : (a.servico?.nome ? [a.servico.nome] : []);
-        nomesDeServicos.forEach((nome: string) => { svcCount[nome] = (svcCount[nome] ?? 0) + 1; });
+        listarServicos(a).forEach(nome => { svcCount[nome] = (svcCount[nome] ?? 0) + 1; });
       });
       const servicoFavorito = Object.entries(svcCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
       setStats({ totalVisitas, totalGasto, ultimaVisita, servicoFavorito });

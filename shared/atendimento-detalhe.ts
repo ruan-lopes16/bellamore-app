@@ -24,14 +24,26 @@ export type AgendamentoComServicos = {
  * nao ha nome nenhum, para a tela decidir o placeholder.
  */
 export function descreverServicos(ag: AgendamentoComServicos): string | null {
+  const nomes = listarServicos(ag);
+  return nomes.length > 0 ? nomes.join(' + ') : null;
+}
+
+/**
+ * Nomes dos servicos de um agendamento, em ordem, ja aplicando o fallback para
+ * o servico legado. Existe separada de `descreverServicos` porque quem agrega
+ * (ex.: contagem de servico favorito) precisa dos nomes um a um, e nao do texto
+ * pronto — sem isso a regra de "preferir agendamento_servicos, cair no legado"
+ * ficaria escrita em dois lugares, livre para divergir.
+ */
+export function listarServicos(ag: AgendamentoComServicos): string[] {
   const nomes = (ag.agendamento_servicos ?? [])
     .slice()                                   // nao mutar o array do chamador
     .sort((a, b) => a.ordem - b.ordem)
     .map((linha) => linha.servico?.nome)
     .filter((nome): nome is string => !!nome);
 
-  if (nomes.length > 0) return nomes.join(' + ');
-  return ag.servico?.nome ?? null;
+  if (nomes.length > 0) return nomes;
+  return ag.servico?.nome ? [ag.servico.nome] : [];
 }
 
 export type ItemComandaCru = {

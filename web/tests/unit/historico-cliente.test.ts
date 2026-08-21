@@ -29,7 +29,9 @@ describe('historico da cliente no web', () => {
     const src = read(arquivo);
     // A agregacao antiga somava so a.servico?.nome — um servico por atendimento.
     expect(src).not.toContain('if (a.servico?.nome) svcCount[a.servico.nome]');
-    expect(src).toContain('nomesDeServicos');
+    // A contagem usa o mesmo helper da exibicao, para a regra de fallback
+    // nao existir escrita em dois lugares.
+    expect(src).toContain('listarServicos(a)');
   });
 });
 
