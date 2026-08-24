@@ -13,6 +13,11 @@ import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { buscarTodasPaginas } from '@shared/paginacao';
+import {
+  descreverServicos, listarServicos, montarDetalheAtendimento,
+  type DetalheAtendimento,
+} from '@shared/atendimento-detalhe';
 
 const supabase = createClient();
 
@@ -20,27 +25,6 @@ type Endereco = { logradouro: string; numero: string; bairro: string; complement
 
 function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
-}
-
-/**
- * Busca todas as páginas de uma query (o PostgREST limita a 1000 linhas por
- * requisição por padrão) — evita truncar silenciosamente o histórico de
- * clientes muito antigos/frequentes.
- */
-async function buscarTodasPaginas<T>(
-  montarQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
-  tamanhoPagina = 1000,
-): Promise<T[]> {
-  const todas: T[] = [];
-  let from = 0;
-  for (;;) {
-    const { data } = await montarQuery(from, from + tamanhoPagina - 1);
-    const linhas = data ?? [];
-    todas.push(...linhas);
-    if (linhas.length < tamanhoPagina) break;
-    from += tamanhoPagina;
-  }
-  return todas;
 }
 
 function parseEndereco(raw?: string): Endereco {
@@ -77,6 +61,11 @@ type HistAg = {
   status: string; valor: number; observacao?: string;
   servico: { nome: string } | null;
   profissional: { nome: string } | null;
+  agendamento_servicos?: { ordem: number; servico: { nome: string } | null }[] | null;
+  /** comanda que fechou este atendimento — null enquanto nao foi fechado */
+  comanda_id?: string | null;
+  /** true quando a linha veio de comanda_itens (servico avulso, sem agendamento) */
+  eExtraDeComanda?: boolean;
 };
 
 type HistVenda = {
@@ -86,7 +75,8 @@ type HistVenda = {
 
 /** Serviço extra lançado direto na comanda (sem agendamento prévio) — ex: cliente sem hora marcada */
 type HistComandaServico = {
-  id: string; descricao: string; valor_unit: number; quantidade: number; created_at: string;
+  id: string; comanda_id: string; descricao: string; valor_unit: number;
+  quantidade: number; created_at: string;
   servico: { nome: string } | null;
   profissional: { nome: string } | null;
   comanda: { fechada_at: string | null } | null;
@@ -298,6 +288,178 @@ const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-w
 
 // ── Tela ─────────────────────────────────────────────────────
 
+/**
+ * Detalhe de um atendimento do historico: o que foi feito, como fechou e como
+ * foi pago. Busca sob demanda — nada disso e carregado junto com a lista.
+ *
+ * Recebe `agendamentoId` quando a linha veio de um agendamento, ou apenas
+ * `comandaId` quando veio de um servico lancado direto na comanda.
+ */
+function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClose }: {
+  agendamentoId: string | null;
+  comandaId: string | null;
+  tituloLinha: string;
+  onClose: () => void;
+}) {
+  useScrollLock();
+  const [carregando, setCarregando] = useState(true);
+  const [detalhe, setDetalhe] = useState<DetalheAtendimento | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      if (!comandaId) {
+        setDetalhe(montarDetalheAtendimento({
+          agendamentoId, comandaIdEsperado: null, comanda: null,
+          itens: [], pagamentos: [], agendamentosDaComanda: [],
+        }));
+        setCarregando(false);
+        return;
+      }
+
+      const [rComanda, rItens, rPagamentos, rAgs] = await Promise.all([
+        supabase.from('comandas')
+          .select('id, valor_total, desconto, desconto_reserva, fechada_at, observacao')
+          .eq('id', comandaId).maybeSingle(),
+        supabase.from('comanda_itens')
+          .select('id, tipo, descricao, quantidade, valor_unit, profissional:users(nome)')
+          .eq('comanda_id', comandaId),
+        supabase.from('pagamentos')
+          .select('id, metodo, valor, bandeira, parcelas, taxa_perc, valor_liquido')
+          .eq('comanda_id', comandaId),
+        supabase.from('agendamentos')
+          .select(`id, data_hora_inicio, valor,
+            servico:servicos(nome),
+            agendamento_servicos(ordem, servico:servicos(nome)),
+            profissional:users!agendamentos_profissional_id_fkey(nome)`)
+          .eq('comanda_id', comandaId)
+          .order('data_hora_inicio'),
+      ]);
+
+      setDetalhe(montarDetalheAtendimento({
+        agendamentoId,
+        comandaIdEsperado: comandaId,
+        comanda: (rComanda.data ?? null) as any,
+        itens: (rItens.data ?? []) as any,
+        pagamentos: (rPagamentos.data ?? []) as any,
+        agendamentosDaComanda: (rAgs.data ?? []) as any,
+      }));
+      setCarregando(false);
+    })();
+  }, [agendamentoId, comandaId]);
+
+  const fmtBRL = (v: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+
+  return (
+    <div className="bm-modal fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhe</p>
+            <h2 className="font-serif text-lg text-text truncate">{tituloLinha}</h2>
+          </div>
+          <button onClick={onClose}
+            className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
+          {carregando ? (
+            <div className="flex flex-col gap-3">
+              <Sk className="h-4 w-40"/><Sk className="h-4 w-56"/><Sk className="h-4 w-32"/>
+            </div>
+          ) : detalhe?.situacao === 'bloqueado_por_rls' ? (
+            <p className="text-sm text-text-3">
+              Detalhes financeiros disponíveis apenas para quem atendeu ou para a gestão.
+            </p>
+          ) : detalhe?.situacao === 'sem_comanda' ? (
+            <p className="text-sm text-text-3">
+              Este atendimento ainda não foi fechado em comanda.
+            </p>
+          ) : detalhe && (
+            <>
+              <section className="flex flex-col gap-2">
+                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">O que foi feito</p>
+                {detalhe.itens.map(item => (
+                  <div key={`${item.origem}-${item.id}`}
+                    className={`flex items-start justify-between gap-3 text-sm ${item.esteAtendimento ? 'font-semibold text-text' : 'text-text-2'}`}>
+                    <span className="min-w-0">
+                      {item.quantidade > 1 && `${item.quantidade}× `}{item.descricao}
+                      {item.profissional && (
+                        <span className="block text-xs text-text-4">com {item.profissional.split(' ')[0]}</span>
+                      )}
+                    </span>
+                    <span className="flex-shrink-0">{fmtBRL(item.valorLinha)}</span>
+                  </div>
+                ))}
+              </section>
+
+              <section className="flex flex-col gap-1.5 border-t border-border pt-4">
+                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Fechamento</p>
+                <div className="flex justify-between text-sm text-text-2">
+                  <span>Subtotal</span><span>{fmtBRL(detalhe.subtotal)}</span>
+                </div>
+                {detalhe.descontoManual > 0 && (
+                  <div className="flex justify-between text-sm text-text-2">
+                    <span>Desconto</span><span>− {fmtBRL(detalhe.descontoManual)}</span>
+                  </div>
+                )}
+                {detalhe.descontoReserva > 0 && (
+                  <div className="flex justify-between text-sm text-text-2">
+                    <span>Taxa de reserva já paga</span><span>− {fmtBRL(detalhe.descontoReserva)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-bold text-text pt-1">
+                  <span>Total</span><span>{fmtBRL(detalhe.total)}</span>
+                </div>
+              </section>
+
+              <section className="flex flex-col gap-1.5 border-t border-border pt-4">
+                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Como foi pago</p>
+                {detalhe.pagamentos.length === 0 ? (
+                  <p className="text-sm text-text-4">Nenhum pagamento registrado.</p>
+                ) : detalhe.pagamentos.map(p => (
+                  <div key={p.id} className="flex justify-between text-sm text-text-2">
+                    <span className="capitalize">
+                      {p.metodo}
+                      {p.bandeira && ` · ${p.bandeira}`}
+                      {p.parcelas > 1 && ` · ${p.parcelas}×`}
+                      {p.taxaPerc != null && (
+                        <span className="block text-xs text-text-4 normal-case">
+                          taxa {p.taxaPerc}% · líquido {fmtBRL(p.valorLiquido ?? 0)}
+                        </span>
+                      )}
+                    </span>
+                    <span>{fmtBRL(p.valor)}</span>
+                  </div>
+                ))}
+              </section>
+
+              {detalhe.outrosAtendimentos.length > 0 && (
+                <section className="border-t border-border pt-4">
+                  <p className="text-xs text-text-3">
+                    Esta comanda fechou {detalhe.outrosAtendimentos.length + 1} atendimentos do mesmo dia —
+                    os valores acima são do total da visita:
+                  </p>
+                  <ul className="mt-2 flex flex-col gap-1">
+                    {detalhe.outrosAtendimentos.map(o => (
+                      <li key={o.id} className="text-xs text-text-4">
+                        {format(parseISO(o.dataHoraInicio), 'HH:mm')} — {o.servicos ?? 'Serviço'}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ClientePerfilPage() {
   const router       = useRouter();
   const { id }       = useParams<{ id: string }>();
@@ -354,6 +516,9 @@ export default function ClientePerfilPage() {
   const [confirmArquivar, setConfirmArquivar] = useState(false);
   const [modalRemover,    setModalRemover]    = useState(false);
   useScrollLock(modalRemover);
+  const [detalheAberto,   setDetalheAberto]   = useState<
+    { agendamentoId: string | null; comandaId: string | null; titulo: string } | null
+  >(null);
   const [confirmExcluir,  setConfirmExcluir]  = useState(false);
   const [excluindo,       setExcluindo]       = useState(false);
   const [erroExcluir,     setErroExcluir]     = useState('');
@@ -362,9 +527,10 @@ export default function ClientePerfilPage() {
     (async () => {
       const [{ data: clienteData }, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
-        buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null }>((from, to) =>
+        buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null;
+          agendamento_servicos: { ordem: number; servico: { nome: string } | null }[] | null }>((from, to) =>
           supabase.from('agendamentos')
-            .select('valor, data_hora_inicio, servico:servicos(nome)')
+            .select('valor, data_hora_inicio, servico:servicos(nome), agendamento_servicos(ordem, servico:servicos(nome))')
             .eq('cliente_id', id)
             .eq('status', 'concluido')
             .order('data_hora_inicio', { ascending: false })
@@ -391,13 +557,18 @@ export default function ClientePerfilPage() {
           valor: cs.valor_unit * cs.quantidade,
           data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
           servico: cs.servico,
+          agendamento_servicos: null,   // extra de comanda nunca e multi-servico
         })),
       ].sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
       const totalVisitas = rows.length;
       const totalGasto = rows.reduce((s, a) => s + Number(a.valor ?? 0), 0);
       const ultimaVisita = rows[0]?.data_hora_inicio ?? null;
+      // Um atendimento multi-servico conta uma vez para CADA servico feito —
+      // contar so o servico legado subestimava todos os demais.
       const svcCount: Record<string, number> = {};
-      rows.forEach(a => { if (a.servico?.nome) svcCount[a.servico.nome] = (svcCount[a.servico.nome] ?? 0) + 1; });
+      rows.forEach(a => {
+        listarServicos(a).forEach(nome => { svcCount[nome] = (svcCount[nome] ?? 0) + 1; });
+      });
       const servicoFavorito = Object.entries(svcCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
       setStats({ totalVisitas, totalGasto, ultimaVisita, servicoFavorito });
 
@@ -445,8 +616,9 @@ export default function ClientePerfilPage() {
       buscarTodasPaginas<HistAg>((from, to) =>
         supabase
           .from('agendamentos')
-          .select(`id, data_hora_inicio, data_hora_fim, status, valor, observacao,
+          .select(`id, data_hora_inicio, data_hora_fim, status, valor, observacao, comanda_id,
             servico:servicos(nome),
+            agendamento_servicos(ordem, servico:servicos(nome)),
             profissional:users!agendamentos_profissional_id_fkey(nome)`)
           .eq('cliente_id', id)
           .order('data_hora_inicio', { ascending: false })
@@ -482,7 +654,7 @@ export default function ClientePerfilPage() {
       buscarTodasPaginas<HistComandaServico>((from, to) =>
         supabase
           .from('comanda_itens')
-          .select(`id, descricao, valor_unit, quantidade, created_at,
+          .select(`id, comanda_id, descricao, valor_unit, quantidade, created_at,
             servico:servicos(nome),
             profissional:users(nome),
             comanda:comandas!inner(fechada_at)`)
@@ -501,6 +673,8 @@ export default function ClientePerfilPage() {
       valor: cs.valor_unit * cs.quantidade,
       servico: cs.servico ?? { nome: cs.descricao },
       profissional: cs.profissional,
+      comanda_id: cs.comanda_id ?? null,
+      eExtraDeComanda: true,
     }));
     const historicoCompleto = [...ags, ...extras]
       .sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
@@ -977,13 +1151,19 @@ export default function ClientePerfilPage() {
                     const dataFmt = format(parseISO(ag.data_hora_inicio), "dd/MM/yyyy 'às' HH:mm");
                     const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
                     return (
-                      <div key={ag.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
+                      <button key={ag.id} type="button"
+                        onClick={() => setDetalheAberto({
+                          agendamentoId: ag.eExtraDeComanda ? null : ag.id,
+                          comandaId: ag.comanda_id ?? null,
+                          titulo: descreverServicos(ag) ?? 'Atendimento',
+                        })}
+                        className="w-full text-left flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
                         <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${cfg.bg}`}>
                           <Icon size={14} strokeWidth={2} className={cfg.text}/>
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-text truncate">
-                            {(ag.servico as any)?.nome ?? '—'}
+                            {descreverServicos(ag) ?? '—'}
                           </p>
                           <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
                           {ag.profissional && (
@@ -996,7 +1176,7 @@ export default function ClientePerfilPage() {
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${cfg.bg} ${cfg.text}`}>{cfg.label}</span>
                           <span className="text-xs font-bold text-text-2">{fmtBRL(ag.valor)}</span>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -1391,6 +1571,15 @@ export default function ClientePerfilPage() {
         onConfirm={confirmarExcluir}
         onCancel={() => setConfirmExcluir(false)}
       />
+
+      {detalheAberto && (
+        <DetalheAtendimentoModal
+          agendamentoId={detalheAberto.agendamentoId}
+          comandaId={detalheAberto.comandaId}
+          tituloLinha={detalheAberto.titulo}
+          onClose={() => setDetalheAberto(null)}
+        />
+      )}
 
       {/* Modal de escolha: arquivar ou excluir */}
       {modalRemover && (

@@ -30,6 +30,10 @@ import { ptBR } from 'date-fns/locale';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import type { AgendamentoStatus } from '@/types';
+import {
+  descreverServicos, montarDetalheAtendimento,
+  type DetalheAtendimento,
+} from '@shared/atendimento-detalhe';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -75,11 +79,13 @@ function formatBRL(v: number) {
 
 // ── Hook de detalhe ──────────────────────────────────────────
 
-function useAgendamentoDetalhe(id: string) {
+function useAgendamentoDetalhe(id: string, modoComanda: boolean) {
   const { empresaAtiva } = useAuthStore();
   return useQuery({
+    // No modo comanda o `id` da rota e de uma COMANDA, nao de um agendamento:
+    // sem este enabled o .single() nao acharia linha e a tela quebraria.
     queryKey: ['agendamento', id],
-    enabled: !!id && !!empresaAtiva?.id,
+    enabled: !!id && !!empresaAtiva?.id && !modoComanda,
     staleTime: 1000 * 30,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -88,7 +94,8 @@ function useAgendamentoDetalhe(id: string) {
           *,
           cliente:users!agendamentos_cliente_id_fkey(id, nome, telefone, email, foto_url),
           profissional:users!agendamentos_profissional_id_fkey(id, nome, foto_url),
-          servico:servicos(id, nome, duracao_minutos, categoria, preco)
+          servico:servicos(id, nome, duracao_minutos, categoria, preco),
+          agendamento_servicos(ordem, servico:servicos(nome))
         `)
         .eq('id', id)
         .single();
@@ -120,17 +127,233 @@ function InfoRow({ icon, label, value, last = false }: {
   );
 }
 
+// ── Detalhe da comanda ───────────────────────────────────────
+
+/**
+ * Busca a comanda do atendimento sob demanda. `comandaId` vem do agendamento
+ * (agendamentos.comanda_id) ou direto da rota, no modo comanda.
+ */
+function useComandaDetalhe(comandaId: string | null, agendamentoId: string | null) {
+  return useQuery({
+    queryKey: ['comanda-detalhe', comandaId, agendamentoId],
+    enabled: !!comandaId,
+    staleTime: 1000 * 30,
+    queryFn: async (): Promise<DetalheAtendimento> => {
+      const [rComanda, rItens, rPagamentos, rAgs] = await Promise.all([
+        supabase.from('comandas')
+          .select('id, valor_total, desconto, desconto_reserva, fechada_at, observacao')
+          .eq('id', comandaId!).maybeSingle(),
+        supabase.from('comanda_itens')
+          .select('id, tipo, descricao, quantidade, valor_unit, profissional:users(nome)')
+          .eq('comanda_id', comandaId!),
+        supabase.from('pagamentos')
+          .select('id, metodo, valor, bandeira, parcelas, taxa_perc, valor_liquido')
+          .eq('comanda_id', comandaId!),
+        supabase.from('agendamentos')
+          .select(`id, data_hora_inicio, valor,
+            servico:servicos(nome),
+            agendamento_servicos(ordem, servico:servicos(nome)),
+            profissional:users!agendamentos_profissional_id_fkey(nome)`)
+          .eq('comanda_id', comandaId!)
+          .order('data_hora_inicio'),
+      ]);
+
+      return montarDetalheAtendimento({
+        agendamentoId,
+        comandaIdEsperado: comandaId,
+        comanda: (rComanda.data ?? null) as any,
+        itens: (rItens.data ?? []) as any,
+        pagamentos: (rPagamentos.data ?? []) as any,
+        agendamentosDaComanda: (rAgs.data ?? []) as any,
+      });
+    },
+  });
+}
+
+/** Cartao de secao do detalhe, no mesmo formato visual do bloco "Detalhes". */
+function SecaoDetalhe({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <View style={{ paddingHorizontal: 24, marginBottom: 14 }}>
+      <Text style={{
+        fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11,
+        color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8,
+        marginBottom: 7, marginLeft: 2,
+      }}>
+        {titulo}
+      </Text>
+      <View style={{
+        backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+        borderRadius: 16, overflow: 'hidden',
+        shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+      }}>
+        {children}
+      </View>
+    </View>
+  );
+}
+
+/** Linha rotulo/valor do bloco de fechamento. */
+function LinhaValor({ rotulo, valor, destaque = false, last = false }: {
+  rotulo: string; valor: string; destaque?: boolean; last?: boolean;
+}) {
+  return (
+    <View style={{
+      paddingVertical: 10, paddingHorizontal: 16,
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      borderBottomWidth: last ? 0 : 1, borderBottomColor: C.border,
+    }}>
+      <Text style={{
+        fontFamily: destaque ? 'PlusJakartaSans_700Bold' : 'PlusJakartaSans_400Regular',
+        fontSize: 13, color: destaque ? C.text : C.text2,
+      }}>
+        {rotulo}
+      </Text>
+      <Text style={{
+        fontFamily: destaque ? 'PlusJakartaSans_700Bold' : 'PlusJakartaSans_500Medium',
+        fontSize: 13, color: destaque ? C.text : C.text2,
+      }}>
+        {valor}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * O que foi feito, fechamento e formas de pagamento. Usado tanto pelo detalhe
+ * de um agendamento quanto pelo modo comanda (servico avulso, sem agendamento).
+ */
+function SecoesComanda({ detalhe }: { detalhe?: DetalheAtendimento }) {
+  if (!detalhe) return null;
+
+  const aviso = detalhe.situacao === 'bloqueado_por_rls'
+    ? 'Detalhes financeiros disponíveis apenas para quem atendeu ou para a gestão.'
+    : detalhe.situacao === 'sem_comanda'
+      ? 'Este atendimento ainda não foi fechado em comanda.'
+      : null;
+
+  if (aviso) {
+    return (
+      <Text style={{
+        fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12,
+        color: C.text3, paddingHorizontal: 24, marginBottom: 14,
+      }}>
+        {aviso}
+      </Text>
+    );
+  }
+
+  return (
+    <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300 }}>
+
+      <SecaoDetalhe titulo="O que foi feito">
+        {detalhe.itens.map((item, i) => (
+          <View key={`${item.origem}-${item.id}`} style={{
+            paddingVertical: 10, paddingHorizontal: 16,
+            flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+            borderBottomWidth: i === detalhe.itens.length - 1 ? 0 : 1,
+            borderBottomColor: C.border,
+          }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{
+                fontFamily: item.esteAtendimento
+                  ? 'PlusJakartaSans_700Bold'
+                  : 'PlusJakartaSans_500Medium',
+                fontSize: 13, color: C.text,
+              }}>
+                {item.quantidade > 1 ? `${item.quantidade}× ` : ''}{item.descricao}
+              </Text>
+              {!!item.profissional && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
+                  com {item.profissional.split(' ')[0]}
+                </Text>
+              )}
+            </View>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
+              {formatBRL(item.valorLinha)}
+            </Text>
+          </View>
+        ))}
+      </SecaoDetalhe>
+
+      <SecaoDetalhe titulo="Fechamento">
+        <LinhaValor rotulo="Subtotal" valor={formatBRL(detalhe.subtotal)} />
+        {detalhe.descontoManual > 0 && (
+          <LinhaValor rotulo="Desconto" valor={`− ${formatBRL(detalhe.descontoManual)}`} />
+        )}
+        {detalhe.descontoReserva > 0 && (
+          <LinhaValor rotulo="Taxa de reserva já paga" valor={`− ${formatBRL(detalhe.descontoReserva)}`} />
+        )}
+        <LinhaValor rotulo="Total" valor={formatBRL(detalhe.total)} destaque last />
+      </SecaoDetalhe>
+
+      <SecaoDetalhe titulo="Como foi pago">
+        {detalhe.pagamentos.length === 0 ? (
+          <Text style={{
+            fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12,
+            color: C.text4, paddingVertical: 10, paddingHorizontal: 16,
+          }}>
+            Nenhum pagamento registrado.
+          </Text>
+        ) : detalhe.pagamentos.map((p, i) => (
+          <View key={p.id} style={{
+            paddingVertical: 10, paddingHorizontal: 16,
+            flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+            borderBottomWidth: i === detalhe.pagamentos.length - 1 ? 0 : 1,
+            borderBottomColor: C.border,
+          }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text, textTransform: 'capitalize' }}>
+                {p.metodo}
+                {p.bandeira ? ` · ${p.bandeira}` : ''}
+                {p.parcelas > 1 ? ` · ${p.parcelas}×` : ''}
+              </Text>
+              {p.taxaPerc != null && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
+                  taxa {p.taxaPerc}% · líquido {formatBRL(p.valorLiquido ?? 0)}
+                </Text>
+              )}
+            </View>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
+              {formatBRL(p.valor)}
+            </Text>
+          </View>
+        ))}
+      </SecaoDetalhe>
+
+      {detalhe.outrosAtendimentos.length > 0 && (
+        <View style={{ paddingHorizontal: 24, marginBottom: 14 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+            Esta comanda fechou {detalhe.outrosAtendimentos.length + 1} atendimentos do mesmo
+            dia — os valores acima são do total da visita:
+          </Text>
+          {detalhe.outrosAtendimentos.map((o) => (
+            <Text key={o.id} style={{
+              fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11,
+              color: C.text4, marginTop: 3,
+            }}>
+              {format(new Date(o.dataHoraInicio), 'HH:mm')} — {o.servicos ?? 'Serviço'}
+            </Text>
+          ))}
+        </View>
+      )}
+    </MotiView>
+  );
+}
+
 // ── Tela principal ───────────────────────────────────────────
 
 export default function AgendamentoDetalhe() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tipo } = useLocalSearchParams<{ id: string; tipo?: string }>();
+  const modoComanda = tipo === 'comanda';
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
   const { empresaAtiva } = useAuthStore();
 
   const [atualizando, setAtualizando] = useState(false);
 
-  const { data: ag, isLoading } = useAgendamentoDetalhe(id);
+  const { data: ag, isLoading } = useAgendamentoDetalhe(id, modoComanda);
+  const comandaId = modoComanda ? id : ((ag as any)?.comanda_id ?? null);
+  const { data: detalhe } = useComandaDetalhe(comandaId, modoComanda ? null : id);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -141,10 +364,38 @@ export default function AgendamentoDetalhe() {
     PlusJakartaSans_700Bold,
   });
 
-  if (!fontsLoaded || isLoading || !ag) {
+  if (!fontsLoaded || (!modoComanda && (isLoading || !ag))) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={C.primary} />
+      </View>
+    );
+  }
+
+  // Servico lancado direto na comanda: nao existe agendamento, entao a tela
+  // mostra so o cabecalho e as secoes da comanda.
+  if (modoComanda) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar barStyle="dark-content" />
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+          <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 18 }}>
+            <TouchableOpacity onPress={() => router.back()} style={{
+              width: 36, height: 36, borderRadius: 12, marginBottom: 12,
+              alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface,
+              borderWidth: 1, borderColor: C.border,
+            }}>
+              <ChevronLeft size={18} color={C.text2} strokeWidth={2} />
+            </TouchableOpacity>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text }}>
+              Atendimento avulso
+            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, marginTop: 2 }}>
+              Lançado direto na comanda, sem horário marcado
+            </Text>
+          </View>
+          <SecoesComanda detalhe={detalhe} />
+        </ScrollView>
       </View>
     );
   }
@@ -308,7 +559,7 @@ export default function AgendamentoDetalhe() {
             shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
           }}>
             <InfoRow icon={<Calendar size={13} color={C.primary} strokeWidth={2} />} label="Data" value={format(inicio, "EEEE',' d 'de' MMMM 'de' yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())} />
-            <InfoRow icon={<Scissors size={13} color={C.primary} strokeWidth={2} />} label="Serviço" value={ag.servico?.nome ?? '—'} />
+            <InfoRow icon={<Scissors size={13} color={C.primary} strokeWidth={2} />} label="Serviço" value={descreverServicos(ag) ?? '—'} />
             <InfoRow
               icon={<User size={13} color={C.primary} strokeWidth={2} />}
               label="Profissional"
@@ -320,6 +571,9 @@ export default function AgendamentoDetalhe() {
             )}
           </View>
         </MotiView>
+
+        {/* ── Comanda: o que foi feito, fechamento e pagamento ── */}
+        <SecoesComanda detalhe={detalhe} />
 
         {/* ── Ações de status ── */}
         {!estaConcluido && !estaCancelado && (
