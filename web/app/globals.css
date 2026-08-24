@@ -82,6 +82,11 @@
   --bm-mobile-nav-height: 64px;
   --bm-mobile-nav-space: calc(var(--bm-mobile-nav-height) + env(safe-area-inset-bottom, 0px));
   --bm-mobile-content-bottom: calc(var(--bm-mobile-nav-space) + 24px);
+  /* Folga do topo. Com viewport-fit=cover e status bar translucida
+     (apple-mobile-web-app-status-bar-style=black-translucent), o viewport
+     comeca em y=0, atras do relogio e do notch. Sem isso o cabecalho de toda
+     pagina fica embaixo da barra de status no PWA instalado. */
+  --bm-mobile-content-top: calc(env(safe-area-inset-top, 0px) + 24px);
 }
 
 /* ── Modo escuro ───────────────────────────────────────────── */
@@ -204,7 +209,10 @@ html { scrollbar-gutter: stable; }
 
 /* Comanda usa painéis com scroll próprio; no mobile, respeita a bottom nav. */
 .bm-comanda-shell {
-  height: calc(100dvh - var(--bm-mobile-nav-space) - 1.5rem);
+  /* O 1.5rem subtraido aqui era o padding-top fixo do <main>. Agora que o topo
+     reserva a safe area, a altura precisa acompanhar a mesma variavel — senao a
+     comanda estoura para baixo exatamente a altura da status bar. */
+  height: calc(100dvh - var(--bm-mobile-nav-space) - var(--bm-mobile-content-top));
   margin-top: 0;
   margin-bottom: calc(-1 * var(--bm-mobile-content-bottom));
 }
