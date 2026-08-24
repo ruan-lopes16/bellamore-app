@@ -24,7 +24,9 @@ describe('mobile layout regressions', () => {
     expect(comanda).toContain('bm-comanda-shell');
     expect(comanda).not.toContain('-mt-6 -mb-24');
     expect(css).toContain('.bm-comanda-shell');
-    expect(css).toContain('100dvh - var(--bm-mobile-nav-space) - 1.5rem');
+    // A folga do topo deixou de ser 1.5rem fixo e passou a reservar a safe
+    // area da status bar; a altura da comanda acompanha a mesma variavel.
+    expect(css).toContain('100dvh - var(--bm-mobile-nav-space) - var(--bm-mobile-content-top)');
   });
 
   it('keeps dense mobile controls reachable without overlapping', () => {
