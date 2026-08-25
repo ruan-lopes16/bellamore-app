@@ -22,7 +22,7 @@ const modaisAutonomos: [string, string[]][] = [
   ['app/(app)/clientes/[id]/page.tsx', ['NovoAgModal']],
   ['app/(app)/equipe/page.tsx',        ['NovoProfModal', 'EditInfoModal']],
   ['app/(app)/estoque/page.tsx',       ['ProdutoModal', 'MovModal']],
-  ['app/(app)/financeiro/page.tsx',    ['NovaDespesaModal', 'MarcarPagoModal', 'EditarDespesaModal']],
+  ['app/(app)/financeiro/page.tsx',    ['NovaDespesaModal', 'MarcarPagoModal', 'EditarDespesaModal', 'ConfirmarPagamentoTaxaModal']],
   ['app/(app)/pacotes/page.tsx',       ['PacoteModal', 'VenderModal', 'SessaoModal']],
   ['app/(app)/servicos/page.tsx',      ['ServicoModal']],
 ];
@@ -58,7 +58,8 @@ describe('trava de scroll nos modais embutidos', () => {
   });
 
   it('nenhum componente com .bm-modal ficou sem a trava', () => {
-    // 22 componentes: 16 autonomos + 5 embutidos da entrega de zoom, mais o
+    // 23 componentes: 17 autonomos (16 + ConfirmarPagamentoTaxaModal, forma
+    // de pagamento das taxas) + 5 embutidos da entrega de zoom, mais o
     // DetalheAtendimentoModal do historico da cliente.
     const porArquivo: Record<string, number> = {
       'app/(app)/agenda/page.tsx':                   4,
@@ -67,7 +68,7 @@ describe('trava de scroll nos modais embutidos', () => {
       'app/(app)/comissoes/ComissoesGestorView.tsx': 1,
       'app/(app)/equipe/page.tsx':                   2,
       'app/(app)/estoque/page.tsx':                  2,
-      'app/(app)/financeiro/page.tsx':               3,
+      'app/(app)/financeiro/page.tsx':               4,
       'app/(app)/pacotes/page.tsx':                  3,
       'app/(app)/servicos/page.tsx':                 1,
       'components/ConfirmDialog.tsx':                1,

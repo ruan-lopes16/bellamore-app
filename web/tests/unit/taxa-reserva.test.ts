@@ -22,6 +22,7 @@ describe('taxa de reserva helpers', () => {
         valor: 50,
         status: 'pago',
         paga_em: '2026-08-12T10:00:00.000Z',
+        metodo: null,
       });
     });
 
@@ -33,7 +34,20 @@ describe('taxa de reserva helpers', () => {
         valor: 50,
         status: 'pendente',
         paga_em: null,
+        metodo: null,
       });
+    });
+
+    it('grava o metodo quando informado junto com ja foi cobrada', () => {
+      expect(buildTaxaReservaInsert({ ...base, jaCobrada: true, metodo: 'pix' }, '2026-08-12T10:00:00.000Z'))
+        .toMatchObject({ status: 'pago', metodo: 'pix' });
+    });
+
+    it('descarta o metodo quando a taxa nasce pendente (ainda nao foi cobrada)', () => {
+      // Um metodo so faz sentido para um pagamento que ja aconteceu — gravar
+      // metodo numa linha 'pendente' sugeriria uma cobranca que nao existe.
+      expect(buildTaxaReservaInsert({ ...base, jaCobrada: false, metodo: 'pix' }, '2026-08-12T10:00:00.000Z'))
+        .toMatchObject({ status: 'pendente', metodo: null });
     });
   });
 

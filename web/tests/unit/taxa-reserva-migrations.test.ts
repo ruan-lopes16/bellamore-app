@@ -85,3 +85,22 @@ describe('Migration 061: taxa de reserva — encerramento ao concluir', () => {
     );
   });
 });
+
+describe('Migration 062: forma de pagamento das taxas', () => {
+  const migrations = readAllMigrations();
+
+  it('adiciona a coluna metodo (nullable) em taxas_reserva e taxas_cancelamento', () => {
+    expect(migrations).toMatch(
+      /alter table public\.taxas_reserva\s+add column metodo public\.pagamento_metodo;/,
+    );
+    expect(migrations).toMatch(
+      /alter table public\.taxas_cancelamento\s+add column metodo public\.pagamento_metodo;/,
+    );
+  });
+
+  it('reaproveita o enum pagamento_metodo em vez de um texto livre novo', () => {
+    // Mesmas 5 opcoes ja usadas por `pagamentos.metodo` (dinheiro/pix/credito/
+    // debito/cortesia) — nao um dominio de valores novo e desalinhado.
+    expect(migrations).toContain('create type pagamento_metodo as enum');
+  });
+});

@@ -74,6 +74,16 @@ type Bloqueio   = {
   data_fim: string;
 };
 
+type MetodoPagTaxa = 'dinheiro' | 'pix' | 'credito' | 'debito' | 'cortesia';
+/** Formas de pagamento da taxa de reserva quando marcada como já cobrada — mesmas 5 opções de `pagamentos.metodo` usadas no checkout da comanda. */
+const METODOS_TAXA: { key: MetodoPagTaxa; label: string }[] = [
+  { key: 'dinheiro', label: 'Dinheiro' },
+  { key: 'pix',      label: 'Pix' },
+  { key: 'credito',  label: 'Crédito' },
+  { key: 'debito',   label: 'Débito' },
+  { key: 'cortesia', label: 'Cortesia' },
+];
+
 const STATUS: Record<string, { label: string; bg: string; text: string; bdr: string }> = {
   agendado:   { label: 'Agendado',   bg: 'bg-amber-soft',   text: 'text-amber',   bdr: 'rgba(166,90,27,0.35)'   },
   confirmado: { label: 'Confirmado', bg: 'bg-primary-soft', text: 'text-primary', bdr: 'rgba(44,23,80,0.25)'    },
@@ -222,6 +232,7 @@ function NovoAgModal({
   const [taxaReserva,        setTaxaReserva]        = useState('0');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
+  const [taxaReservaMetodo,  setTaxaReservaMetodo]  = useState<MetodoPagTaxa | null>(null);
 
   // Pacote do cliente a consumir neste agendamento (opcional)
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
@@ -454,7 +465,7 @@ function NovoAgModal({
       const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
       const taxaReservaPayload = buildTaxaReservaInsert({
         empresaId, agendamentoId: agId, clienteId, valor: taxaReservaValorNum,
-        jaCobrada: taxaReservaCobrada,
+        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
       }, new Date().toISOString());
       if (taxaReservaPayload) {
         const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
@@ -804,15 +815,32 @@ function NovoAgModal({
                 />
               </div>
               {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
-                <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={taxaReservaCobrada}
-                    onChange={e => setTaxaReservaCobrada(e.target.checked)}
-                    className="w-4 h-4 rounded border-border accent-primary"
-                  />
-                  <span className="text-xs text-text-2">Já foi cobrada?</span>
-                </label>
+                <>
+                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={taxaReservaCobrada}
+                      onChange={e => { setTaxaReservaCobrada(e.target.checked); if (!e.target.checked) setTaxaReservaMetodo(null); }}
+                      className="w-4 h-4 rounded border-border accent-primary"
+                    />
+                    <span className="text-xs text-text-2">Já foi cobrada?</span>
+                  </label>
+                  {taxaReservaCobrada && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {METODOS_TAXA.map(m => (
+                        <button key={m.key} type="button"
+                          onClick={() => setTaxaReservaMetodo(prev => prev === m.key ? null : m.key)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${
+                            taxaReservaMetodo === m.key
+                              ? 'bg-primary text-white border-primary'
+                              : 'bg-bg text-text-2 border-border hover:border-primary/40'
+                          }`}>
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

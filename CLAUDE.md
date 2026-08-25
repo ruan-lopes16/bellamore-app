@@ -334,6 +334,47 @@ bruto (Dashboard, Financeiro e Relatórios somam `taxas_reserva` com `paga_em` p
 
 ---
 
+### Sessão 2026-08-25 (continuação) — Forma de pagamento das taxas de reserva e cancelamento
+
+*Escopo: pedido do usuário — "preciso identificar qual a forma de pagamento da taxa de*
+*agendamento e cancelamento quando houver". `taxas_reserva`/`taxas_cancelamento` tinham status*
+*`pago`, mas nada registrava COMO o cliente pagou (`pagamentos.metodo` já existia para o*
+*pagamento principal da comanda, essas duas tabelas ficaram de fora). Migration 062 + 2 pontos*
+*de captura na criação (toggle "Já foi cobrada?", só existe para taxa de reserva) + 2 fluxos de*
+*"marcar como paga" convertidos de clique instantâneo para modal com seletor de método, em web*
+*e mobile. Implementado direto (sem spec/plano formais), seguindo os mesmos padrões já*
+*estabelecidos no restante do módulo financeiro.*
+
+**Decisão de escopo:** reaproveita o enum `pagamento_metodo` já existente (dinheiro/pix/*
+*crédito/débito/cortesia) em vez de um domínio de valores novo, e a coluna é opcional nos dois*
+*sentidos — retroativo (taxas já pagas antes desta migration ficam com `metodo = null`, não há*
+*como adivinhar) e daqui pra frente (o dado só existe "quando houver", sem travar quem não*
+*quiser preencher). `taxas_cancelamento` só nasce via trigger (nunca por toggle na criação), então*
+*só ganhou o fluxo de "marcar como paga" — a taxa de reserva ganhou os dois.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web; mobile manteve os mesmos 10 erros pré-existentes (2 novos surgiram ao trocar o `onClick` das linhas por `setState` direto — tipo do prop `onMarcarPago` não incluía `cliente`; corrigido alinhando o tipo ao que já era passado) |
+| UX / Padrões    | 9.0  | Modal de confirmação reaproveita a estrutura já usada por `MarcarPagoModal`/`ModalMarcarPago` (despesas); seletor de método reaproveita `METODO_CFG`/`METODO_CONFIG` já existentes nos dois arquivos de Financeiro em vez de criar um terceiro dicionário de cores |
+| Segurança       | 9.0  | Migration só adiciona 2 colunas nullable; nenhuma policy nova necessária. Corrigiu, de novo, uma falha de RLS silenciosa — desta vez em `marcarTaxaPaga` (taxas_cancelamento), o mesmo bug já corrigido em `marcarReservaPaga` na sessão anterior, encontrado ao tocar na mesma função |
+| Documentação    | 9.0  | Cabeçalho da migration 062 documenta por que a coluna é opcional nos dois sentidos e por que reaproveita o enum existente |
+| Arquitetura     | 9.0  | `buildTaxaReservaInsert` ganhou o parâmetro `metodo`, mas descarta silenciosamente quando `jaCobrada` é falso — gravar forma de pagamento numa taxa que ainda não foi cobrada não faz sentido, e o teste trava esse caso |
+| Performance     | —    | Sem query nova; `metodo` já vem de `select('*')` nas listagens (exceto o select explícito de colunas no perfil da cliente, ajustado à mão) |
+| Visual (UI)     | —    | Sem conta de teste para login local — não executado |
+| **Completude**  | 9.0  | 3 pontos de criação (agenda web, perfil da cliente web, novo-agendamento mobile) + 4 pontos de "marcar como paga" (cancelamento e reserva × web e mobile) + exibição do método já pago em 4 listagens (Financeiro ×2, perfil da cliente ×1 web) |
+| **Proatividade**| 9.0 | Encontrou e corrigiu o mesmo bug de RLS silencioso (`.update()` sem `.select()`) em `marcarTaxaPaga`, que a sessão anterior tinha corrigido só em `marcarReservaPaga` — mesma função, mesmo risco, não fazia parte do pedido original mas estava ali ao lado |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.1 / 10` → **A+**
+
+**Por que não pedir a forma de pagamento como campo obrigatório:** o pedido foi "identificar...*
+*quando houver" — travar o clique de "marcar como paga" atrás de uma escolha obrigatória*
+*adicionaria fricção a um fluxo que hoje é instantâneo, por um dado que pode genuinamente não*
+*existir (taxa cobrada por um canal fora das 5 opções, ou o usuário simplesmente não sabe). Os*
+*dois modais permitem confirmar sem escolher nada — `metodo` fica `null`, igual ao histórico.*
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

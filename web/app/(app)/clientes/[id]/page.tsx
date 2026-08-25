@@ -86,6 +86,19 @@ type ServicoOpt = { id: string; nome: string; preco: number; duracao_minutos: nu
 
 // ── Modal: novo agendamento com cliente pré-selecionado ───────
 
+type MetodoPagTaxa = 'dinheiro' | 'pix' | 'credito' | 'debito' | 'cortesia';
+/** Formas de pagamento da taxa de reserva quando marcada como já cobrada — mesmas 5 opções de `pagamentos.metodo` usadas no checkout da comanda. */
+const METODOS_TAXA: { key: MetodoPagTaxa; label: string }[] = [
+  { key: 'dinheiro', label: 'Dinheiro' },
+  { key: 'pix',      label: 'Pix' },
+  { key: 'credito',  label: 'Crédito' },
+  { key: 'debito',   label: 'Débito' },
+  { key: 'cortesia', label: 'Cortesia' },
+];
+function labelMetodo(m?: MetodoPagTaxa | null) {
+  return METODOS_TAXA.find(x => x.key === m)?.label ?? null;
+}
+
 const STATUS_CFG: Record<string, { label: string; bg: string; text: string; icon: React.ElementType }> = {
   agendado:   { label: 'Agendado',   bg: 'bg-amber-soft',   text: 'text-amber',   icon: Clock        },
   confirmado: { label: 'Confirmado', bg: 'bg-primary-soft', text: 'text-primary', icon: CheckCircle2 },
@@ -116,6 +129,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   const [taxaReserva,        setTaxaReserva]        = useState('0');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
+  const [taxaReservaMetodo,  setTaxaReservaMetodo]  = useState<MetodoPagTaxa | null>(null);
 
   const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 
@@ -175,7 +189,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
     const taxaReservaPayload = buildTaxaReservaInsert({
       empresaId, agendamentoId: ag.id, clienteId, valor: taxaReservaValorNum,
-      jaCobrada: taxaReservaCobrada,
+      jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
     }, new Date().toISOString());
     if (taxaReservaPayload) {
       const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
@@ -253,15 +267,32 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
                 />
               </div>
               {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
-                <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={taxaReservaCobrada}
-                    onChange={e => setTaxaReservaCobrada(e.target.checked)}
-                    className="w-4 h-4 rounded border-border accent-primary"
-                  />
-                  <span className="text-xs text-text-2">Já foi cobrada?</span>
-                </label>
+                <>
+                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={taxaReservaCobrada}
+                      onChange={e => { setTaxaReservaCobrada(e.target.checked); if (!e.target.checked) setTaxaReservaMetodo(null); }}
+                      className="w-4 h-4 rounded border-border accent-primary"
+                    />
+                    <span className="text-xs text-text-2">Já foi cobrada?</span>
+                  </label>
+                  {taxaReservaCobrada && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {METODOS_TAXA.map(m => (
+                        <button key={m.key} type="button"
+                          onClick={() => setTaxaReservaMetodo(prev => prev === m.key ? null : m.key)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${
+                            taxaReservaMetodo === m.key
+                              ? 'bg-primary text-white border-primary'
+                              : 'bg-bg text-text-2 border-border hover:border-primary/40'
+                          }`}>
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -636,7 +667,7 @@ export default function ClientePerfilPage() {
       buscarTodasPaginas<TaxaCancelamento>((from, to) =>
         supabase
           .from('taxas_cancelamento')
-          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em')
+          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em, metodo')
           .eq('cliente_id', id)
           .neq('status', 'cancelada')
           .order('created_at', { ascending: false })
@@ -645,7 +676,7 @@ export default function ClientePerfilPage() {
       buscarTodasPaginas<TaxaReserva>((from, to) =>
         supabase
           .from('taxas_reserva')
-          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em')
+          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em, metodo')
           .eq('cliente_id', id)
           .neq('status', 'cancelada')   // encerradas ao concluir o atendimento (migration 061)
           .order('created_at', { ascending: false })
@@ -1260,7 +1291,9 @@ export default function ClientePerfilPage() {
                           <p className="text-sm font-semibold text-text truncate">
                             {t.status === 'pago' ? 'Taxa paga' : 'Taxa pendente'}
                           </p>
-                          <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
+                          <p className="text-xs text-text-3 mt-0.5">
+                            {dataFmt}{t.status === 'pago' && labelMetodo(t.metodo) ? ` · ${labelMetodo(t.metodo)}` : ''}
+                          </p>
                         </div>
                         <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(t.valor)}</span>
                       </div>
@@ -1290,7 +1323,9 @@ export default function ClientePerfilPage() {
                           <p className="text-sm font-semibold text-text truncate">
                             {t.status === 'pago' ? 'Taxa paga' : t.status === 'retida' ? 'Taxa retida' : 'Taxa pendente'}
                           </p>
-                          <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
+                          <p className="text-xs text-text-3 mt-0.5">
+                            {dataFmt}{t.status === 'pago' && labelMetodo(t.metodo) ? ` · ${labelMetodo(t.metodo)}` : ''}
+                          </p>
                         </div>
                         <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(t.valor)}</span>
                       </div>

@@ -383,6 +383,61 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
   );
 }
 
+// ── Modal Confirmar pagamento de taxa (reserva ou cancelamento) ────────────
+// Forma de pagamento é opcional ("quando houver", pedido do usuário): quem
+// não sabe ou não quer informar pode confirmar sem escolher nenhum método.
+
+function ConfirmarPagamentoTaxaModal({ titulo, clienteNome, valor, onClose, onConfirmar }: {
+  titulo: string; clienteNome: string; valor: number;
+  onClose: () => void; onConfirmar: (metodo: string | null) => Promise<void>;
+}) {
+  useScrollLock();
+  const [metodo,   setMetodo]   = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  async function confirmar() {
+    setSalvando(true);
+    await onConfirmar(metodo);
+    setSalvando(false);
+  }
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
+        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">{titulo}</p>
+        <p className="font-serif text-xl text-text mb-1">{clienteNome}</p>
+        <p className="text-2xl font-bold text-green mb-4">{fmtBRL(valor)}</p>
+        <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-2">Forma de pagamento <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
+        <div className="flex flex-wrap gap-1.5 mb-5">
+          {Object.entries(METODO_CFG).map(([key, cfg]) => (
+            <button key={key} type="button"
+              onClick={() => setMetodo(prev => prev === key ? null : key)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                metodo === key
+                  ? 'text-white border-transparent'
+                  : 'bg-bg text-text-2 border-border hover:border-primary/40'
+              }`}
+              style={metodo === key ? { backgroundColor: cfg.cor } : undefined}>
+              {cfg.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+            Cancelar
+          </button>
+          <button onClick={confirmar} disabled={salvando}
+            className="flex-1 h-10 rounded-xl bg-green text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+            {salvando ? 'Salvando...' : 'Confirmar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Modal Editar Despesa ──────────────────────────────────────
 
 function EditarDespesaModal({ despesa, onClose, onSalvo }: {
@@ -655,6 +710,8 @@ export default function FinanceiroPage() {
   const [modalDespesa, setModalDespesa] = useState(false);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
+  const [confirmarTaxaCanc,     setConfirmarTaxaCanc]     = useState<TaxaCancelamento | null>(null);
+  const [confirmarTaxaReserva,  setConfirmarTaxaReserva]  = useState<TaxaReserva | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
   const [historicoMensal, setHistoricoMensal] = useState<RecorrenteTemplate[]>([]);
   const [lancandoRec,           setLancandoRec]           = useState(false);
@@ -957,21 +1014,32 @@ export default function FinanceiroPage() {
     recarregar();
   }
 
-  async function marcarTaxaPaga(taxa: TaxaCancelamento) {
-    const { error } = await supabase.from('taxas_cancelamento')
-      .update({ status: 'pago', paga_em: new Date().toISOString() })
-      .eq('id', taxa.id);
+  async function marcarTaxaPaga(taxa: TaxaCancelamento, metodo: string | null) {
+    // `.select()` não é decoração: o RLS de UPDATE de taxas_cancelamento só
+    // libera gestor/owner. Sem ele, um clique de profissional não atualiza
+    // nada e o Postgres devolve sucesso com zero linhas — a tela recarregava,
+    // a taxa continuava pendente e nenhuma mensagem aparecia. Mesmo bug já
+    // corrigido em marcarReservaPaga.
+    const { data, error } = await supabase.from('taxas_cancelamento')
+      .update({ status: 'pago', paga_em: new Date().toISOString(), metodo })
+      .eq('id', taxa.id)
+      .select('id');
     if (error) { alert(`Erro ao marcar taxa como paga: ${error.message}`); return; }
+    if (!data || data.length === 0) {
+      alert('Você não tem permissão para marcar taxas como pagas. Peça a um gestor.');
+      return;
+    }
+    setConfirmarTaxaCanc(null);
     if (empresaId) await carregar(empresaId, mesRef);
   }
 
-  async function marcarReservaPaga(taxa: TaxaReserva) {
+  async function marcarReservaPaga(taxa: TaxaReserva, metodo: string | null) {
     // `.select()` não é decoração: o RLS de UPDATE de taxas_reserva só libera
     // gestor/owner. Sem ele, um clique de profissional não atualiza nada e o
     // Postgres devolve sucesso com zero linhas — a tela recarregava, a taxa
     // continuava pendente e nenhuma mensagem aparecia.
     const { data, error } = await supabase.from('taxas_reserva')
-      .update({ status: 'pago', paga_em: new Date().toISOString() })
+      .update({ status: 'pago', paga_em: new Date().toISOString(), metodo })
       .eq('id', taxa.id)
       .select('id');
     if (error) { alert(`Erro ao marcar taxa de reserva como paga: ${error.message}`); return; }
@@ -979,6 +1047,7 @@ export default function FinanceiroPage() {
       alert('Você não tem permissão para marcar taxas de reserva como pagas. Peça a um gestor.');
       return;
     }
+    setConfirmarTaxaReserva(null);
     if (empresaId) await carregar(empresaId, mesRef);
   }
 
@@ -1377,7 +1446,7 @@ export default function FinanceiroPage() {
                 className={`flex items-center gap-2 px-4 py-3 ${i < taxasCancelamento.length - 1 ? 'border-b border-border' : ''}`}>
                 <div
                   className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => t.status === 'pendente' && marcarTaxaPaga(t)}>
+                  onClick={() => t.status === 'pendente' && setConfirmarTaxaCanc(t)}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                     {t.status === 'pago'
                       ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
@@ -1388,7 +1457,7 @@ export default function FinanceiroPage() {
                     <p className="text-xs font-semibold text-text truncate">{t.cliente?.nome ?? 'Cliente'}</p>
                     <p className="text-[10px] text-text-4 mt-0.5">
                       {t.status === 'pago'
-                        ? `Pago ${t.paga_em ? format(new Date(t.paga_em), 'dd/MM') : ''}`
+                        ? `Pago ${t.paga_em ? format(new Date(t.paga_em), 'dd/MM') : ''}${t.metodo ? ` · ${METODO_CFG[t.metodo]?.label ?? t.metodo}` : ''}`
                         : `Gerada ${format(new Date(t.created_at), 'dd/MM')}`
                       }
                     </p>
@@ -1419,7 +1488,7 @@ export default function FinanceiroPage() {
                 className={`flex items-center gap-2 px-4 py-3 ${i < taxasReserva.length - 1 ? 'border-b border-border' : ''}`}>
                 <div
                   className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => t.status === 'pendente' && marcarReservaPaga(t)}>
+                  onClick={() => t.status === 'pendente' && setConfirmarTaxaReserva(t)}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                     t.status === 'pago' ? 'bg-green-soft' : t.status === 'retida' ? 'bg-border' : 'bg-amber-soft'
                   }`}>
@@ -1433,9 +1502,9 @@ export default function FinanceiroPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-text truncate">{t.cliente?.nome ?? 'Cliente'}</p>
                     <p className="text-[10px] text-text-4 mt-0.5">
-                      {t.status === 'pago' || t.status === 'retida'
-                        ? `Pago ${t.paga_em ? format(new Date(t.paga_em), 'dd/MM') : ''}`
-                        : `Gerada ${format(new Date(t.created_at), 'dd/MM')}`
+                      {t.paga_em
+                        ? `Pago ${format(new Date(t.paga_em), 'dd/MM')}${t.metodo ? ` · ${METODO_CFG[t.metodo]?.label ?? t.metodo}` : ''}`
+                        : t.status === 'retida' ? 'Retida sem pagamento prévio' : `Gerada ${format(new Date(t.created_at), 'dd/MM')}`
                       }
                     </p>
                   </div>
@@ -1463,6 +1532,24 @@ export default function FinanceiroPage() {
       )}
       {editarDespesa && (
         <EditarDespesaModal despesa={editarDespesa} onClose={() => setEditarDespesa(null)} onSalvo={() => { setEditarDespesa(null); recarregar(); }}/>
+      )}
+      {confirmarTaxaCanc && (
+        <ConfirmarPagamentoTaxaModal
+          titulo="Confirmar taxa de cancelamento"
+          clienteNome={confirmarTaxaCanc.cliente?.nome ?? 'Cliente'}
+          valor={confirmarTaxaCanc.valor}
+          onClose={() => setConfirmarTaxaCanc(null)}
+          onConfirmar={metodo => marcarTaxaPaga(confirmarTaxaCanc, metodo)}
+        />
+      )}
+      {confirmarTaxaReserva && (
+        <ConfirmarPagamentoTaxaModal
+          titulo="Confirmar taxa de reserva"
+          clienteNome={confirmarTaxaReserva.cliente?.nome ?? 'Cliente'}
+          valor={confirmarTaxaReserva.valor}
+          onClose={() => setConfirmarTaxaReserva(null)}
+          onConfirmar={metodo => marcarReservaPaga(confirmarTaxaReserva, metodo)}
+        />
       )}
     </div>
   );

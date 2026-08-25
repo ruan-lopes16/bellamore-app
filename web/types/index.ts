@@ -182,6 +182,7 @@ export interface TaxaCancelamento {
   status: TaxaCancelamentoStatus;
   created_at: string;
   paga_em?: string;
+  metodo?: PagamentoMetodo | null;
   cliente?: { nome: string };
 }
 
@@ -194,6 +195,7 @@ export interface TaxaReserva {
   status: TaxaReservaStatus;
   created_at: string;
   paga_em?: string;
+  metodo?: PagamentoMetodo | null;
   cliente?: { nome: string };
 }
 
