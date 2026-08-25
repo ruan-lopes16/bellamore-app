@@ -280,6 +280,60 @@ Nenhuma das quatro falhas da revisão final de recorrências seria visível numa
 
 ---
 
+### Sessão 2026-08-25 — Taxas de reserva "pendentes" que nunca se resolviam
+
+*Escopo: bug reportado da produção — a lista de Taxas de Reserva do Financeiro acumulava*
+*dezenas de linhas "Pendente" sem que houvesse nenhuma cobrança real em aberto. Investigação*
+*por leitura de código (sem acesso ao banco de produção), correção via migration 061 + ajuste*
+*nas 4 leituras que exibem a lista, em web e mobile. Escopo pequeno o bastante para dispensar*
+*spec/plano formais e subagents.*
+
+**Causa raiz:** `taxas_reserva` tinha apenas duas saídas do status `pendente` — o clique manual
+em "marcar como paga" no Financeiro, e o trigger de 055 (`cancelado`/`faltou` → `retida`).
+O caminho normal, o atendimento acontecer, não mexia na linha. Toda taxa que nascia pendente
+ficava pendente para sempre. Agravado por dois fatores: (1) o campo de taxa é auto-preenchido
+com o valor sugerido ao escolher o serviço e o checkbox "Já foi cobrada?" nasce desmarcado,
+então o caminho natural de criar um agendamento gera uma pendência; (2) esse checkbox só entrou
+em produção em 13/08/2026 (PR #101) enquanto a feature está no ar desde 06/08 — na primeira
+semana era *impossível* criar uma taxa que não nascesse pendente.
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web; mobile mantém exatamente os 10 erros pré-existentes, nenhum nos 4 arquivos tocados |
+| UX / Padrões    | 9.0  | `cancelada` como estado terminal e `.neq('status','cancelada')` nas leituras espelham o que `taxas_cancelamento` já faz desde a migration 047 — nenhum conceito novo introduzido |
+| Segurança       | 9.0  | Migration só troca um check constraint e recria uma função já existente; nenhuma policy nova. Corrigiu uma falha de RLS **silenciosa** (ver abaixo) |
+| Documentação    | 8.5  | Cabeçalho da migration 061 documenta a causa raiz, o porquê de `cancelada` em vez de `pago`, e o SQL de rollback do backfill; sem spec formal (bugfix) |
+| Arquitetura     | 9.5  | Correção feita 100% no banco: como web e mobile fecham a comanda com o mesmo `UPDATE agendamentos SET status='concluido'`, um trigger cobre as duas plataformas **e** quem marca "concluído" direto pela agenda, sem duplicar regra em 2 clientes |
+| Performance     | 9.0  | Nenhuma query nova; o trigger reaproveita o `UPDATE` que a comanda já faz |
+| Visual (UI)     | —    | Sem conta de teste para login local e sem acesso ao banco de produção — não executado |
+| **Completude**  | 8.5  | Passado (backfill) e futuro (trigger) cobertos em web e mobile, mais 4 testes novos. Backfill **entregue mas não executado** — depende do usuário aplicar a migration |
+| **Proatividade**| 9.5  | Encontrou, sem ter sido pedido, o bug de RLS silencioso do "marcar como paga" e o risco de receita em dobro que a correção óbvia (`pendente` → `pago`) teria criado |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.1 / 10` → **A+**
+
+**Decisão de projeto — por que `cancelada` e não `pago`:** quando a taxa fica pendente, a comanda
+cobra o valor **cheio** do serviço, porque o desconto de reserva só considera linhas com status
+`pago`. O dinheiro dessa taxa, portanto, já entrou na receita dentro do fechamento da comanda.
+Marcar a linha como `pago` no encerramento somaria o mesmo valor uma segunda vez ao faturamento
+bruto (Dashboard, Financeiro e Relatórios somam `taxas_reserva` com `paga_em` preenchido).
+`cancelada` encerra a linha sem tocar em nenhum número. Há um teste dedicado a travar isso.
+
+**Bug adicional encontrado e corrigido:**
+- `marcarReservaPaga` (web e mobile) fazia `.update()` sem `.select()`. O RLS de UPDATE de
+  `taxas_reserva` só libera gestor/owner, então um clique de profissional afetava zero linhas e
+  o Postgres devolvia **sucesso** — a tela recarregava, a taxa continuava pendente e nenhuma
+  mensagem aparecia. Corrigido nos dois pontos com `.select('id')` e aviso explícito de permissão.
+
+**Bug adjacente identificado e deliberadamente NÃO corrigido (fora do escopo pedido):**
+- O trigger de 055 não tem ramo de reversão para `retida`: cancelar um agendamento e depois
+  reagendá-lo deixa a taxa `retida` para sempre, mesmo que o atendimento venha a acontecer
+  normalmente. É o mesmo tipo de falha que a migration 052 já corrigiu para `taxas_cancelamento`.
+  A função nova incluiu ramo de reversão apenas para `cancelada`, que é o estado que ela própria
+  introduz — mexer em `retida` seria ampliar o escopo por conta própria.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

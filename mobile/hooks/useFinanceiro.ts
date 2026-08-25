@@ -232,6 +232,7 @@ export function useFinanceiro(mesRef: Date) {
         .from('taxas_reserva')
         .select('*, cliente:clientes(nome)')
         .eq('empresa_id', empresaId!)
+        .neq('status', 'cancelada')   // encerradas ao concluir o atendimento (migration 061)
         .gte('created_at', inicio).lte('created_at', fim)
         .order('status').order('created_at');
 

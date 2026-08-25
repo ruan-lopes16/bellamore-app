@@ -762,10 +762,15 @@ export default function FinanceiroPage() {
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('paga_em', iniA).lte('paga_em', fimA),
-      // Lista de taxas de reserva do mês (pendentes + pagas + retidas)
+      // Lista de taxas de reserva do mês (pendentes + pagas + retidas).
+      // 'cancelada' fica de fora: é o estado terminal das taxas encerradas
+      // pelo trigger quando o atendimento acontece (migration 061) — não é
+      // cobrança nem dívida, só ruído na lista. Mesmo critério já usado
+      // acima para taxas_cancelamento.
       supabase.from('taxas_reserva')
         .select('*, cliente:clientes(nome)')
         .eq('empresa_id', empId)
+        .neq('status', 'cancelada')
         .gte('created_at', ini).lte('created_at', fim)
         .order('status').order('created_at'),
       // Taxas de reserva pagas no mês (para somar ao bruto, inclui as posteriormente retidas)
@@ -961,10 +966,19 @@ export default function FinanceiroPage() {
   }
 
   async function marcarReservaPaga(taxa: TaxaReserva) {
-    const { error } = await supabase.from('taxas_reserva')
+    // `.select()` não é decoração: o RLS de UPDATE de taxas_reserva só libera
+    // gestor/owner. Sem ele, um clique de profissional não atualiza nada e o
+    // Postgres devolve sucesso com zero linhas — a tela recarregava, a taxa
+    // continuava pendente e nenhuma mensagem aparecia.
+    const { data, error } = await supabase.from('taxas_reserva')
       .update({ status: 'pago', paga_em: new Date().toISOString() })
-      .eq('id', taxa.id);
+      .eq('id', taxa.id)
+      .select('id');
     if (error) { alert(`Erro ao marcar taxa de reserva como paga: ${error.message}`); return; }
+    if (!data || data.length === 0) {
+      alert('Você não tem permissão para marcar taxas de reserva como pagas. Peça a um gestor.');
+      return;
+    }
     if (empresaId) await carregar(empresaId, mesRef);
   }
 

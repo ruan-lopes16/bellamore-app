@@ -1166,11 +1166,20 @@ export default function Financeiro() {
   }
 
   async function marcarReservaPaga(item: TaxaReserva) {
-    const { error } = await supabase
+    // `.select()` não é decoração: o RLS de UPDATE de taxas_reserva só libera
+    // gestor/owner. Sem ele, um toque de profissional não atualiza nada e o
+    // Postgres devolve sucesso com zero linhas — a lista recarregava, a taxa
+    // continuava pendente e nenhum aviso aparecia.
+    const { data, error } = await supabase
       .from('taxas_reserva')
       .update({ status: 'pago', paga_em: new Date().toISOString() })
-      .eq('id', item.id);
+      .eq('id', item.id)
+      .select('id');
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!data || data.length === 0) {
+      Alert.alert('Sem permissão', 'Só gestores podem marcar taxas de reserva como pagas.');
+      return;
+    }
     qc.invalidateQueries({ queryKey: ['fin-taxas-reserva'] });
   }
 

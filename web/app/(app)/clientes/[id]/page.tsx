@@ -647,6 +647,7 @@ export default function ClientePerfilPage() {
           .from('taxas_reserva')
           .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em')
           .eq('cliente_id', id)
+          .neq('status', 'cancelada')   // encerradas ao concluir o atendimento (migration 061)
           .order('created_at', { ascending: false })
           .range(from, to) as unknown as PromiseLike<{ data: TaxaReserva[] | null; error: unknown }>
       ),
