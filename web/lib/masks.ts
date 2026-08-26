@@ -94,6 +94,40 @@ export function maskCEP(v: string) {
 }
 
 /**
+ * Máscara de moeda BR (milhar com ponto, centavos com vírgula) enquanto o
+ * usuário digita — trata a string sempre como centavos acumulados.
+ *
+ * @example
+ * maskMoeda('1000000') // → '10.000,00'
+ */
+export function maskMoeda(v: string): string {
+  const d = digits(v);
+  if (d.length === 0) return '';
+  const semZeros = d.replace(/^0+(?=\d)/, '').padStart(3, '0');
+  const inteiro  = semZeros.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const centavos = semZeros.slice(-2);
+  return `${inteiro},${centavos}`;
+}
+
+/**
+ * Converte o valor mascarado por maskMoeda (ex.: "10.000,00") de volta para number.
+ */
+export function parseMoeda(masked: string): number {
+  return parseFloat(masked.replace(/\./g, '').replace(',', '.')) || 0;
+}
+
+/**
+ * Formata um number vindo do banco no mesmo formato de maskMoeda, para
+ * popular o valor inicial de um input mascarado.
+ *
+ * @example
+ * formatMoeda(10000) // → '10.000,00'
+ */
+export function formatMoeda(value: number): string {
+  return maskMoeda(String(Math.round(value * 100)));
+}
+
+/**
  * Valida CNPJ pelo algoritmo de módulo 11.
  * Rejeita sequências iguais (00.000.000/0000-00, etc.).
  *
@@ -116,4 +150,40 @@ export function validaCNPJ(v: string): boolean {
     return r < 2 ? 0 : 11 - r;
   };
   return calc(12) === parseInt(d[12]) && calc(13) === parseInt(d[13]);
+}
+
+/**
+ * Aplica uma máscara de dígitos (maskPhone, maskCNPJ, maskCPF, maskCEP,
+ * maskMoeda...) num <input> controlado SEM perder a posição do cursor.
+ *
+ * Sem isso, toda máscara que reconstrói a string do zero a cada tecla faz o
+ * React reatribuir `value` e o navegador joga o cursor pro fim do campo —
+ * editar no meio do valor vira uma luta. Aqui a gente conta quantos dígitos
+ * existem antes do cursor no valor digitado, aplica a máscara, e devolve o
+ * cursor pra depois do dígito correspondente no valor já mascarado.
+ *
+ * Só funciona client-side (depende do elemento do DOM); use no onChange:
+ *   onChange={e => maskComCursor(e.target, maskPhone, setTelefone)}
+ */
+export function maskComCursor(
+  input: HTMLInputElement,
+  maskFn: (v: string) => string,
+  setValue: (masked: string) => void,
+): void {
+  const cursorPos = input.selectionStart ?? input.value.length;
+  const digitsBeforeCursor = digits(input.value.slice(0, cursorPos)).length;
+  const masked = maskFn(input.value);
+  setValue(masked);
+
+  requestAnimationFrame(() => {
+    if (digitsBeforeCursor === 0) { input.setSelectionRange(0, 0); return; }
+    let count = 0;
+    for (let i = 0; i < masked.length; i++) {
+      if (/\d/.test(masked[i])) {
+        count++;
+        if (count === digitsBeforeCursor) { input.setSelectionRange(i + 1, i + 1); return; }
+      }
+    }
+    input.setSelectionRange(masked.length, masked.length);
+  });
 }

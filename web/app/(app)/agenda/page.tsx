@@ -1673,8 +1673,8 @@ export default function AgendaPage() {
             ] as const).map(({ key, label }) => (
               <button key={key} onClick={() => setView(key)}
                 style={view === key
-                  ? { background: 'var(--color-primary)', color: '#fff', fontWeight: 700, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '16px 12px' }
-                  : { color: 'var(--color-ink3)', fontWeight: 600, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '16px 12px' }}
+                  ? { flex: 1, textAlign: 'center', background: 'var(--color-primary)', color: '#fff', fontWeight: 700, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '16px 12px' }
+                  : { flex: 1, textAlign: 'center', color: 'var(--color-ink3)', fontWeight: 600, fontFamily: 'var(--font-sans)', fontSize: 12, padding: '16px 12px' }}
                 className="transition">{label}</button>
             ))}
           </div>

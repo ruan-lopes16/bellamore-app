@@ -1017,9 +1017,9 @@ export default function FinanceiroPage() {
       {loading ? (
         <div className="flex flex-col gap-3 mb-6">
           {[0,1].map(row => (
-            <div key={row} className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            <div key={row} className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
               {[1,2,3].map(i => (
-                <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
+                <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm">
                   <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
                 </div>
               ))}
@@ -1029,22 +1029,22 @@ export default function FinanceiroPage() {
       ) : (
         <div className="flex flex-col gap-3 mb-6">
           {/* Linha 1: Bruto → Taxas Cartão → Líquido após Taxas */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
             {[
               { label: 'Faturamento Bruto',   value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
               { label: 'Taxas de Cartão',     value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
               { label: 'Líquido após Taxas',  value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
             ].map(({ label, value, d, cor, invertDelta }) => (
-              <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-                <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-2">{label}</p>
-                <p className={`text-2xl font-bold leading-none mb-2 ${cor}`}>{fmtBRL(value)}</p>
+              <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
+                <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
+                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
                 {d !== null && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 min-w-0">
                     {(invertDelta ? d < 0 : d >= 0)
-                      ? <TrendingUp  size={11} className="text-green" strokeWidth={2.5}/>
-                      : <TrendingDown size={11} className="text-red"  strokeWidth={2.5}/>
+                      ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
+                      : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
                     }
-                    <span className={`text-xs font-bold ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
+                    <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
                       {d >= 0 ? '+' : ''}{d}% vs mês anterior
                     </span>
                   </div>
@@ -1053,7 +1053,7 @@ export default function FinanceiroPage() {
             ))}
           </div>
           {/* Linha 2: Comissões | Gastos | Lucro Real */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
             {[
               { label: 'Comissões',           value: comissoes, d: dComissoes, cor: 'text-amber',                                    invertDelta: true  },
               { label: 'Gastos Operacionais', value: gastos,    d: dGastos,   cor: 'text-rose',                                     invertDelta: true  },
@@ -1065,16 +1065,16 @@ export default function FinanceiroPage() {
                 ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
                 : []),
             ].map(({ label, value, d, cor, invertDelta }) => (
-              <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-                <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-2">{label}</p>
-                <p className={`text-2xl font-bold leading-none mb-2 ${cor}`}>{fmtBRL(value)}</p>
+              <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
+                <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
+                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
                 {d !== null && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 min-w-0">
                     {(invertDelta ? d < 0 : d >= 0)
-                      ? <TrendingUp  size={11} className="text-green" strokeWidth={2.5}/>
-                      : <TrendingDown size={11} className="text-red"  strokeWidth={2.5}/>
+                      ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
+                      : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
                     }
-                    <span className={`text-xs font-bold ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
+                    <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
                       {d >= 0 ? '+' : ''}{d}% vs mês anterior
                     </span>
                   </div>

@@ -239,33 +239,35 @@ function PacoteModal({
             <label className={labelCls}>Serviços incluídos</label>
             <div className={`flex flex-col gap-2 mb-2 overflow-y-auto pr-0.5 transition-all duration-200 ${addindoServico ? 'max-h-64' : 'max-h-48'}`}>
               {itensList.map(item => (
-                <div key={item.servico_id} className="flex items-center gap-2 bg-bg rounded-xl px-3 py-2">
-                  <span className="flex-1 text-sm text-text truncate">{item.nome}</span>
-                  {controlaSessoes && item.quantidade == null ? (
-                    <span className="text-xs font-semibold text-primary">Ilimitado</span>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => atualizarQtd(item.servico_id, (item.quantidade ?? 1) - 1)}
-                          className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">−</button>
-                        <span className="w-8 text-center text-sm font-semibold text-text">{item.quantidade ?? 1}</span>
-                        <button type="button" onClick={() => atualizarQtd(item.servico_id, (item.quantidade ?? 1) + 1)}
-                          className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">+</button>
-                      </div>
-                      <span className="text-xs text-text-4">{controlaSessoes ? 'sessões' : '×'}</span>
-                    </>
-                  )}
-                  {controlaSessoes && (
-                    <button type="button" onClick={() => toggleIlimitado(item.servico_id)}
-                      title={item.quantidade == null ? 'Definir quantidade' : 'Tornar ilimitado'}
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${item.quantidade == null ? 'text-primary bg-primary-soft' : 'text-text-4 hover:text-primary hover:bg-primary-soft'}`}>
-                      ∞
+                <div key={item.servico_id} className="flex flex-col gap-2 bg-bg rounded-xl px-3 py-2 sm:flex-row sm:items-center">
+                  <span className="text-sm text-text break-words sm:flex-1 sm:truncate">{item.nome}</span>
+                  <div className="flex items-center gap-2 flex-wrap justify-end sm:flex-shrink-0">
+                    {controlaSessoes && item.quantidade == null ? (
+                      <span className="text-xs font-semibold text-primary">Ilimitado</span>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => atualizarQtd(item.servico_id, (item.quantidade ?? 1) - 1)}
+                            className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">−</button>
+                          <span className="w-8 text-center text-sm font-semibold text-text">{item.quantidade ?? 1}</span>
+                          <button type="button" onClick={() => atualizarQtd(item.servico_id, (item.quantidade ?? 1) + 1)}
+                            className="w-6 h-6 rounded-lg bg-surface border border-border text-text-2 text-xs flex items-center justify-center hover:bg-border transition">+</button>
+                        </div>
+                        <span className="text-xs text-text-4">{controlaSessoes ? 'sessões' : '×'}</span>
+                      </>
+                    )}
+                    {controlaSessoes && (
+                      <button type="button" onClick={() => toggleIlimitado(item.servico_id)}
+                        title={item.quantidade == null ? 'Definir quantidade' : 'Tornar ilimitado'}
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${item.quantidade == null ? 'text-primary bg-primary-soft' : 'text-text-4 hover:text-primary hover:bg-primary-soft'}`}>
+                        ∞
+                      </button>
+                    )}
+                    <button type="button" onClick={() => removerItem(item.servico_id)}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                      <Trash2 size={12}/>
                     </button>
-                  )}
-                  <button type="button" onClick={() => removerItem(item.servico_id)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
-                    <Trash2 size={12}/>
-                  </button>
+                  </div>
                 </div>
               ))}
             </div>

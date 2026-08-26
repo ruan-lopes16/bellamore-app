@@ -30,7 +30,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
   ChevronDown, ChevronLeft, ChevronRight, DollarSign, Target, Activity, User, Check, Star, CreditCard, XCircle,
-  CalendarCheck, Receipt,
+  Receipt,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
@@ -219,24 +219,24 @@ function KpiCard({
 }) {
   if (loading) {
     return (
-      <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex items-center gap-2 sm:gap-3 min-w-0">
+      <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 min-w-0">
         <Sk className="w-9 h-9 rounded-xl flex-shrink-0" />
-        <div className="flex-1 min-w-0 flex flex-col gap-2">
+        <div className="flex-1 min-w-0 flex flex-col gap-2 w-full">
           <Sk className="h-5 w-1/2 max-w-[60px]" /><Sk className="h-3 w-2/3 max-w-[100px]" />
         </div>
       </div>
     );
   }
   return (
-    <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex items-center gap-2 sm:gap-3 min-w-0">
+    <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 min-w-0">
       <div className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center"
         style={{ background: cor + '18' }}>
         <Icon size={18} style={{ color: cor }} />
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 w-full">
         <p className="text-base sm:text-lg font-bold text-text leading-tight truncate">{value}</p>
-        <p className="text-[11px] sm:text-xs text-text-3 truncate">{label}</p>
-        {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 truncate" style={{ color: cor }}>{sub}</p>}
+        <p className="text-[11px] sm:text-xs text-text-3 leading-tight">{label}</p>
+        {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}>{sub}</p>}
       </div>
     </div>
   );
@@ -965,11 +965,8 @@ export default function RelatoriosPage() {
           value={ags.length > 0 ? `${(((cancelados.length + faltaram.length) / ags.length) * 100).toFixed(1)}%` : '—'}
           sub={cancelados.length + faltaram.length > 0 ? `${cancelados.length + faltaram.length} perdido(s)` : undefined}
           cor="#DC2626" loading={loading} />
-        {brutoReserva > 0 && (
-          <KpiCard icon={CalendarCheck} label="Taxa de reserva"          value={fmtBRL(brutoReserva)}        cor="#1D4ED8" loading={loading} />
-        )}
-        {brutoTaxas > 0 && (
-          <KpiCard icon={Receipt}       label="Taxa de cancelamento (R$)" value={fmtBRL(brutoTaxas)}          cor="#DC2626" loading={loading} />
+        {(brutoTaxas + brutoReserva) > 0 && (
+          <KpiCard icon={Receipt}       label="Taxas (cancel. + reserva)" value={fmtBRL(brutoTaxas + brutoReserva)}          cor="#DC2626" loading={loading} />
         )}
         <KpiCard icon={DollarSign} label="Total comissões"      value={fmtBRL(comTot)}
           sub={comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0) > 0

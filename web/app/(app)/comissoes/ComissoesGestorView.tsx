@@ -394,10 +394,10 @@ export default function ComissoesGestorView() {
           { label: 'Pendente', val: resumo.pendente, cor: 'var(--color-amber)'   },
           { label: 'Pago',     val: resumo.pago,     cor: 'var(--color-green)'   },
         ].map(s => (
-          <div key={s.label} className="bg-surface border border-border rounded-2xl p-4"
+          <div key={s.label} className="bg-surface border border-border rounded-2xl p-3 sm:p-4 min-w-0"
             style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
-            <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--color-ink4)' }}>{s.label}</p>
-            <p className="text-lg font-bold" style={{ color: s.cor, letterSpacing: '-0.02em' }}>
+            <p className="text-[10px] font-bold uppercase tracking-widest mb-2 truncate" style={{ color: 'var(--color-ink4)' }}>{s.label}</p>
+            <p className="text-sm sm:text-lg font-bold leading-tight break-words" style={{ color: s.cor, letterSpacing: '-0.02em' }}>
               {loading ? '—' : fmtBRL(s.val)}
             </p>
           </div>
