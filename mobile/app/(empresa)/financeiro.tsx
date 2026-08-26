@@ -312,7 +312,7 @@ function TaxaCancelamentoRow({
 }: {
   item: TaxaCancelamento & { cliente: { nome: string } | null };
   isLast: boolean;
-  onMarcarPago: (item: TaxaCancelamento) => void;
+  onMarcarPago: (item: TaxaCancelamento & { cliente: { nome: string } | null }) => void;
 }) {
   const pago = item.status === 'pago';
 
@@ -342,7 +342,7 @@ function TaxaCancelamentoRow({
         </Text>
         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
           {pago
-            ? `Pago ${item.paga_em ? format(new Date(item.paga_em), 'dd/MM') : ''}`
+            ? `Pago ${item.paga_em ? format(new Date(item.paga_em), 'dd/MM') : ''}${item.metodo ? ` · ${METODO_CONFIG[item.metodo]?.label ?? item.metodo}` : ''}`
             : `Gerada ${format(new Date(item.created_at), 'dd/MM')}`
           }
         </Text>
@@ -376,7 +376,7 @@ function TaxaReservaRow({
 }: {
   item: TaxaReserva & { cliente: { nome: string } | null };
   isLast: boolean;
-  onMarcarPago: (item: TaxaReserva) => void;
+  onMarcarPago: (item: TaxaReserva & { cliente: { nome: string } | null }) => void;
 }) {
   const pago = item.status === 'pago';
   const retida = item.status === 'retida';
@@ -411,9 +411,9 @@ function TaxaReservaRow({
           {item.cliente?.nome ?? 'Cliente'}
         </Text>
         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
-          {pago || retida
-            ? `Pago ${item.paga_em ? format(new Date(item.paga_em), 'dd/MM') : ''}`
-            : `Gerada ${format(new Date(item.created_at), 'dd/MM')}`
+          {item.paga_em
+            ? `Pago ${format(new Date(item.paga_em), 'dd/MM')}${item.metodo ? ` · ${METODO_CONFIG[item.metodo]?.label ?? item.metodo}` : ''}`
+            : retida ? 'Retida sem pagamento prévio' : `Gerada ${format(new Date(item.created_at), 'dd/MM')}`
           }
         </Text>
       </View>
@@ -606,6 +606,105 @@ function ModalMarcarPago({
           </TouchableOpacity>
         </TouchableOpacity>
       </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// ── Modal confirmar pagamento de taxa (reserva ou cancelamento) ─────
+// Forma de pagamento é opcional ("quando houver", pedido do usuário): quem
+// não sabe ou não quer informar pode confirmar sem escolher nenhum método.
+
+function ModalConfirmarTaxa({
+  item, titulo, onClose, onConfirmar,
+}: {
+  item: { id: string; valor: number; cliente: { nome: string } | null } | null;
+  titulo: string;
+  onClose: () => void;
+  onConfirmar: (metodo: PagamentoMetodo | null) => void;
+}) {
+  const [metodo, setMetodo] = useState<PagamentoMetodo | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => { setMetodo(null); }, [item]);
+
+  async function confirmar() {
+    setSalvando(true);
+    await onConfirmar(metodo);
+    setSalvando(false);
+  }
+
+  return (
+    <Modal visible={!!item} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={onClose}
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}
+      >
+        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+          <View style={{
+            backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+            padding: 24, paddingBottom: 36,
+          }}>
+            <View style={{
+              width: 36, height: 4, borderRadius: 2,
+              backgroundColor: C.border, alignSelf: 'center', marginBottom: 20,
+            }} />
+
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4 }}>
+              {titulo}
+            </Text>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, marginBottom: 4 }}>
+              {item?.cliente?.nome ?? 'Cliente'}
+            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.green, marginBottom: 18 }}>
+              {item ? formatBRL(item.valor) : ''}
+            </Text>
+
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>
+              Forma de pagamento <Text style={{ color: C.text3, fontFamily: 'PlusJakartaSans_400Regular' }}>(opcional)</Text>
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+              {(Object.keys(METODO_CONFIG) as PagamentoMetodo[]).map(key => {
+                const cfg = METODO_CONFIG[key];
+                const ativo = metodo === key;
+                return (
+                  <TouchableOpacity key={key}
+                    onPress={() => setMetodo(ativo ? null : key)}
+                    style={{
+                      paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+                      borderWidth: 1, borderColor: ativo ? cfg.color : C.border,
+                      backgroundColor: ativo ? cfg.color : C.bg,
+                    }}>
+                    <Text style={{
+                      fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12,
+                      color: ativo ? '#fff' : C.text2,
+                    }}>
+                      {cfg.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              onPress={confirmar}
+              disabled={salvando}
+              style={{
+                backgroundColor: C.green, borderRadius: 14,
+                height: 52, alignItems: 'center', justifyContent: 'center',
+                opacity: salvando ? 0.6 : 1,
+              }}
+            >
+              {salvando
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: '#fff' }}>
+                    Confirmar pagamento
+                  </Text>
+              }
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
     </Modal>
   );
 }
@@ -1143,6 +1242,8 @@ export default function Financeiro() {
   const isHoje = isSameMonth(mesRef, new Date());
   const [despesaSelecionada, setDespesaSelecionada] = useState<DespesaItem | null>(null);
   const [despesaParaEditar,  setDespesaParaEditar]  = useState<DespesaItem | null>(null);
+  const [confirmarTaxaCanc,    setConfirmarTaxaCanc]    = useState<(TaxaCancelamento & { cliente: { nome: string } | null }) | null>(null);
+  const [confirmarTaxaReserva, setConfirmarTaxaReserva] = useState<(TaxaReserva & { cliente: { nome: string } | null }) | null>(null);
 
   const qc = useQueryClient();
   const { resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
@@ -1156,21 +1257,42 @@ export default function Financeiro() {
     qc.invalidateQueries({ queryKey: ['fin-evolucao'] });
   }
 
-  async function marcarTaxaPaga(item: TaxaCancelamento) {
-    const { error } = await supabase
+  async function marcarTaxaPaga(item: TaxaCancelamento, metodo: PagamentoMetodo | null) {
+    // `.select()` não é decoração: o RLS de UPDATE de taxas_cancelamento só
+    // libera gestor/owner. Sem ele, um toque de profissional não atualiza
+    // nada e o Postgres devolve sucesso com zero linhas — a lista recarregava,
+    // a taxa continuava pendente e nenhum aviso aparecia. Mesmo bug já
+    // corrigido em marcarReservaPaga.
+    const { data, error } = await supabase
       .from('taxas_cancelamento')
-      .update({ status: 'pago', paga_em: new Date().toISOString() })
-      .eq('id', item.id);
+      .update({ status: 'pago', paga_em: new Date().toISOString(), metodo })
+      .eq('id', item.id)
+      .select('id');
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!data || data.length === 0) {
+      Alert.alert('Sem permissão', 'Só gestores podem marcar taxas como pagas.');
+      return;
+    }
+    setConfirmarTaxaCanc(null);
     qc.invalidateQueries({ queryKey: ['fin-taxas-cancelamento'] });
   }
 
-  async function marcarReservaPaga(item: TaxaReserva) {
-    const { error } = await supabase
+  async function marcarReservaPaga(item: TaxaReserva, metodo: PagamentoMetodo | null) {
+    // `.select()` não é decoração: o RLS de UPDATE de taxas_reserva só libera
+    // gestor/owner. Sem ele, um toque de profissional não atualiza nada e o
+    // Postgres devolve sucesso com zero linhas — a lista recarregava, a taxa
+    // continuava pendente e nenhum aviso aparecia.
+    const { data, error } = await supabase
       .from('taxas_reserva')
-      .update({ status: 'pago', paga_em: new Date().toISOString() })
-      .eq('id', item.id);
+      .update({ status: 'pago', paga_em: new Date().toISOString(), metodo })
+      .eq('id', item.id)
+      .select('id');
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!data || data.length === 0) {
+      Alert.alert('Sem permissão', 'Só gestores podem marcar taxas de reserva como pagas.');
+      return;
+    }
+    setConfirmarTaxaReserva(null);
     qc.invalidateQueries({ queryKey: ['fin-taxas-reserva'] });
   }
 
@@ -1574,7 +1696,7 @@ export default function Financeiro() {
                   key={item.id}
                   item={item}
                   isLast={i === arr.length - 1}
-                  onMarcarPago={marcarTaxaPaga}
+                  onMarcarPago={setConfirmarTaxaCanc}
                 />
               ))}
             </View>
@@ -1604,7 +1726,7 @@ export default function Financeiro() {
                   key={item.id}
                   item={item}
                   isLast={i === arr.length - 1}
-                  onMarcarPago={marcarReservaPaga}
+                  onMarcarPago={setConfirmarTaxaReserva}
                 />
               ))}
             </View>
@@ -1628,6 +1750,22 @@ export default function Financeiro() {
           qc.invalidateQueries({ queryKey: ['fin-resumo'] });
           qc.invalidateQueries({ queryKey: ['fin-despesas'] });
         }}
+      />
+
+      {/* Modal confirmar taxa de cancelamento */}
+      <ModalConfirmarTaxa
+        item={confirmarTaxaCanc}
+        titulo="Confirmar taxa de cancelamento"
+        onClose={() => setConfirmarTaxaCanc(null)}
+        onConfirmar={metodo => confirmarTaxaCanc && marcarTaxaPaga(confirmarTaxaCanc, metodo)}
+      />
+
+      {/* Modal confirmar taxa de reserva */}
+      <ModalConfirmarTaxa
+        item={confirmarTaxaReserva}
+        titulo="Confirmar taxa de reserva"
+        onClose={() => setConfirmarTaxaReserva(null)}
+        onConfirmar={metodo => confirmarTaxaReserva && marcarReservaPaga(confirmarTaxaReserva, metodo)}
       />
     </View>
   );

@@ -16,7 +16,7 @@ export type PagamentoStatus = 'pendente' | 'pago' | 'estornado';
 export type ComissaoStatus  = 'pendente' | 'pago';
 export type DespesaStatus   = 'pendente' | 'pago';
 export type TaxaCancelamentoStatus = 'pendente' | 'pago' | 'cancelada';
-export type TaxaReservaStatus = 'pendente' | 'pago' | 'retida';
+export type TaxaReservaStatus = 'pendente' | 'pago' | 'retida' | 'cancelada';
 export type ComandaStatus   = 'aberta' | 'fechada';
 export type MovimentoTipo   = 'entrada' | 'saida' | 'ajuste';
 
@@ -200,6 +200,7 @@ export interface TaxaCancelamento {
   status: TaxaCancelamentoStatus;
   created_at: string;
   paga_em?: string;
+  metodo?: PagamentoMetodo | null;
   agendamento?: { data_hora_inicio: string; servico?: { nome: string } | null };
 }
 
@@ -212,6 +213,7 @@ export interface TaxaReserva {
   status: TaxaReservaStatus;
   created_at: string;
   paga_em?: string;
+  metodo?: PagamentoMetodo | null;
 }
 
 export interface AnamneseFicha {

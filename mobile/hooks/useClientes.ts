@@ -258,6 +258,7 @@ export function useClienteDetalhe(clienteId: string) {
           .select('*')
           .eq('empresa_id', empresaId!)
           .eq('cliente_id', clienteId)
+          .neq('status', 'cancelada')   // encerradas ao concluir o atendimento (migration 061)
           .order('created_at', { ascending: false }),
       ]);
 

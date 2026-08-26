@@ -1,3 +1,5 @@
+export type MetodoPagamentoTaxa = 'dinheiro' | 'pix' | 'credito' | 'debito' | 'cortesia';
+
 export type TaxaReservaInsertPayload = {
   empresa_id: string;
   agendamento_id: string;
@@ -5,6 +7,7 @@ export type TaxaReservaInsertPayload = {
   valor: number;
   status: 'pendente' | 'pago';
   paga_em: string | null;
+  metodo: MetodoPagamentoTaxa | null;
 };
 
 /**
@@ -12,6 +15,11 @@ export type TaxaReservaInsertPayload = {
  * indicacao explicita, feita na hora do agendamento, de que a taxa ja foi
  * cobrada. Retorna null quando o valor e zero ou negativo (nenhuma linha
  * deve ser criada, mesma regra ja usada para a taxa de cancelamento).
+ *
+ * `metodo` so e gravado quando `jaCobrada` e verdadeiro — e mesmo assim e
+ * opcional (o dado so existe "quando houver", conforme pedido), entao um
+ * `metodo` informado com `jaCobrada: false` e descartado em vez de gerar
+ * uma taxa 'pendente' com forma de pagamento, que nao faz sentido.
  */
 export function buildTaxaReservaInsert(
   params: {
@@ -20,6 +28,7 @@ export function buildTaxaReservaInsert(
     clienteId: string | null;
     valor: number;
     jaCobrada: boolean;
+    metodo?: MetodoPagamentoTaxa | null;
   },
   agoraIso: string,
 ): TaxaReservaInsertPayload | null {
@@ -31,6 +40,7 @@ export function buildTaxaReservaInsert(
     valor: params.valor,
     status: params.jaCobrada ? 'pago' : 'pendente',
     paga_em: params.jaCobrada ? agoraIso : null,
+    metodo: params.jaCobrada ? (params.metodo ?? null) : null,
   };
 }
 

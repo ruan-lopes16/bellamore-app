@@ -38,8 +38,12 @@ describe('Migration: taxa de reserva — schema', () => {
     expect(migrations).toMatch(/create table public\.taxas_reserva[\s\S]{0,900}unique\s*\(agendamento_id\)/);
   });
 
-  it('aceita apenas os status pendente, pago ou retida', () => {
-    expect(migrations).toMatch(/taxas_reserva[\s\S]{0,400}status in \('pendente', 'pago', 'retida'\)/);
+  it('aceita apenas os status pendente, pago, retida ou cancelada', () => {
+    // O constraint de 054 nasceu sem 'cancelada'; 061 o substitui. Este teste
+    // olha para o estado FINAL, entao exige a versao de 4 status.
+    expect(migrations).toMatch(
+      /taxas_reserva_status_check[\s\S]{0,200}status in \('pendente', 'pago', 'retida', 'cancelada'\)/,
+    );
   });
 
   it('cria o trigger que retem a taxa de reserva ao cancelar/faltar', () => {
@@ -47,5 +51,56 @@ describe('Migration: taxa de reserva — schema', () => {
     expect(migrations).toContain('trg_reter_taxa_reserva');
     expect(migrations).toMatch(/after update on public\.agendamentos[\s\S]{0,200}execute function public\.reter_taxa_reserva/);
     expect(migrations).toMatch(/reter_taxa_reserva[\s\S]{0,600}status = 'retida'/);
+  });
+});
+
+describe('Migration 061: taxa de reserva — encerramento ao concluir', () => {
+  const migrations = readAllMigrations();
+
+  it('encerra a taxa pendente quando o agendamento e concluido', () => {
+    // 'cancelada' e nao 'pago': a comanda ja cobrou o valor cheio, entao
+    // marcar como paga somaria o mesmo dinheiro duas vezes no bruto.
+    expect(migrations).toMatch(
+      /if new\.status = 'concluido' then[\s\S]{0,400}set status = 'cancelada'[\s\S]{0,200}status = 'pendente'/,
+    );
+  });
+
+  it('nao promove taxa pendente a paga ao concluir (evita receita em dobro)', () => {
+    const blocoConclusao = migrations.match(
+      /if new\.status = 'concluido' then[\s\S]{0,400}?return new;/,
+    );
+    expect(blocoConclusao).not.toBeNull();
+    expect(blocoConclusao![0]).not.toContain("status = 'pago'");
+  });
+
+  it('reativa a taxa se a conclusao for desfeita', () => {
+    expect(migrations).toMatch(
+      /old\.status = 'concluido' and new\.status in \('agendado', 'confirmado'\)[\s\S]{0,300}set status = 'pendente'[\s\S]{0,200}status = 'cancelada'/,
+    );
+  });
+
+  it('faz o backfill das taxas pendentes de agendamentos ja concluidos', () => {
+    expect(migrations).toMatch(
+      /update public\.taxas_reserva t[\s\S]{0,400}set status = 'cancelada'[\s\S]{0,400}t\.status = 'pendente'[\s\S]{0,200}a\.status = 'concluido'/,
+    );
+  });
+});
+
+describe('Migration 062: forma de pagamento das taxas', () => {
+  const migrations = readAllMigrations();
+
+  it('adiciona a coluna metodo (nullable) em taxas_reserva e taxas_cancelamento', () => {
+    expect(migrations).toMatch(
+      /alter table public\.taxas_reserva\s+add column metodo public\.pagamento_metodo;/,
+    );
+    expect(migrations).toMatch(
+      /alter table public\.taxas_cancelamento\s+add column metodo public\.pagamento_metodo;/,
+    );
+  });
+
+  it('reaproveita o enum pagamento_metodo em vez de um texto livre novo', () => {
+    // Mesmas 5 opcoes ja usadas por `pagamentos.metodo` (dinheiro/pix/credito/
+    // debito/cortesia) — nao um dominio de valores novo e desalinhado.
+    expect(migrations).toContain('create type pagamento_metodo as enum');
   });
 });

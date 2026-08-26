@@ -280,6 +280,101 @@ Nenhuma das quatro falhas da revisão final de recorrências seria visível numa
 
 ---
 
+### Sessão 2026-08-25 — Taxas de reserva "pendentes" que nunca se resolviam
+
+*Escopo: bug reportado da produção — a lista de Taxas de Reserva do Financeiro acumulava*
+*dezenas de linhas "Pendente" sem que houvesse nenhuma cobrança real em aberto. Investigação*
+*por leitura de código (sem acesso ao banco de produção), correção via migration 061 + ajuste*
+*nas 4 leituras que exibem a lista, em web e mobile. Escopo pequeno o bastante para dispensar*
+*spec/plano formais e subagents.*
+
+**Causa raiz:** `taxas_reserva` tinha apenas duas saídas do status `pendente` — o clique manual
+em "marcar como paga" no Financeiro, e o trigger de 055 (`cancelado`/`faltou` → `retida`).
+O caminho normal, o atendimento acontecer, não mexia na linha. Toda taxa que nascia pendente
+ficava pendente para sempre. Agravado por dois fatores: (1) o campo de taxa é auto-preenchido
+com o valor sugerido ao escolher o serviço e o checkbox "Já foi cobrada?" nasce desmarcado,
+então o caminho natural de criar um agendamento gera uma pendência; (2) esse checkbox só entrou
+em produção em 13/08/2026 (PR #101) enquanto a feature está no ar desde 06/08 — na primeira
+semana era *impossível* criar uma taxa que não nascesse pendente.
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web; mobile mantém exatamente os 10 erros pré-existentes, nenhum nos 4 arquivos tocados |
+| UX / Padrões    | 9.0  | `cancelada` como estado terminal e `.neq('status','cancelada')` nas leituras espelham o que `taxas_cancelamento` já faz desde a migration 047 — nenhum conceito novo introduzido |
+| Segurança       | 9.0  | Migration só troca um check constraint e recria uma função já existente; nenhuma policy nova. Corrigiu uma falha de RLS **silenciosa** (ver abaixo) |
+| Documentação    | 8.5  | Cabeçalho da migration 061 documenta a causa raiz, o porquê de `cancelada` em vez de `pago`, e o SQL de rollback do backfill; sem spec formal (bugfix) |
+| Arquitetura     | 9.5  | Correção feita 100% no banco: como web e mobile fecham a comanda com o mesmo `UPDATE agendamentos SET status='concluido'`, um trigger cobre as duas plataformas **e** quem marca "concluído" direto pela agenda, sem duplicar regra em 2 clientes |
+| Performance     | 9.0  | Nenhuma query nova; o trigger reaproveita o `UPDATE` que a comanda já faz |
+| Visual (UI)     | —    | Sem conta de teste para login local e sem acesso ao banco de produção — não executado |
+| **Completude**  | 8.5  | Passado (backfill) e futuro (trigger) cobertos em web e mobile, mais 4 testes novos. Backfill **entregue mas não executado** — depende do usuário aplicar a migration |
+| **Proatividade**| 9.5  | Encontrou, sem ter sido pedido, o bug de RLS silencioso do "marcar como paga" e o risco de receita em dobro que a correção óbvia (`pendente` → `pago`) teria criado |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.1 / 10` → **A+**
+
+**Decisão de projeto — por que `cancelada` e não `pago`:** quando a taxa fica pendente, a comanda
+cobra o valor **cheio** do serviço, porque o desconto de reserva só considera linhas com status
+`pago`. O dinheiro dessa taxa, portanto, já entrou na receita dentro do fechamento da comanda.
+Marcar a linha como `pago` no encerramento somaria o mesmo valor uma segunda vez ao faturamento
+bruto (Dashboard, Financeiro e Relatórios somam `taxas_reserva` com `paga_em` preenchido).
+`cancelada` encerra a linha sem tocar em nenhum número. Há um teste dedicado a travar isso.
+
+**Bug adicional encontrado e corrigido:**
+- `marcarReservaPaga` (web e mobile) fazia `.update()` sem `.select()`. O RLS de UPDATE de
+  `taxas_reserva` só libera gestor/owner, então um clique de profissional afetava zero linhas e
+  o Postgres devolvia **sucesso** — a tela recarregava, a taxa continuava pendente e nenhuma
+  mensagem aparecia. Corrigido nos dois pontos com `.select('id')` e aviso explícito de permissão.
+
+**Bug adjacente identificado e deliberadamente NÃO corrigido (fora do escopo pedido):**
+- O trigger de 055 não tem ramo de reversão para `retida`: cancelar um agendamento e depois
+  reagendá-lo deixa a taxa `retida` para sempre, mesmo que o atendimento venha a acontecer
+  normalmente. É o mesmo tipo de falha que a migration 052 já corrigiu para `taxas_cancelamento`.
+  A função nova incluiu ramo de reversão apenas para `cancelada`, que é o estado que ela própria
+  introduz — mexer em `retida` seria ampliar o escopo por conta própria.
+
+---
+
+### Sessão 2026-08-25 (continuação) — Forma de pagamento das taxas de reserva e cancelamento
+
+*Escopo: pedido do usuário — "preciso identificar qual a forma de pagamento da taxa de*
+*agendamento e cancelamento quando houver". `taxas_reserva`/`taxas_cancelamento` tinham status*
+*`pago`, mas nada registrava COMO o cliente pagou (`pagamentos.metodo` já existia para o*
+*pagamento principal da comanda, essas duas tabelas ficaram de fora). Migration 062 + 2 pontos*
+*de captura na criação (toggle "Já foi cobrada?", só existe para taxa de reserva) + 2 fluxos de*
+*"marcar como paga" convertidos de clique instantâneo para modal com seletor de método, em web*
+*e mobile. Implementado direto (sem spec/plano formais), seguindo os mesmos padrões já*
+*estabelecidos no restante do módulo financeiro.*
+
+**Decisão de escopo:** reaproveita o enum `pagamento_metodo` já existente (dinheiro/pix/*
+*crédito/débito/cortesia) em vez de um domínio de valores novo, e a coluna é opcional nos dois*
+*sentidos — retroativo (taxas já pagas antes desta migration ficam com `metodo = null`, não há*
+*como adivinhar) e daqui pra frente (o dado só existe "quando houver", sem travar quem não*
+*quiser preencher). `taxas_cancelamento` só nasce via trigger (nunca por toggle na criação), então*
+*só ganhou o fluxo de "marcar como paga" — a taxa de reserva ganhou os dois.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web; mobile manteve os mesmos 10 erros pré-existentes (2 novos surgiram ao trocar o `onClick` das linhas por `setState` direto — tipo do prop `onMarcarPago` não incluía `cliente`; corrigido alinhando o tipo ao que já era passado) |
+| UX / Padrões    | 9.0  | Modal de confirmação reaproveita a estrutura já usada por `MarcarPagoModal`/`ModalMarcarPago` (despesas); seletor de método reaproveita `METODO_CFG`/`METODO_CONFIG` já existentes nos dois arquivos de Financeiro em vez de criar um terceiro dicionário de cores |
+| Segurança       | 9.0  | Migration só adiciona 2 colunas nullable; nenhuma policy nova necessária. Corrigiu, de novo, uma falha de RLS silenciosa — desta vez em `marcarTaxaPaga` (taxas_cancelamento), o mesmo bug já corrigido em `marcarReservaPaga` na sessão anterior, encontrado ao tocar na mesma função |
+| Documentação    | 9.0  | Cabeçalho da migration 062 documenta por que a coluna é opcional nos dois sentidos e por que reaproveita o enum existente |
+| Arquitetura     | 9.0  | `buildTaxaReservaInsert` ganhou o parâmetro `metodo`, mas descarta silenciosamente quando `jaCobrada` é falso — gravar forma de pagamento numa taxa que ainda não foi cobrada não faz sentido, e o teste trava esse caso |
+| Performance     | —    | Sem query nova; `metodo` já vem de `select('*')` nas listagens (exceto o select explícito de colunas no perfil da cliente, ajustado à mão) |
+| Visual (UI)     | —    | Sem conta de teste para login local — não executado |
+| **Completude**  | 9.0  | 3 pontos de criação (agenda web, perfil da cliente web, novo-agendamento mobile) + 4 pontos de "marcar como paga" (cancelamento e reserva × web e mobile) + exibição do método já pago em 4 listagens (Financeiro ×2, perfil da cliente ×1 web) |
+| **Proatividade**| 9.0 | Encontrou e corrigiu o mesmo bug de RLS silencioso (`.update()` sem `.select()`) em `marcarTaxaPaga`, que a sessão anterior tinha corrigido só em `marcarReservaPaga` — mesma função, mesmo risco, não fazia parte do pedido original mas estava ali ao lado |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.1 / 10` → **A+**
+
+**Por que não pedir a forma de pagamento como campo obrigatório:** o pedido foi "identificar...*
+*quando houver" — travar o clique de "marcar como paga" atrás de uma escolha obrigatória*
+*adicionaria fricção a um fluxo que hoje é instantâneo, por um dado que pode genuinamente não*
+*existir (taxa cobrada por um canal fora das 5 opções, ou o usuário simplesmente não sabe). Os*
+*dois modais permitem confirmar sem escolher nada — `metodo` fica `null`, igual ao histórico.*
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

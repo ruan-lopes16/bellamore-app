@@ -52,6 +52,16 @@ const AVATAR_COLORS: [string, string][] = [
   ['#1D4ED8', '#60A5FA'], ['#7C2D12', '#EA580C'],
 ];
 
+type MetodoPagTaxa = 'dinheiro' | 'pix' | 'credito' | 'debito' | 'cortesia';
+/** Formas de pagamento da taxa de reserva quando marcada como já cobrada — mesmas 5 opções de `pagamentos.metodo` usadas no checkout da comanda. */
+const METODOS_TAXA: { key: MetodoPagTaxa; label: string }[] = [
+  { key: 'dinheiro', label: 'Dinheiro' },
+  { key: 'pix',      label: 'Pix' },
+  { key: 'credito',  label: 'Crédito' },
+  { key: 'debito',   label: 'Débito' },
+  { key: 'cortesia', label: 'Cortesia' },
+];
+
 // Slots de horário: 07:00 até 20:00 em intervalos de 30min
 const HORARIOS = Array.from({ length: 27 }, (_, i) => {
   const totalMin = 7 * 60 + i * 30;
@@ -136,6 +146,7 @@ export default function NovoAgendamento() {
   const [taxaReserva, setTaxaReserva]             = useState('');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
+  const [taxaReservaMetodo, setTaxaReservaMetodo]   = useState<MetodoPagTaxa | null>(null);
   const [obs, setObs]           = useState('');
   const [salvando, setSalvando] = useState(false);
   const [sucesso, setSucesso] = useState<{ clienteNome: string; servicoNome: string; profNome: string; inicio: Date; fim: Date } | null>(null);
@@ -366,7 +377,7 @@ export default function NovoAgendamento() {
       const taxaReservaPayload = buildTaxaReservaInsert({
         empresaId: empresaAtiva.id, agendamentoId: novoAg.id,
         clienteId: clienteSelecionado!.id, valor: taxaReservaValorNum,
-        jaCobrada: taxaReservaCobrada,
+        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
       }, new Date().toISOString());
       if (taxaReservaPayload) {
         const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
@@ -813,22 +824,50 @@ export default function NovoAgendamento() {
             </View>
           )}
           {taxaReservaAtiva && (parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
-            <TouchableOpacity
-              onPress={() => setTaxaReservaCobrada(v => !v)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}
-            >
-              <View style={{
-                width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
-                borderColor: taxaReservaCobrada ? C.primary : C.border,
-                backgroundColor: taxaReservaCobrada ? C.primary : C.surface,
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                {taxaReservaCobrada && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700', lineHeight: 14 }}>✓</Text>}
-              </View>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
-                Já foi cobrada?
-              </Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                onPress={() => {
+                  setTaxaReservaCobrada(v => !v);
+                  if (taxaReservaCobrada) setTaxaReservaMetodo(null);
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}
+              >
+                <View style={{
+                  width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
+                  borderColor: taxaReservaCobrada ? C.primary : C.border,
+                  backgroundColor: taxaReservaCobrada ? C.primary : C.surface,
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {taxaReservaCobrada && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700', lineHeight: 14 }}>✓</Text>}
+                </View>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
+                  Já foi cobrada?
+                </Text>
+              </TouchableOpacity>
+              {taxaReservaCobrada && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {METODOS_TAXA.map(m => {
+                    const ativo = taxaReservaMetodo === m.key;
+                    return (
+                      <TouchableOpacity key={m.key}
+                        onPress={() => setTaxaReservaMetodo(ativo ? null : m.key)}
+                        style={{
+                          paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10,
+                          borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                          backgroundColor: ativo ? C.primary : C.surface,
+                        }}>
+                        <Text style={{
+                          fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11,
+                          color: ativo ? '#fff' : C.text2,
+                        }}>
+                          {m.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </>
           )}
         </Secao>
 
