@@ -20,12 +20,13 @@ export default function RelatoriosLoading() {
         </div>
       </div>
 
-      {/* KPIs — 6 cards no padrão KpiCard (icon + texto vertical) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-        {[1,2,3,4,5,6].map(i => (
-          <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex items-center gap-2 sm:gap-3 min-w-0">
+      {/* KPIs — cards no padrão KpiCard: ícone empilhado no mobile, lado a
+          lado a partir do sm (mesma mudança que tirou o corte de texto) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {[1,2,3,4,5,6,7].map(i => (
+          <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 min-w-0">
             <Sk className="w-9 h-9 rounded-xl flex-shrink-0" />
-            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            <div className="flex-1 min-w-0 flex flex-col gap-1.5 w-full">
               <Sk className="h-5 w-1/2 max-w-[60px]" />
               <Sk className="h-3 w-2/3 max-w-[100px]" />
             </div>

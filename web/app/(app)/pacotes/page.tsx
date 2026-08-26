@@ -567,6 +567,8 @@ export default function PacotesPage() {
   const [modalSessao,  setModalSessao]  = useState<PacoteCliente | null>(null);
   const [confirmExcluir, setConfirmExcluir] = useState<Pacote | null>(null);
   const [excluindo,      setExcluindo]      = useState(false);
+  const [confirmExcluirVendido, setConfirmExcluirVendido] = useState<PacoteCliente | null>(null);
+  const [excluindoVendido,      setExcluindoVendido]      = useState(false);
 
   // Toast de feedback
   const [toast, setToast] = useState<{ msg: string; tone: 'green' | 'rose' } | null>(null);
@@ -733,6 +735,19 @@ export default function PacotesPage() {
     setConfirmExcluir(null);
     if (error) { showToast(`Erro ao excluir: ${error.message}`, 'rose'); return; }
     showToast('Pacote excluído.');
+    carregar(empresaId);
+  }
+
+  // ── Excluir uma venda de pacote (pacote_cliente) gerada por engano
+  async function excluirVendido() {
+    if (!empresaId || !confirmExcluirVendido) return;
+    setExcluindoVendido(true);
+    const { error } = await supabase.from('pacote_clientes')
+      .delete().eq('id', confirmExcluirVendido.id).eq('empresa_id', empresaId);
+    setExcluindoVendido(false);
+    setConfirmExcluirVendido(null);
+    if (error) { showToast(`Erro ao excluir: ${error.message}`, 'rose'); return; }
+    showToast('Venda de pacote excluída.');
     carregar(empresaId);
   }
 
@@ -917,18 +932,21 @@ export default function PacotesPage() {
                     )}
                   </div>
 
-                  {/* Ações */}
+                  {/* Ações — vender é normalmente automático (via comanda no
+                      atendimento); aqui fica só como opção manual secundária */}
+                  <p className="text-[10px] text-text-4 -mt-1">Vendido automaticamente na comanda do atendimento</p>
                   <div className="flex gap-2 pt-2 border-t border-border">
+                    <button onClick={() => setModalPacote(p)}
+                      title="Editar pacote"
+                      className="flex-1 h-8 rounded-lg border border-border hover:bg-bg flex items-center justify-center gap-1.5 text-text-3 text-xs font-semibold transition">
+                      <Edit3 size={12}/> Editar
+                    </button>
                     <button
                       onClick={() => p.ativo && p.servicos.length > 0 && setModalVender(p)}
                       disabled={!p.ativo || p.servicos.length === 0}
-                      title={p.servicos.length === 0 ? 'Adicione serviços antes de vender' : ''}
-                      className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition disabled:opacity-40">
-                      {p.servicos.length === 0 ? '⚠ Sem serviços' : 'Vender'}
-                    </button>
-                    <button onClick={() => setModalPacote(p)}
-                      className="w-8 h-8 rounded-lg border border-border hover:bg-bg flex items-center justify-center text-text-3 transition">
-                      <Edit3 size={13}/>
+                      title={p.servicos.length === 0 ? 'Adicione serviços antes de vender' : 'Vender manualmente (fora da comanda)'}
+                      className="w-8 h-8 rounded-lg border border-border hover:bg-bg flex items-center justify-center text-text-3 transition disabled:opacity-40">
+                      <Tag size={13}/>
                     </button>
                     <button onClick={() => toggleAtivo(p)}
                       title={p.ativo ? 'Desativar' : 'Reativar'}
@@ -995,9 +1013,16 @@ export default function PacotesPage() {
                         <p className="font-semibold text-text truncate">{v.cliente.nome}</p>
                         <p className="text-xs text-text-3 mt-0.5 truncate">{v.pacote.nome}</p>
                       </div>
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${statusCfg.cls}`}>
-                        {statusCfg.label}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${statusCfg.cls}`}>
+                          {statusCfg.label}
+                        </span>
+                        <button onClick={() => setConfirmExcluirVendido(v)}
+                          title="Excluir (gerado por engano)"
+                          className="w-6 h-6 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                          <Trash2 size={12}/>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Combo: lista de serviços inclusos (sem progresso de sessão) */}
@@ -1219,6 +1244,21 @@ export default function PacotesPage() {
         loading={excluindo}
         onConfirm={excluirPacote}
         onCancel={() => setConfirmExcluir(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmExcluirVendido !== null}
+        title="Excluir venda de pacote?"
+        message={
+          confirmExcluirVendido && confirmExcluirVendido.usadas > 0
+            ? `"${confirmExcluirVendido.pacote.nome}" de ${confirmExcluirVendido.cliente.nome} será removido permanentemente, incluindo o histórico de ${confirmExcluirVendido.usadas} sessão(ões) já usada(s). Essa ação não pode ser desfeita.`
+            : `"${confirmExcluirVendido?.pacote.nome}" de ${confirmExcluirVendido?.cliente.nome} será removido permanentemente. Essa ação não pode ser desfeita.`
+        }
+        confirmLabel="Excluir"
+        variant="danger"
+        loading={excluindoVendido}
+        onConfirm={excluirVendido}
+        onCancel={() => setConfirmExcluirVendido(null)}
       />
     </div>
   );

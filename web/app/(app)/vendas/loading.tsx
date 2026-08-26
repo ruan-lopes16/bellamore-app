@@ -23,19 +23,24 @@ export default function VendasLoading() {
 
       {/* Layout PDV: produtos esquerda + carrinho/checkout direita */}
       <div className="flex flex-col md:flex-row gap-6">
-        {/* Coluna esquerda: lista de produtos */}
+        {/* Coluna esquerda: lista de produtos, agrupada por categoria */}
         <div className="w-full md:w-[300px] md:flex-shrink-0 flex flex-col gap-3">
           {/* Busca */}
           <Sk className="h-10 rounded-xl" />
-          {/* Cards de produtos */}
-          {[1,2,3,4,5].map(i => (
-            <div key={i} className="flex items-center gap-3 px-3.5 py-3 rounded-xl border border-border bg-surface">
-              <Sk className="w-8 h-8 rounded-lg flex-shrink-0" />
-              <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                <Sk className="h-4 w-2/3 max-w-[140px]" />
-                <Sk className="h-3 w-1/2 max-w-[80px]" />
-              </div>
-              <Sk className="h-4 w-12 flex-shrink-0" />
+          {/* Grupos por categoria */}
+          {[3, 2].map((qtd, g) => (
+            <div key={g} className="flex flex-col gap-2">
+              <Sk className="h-2.5 w-20" />
+              {Array.from({ length: qtd }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-3.5 py-3 rounded-xl border border-border bg-surface">
+                  <Sk className="w-8 h-8 rounded-lg flex-shrink-0" />
+                  <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                    <Sk className="h-4 w-2/3 max-w-[140px]" />
+                    <Sk className="h-3 w-1/2 max-w-[80px]" />
+                  </div>
+                  <Sk className="h-4 w-12 flex-shrink-0" />
+                </div>
+              ))}
             </div>
           ))}
         </div>

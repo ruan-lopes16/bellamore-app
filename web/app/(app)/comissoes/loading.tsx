@@ -23,12 +23,12 @@ export default function ComissoesLoading() {
         <Sk className="w-8 h-8 rounded-lg" />
       </div>
 
-      {/* 3 KPI stats (Total / Pendente / Pago) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+      {/* 3 KPI stats (Total / Pendente / Pago) — sempre 3 colunas, mesmo no mobile */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
         {[1,2,3].map(i => (
-          <div key={i} className="bg-surface border border-border rounded-2xl p-4">
-            <Sk className="h-2.5 w-1/3 mb-2 max-w-[60px]" />
-            <Sk className="h-5 w-2/3 max-w-[120px]" />
+          <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-4">
+            <Sk className="h-2.5 w-1/2 mb-2 max-w-[50px]" />
+            <Sk className="h-4 w-2/3 max-w-[90px]" />
           </div>
         ))}
       </div>

@@ -348,7 +348,6 @@ export default function RelatoriosPage() {
   const [movs,       setMovs]       = useState<MovEstoque[]>([]);
   const [vendas,     setVendas]     = useState<Venda[]>([]);
   const [taxas,      setTaxas]      = useState<TaxaPaga[]>([]);
-  const [reserva,    setReserva]    = useState<TaxaPaga[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
   const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null }[]>([]);
 
@@ -417,7 +416,7 @@ export default function RelatoriosPage() {
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas, rReserva] = await Promise.all([
+    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       buscarTodasPaginas<Ag>((from, to) =>
         supabase.from('agendamentos')
@@ -480,14 +479,6 @@ export default function RelatoriosPage() {
         .eq('status', 'pago')
         .gte('paga_em', isoIni)
         .lte('paga_em', isoFim),
-
-      // 7. Taxas de reserva pagas no período (somam ao faturamento bruto, inclui retidas apos pagas)
-      supabase.from('taxas_reserva')
-        .select('valor, paga_em')
-        .eq('empresa_id', empId)
-        .not('paga_em', 'is', null)
-        .gte('paga_em', isoIni)
-        .lte('paga_em', isoFim),
     ]);
 
     setAgs(rAgs as unknown as Ag[]);
@@ -496,7 +487,6 @@ export default function RelatoriosPage() {
     setVendas((rVendas.data ?? []) as Venda[]);
     setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null }[]);
     setTaxas((rTaxas.data   ?? []) as TaxaPaga[]);
-    setReserva((rReserva.data ?? []) as TaxaPaga[]);
     setLoading(false);
   }, [supabase]);
 
@@ -567,8 +557,11 @@ export default function RelatoriosPage() {
   const brutoServicos   = useMemo(() => concluidos.reduce((s, a) => s + a.valor, 0), [concluidos]);
   const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
   const brutoTaxas      = useMemo(() => taxas.reduce((s, t) => s + Number(t.valor), 0), [taxas]);
-  const brutoReserva    = useMemo(() => reserva.reduce((s, t) => s + Number(t.valor), 0), [reserva]);
-  const bruto           = brutoServicos + brutoVendas + brutoTaxas + brutoReserva;
+  // Taxa de reserva NÃO entra no bruto: quando o cliente realiza o
+  // procedimento ela é abatida do valor da comanda (já contado em
+  // brutoServicos); só sobra "solta" se o agendamento for cancelado, caso em
+  // que a taxa de cancelamento (já somada acima) é que é cobrada.
+  const bruto           = brutoServicos + brutoVendas + brutoTaxas;
   const comTot          = useMemo(
     () => comissoes.reduce((s, c) => s + c.valor_comissao, 0),
     [comissoes],
@@ -965,8 +958,8 @@ export default function RelatoriosPage() {
           value={ags.length > 0 ? `${(((cancelados.length + faltaram.length) / ags.length) * 100).toFixed(1)}%` : '—'}
           sub={cancelados.length + faltaram.length > 0 ? `${cancelados.length + faltaram.length} perdido(s)` : undefined}
           cor="#DC2626" loading={loading} />
-        {(brutoTaxas + brutoReserva) > 0 && (
-          <KpiCard icon={Receipt}       label="Taxas (cancel. + reserva)" value={fmtBRL(brutoTaxas + brutoReserva)}          cor="#DC2626" loading={loading} />
+        {brutoTaxas > 0 && (
+          <KpiCard icon={Receipt}       label="Taxa de cancelamento (R$)" value={fmtBRL(brutoTaxas)}          cor="#DC2626" loading={loading} />
         )}
         <KpiCard icon={DollarSign} label="Total comissões"      value={fmtBRL(comTot)}
           sub={comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0) > 0

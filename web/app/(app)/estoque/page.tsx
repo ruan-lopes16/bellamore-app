@@ -42,6 +42,7 @@ import {
   format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { CATS, CAT_MAP, type CatKey } from '@/lib/categorias-produto';
 
 const supabase = createClient();
 
@@ -75,22 +76,6 @@ type MovItem = {
 };
 
 // ── Constantes ────────────────────────────────────────────────
-
-// Ordem alfabética por label (pt-BR) — mantém filtros e seletor de categoria consistentes
-const CATS = [
-  { key: 'cilios',       label: 'Cílios',       cor: '#4F46E5', bg: '#EEF2FF' },
-  { key: 'depilacao',    label: 'Depilação',     cor: '#D4608A', bg: '#FDF0F5' },
-  { key: 'ferramentas',  label: 'Ferramentas',   cor: '#0891B2', bg: '#ECFEFF' },
-  { key: 'higiene',      label: 'Higiene',       cor: '#059669', bg: '#ECFDF5' },
-  { key: 'materiais',    label: 'Materiais',     cor: '#92400E', bg: '#FEF3E2' },
-  { key: 'outros',       label: 'Outros',        cor: '#6B7280', bg: '#F3F4F6' },
-  { key: 'pele',         label: 'Pele',          cor: '#0D7E5F', bg: '#EAFAF5' },
-  { key: 'sobrancelhas', label: 'Sobrancelhas',  cor: '#7C3AED', bg: '#F3EFFE' },
-  { key: 'unhas',        label: 'Unhas',         cor: '#B45309', bg: '#FEF3E2' },
-] as const;
-
-type CatKey = typeof CATS[number]['key'];
-const CAT_MAP = Object.fromEntries(CATS.map(c => [c.key, c])) as Record<string, typeof CATS[0]>;
 
 const UNIDADES = ['un', 'pct', 'ml', 'g', 'kg', 'L', 'cx', 'pç', 'par'];
 

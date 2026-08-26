@@ -35,6 +35,7 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
+import { catInfo } from '@/lib/categorias-produto';
 
 const supabase = createClient();
 
@@ -65,12 +66,15 @@ type Cliente = Pick<ClienteBase, 'id' | 'nome'>;
 type VendaHistorico = {
   id: string;
   created_at: string;
+  comanda_id: string | null;
   cliente: { nome: string } | null;
   valor_total: number;
   desconto: number;
   valor_final: number;
   itens: { produto: { nome: string } | null; quantidade: number; preco_unitario: number }[];
   pagamentos_venda: { metodo: string; valor: number }[];
+  /** true quando os pagamentos abaixo vieram da comanda inteira (produto sem split próprio) */
+  pagamentoViaComanda?: boolean;
 };
 
 // ── Constantes ────────────────────────────────────────────────
@@ -163,7 +167,7 @@ export default function VendasPage() {
     const { data } = await supabase
       .from('vendas')
       .select(`
-        id, created_at, valor_total, desconto, valor_final,
+        id, created_at, comanda_id, valor_total, desconto, valor_final,
         cliente:clientes(nome),
         itens:venda_itens(quantidade, preco_unitario, produto:produtos(nome)),
         pagamentos_venda:pagamentos!pagamentos_venda_id_fkey(metodo, valor)
@@ -171,7 +175,34 @@ export default function VendasPage() {
       .eq('empresa_id', empId)
       .order('created_at', { ascending: false })
       .limit(50);
-    setVendas((data ?? []) as unknown as VendaHistorico[]);
+    const vendasCarregadas = (data ?? []) as unknown as VendaHistorico[];
+
+    // Vendas de produto extra dentro de uma comanda não têm split próprio em
+    // `pagamentos` (o pagamento é da comanda inteira) — busca à parte para
+    // ainda assim mostrar a forma de pagamento no histórico.
+    const comandaIds = Array.from(new Set(
+      vendasCarregadas
+        .filter(v => v.pagamentos_venda.length === 0 && v.comanda_id)
+        .map(v => v.comanda_id as string)
+    ));
+    if (comandaIds.length > 0) {
+      const { data: pagsComanda } = await supabase
+        .from('pagamentos').select('comanda_id, metodo, valor').in('comanda_id', comandaIds);
+      const porComanda = new Map<string, { metodo: string; valor: number }[]>();
+      (pagsComanda ?? []).forEach((p: any) => {
+        const lista = porComanda.get(p.comanda_id) ?? [];
+        lista.push({ metodo: p.metodo, valor: Number(p.valor) });
+        porComanda.set(p.comanda_id, lista);
+      });
+      vendasCarregadas.forEach(v => {
+        if (v.pagamentos_venda.length === 0 && v.comanda_id && porComanda.has(v.comanda_id)) {
+          v.pagamentos_venda = porComanda.get(v.comanda_id)!;
+          v.pagamentoViaComanda = true;
+        }
+      });
+    }
+
+    setVendas(vendasCarregadas);
     setLoadingVendas(false);
   }, [supabase]);
 
@@ -188,6 +219,18 @@ export default function VendasPage() {
       (p.categoria ?? '').toLowerCase().includes(q)
     );
   }, [produtos, busca]);
+
+  // Agrupa por categoria (mesma taxonomia do Estoque), ordenado por label pt-BR
+  const produtosAgrupados = useMemo(() => {
+    const grupos = new Map<string, Produto[]>();
+    produtosFiltrados.forEach(p => {
+      const key = catInfo(p.categoria).key;
+      grupos.set(key, [...(grupos.get(key) ?? []), p]);
+    });
+    return Array.from(grupos.entries())
+      .map(([key, itens]) => ({ cat: catInfo(key), itens }))
+      .sort((a, b) => a.cat.label.localeCompare(b.cat.label, 'pt-BR'));
+  }, [produtosFiltrados]);
 
   // ── Cálculos do carrinho
   const subtotal  = useMemo(() => cart.reduce((s, i) => s + i.preco_unitario * i.quantidade, 0), [cart]);
@@ -370,8 +413,8 @@ export default function VendasPage() {
               />
             </div>
 
-            {/* Lista de produtos */}
-            <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0">
+            {/* Lista de produtos — agrupada por categoria */}
+            <div className="flex-1 overflow-y-auto flex flex-col gap-3 pr-1 min-h-0">
               {loading ? (
                 [1,2,3,4,5].map(i => <Sk key={i} className="h-16 rounded-xl flex-shrink-0"/>)
               ) : produtosFiltrados.length === 0 ? (
@@ -381,33 +424,40 @@ export default function VendasPage() {
                     {busca ? 'Nenhum produto encontrado' : 'Nenhum produto cadastrado'}
                   </p>
                 </div>
-              ) : produtosFiltrados.map(p => {
-                const noCart = cart.find(i => i.produto_id === p.id);
-                const semEstoque = p.estoque_atual <= 0;
-                return (
-                  <button key={p.id} onClick={() => addToCart(p)}
-                    disabled={semEstoque}
-                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl border text-left transition flex-shrink-0 ${
-                      semEstoque
-                        ? 'border-border bg-bg opacity-50 cursor-not-allowed'
-                        : noCart
-                          ? 'border-accent bg-accent/5'
-                          : 'border-border bg-surface hover:border-accent/50 hover:bg-accent/5 active:scale-[0.98]'
-                    }`}>
-                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <Package size={15} className="text-primary"/>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-text truncate">{p.nome}</p>
-                      <p className="text-xs text-text-4">
-                        {semEstoque ? 'Sem estoque' : `${p.estoque_atual} ${p.unidade}`}
-                        {noCart && ` · ${noCart.quantidade} no carrinho`}
-                      </p>
-                    </div>
-                    <p className="text-sm font-bold text-text flex-shrink-0">{fmtBRL(p.preco_venda)}</p>
-                  </button>
-                );
-              })}
+              ) : produtosAgrupados.map(({ cat, itens }) => (
+                <div key={cat.key} className="flex flex-col gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest px-0.5" style={{ color: cat.cor }}>
+                    {cat.label} <span className="text-text-4 font-semibold normal-case">({itens.length})</span>
+                  </p>
+                  {itens.map(p => {
+                    const noCart = cart.find(i => i.produto_id === p.id);
+                    const semEstoque = p.estoque_atual <= 0;
+                    return (
+                      <button key={p.id} onClick={() => addToCart(p)}
+                        disabled={semEstoque}
+                        className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl border text-left transition flex-shrink-0 ${
+                          semEstoque
+                            ? 'border-border bg-bg opacity-50 cursor-not-allowed'
+                            : noCart
+                              ? 'border-accent bg-accent/5'
+                              : 'border-border bg-surface hover:border-accent/50 hover:bg-accent/5 active:scale-[0.98]'
+                        }`}>
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: cat.bg }}>
+                          <Package size={15} style={{ color: cat.cor }}/>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-text truncate">{p.nome}</p>
+                          <p className="text-xs text-text-4">
+                            {semEstoque ? 'Sem estoque' : `${p.estoque_atual} ${p.unidade}`}
+                            {noCart && ` · ${noCart.quantidade} no carrinho`}
+                          </p>
+                        </div>
+                        <p className="text-sm font-bold text-text flex-shrink-0">{fmtBRL(p.preco_venda)}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -687,13 +737,18 @@ export default function VendasPage() {
                     </p>
 
                     {/* Formas de pagamento */}
-                    <div className="flex gap-1.5 flex-wrap">
-                      {v.pagamentos_venda.map(p => (
-                        <span key={p.metodo}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {v.pagamentos_venda.map((p, i) => (
+                        <span key={`${p.metodo}-${i}`}
                           className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-bg border border-border text-text-3">
                           {METODOS_PAG.find(m => m.id === p.metodo)?.label ?? p.metodo} {fmtBRL(p.valor)}
                         </span>
                       ))}
+                      {v.pagamentoViaComanda && (
+                        <span className="text-[10px] text-text-4 italic" title="Produto vendido dentro de uma comanda — pagamento é o da comanda inteira, não só deste produto">
+                          (pagamento da comanda)
+                        </span>
+                      )}
                     </div>
                   </div>
 

@@ -19,7 +19,7 @@
  * `delta(atual, anterior)` retorna null se anterior = 0 (evita divisão por zero).
  *
  * ## Gráfico de evolução
- * Busca agendamentos dos últimos 6 meses em UMA query só (range de datas),
+ * Busca agendamentos dos últimos 12 meses em UMA query só (range de datas),
  * depois agrupa por mês no client usando `isSameMonth` do date-fns.
  * Evita 6 queries paralelas.
  *
@@ -34,6 +34,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, Ban, X, Layers, Banknote, CreditCard, Gift,
@@ -650,6 +651,7 @@ export default function FinanceiroPage() {
   const [taxasReserva,      setTaxasReserva]      = useState<TaxaReserva[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState(0);
   const [evolucao,      setEvolucao]      = useState<{ mes: string; receita: number; comissoes: number; gastos: number }[]>([]);
+  const [seriesVisiveis, setSeriesVisiveis] = useState({ receita: true, comissoes: true, gastos: true });
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
@@ -681,14 +683,14 @@ export default function FinanceiroPage() {
     setLoading(true);
     const periodo    = getMonthQueryBounds(mes);
     const periodoAnt = getMonthQueryBounds(subMonths(mes, 1));
-    const periodo6   = getMonthQueryBounds(subMonths(mes, 5));
+    const periodo6   = getMonthQueryBounds(subMonths(mes, 11));
     const ini  = periodo.startIso;
     const fim  = periodo.endIso;
     const iniA = periodoAnt.startIso;
     const fimA = periodoAnt.endIso;
     const ini6 = periodo6.startIso;
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes, reservaPagasAnt] = await Promise.all([
+    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional e serviço)
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
@@ -697,7 +699,7 @@ export default function FinanceiroPage() {
       supabase.from('agendamentos').select('profissional_id, valor')
         .eq('empresa_id', empId).eq('status', 'concluido')
         .gte('data_hora_inicio', iniA).lte('data_hora_inicio', fimA),
-      // Agendamentos 6 meses (evolução)
+      // Agendamentos 12 meses (evolução)
       supabase.from('agendamentos').select('profissional_id, valor, data_hora_inicio')
         .eq('empresa_id', empId).eq('status', 'concluido')
         .gte('data_hora_inicio', ini6).lte('data_hora_inicio', fim),
@@ -712,7 +714,7 @@ export default function FinanceiroPage() {
       supabase.from('despesas').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('data_pagamento', periodoAnt.startDate).lte('data_pagamento', periodoAnt.endDate),
-      // Despesas 6 meses (evolução)
+      // Despesas 12 meses (evolução)
       supabase.from('despesas').select('valor, data_pagamento')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('data_pagamento', periodo6.startDate).lte('data_pagamento', periodo.endDate),
@@ -731,7 +733,7 @@ export default function FinanceiroPage() {
       // Vendas avulsas mês anterior
       supabase.from('vendas').select('valor_final')
         .eq('empresa_id', empId).gte('created_at', iniA).lte('created_at', fimA),
-      // Vendas avulsas 6 meses
+      // Vendas avulsas 12 meses
       supabase.from('vendas').select('valor_final, created_at')
         .eq('empresa_id', empId).gte('created_at', ini6).lte('created_at', fim),
       // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
@@ -768,14 +770,10 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId)
         .gte('created_at', ini).lte('created_at', fim)
         .order('status').order('created_at'),
-      // Taxas de reserva pagas no mês (para somar ao bruto, inclui as posteriormente retidas)
+      // Taxas de reserva pagas no mês (exibidas à parte, não somadas ao bruto)
       supabase.from('taxas_reserva').select('valor')
         .eq('empresa_id', empId).not('paga_em', 'is', null)
         .gte('paga_em', ini).lte('paga_em', fim),
-      // Taxas de reserva pagas no mês anterior (para somar ao bruto do mês anterior)
-      supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empId).not('paga_em', 'is', null)
-        .gte('paga_em', iniA).lte('paga_em', fimA),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
@@ -796,13 +794,14 @@ export default function FinanceiroPage() {
     const brutoVendas     = ((vendasMes.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
     const brutoTaxasCanc  = ((taxasPagasMes.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
     const brutoTaxasCancAnt = ((taxasPagasAnt.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
+    // Taxa de reserva NÃO entra na receita bruta: quando o cliente realiza o
+    // procedimento ela é abatida do valor da comanda (já contado em
+    // brutoServicos); fica só como card informativo próprio abaixo.
     const brutoReserva    = ((reservaPagasMes.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
-    const brutoReservaAnt = ((reservaPagasAnt.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
-    const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc + brutoReserva;
+    const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc;
     const receitaAntVal   = ((agsAnt.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0)
                           + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0)
-                          + brutoTaxasCancAnt
-                          + brutoReservaAnt;
+                          + brutoTaxasCancAnt;
     const comissoesVal    = calcCom((agsMes.data ?? []) as AgRow[]);
     const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
     const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
@@ -864,9 +863,9 @@ export default function FinanceiroPage() {
       percentual: metTotal > 0 ? Math.round((m.valor / metTotal) * 100) : 0,
     })).sort((a, b) => b.valor - a.valor));
 
-    // Evolução 6 meses (client-side, a partir das queries únicas)
-    const evolucaoData = Array.from({ length: 6 }, (_, i) => {
-      const m    = subMonths(mes, 5 - i);
+    // Evolução 12 meses (client-side, a partir das queries únicas) — arrastável no card
+    const evolucaoData = Array.from({ length: 12 }, (_, i) => {
+      const m    = subMonths(mes, 11 - i);
       type Desp6Row = { valor: number; data_pagamento: string | null };
       type Venda6Row = { valor_final: number; created_at: string };
       const mesAgs  = ((ags6m.data ?? []) as (AgRow & { data_hora_inicio: string })[]).filter(a =>
@@ -1013,86 +1012,82 @@ export default function FinanceiroPage() {
         onNextMonth={() => setMesRef(m => addMonths(m, 1))}
       />
 
-      {/* KPIs */}
+      {/* KPIs — grid auto-fit: preenche a largura sem deixar buraco na
+          última linha, não importa quantos cards existam (a lista cresce
+          com taxas condicionais e deve continuar crescendo no futuro). */}
       {loading ? (
-        <div className="flex flex-col gap-3 mb-6">
-          {[0,1].map(row => (
-            <div key={row} className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-              {[1,2,3].map(i => (
-                <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm">
-                  <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
-                </div>
-              ))}
+        <div className="grid gap-3 sm:gap-4 mb-6 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+          {[1,2,3,4,5,6].map(i => (
+            <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm">
+              <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
             </div>
           ))}
         </div>
       ) : (
-        <div className="flex flex-col gap-3 mb-6">
-          {/* Linha 1: Bruto → Taxas Cartão → Líquido após Taxas */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-            {[
-              { label: 'Faturamento Bruto',   value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
-              { label: 'Taxas de Cartão',     value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
-              { label: 'Líquido após Taxas',  value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
-            ].map(({ label, value, d, cor, invertDelta }) => (
-              <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-                <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
-                {d !== null && (
-                  <div className="flex items-center gap-1 min-w-0">
-                    {(invertDelta ? d < 0 : d >= 0)
-                      ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
-                      : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
-                    }
-                    <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      {d >= 0 ? '+' : ''}{d}% vs mês anterior
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          {/* Linha 2: Comissões | Gastos | Lucro Real */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-            {[
-              { label: 'Comissões',           value: comissoes, d: dComissoes, cor: 'text-amber',                                    invertDelta: true  },
-              { label: 'Gastos Operacionais', value: gastos,    d: dGastos,   cor: 'text-rose',                                     invertDelta: true  },
-              { label: 'Lucro Real',          value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        invertDelta: false },
-              ...(taxasCancelamentoPagas > 0
-                ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
-                : []),
-              ...(taxasReservaPagas > 0
-                ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
-                : []),
-            ].map(({ label, value, d, cor, invertDelta }) => (
-              <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-                <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
-                {d !== null && (
-                  <div className="flex items-center gap-1 min-w-0">
-                    {(invertDelta ? d < 0 : d >= 0)
-                      ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
-                      : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
-                    }
-                    <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      {d >= 0 ? '+' : ''}{d}% vs mês anterior
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+        <div className="grid gap-3 sm:gap-4 mb-6 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+          {[
+            { label: 'Faturamento Bruto',   href: '#secao-evolucao',            value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
+            { label: 'Taxas de Cartão',     href: '#secao-formas-pagamento',    value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
+            { label: 'Líquido após Taxas',  href: '#secao-evolucao',            value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
+            { label: 'Comissões',           href: '/equipe',                    value: comissoes, d: dComissoes, cor: 'text-amber',                                    invertDelta: true  },
+            { label: 'Gastos Operacionais', href: '#secao-despesas',            value: gastos,    d: dGastos,   cor: 'text-rose',                                     invertDelta: true  },
+            { label: 'Lucro Real',          href: '#secao-evolucao',            value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        invertDelta: false },
+            ...(taxasCancelamentoPagas > 0
+              ? [{ label: 'Taxas de Cancelamento', href: '#secao-taxas-cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
+              : []),
+            ...(taxasReservaPagas > 0
+              ? [{ label: 'Taxas de Reserva', href: '#secao-taxas-reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
+              : []),
+          ].map(({ label, href, value, d, cor, invertDelta }) => (
+            <Link key={label} href={href} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 block transition-opacity hover:opacity-80">
+              <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
+              <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
+              {d !== null && (
+                <div className="flex items-center gap-1 min-w-0">
+                  {(invertDelta ? d < 0 : d >= 0)
+                    ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
+                    : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
+                  }
+                  <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
+                    {d >= 0 ? '+' : ''}{d}% vs mês anterior
+                  </span>
+                </div>
+              )}
+            </Link>
+          ))}
         </div>
       )}
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Skeleton: evolução */}
+          {/* Skeleton: despesas (col-span-2, agora no topo) */}
+          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <Sk className="h-5 w-24"/>
+              <Sk className="h-4 w-16"/>
+            </div>
+            <div className="p-5 flex flex-col gap-3">
+              {[1,2,3].map(i => (
+                <div key={i} className="flex items-center gap-3">
+                  <Sk className="w-8 h-8 rounded-lg flex-shrink-0"/>
+                  <div className="flex-1 flex flex-col gap-1.5">
+                    <Sk className="h-3.5 w-40"/>
+                    <Sk className="h-3 w-24"/>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <Sk className="h-4 w-16"/>
+                    <Sk className="h-4 w-20 rounded-md"/>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Skeleton: evolução (12 meses) */}
           <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
             <Sk className="h-5 w-36 mb-5"/>
-            <div className="flex items-end gap-3 h-24">
-              {[60,80,45,90,70,100].map((h,i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+            <div className="flex items-end gap-3 h-24 overflow-hidden">
+              {[60,80,45,90,70,100,55,75,40,85,65,95].map((h,i) => (
+                <div key={i} className="flex-1 min-w-[16px] flex flex-col items-center gap-1">
                   <Sk className="w-full rounded-t-sm" style={{ height: `${h}%` }}/>
                   <Sk className="h-2.5 w-6"/>
                 </div>
@@ -1115,130 +1110,12 @@ export default function FinanceiroPage() {
               ))}
             </div>
           </div>
-          {/* Skeleton: despesas (col-span-2) */}
-          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <Sk className="h-5 w-24"/>
-              <Sk className="h-4 w-16"/>
-            </div>
-            <div className="p-5 flex flex-col gap-3">
-              {[1,2,3].map(i => (
-                <div key={i} className="flex items-center gap-3">
-                  <Sk className="w-8 h-8 rounded-lg flex-shrink-0"/>
-                  <div className="flex-1 flex flex-col gap-1.5">
-                    <Sk className="h-3.5 w-40"/>
-                    <Sk className="h-3 w-24"/>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    <Sk className="h-4 w-16"/>
-                    <Sk className="h-4 w-20 rounded-md"/>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-        {/* Evolução mensal */}
-        <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-4">
-            <p className="font-serif text-lg text-text flex-1">Evolução Mensal</p>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-text-4">
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-primary inline-block"/>Bruto</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber inline-block opacity-80"/>Comissões</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-red inline-block opacity-60"/>Gastos</span>
-            </div>
-          </div>
-          <div className="flex items-end gap-3 h-32">
-            {evolucao.map((e, i) => {
-              const rH = maxEvolucao > 0 ? (e.receita          / maxEvolucao) * 100 : 0;
-              const cH = maxEvolucao > 0 ? ((e.comissoes ?? 0) / maxEvolucao) * 100 : 0;
-              const gH = maxEvolucao > 0 ? (e.gastos           / maxEvolucao) * 100 : 0;
-              const isAtual = i === evolucao.length - 1;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full flex items-end gap-0.5 h-24">
-                    <div className="flex-1 rounded-t-sm bm-grow"
-                      style={{ '--bm-i': i, height: `${rH}%`, backgroundColor: 'var(--color-primary)', opacity: isAtual ? 1 : 0.3 + i * 0.12 } as React.CSSProperties}/>
-                    <div className="flex-1 rounded-t-sm bm-grow"
-                      style={{ '--bm-i': i + 0.65, height: `${cH}%`, backgroundColor: 'var(--color-amber)', opacity: isAtual ? 0.8 : 0.2 + i * 0.1 } as React.CSSProperties}/>
-                    <div className="flex-1 rounded-t-sm bm-grow"
-                      style={{ '--bm-i': i + 1.3, height: `${gH}%`, backgroundColor: 'var(--color-rose)', opacity: isAtual ? 0.7 : 0.2 + i * 0.08 } as React.CSSProperties}/>
-                  </div>
-                  <p className={`text-[10px] font-semibold capitalize ${isAtual ? 'text-primary' : 'text-text-4'}`}>{e.mes}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Top serviços */}
-        <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-          <p className="font-serif text-lg text-text mb-4">Top Serviços</p>
-          {loading ? (
-            <div className="flex flex-col gap-3">{[1,2,3].map(i => <div key={i} className="h-8 bg-bg rounded-lg animate-pulse"/>)}</div>
-          ) : topServicos.length === 0 ? (
-            <p className="text-sm text-text-4 italic">Sem atendimentos concluídos no mês.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {topServicos.map((s, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span className={`text-lg font-bold w-5 flex-shrink-0 ${i < 2 ? 'text-primary' : 'text-text-4'}`}>{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <p className="text-xs font-semibold text-text truncate">{s.nome}</p>
-                      <p className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(s.receita)}</p>
-                    </div>
-                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
-                      <div className="h-full bg-accent rounded-full transition-all"
-                        style={{ width: `${s.percentual}%`, opacity: 0.5 + s.percentual / 200 }}/>
-                    </div>
-                    <p className="text-[10px] text-text-4 mt-0.5">{s.quantidade} atend.</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Formas de pagamento */}
-        {metodos.length > 0 && (
-          <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
-            <p className="font-serif text-lg text-text px-5 pt-5 pb-4">Formas de Pagamento</p>
-            {metodos.map((m, i) => {
-              const cfg = METODO_CFG[m.metodo] ?? METODO_CFG.cortesia;
-              const Icon = cfg.icon;
-              return (
-                <div key={m.metodo}
-                  className={`flex items-center gap-3 px-5 py-3 ${i < metodos.length - 1 ? 'border-b border-border' : ''}`}>
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: cfg.bg }}>
-                    <Icon size={14} strokeWidth={2} style={{ color: cfg.cor }}/>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-text">{cfg.label}</p>
-                    <p className="text-[10px] text-text-4">{m.quantidade} {m.quantidade === 1 ? 'transação' : 'transações'}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-text">{fmtBRL(m.valor)}</p>
-                    <p className="text-[10px] text-text-4">{m.percentual}%</p>
-                  </div>
-                </div>
-              );
-            })}
-            <div className="flex h-1.5 mx-4 mb-3 mt-2 rounded-full overflow-hidden">
-              {metodos.map(m => {
-                const cfg = METODO_CFG[m.metodo];
-                return <div key={m.metodo} style={{ flex: m.percentual, backgroundColor: cfg?.cor ?? '#9CA3AF', opacity: 0.6 }}/>;
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Despesas */}
-        <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
+        {/* Despesas — no topo, é o que mais precisa de atenção no dia a dia */}
+        <div id="secao-despesas" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <div>
               <p className="font-serif text-lg text-text">Despesas</p>
@@ -1351,9 +1228,116 @@ export default function FinanceiroPage() {
           )}
         </div>
 
+        {/* Evolução mensal — 12 meses, arrastável no mobile (overflow-x),
+            cada série pode ser escondida clicando na legenda */}
+        <div id="secao-evolucao" className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-4">
+            <p className="font-serif text-lg text-text flex-1">Evolução Mensal</p>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] sm:text-xs">
+              {([
+                { key: 'receita' as const,   cor: 'bg-primary', label: 'Bruto'      },
+                { key: 'comissoes' as const, cor: 'bg-amber',   label: 'Comissões'  },
+                { key: 'gastos' as const,    cor: 'bg-red',     label: 'Gastos'     },
+              ]).map(({ key, cor, label }) => (
+                <button key={key} type="button"
+                  onClick={() => setSeriesVisiveis(s => ({ ...s, [key]: !s[key] }))}
+                  className={`flex items-center gap-1.5 transition ${seriesVisiveis[key] ? 'text-text-4' : 'text-text-4/40'}`}>
+                  <span className={`w-2 h-2 rounded-sm inline-block ${cor}`} style={{ opacity: seriesVisiveis[key] ? 0.8 : 0.25 }}/>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-end gap-3 h-32 overflow-x-auto pb-1">
+            {evolucao.map((e, i) => {
+              const rH = maxEvolucao > 0 && seriesVisiveis.receita   ? (e.receita          / maxEvolucao) * 100 : 0;
+              const cH = maxEvolucao > 0 && seriesVisiveis.comissoes ? ((e.comissoes ?? 0) / maxEvolucao) * 100 : 0;
+              const gH = maxEvolucao > 0 && seriesVisiveis.gastos    ? (e.gastos           / maxEvolucao) * 100 : 0;
+              const isAtual = i === evolucao.length - 1;
+              const fade = evolucao.length > 1 ? 0.3 + (i / (evolucao.length - 1)) * 0.7 : 1;
+              return (
+                <div key={i} className="flex-1 min-w-[40px] flex flex-col items-center gap-1">
+                  <div className="w-full flex items-end gap-0.5 h-24">
+                    <div className="flex-1 rounded-t-sm bm-grow"
+                      style={{ '--bm-i': i, height: `${rH}%`, backgroundColor: 'var(--color-primary)', opacity: isAtual ? 1 : fade } as React.CSSProperties}/>
+                    <div className="flex-1 rounded-t-sm bm-grow"
+                      style={{ '--bm-i': i + 0.65, height: `${cH}%`, backgroundColor: 'var(--color-amber)', opacity: isAtual ? 0.8 : fade * 0.85 } as React.CSSProperties}/>
+                    <div className="flex-1 rounded-t-sm bm-grow"
+                      style={{ '--bm-i': i + 1.3, height: `${gH}%`, backgroundColor: 'var(--color-rose)', opacity: isAtual ? 0.7 : fade * 0.7 } as React.CSSProperties}/>
+                  </div>
+                  <p className={`text-[10px] font-semibold capitalize ${isAtual ? 'text-primary' : 'text-text-4'}`}>{e.mes}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Top serviços */}
+        <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
+          <p className="font-serif text-lg text-text mb-4">Top Serviços</p>
+          {loading ? (
+            <div className="flex flex-col gap-3">{[1,2,3].map(i => <div key={i} className="h-8 bg-bg rounded-lg animate-pulse"/>)}</div>
+          ) : topServicos.length === 0 ? (
+            <p className="text-sm text-text-4 italic">Sem atendimentos concluídos no mês.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {topServicos.map((s, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className={`text-lg font-bold w-5 flex-shrink-0 ${i < 2 ? 'text-primary' : 'text-text-4'}`}>{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-xs font-semibold text-text truncate">{s.nome}</p>
+                      <p className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(s.receita)}</p>
+                    </div>
+                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                      <div className="h-full bg-accent rounded-full transition-all"
+                        style={{ width: `${s.percentual}%`, opacity: 0.5 + s.percentual / 200 }}/>
+                    </div>
+                    <p className="text-[10px] text-text-4 mt-0.5">{s.quantidade} atend.</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Formas de pagamento */}
+        {metodos.length > 0 && (
+          <div id="secao-formas-pagamento" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <p className="font-serif text-lg text-text px-5 pt-5 pb-4">Formas de Pagamento</p>
+            {metodos.map((m, i) => {
+              const cfg = METODO_CFG[m.metodo] ?? METODO_CFG.cortesia;
+              const Icon = cfg.icon;
+              return (
+                <div key={m.metodo}
+                  className={`flex items-center gap-3 px-5 py-3 ${i < metodos.length - 1 ? 'border-b border-border' : ''}`}>
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: cfg.bg }}>
+                    <Icon size={14} strokeWidth={2} style={{ color: cfg.cor }}/>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-text">{cfg.label}</p>
+                    <p className="text-[10px] text-text-4">{m.quantidade} {m.quantidade === 1 ? 'transação' : 'transações'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-text">{fmtBRL(m.valor)}</p>
+                    <p className="text-[10px] text-text-4">{m.percentual}%</p>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex h-1.5 mx-4 mb-3 mt-2 rounded-full overflow-hidden">
+              {metodos.map(m => {
+                const cfg = METODO_CFG[m.metodo];
+                return <div key={m.metodo} style={{ flex: m.percentual, backgroundColor: cfg?.cor ?? '#9CA3AF', opacity: 0.6 }}/>;
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Taxas de cancelamento */}
         {taxasCancelamento.length > 0 && (
-          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div id="secao-taxas-cancelamento" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <p className="font-serif text-lg text-text">Taxas de Cancelamento</p>
               <span className="text-xs text-text-4">{taxasCancelamento.length} lançamento(s)</span>
@@ -1395,7 +1379,7 @@ export default function FinanceiroPage() {
 
         {/* Taxas de reserva */}
         {taxasReserva.length > 0 && (
-          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div id="secao-taxas-reserva" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <p className="font-serif text-lg text-text">Taxas de Reserva</p>
               <span className="text-xs text-text-4">{taxasReserva.length} lançamento(s)</span>

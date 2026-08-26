@@ -434,6 +434,7 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
 export default function EquipePage() {
   const [profs,     setProfs]     = useState<Profissional[]>([]);
   const [loading,   setLoading]   = useState(true);
+  const [mostrarInativas, setMostrarInativas] = useState(false);
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [modal,          setModal]          = useState(false);
   const [editandoInfo,   setEditandoInfo]   = useState<Profissional | null>(null);
@@ -564,6 +565,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
 
   const ativos   = profs.filter(p => p.ativo).length;
   const inativos = profs.length - ativos;
+  const profsExibidos = mostrarInativas ? profs : profs.filter(p => p.ativo);
   const mes      = format(new Date(), 'MMMM', { locale: ptBR });
 
   return (
@@ -617,21 +619,25 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
           {[
-            { label: 'Total',    value: profs.length, color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
-            { label: 'Ativas',   value: ativos,       color: 'var(--color-green)',   bg: 'var(--color-green-soft)' },
-            { label: 'Inativas', value: inativos,     color: 'var(--color-ink3)',    bg: 'var(--color-bg2)' },
-          ].map(({ label, value, color, bg }, i) => (
-            <div key={label} className="bm-stagger rounded-2xl p-4 flex items-center gap-3"
-              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
-              <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
-                <UserCog size={18} style={{ color }} strokeWidth={1.8}/>
-              </div>
-              <div>
-                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 22, fontWeight: 700, lineHeight: 1, color }}>{value}</p>
-                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 2 }}>{label}</p>
-              </div>
-            </div>
-          ))}
+            { label: 'Total',    value: profs.length, color: 'var(--color-primary)', bg: 'var(--color-primary-soft)', clique: undefined },
+            { label: 'Ativas',   value: ativos,       color: 'var(--color-green)',   bg: 'var(--color-green-soft)', clique: undefined },
+            { label: 'Inativas', value: inativos,     color: 'var(--color-ink3)',    bg: 'var(--color-bg2)', clique: () => setMostrarInativas(v => !v) },
+          ].map(({ label, value, color, bg, clique }, i) => {
+            const Wrapper = clique ? 'button' : 'div';
+            return (
+              <Wrapper key={label} type={clique ? 'button' : undefined} onClick={clique}
+                className="bm-stagger rounded-2xl p-4 flex items-center gap-3 text-left"
+                style={{ background: 'var(--color-surface)', border: mostrarInativas && label === 'Inativas' ? '1px solid var(--color-primary)' : '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)', '--bm-i': i, '--bm-step': '55ms', cursor: clique ? 'pointer' : 'default' } as React.CSSProperties}>
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
+                  <UserCog size={18} style={{ color }} strokeWidth={1.8}/>
+                </div>
+                <div>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 22, fontWeight: 700, lineHeight: 1, color }}>{value}</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 2 }}>{label}{clique && (mostrarInativas ? ' · ocultar' : ' · ver')}</p>
+                </div>
+              </Wrapper>
+            );
+          })}
         </div>
       )}
 
@@ -656,11 +662,28 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
         </div>
       ) : (
         <>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: 'var(--color-ink4)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }} className="capitalize">
-            {mes} · {ativos} {ativos === 1 ? 'profissional ativa' : 'profissionais ativas'}
-          </p>
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: 'var(--color-ink4)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }} className="capitalize">
+              {mes} · {ativos} {ativos === 1 ? 'profissional ativa' : 'profissionais ativas'}
+            </p>
+            {inativos > 0 && (
+              <button onClick={() => setMostrarInativas(v => !v)}
+                style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-accent)' }}>
+                {mostrarInativas ? 'Ocultar inativas' : `Ver inativas (${inativos})`}
+              </button>
+            )}
+          </div>
+          {profsExibidos.length === 0 ? (
+            <div className="text-center py-16 rounded-2xl" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+              <UserCog size={32} style={{ margin: '0 auto 12px', color: 'var(--color-ink4)' }} strokeWidth={1.5}/>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--color-ink3)', marginBottom: 12 }}>Todas as profissionais estão inativas.</p>
+              <button onClick={() => setMostrarInativas(true)} style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, color: 'var(--color-accent)' }}>
+                Ver inativas ({inativos})
+              </button>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {profs.map((p, i) => (
+            {profsExibidos.map((p, i) => (
               <div key={p.id} className="bm-stagger"
                 style={{ '--bm-i': i, '--bm-step': '60ms' } as React.CSSProperties}>
                 <ProfCard
@@ -674,6 +697,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
               </div>
             ))}
           </div>
+          )}
         </>
       )}
 
