@@ -346,7 +346,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       {/* ── KPIs do mês — auto-fit: nunca deixa buraco na última linha,
           mesmo quando a lista de KPIs crescer ── */}
-      <div className="grid gap-2 sm:gap-3 mb-4 grid-cols-[repeat(auto-fit,minmax(130px,1fr))]">
+      <div className="grid gap-2 sm:gap-3 mb-4 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
         {[
           { label: 'Faturamento Bruto',    href: '/financeiro', value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
           { label: 'Faturamento Líquido',  href: '/financeiro', value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },

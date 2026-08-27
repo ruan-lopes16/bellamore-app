@@ -33,8 +33,7 @@
  * - Taxas pagas no mês entram no Faturamento Bruto
  */
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, Ban, X, Layers, Banknote, CreditCard, Gift,
@@ -73,6 +72,9 @@ type Despesa = {
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
 type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentual: number };
 type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number };
+
+/** Uma linha do painel de detalhamento (histórico) aberto ao clicar num KPI ou forma de pagamento. */
+type LedgerItem = { data: string; descricao: string; valor: number; sinal: 1 | -1; sub?: string };
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -628,6 +630,117 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   );
 }
 
+// ── Modal: detalhamento (histórico) de um KPI ou forma de pagamento ──
+
+function DetalheModal({ titulo, cor, itens, onClose }: {
+  titulo: string; cor: string; itens: LedgerItem[]; onClose: () => void;
+}) {
+  useScrollLock();
+  const ordenados = [...itens].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+  const total = itens.reduce((s, i) => s + i.valor * i.sinal, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-surface w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[85dvh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
+          <div>
+            <h2 className="font-serif text-lg text-text">{titulo}</h2>
+            <p className="text-xs text-text-3 mt-0.5">{ordenados.length} lançamento{ordenados.length !== 1 ? 's' : ''} no período</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1">
+          {ordenados.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm text-text-4 italic">Nenhum lançamento neste período.</p>
+            </div>
+          ) : ordenados.map((item, i) => (
+            <div key={i} className={`flex items-center gap-3 px-5 py-3 ${i < ordenados.length - 1 ? 'border-b border-border' : ''}`}>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-text truncate">{item.descricao}</p>
+                <p className="text-xs text-text-4 mt-0.5">{format(new Date(item.data), "dd 'de' MMMM", { locale: ptBR })}</p>
+              </div>
+              <p className={`text-sm font-bold flex-shrink-0 ${item.sinal > 0 ? 'text-green' : 'text-red'}`}>
+                {item.sinal > 0 ? '+' : '−'} {fmtBRL(item.valor)}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between px-5 py-4 border-t border-border flex-shrink-0">
+          <span className="text-xs font-bold uppercase tracking-wide text-text-3">Total do período</span>
+          <span className="text-lg font-bold" style={{ color: cor }}>{fmtBRL(Math.abs(total))}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: detalhe de uma taxa (cancelamento/reserva) individual ──
+// Substitui o clique instantâneo que só mudava o status sem feedback nenhum.
+
+function TaxaDetalheModal({ tipo, taxa, marcando, onClose, onMarcarPaga }: {
+  tipo: 'cancelamento' | 'reserva'; taxa: TaxaCancelamento | TaxaReserva;
+  marcando: boolean; onClose: () => void; onMarcarPaga: () => void;
+}) {
+  useScrollLock();
+  const statusCfg: Record<string, { label: string; cls: string }> = {
+    pago:      { label: 'Paga',     cls: 'bg-green-soft text-green' },
+    pendente:  { label: 'Pendente', cls: 'bg-amber-soft text-amber' },
+    retida:    { label: 'Retida',   cls: 'bg-border text-text-3'    },
+    cancelada: { label: 'Cancelada',cls: 'bg-border text-text-3'    },
+  };
+  const cfg = statusCfg[taxa.status] ?? statusCfg.pendente;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-surface w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="font-serif text-lg text-text">{tipo === 'cancelamento' ? 'Taxa de Cancelamento' : 'Taxa de Reserva'}</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
+            <X size={16}/>
+          </button>
+        </div>
+        <div className="p-5 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-3">Cliente</span>
+            <span className="text-sm font-semibold text-text">{taxa.cliente?.nome ?? 'Cliente'}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-3">Valor</span>
+            <span className="text-lg font-bold text-red">{fmtBRL(taxa.valor)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-3">Status</span>
+            <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-md ${cfg.cls}`}>{cfg.label}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-3">Gerada em</span>
+            <span className="text-sm text-text-2">{format(new Date(taxa.created_at), "dd 'de' MMMM 'às' HH:mm", { locale: ptBR })}</span>
+          </div>
+          {taxa.paga_em && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-3">Paga em</span>
+              <span className="text-sm text-text-2">{format(new Date(taxa.paga_em), "dd 'de' MMMM 'às' HH:mm", { locale: ptBR })}</span>
+            </div>
+          )}
+        </div>
+        {taxa.status === 'pendente' && (
+          <div className="px-5 pb-5">
+            <button onClick={onMarcarPaga} disabled={marcando}
+              className="w-full h-11 rounded-xl bg-green text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50">
+              {marcando ? 'Marcando...' : 'Marcar como paga'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Tela principal ────────────────────────────────────────────
 
 export default function FinanceiroPage() {
@@ -652,6 +765,15 @@ export default function FinanceiroPage() {
   const [taxasReservaPagas, setTaxasReservaPagas] = useState(0);
   const [evolucao,      setEvolucao]      = useState<{ mes: string; receita: number; comissoes: number; gastos: number }[]>([]);
   const [seriesVisiveis, setSeriesVisiveis] = useState({ receita: true, comissoes: true, gastos: true });
+
+  // Listas brutas do mês — só para montar o detalhamento (ledger) ao clicar num KPI
+  const [agsDetalhe,     setAgsDetalhe]     = useState<{ data: string; descricao: string; valor: number; profissional_id: string | null }[]>([]);
+  const [vendasDetalhe,  setVendasDetalhe]  = useState<{ data: string; descricao: string; valor: number }[]>([]);
+  const [pagsDetalhe,    setPagsDetalhe]    = useState<{ data: string; metodo: string; valor: number; valor_liquido: number | null }[]>([]);
+  const [comMapState,    setComMapState]    = useState<Record<string, number>>({});
+  const [detalhe, setDetalhe] = useState<{ titulo: string; cor: string; itens: LedgerItem[] } | null>(null);
+  const [detalheTaxa, setDetalheTaxa] = useState<{ tipo: 'cancelamento' | 'reserva'; taxa: TaxaCancelamento | TaxaReserva } | null>(null);
+  const [marcandoTaxa, setMarcandoTaxa] = useState(false);
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
@@ -691,8 +813,9 @@ export default function FinanceiroPage() {
     const ini6 = periodo6.startIso;
 
     const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes] = await Promise.all([
-      // Agendamentos concluídos do mês (com profissional e serviço)
-      supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
+      // Agendamentos concluídos do mês (com profissional, serviço, data e cliente — usados
+      // também no detalhamento por KPI ao clicar)
+      supabase.from('agendamentos').select('profissional_id, servico_id, valor, data_hora_inicio, servico:servicos(nome), cliente:clientes!agendamentos_cliente_id_fkey(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
         .gte('data_hora_inicio', ini).lte('data_hora_inicio', fim),
       // Agendamentos mês anterior
@@ -718,8 +841,8 @@ export default function FinanceiroPage() {
       supabase.from('despesas').select('valor, data_pagamento')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('data_pagamento', periodo6.startDate).lte('data_pagamento', periodo.endDate),
-      // Formas de pagamento
-      supabase.from('pagamentos').select('metodo, valor, valor_liquido')
+      // Formas de pagamento (com data — usada no detalhamento por método/por KPI)
+      supabase.from('pagamentos').select('metodo, valor, valor_liquido, created_at')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('created_at', ini).lte('created_at', fim),
       // Lista de despesas do mês (pendentes + pagas)
@@ -727,8 +850,8 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId)
         .or(`and(data_vencimento.gte.${periodo.startDate},data_vencimento.lte.${periodo.endDate}),and(data_pagamento.gte.${periodo.startDate},data_pagamento.lte.${periodo.endDate})`)
         .order('status').order('data_vencimento'),
-      // Vendas avulsas do mês
-      supabase.from('vendas').select('valor_final')
+      // Vendas avulsas do mês (com data e cliente — usadas no detalhamento)
+      supabase.from('vendas').select('valor_final, created_at, cliente:clientes(nome)')
         .eq('empresa_id', empId).gte('created_at', ini).lte('created_at', fim),
       // Vendas avulsas mês anterior
       supabase.from('vendas').select('valor_final')
@@ -780,6 +903,7 @@ export default function FinanceiroPage() {
     const comMap: Record<string, number> = {};
     ((membros.data ?? []) as { user_id: string; percentual_comissao: number }[])
       .forEach(m => { comMap[m.user_id] = m.percentual_comissao ?? 0; });
+    setComMapState(comMap);
 
     type AgRow = { profissional_id: string | null; valor: number };
     const calcCom = (ags: AgRow[]) =>
@@ -835,6 +959,23 @@ export default function FinanceiroPage() {
     setTaxasCancelamentoPagas(brutoTaxasCanc);
     setTaxasReserva((reservaLista.data ?? []) as TaxaReserva[]);
     setTaxasReservaPagas(brutoReserva);
+
+    // Listas brutas para o detalhamento por KPI (histórico ao clicar)
+    type AgDetalheRow = { profissional_id: string | null; valor: number; data_hora_inicio: string; servico: { nome: string } | null; cliente: { nome: string } | null };
+    setAgsDetalhe(((agsMes.data ?? []) as unknown as AgDetalheRow[]).map(a => ({
+      data: a.data_hora_inicio, valor: Number(a.valor), profissional_id: a.profissional_id,
+      descricao: `${a.servico?.nome ?? 'Serviço'} · ${a.cliente?.nome ?? 'Cliente'}`,
+    })));
+    type VendaDetalheRow = { valor_final: number; created_at: string; cliente: { nome: string } | null };
+    setVendasDetalhe(((vendasMes.data ?? []) as unknown as VendaDetalheRow[]).map(v => ({
+      data: v.created_at, valor: Number(v.valor_final),
+      descricao: `Venda avulsa · ${v.cliente?.nome ?? 'Sem cliente'}`,
+    })));
+    type PagDetalheRow = { metodo: string; valor: number; valor_liquido: number | null; created_at: string };
+    setPagsDetalhe(((pagsMes.data ?? []) as unknown as PagDetalheRow[]).map(p => ({
+      data: p.created_at, metodo: p.metodo, valor: Number(p.valor),
+      valor_liquido: p.valor_liquido != null ? Number(p.valor_liquido) : null,
+    })));
 
     // Top serviços
     type TopServicoRow = { servico_id: string | null; valor: number; servico: { nome: string } | null };
@@ -967,6 +1108,18 @@ export default function FinanceiroPage() {
     if (empresaId) await carregar(empresaId, mesRef);
   }
 
+  async function confirmarMarcarTaxaPaga() {
+    if (!detalheTaxa) return;
+    setMarcandoTaxa(true);
+    if (detalheTaxa.tipo === 'cancelamento') {
+      await marcarTaxaPaga(detalheTaxa.taxa as TaxaCancelamento);
+    } else {
+      await marcarReservaPaga(detalheTaxa.taxa as TaxaReserva);
+    }
+    setMarcandoTaxa(false);
+    setDetalheTaxa(null);
+  }
+
   const liquidoAposTaxas = receita - taxasCartao;
   const lucro            = liquidoAposTaxas - comissoes - gastos;
   const dReceita         = delta(receita,   receitaAnt);
@@ -976,6 +1129,58 @@ export default function FinanceiroPage() {
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const maxEvolucao = Math.max(...evolucao.flatMap(e => [e.receita, e.gastos, e.comissoes ?? 0]), 1);
+
+  // ── Ledgers do detalhamento por KPI (histórico ao clicar) ──────
+  const METODO_LABEL: Record<string, string> = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Crédito', debito: 'Débito', cortesia: 'Cortesia' };
+
+  const ledgerServicos: LedgerItem[] = useMemo(() => agsDetalhe.map(a => ({
+    data: a.data, descricao: a.descricao, valor: a.valor, sinal: 1 as const,
+  })), [agsDetalhe]);
+
+  const ledgerVendas: LedgerItem[] = useMemo(() => vendasDetalhe.map(v => ({
+    data: v.data, descricao: v.descricao, valor: v.valor, sinal: 1 as const,
+  })), [vendasDetalhe]);
+
+  const ledgerTaxasCancPagas: LedgerItem[] = useMemo(() => taxasCancelamento
+    .filter(t => t.status === 'pago')
+    .map(t => ({ data: t.paga_em ?? t.created_at, descricao: `Taxa de cancelamento · ${t.cliente?.nome ?? 'Cliente'}`, valor: Number(t.valor), sinal: 1 as const })),
+    [taxasCancelamento]);
+
+  const ledgerComissoes: LedgerItem[] = useMemo(() => agsDetalhe
+    .filter(a => a.profissional_id != null)
+    .map(a => ({
+      data: a.data,
+      descricao: a.descricao,
+      valor: Number(a.valor) * (comMapState[a.profissional_id!] ?? 0) / 100,
+      sinal: 1 as const,
+    }))
+    .filter(l => l.valor > 0),
+    [agsDetalhe, comMapState]);
+
+  const ledgerGastos: LedgerItem[] = useMemo(() => despesas
+    .filter(d => d.status === 'pago')
+    .map(d => ({ data: d.data_pagamento ?? d.created_at ?? hojeIso, descricao: d.descricao, valor: Number(d.valor), sinal: -1 as const })),
+    [despesas, hojeIso]);
+
+  const ledgerBruto: LedgerItem[]   = useMemo(() => [...ledgerServicos, ...ledgerVendas, ...ledgerTaxasCancPagas], [ledgerServicos, ledgerVendas, ledgerTaxasCancPagas]);
+  const ledgerLiquido: LedgerItem[] = useMemo(() => [...ledgerBruto, ...ledgerComissoes.map(l => ({ ...l, sinal: -1 as const }))], [ledgerBruto, ledgerComissoes]);
+  const ledgerLucro: LedgerItem[]   = useMemo(() => [...ledgerLiquido, ...ledgerGastos], [ledgerLiquido, ledgerGastos]);
+
+  const ledgerTaxasCartao: LedgerItem[] = useMemo(() => pagsDetalhe
+    .filter(p => p.valor_liquido != null)
+    .map(p => ({
+      data: p.data, descricao: `Taxa de cartão · ${METODO_LABEL[p.metodo] ?? p.metodo}`,
+      valor: p.valor - (p.valor_liquido as number), sinal: -1 as const,
+    }))
+    .filter(l => l.valor > 0.001),
+    [pagsDetalhe]);
+
+  function abrirDetalheMetodo(metodo: string) {
+    const itens: LedgerItem[] = pagsDetalhe
+      .filter(p => p.metodo === metodo)
+      .map(p => ({ data: p.data, descricao: METODO_LABEL[metodo] ?? metodo, valor: p.valor, sinal: 1 as const }));
+    setDetalhe({ titulo: `Formas de pagamento · ${METODO_LABEL[metodo] ?? metodo}`, cor: 'var(--color-primary)', itens });
+  }
 
   return (
     <div className="bm-page">
@@ -1026,20 +1231,18 @@ export default function FinanceiroPage() {
       ) : (
         <div className="grid gap-3 sm:gap-4 mb-6 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
           {[
-            { label: 'Faturamento Bruto',   href: '#secao-evolucao',            value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
-            { label: 'Taxas de Cartão',     href: '#secao-formas-pagamento',    value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
-            { label: 'Líquido após Taxas',  href: '#secao-evolucao',            value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
-            { label: 'Comissões',           href: '/equipe',                    value: comissoes, d: dComissoes, cor: 'text-amber',                                    invertDelta: true  },
-            { label: 'Gastos Operacionais', href: '#secao-despesas',            value: gastos,    d: dGastos,   cor: 'text-rose',                                     invertDelta: true  },
-            { label: 'Lucro Real',          href: '#secao-evolucao',            value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        invertDelta: false },
+            { label: 'Faturamento Bruto',   ledger: ledgerBruto,        value: receita,          d: dReceita,   cor: 'text-green',   corVar: 'var(--color-green)',   invertDelta: false },
+            { label: 'Taxas de Cartão',     ledger: ledgerTaxasCartao,  value: taxasCartao,      d: null,       cor: 'text-rose',    corVar: 'var(--color-rose)',    invertDelta: false },
+            { label: 'Líquido após Taxas',  ledger: ledgerLiquido,      value: liquidoAposTaxas, d: null,       cor: 'text-primary', corVar: 'var(--color-primary)', invertDelta: false },
+            { label: 'Comissões',           ledger: ledgerComissoes,    value: comissoes, d: dComissoes, cor: 'text-amber',                                    corVar: 'var(--color-amber)',   invertDelta: true  },
+            { label: 'Gastos Operacionais', ledger: ledgerGastos,       value: gastos,    d: dGastos,   cor: 'text-rose',                                     corVar: 'var(--color-rose)',    invertDelta: true  },
+            { label: 'Lucro Real',          ledger: ledgerLucro,        value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        corVar: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-red)', invertDelta: false },
             ...(taxasCancelamentoPagas > 0
-              ? [{ label: 'Taxas de Cancelamento', href: '#secao-taxas-cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
+              ? [{ label: 'Taxas de Cancelamento', ledger: ledgerTaxasCancPagas, value: taxasCancelamentoPagas, d: null, cor: 'text-rose', corVar: 'var(--color-rose)', invertDelta: false }]
               : []),
-            ...(taxasReservaPagas > 0
-              ? [{ label: 'Taxas de Reserva', href: '#secao-taxas-reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
-              : []),
-          ].map(({ label, href, value, d, cor, invertDelta }) => (
-            <Link key={label} href={href} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 block transition-opacity hover:opacity-80">
+          ].map(({ label, ledger, value, d, cor, corVar, invertDelta }) => (
+            <button key={label} type="button" onClick={() => setDetalhe({ titulo: label, cor: corVar, itens: ledger })}
+              className="text-left bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 block transition-opacity hover:opacity-80">
               <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
               <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
               {d !== null && (
@@ -1053,7 +1256,7 @@ export default function FinanceiroPage() {
                   </span>
                 </div>
               )}
-            </Link>
+            </button>
           ))}
         </div>
       )}
@@ -1112,7 +1315,7 @@ export default function FinanceiroPage() {
           </div>
         </div>
       ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
 
         {/* Despesas — no topo, é o que mais precisa de atenção no dia a dia */}
         <div id="secao-despesas" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
@@ -1175,8 +1378,8 @@ export default function FinanceiroPage() {
                 <div key={d.id}
                   className={`relative flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
                   <div
-                    className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                    onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
+                    className="flex items-center gap-3 flex-1 min-w-0 rounded-lg cursor-pointer hover:bg-bg transition"
+                    onClick={() => d.status === 'pendente' ? setMarcarPago(d) : setEditarDespesa(d)}>
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                       {d.status === 'pago'
                         ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
@@ -1309,8 +1512,8 @@ export default function FinanceiroPage() {
               const cfg = METODO_CFG[m.metodo] ?? METODO_CFG.cortesia;
               const Icon = cfg.icon;
               return (
-                <div key={m.metodo}
-                  className={`flex items-center gap-3 px-5 py-3 ${i < metodos.length - 1 ? 'border-b border-border' : ''}`}>
+                <button key={m.metodo} type="button" onClick={() => abrirDetalheMetodo(m.metodo)}
+                  className={`w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-bg transition ${i < metodos.length - 1 ? 'border-b border-border' : ''}`}>
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                     style={{ backgroundColor: cfg.bg }}>
                     <Icon size={14} strokeWidth={2} style={{ color: cfg.cor }}/>
@@ -1323,7 +1526,7 @@ export default function FinanceiroPage() {
                     <p className="text-sm font-bold text-text">{fmtBRL(m.valor)}</p>
                     <p className="text-[10px] text-text-4">{m.percentual}%</p>
                   </div>
-                </div>
+                </button>
               );
             })}
             <div className="flex h-1.5 mx-4 mb-3 mt-2 rounded-full overflow-hidden">
@@ -1346,8 +1549,8 @@ export default function FinanceiroPage() {
               <div key={t.id}
                 className={`flex items-center gap-2 px-4 py-3 ${i < taxasCancelamento.length - 1 ? 'border-b border-border' : ''}`}>
                 <div
-                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => t.status === 'pendente' && marcarTaxaPaga(t)}>
+                  className="flex items-center gap-3 flex-1 min-w-0 rounded-lg cursor-pointer hover:bg-bg transition"
+                  onClick={() => setDetalheTaxa({ tipo: 'cancelamento', taxa: t })}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                     {t.status === 'pago'
                       ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
@@ -1388,8 +1591,8 @@ export default function FinanceiroPage() {
               <div key={t.id}
                 className={`flex items-center gap-2 px-4 py-3 ${i < taxasReserva.length - 1 ? 'border-b border-border' : ''}`}>
                 <div
-                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => t.status === 'pendente' && marcarReservaPaga(t)}>
+                  className="flex items-center gap-3 flex-1 min-w-0 rounded-lg cursor-pointer hover:bg-bg transition"
+                  onClick={() => setDetalheTaxa({ tipo: 'reserva', taxa: t })}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                     t.status === 'pago' ? 'bg-green-soft' : t.status === 'retida' ? 'bg-border' : 'bg-amber-soft'
                   }`}>
@@ -1433,6 +1636,13 @@ export default function FinanceiroPage() {
       )}
       {editarDespesa && (
         <EditarDespesaModal despesa={editarDespesa} onClose={() => setEditarDespesa(null)} onSalvo={() => { setEditarDespesa(null); recarregar(); }}/>
+      )}
+      {detalhe && (
+        <DetalheModal titulo={detalhe.titulo} cor={detalhe.cor} itens={detalhe.itens} onClose={() => setDetalhe(null)}/>
+      )}
+      {detalheTaxa && (
+        <TaxaDetalheModal tipo={detalheTaxa.tipo} taxa={detalheTaxa.taxa} marcando={marcandoTaxa}
+          onClose={() => setDetalheTaxa(null)} onMarcarPaga={confirmarMarcarTaxaPaga}/>
       )}
     </div>
   );

@@ -22,7 +22,7 @@ export default function DashboardLoading() {
       </div>
 
       {/* KPIs do mês — 6 cards, grid auto-fit (nunca deixa buraco) */}
-      <div className="grid gap-2 sm:gap-3 mb-4 grid-cols-[repeat(auto-fit,minmax(130px,1fr))]">
+      <div className="grid gap-2 sm:gap-3 mb-4 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
         {[1,2,3,4,5,6].map(i => (
           <div key={i} className="bg-surface border border-border-soft rounded-2xl p-3 md:p-5 shadow-sm min-w-0">
             <div className="flex items-start justify-between mb-2">
