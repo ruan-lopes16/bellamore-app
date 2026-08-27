@@ -481,7 +481,7 @@ export default function ComissoesGestorView() {
                     <div className="text-right flex-shrink-0">
                       <p className="text-base font-bold"
                         style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>
-                        {fmtBRL(prof.total)}
+                        {fmtBRL(temPendente ? prof.pendente : prof.pago)}
                       </p>
                       <p className="text-[10px]"
                         style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>

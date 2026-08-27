@@ -358,7 +358,7 @@ function DesempenhoModal({ prof, empresaId, onClose }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[85dvh]">
+      <div className="relative bg-surface w-full sm:max-w-xl sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[85dvh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
           <div>
             <h2 className="font-serif text-lg text-text">{prof.user.nome}</h2>

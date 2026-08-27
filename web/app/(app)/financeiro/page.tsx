@@ -344,8 +344,8 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
 
 // ── Modal Marcar como pago ────────────────────────────────────
 
-function MarcarPagoModal({ despesa, onClose, onSalvo }: {
-  despesa: Despesa; onClose: () => void; onSalvo: () => void;
+function MarcarPagoModal({ despesa, onClose, onSalvo, onEditar }: {
+  despesa: Despesa; onClose: () => void; onSalvo: () => void; onEditar: () => void;
 }) {
   useScrollLock();
   const [data,    setData]    = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -371,7 +371,12 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
-        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Confirmar pagamento</p>
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <p className="text-xs text-text-4 uppercase tracking-wide font-semibold">Confirmar pagamento</p>
+          <button type="button" onClick={onEditar} className="text-xs font-semibold text-accent hover:underline flex-shrink-0">
+            Editar despesa
+          </button>
+        </div>
         <p className="font-serif text-xl text-text mb-4">{despesa.descricao}</p>
         <div className="bg-red-soft rounded-xl p-4 mb-4">
           <label className="block text-xs text-red mb-2 text-center">Valor deste mês</label>
@@ -666,7 +671,7 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
-      <div className="bg-surface w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[85dvh]">
+      <div className="bg-surface w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[85dvh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
           <div>
             <h2 className="font-serif text-lg text-text">{titulo}</h2>
@@ -705,8 +710,9 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
             </div>
           ) : ordenados.map((item, i) => (
             <div key={i} className={`flex items-center gap-3 px-5 py-3 ${i < ordenados.length - 1 ? 'border-b border-border' : ''}`}>
+              <span className="w-3 h-3 rounded-[4px] flex-shrink-0" style={{ background: corCategoria(item.categoria) }} title={item.categoria}/>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate" style={{ color: corCategoria(item.categoria) }}>{item.descricao}</p>
+                <p className="text-sm font-semibold text-text truncate">{item.descricao}</p>
                 <p className="text-xs text-text-4 mt-0.5">{format(new Date(item.data), "dd 'de' MMMM", { locale: ptBR })}</p>
               </div>
               <p className={`text-sm font-bold flex-shrink-0 ${item.sinal > 0 ? 'text-green' : 'text-red'}`}>
@@ -721,6 +727,131 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
             {filtro ? `Total · ${filtro}` : 'Total do período'}
           </span>
           <span className="text-lg font-bold" style={{ color: filtro ? corCategoria(filtro) : cor }}>{fmtBRL(Math.abs(total))}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: todas as despesas (não só as do mês selecionado no Financeiro) ──
+
+function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
+  empresaId: string; onClose: () => void;
+  onMarcarPago: (d: Despesa) => void; onEditar: (d: Despesa) => void;
+}) {
+  useScrollLock();
+  const [loading, setLoading] = useState(true);
+  const [todas, setTodas] = useState<Despesa[]>([]);
+  const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'pago'>('todas');
+  const [busca, setBusca] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('despesas').select('*')
+        .eq('empresa_id', empresaId)
+        .order('data_vencimento', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(1000);
+      setTodas((data ?? []) as Despesa[]);
+      setLoading(false);
+    })();
+  }, [empresaId]);
+
+  const filtradas = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return todas.filter(d =>
+      (filtroStatus === 'todas' || d.status === filtroStatus) &&
+      (q === '' || d.descricao.toLowerCase().includes(q) || (d.categoria ?? '').toLowerCase().includes(q))
+    );
+  }, [todas, filtroStatus, busca]);
+
+  const grupos = useMemo(() => {
+    const porMes = new Map<string, Despesa[]>();
+    filtradas.forEach(d => {
+      const ref = d.data_vencimento ?? d.data_pagamento ?? d.created_at ?? new Date().toISOString();
+      const chave = ref.slice(0, 7); // yyyy-MM
+      porMes.set(chave, [...(porMes.get(chave) ?? []), d]);
+    });
+    return Array.from(porMes.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filtradas]);
+
+  const totalPendenteGeral = todas.filter(d => d.status === 'pendente').reduce((s, d) => s + Number(d.valor), 0);
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[88dvh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
+          <div>
+            <h2 className="font-serif text-lg text-text">Todas as despesas</h2>
+            <p className="text-xs text-text-3 mt-0.5">{fmtBRL(totalPendenteGeral)} pendente no total · {todas.length} despesa{todas.length !== 1 ? 's' : ''}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2 px-5 py-3 border-b border-border flex-shrink-0">
+          <div className="flex gap-1.5">
+            {(['todas', 'pendente', 'pago'] as const).map(s => (
+              <button key={s} onClick={() => setFiltroStatus(s)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                  filtroStatus === s ? 'bg-primary text-white border-primary' : 'bg-surface text-text-3 border-border hover:border-accent/40'
+                }`}>
+                {s === 'todas' ? 'Todas' : s === 'pendente' ? 'Pendentes' : 'Pagas'}
+              </button>
+            ))}
+          </div>
+          <input value={busca} onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar por descrição ou categoria..."
+            className="flex-1 h-8 px-3 rounded-full border border-border bg-bg text-xs focus:outline-none focus:border-accent transition"/>
+        </div>
+
+        <div className="overflow-y-auto flex-1">
+          {loading ? (
+            <div className="p-5 flex flex-col gap-2">{[1,2,3,4].map(i => <div key={i} className="h-12 bg-bg rounded-lg animate-pulse"/>)}</div>
+          ) : grupos.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm text-text-4 italic">Nenhuma despesa encontrada.</p>
+            </div>
+          ) : grupos.map(([mesKey, itens]) => (
+            <div key={mesKey}>
+              <p className="px-5 pt-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-text-4 capitalize sticky top-0 bg-surface">
+                {format(new Date(`${mesKey}-01T12:00:00`), "MMMM 'de' yyyy", { locale: ptBR })}
+              </p>
+              {itens.map(d => (
+                <div key={d.id} className="flex items-center gap-2 px-5 py-2.5 border-b border-border last:border-0">
+                  <button onClick={() => d.status === 'pendente' ? onMarcarPago(d) : onEditar(d)}
+                    className="flex items-center gap-3 flex-1 min-w-0 rounded-lg text-left hover:bg-bg transition py-0.5">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
+                      {d.status === 'pago'
+                        ? <CheckCircle2 size={12} strokeWidth={2} className="text-green"/>
+                        : <AlertTriangle size={12} strokeWidth={2} className="text-amber"/>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                      <p className="text-[10px] text-text-4 mt-0.5 truncate">
+                        {d.categoria ? `${d.categoria} · ` : ''}
+                        {d.status === 'pago'
+                          ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
+                          : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`}
+                      </p>
+                    </div>
+                  </button>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                    <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'}`}>
+                      {d.status === 'pago' ? 'Paga' : 'Pendente'}
+                    </span>
+                  </div>
+                  <button onClick={() => onEditar(d)} title="Editar despesa"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 border border-border hover:bg-bg hover:text-primary hover:border-primary/40 transition flex-shrink-0">
+                    <Pencil size={12} strokeWidth={2}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -745,7 +876,7 @@ function TaxaDetalheModal({ tipo, taxa, marcando, onClose, onMarcarPaga }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
-      <div className="bg-surface w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col">
+      <div className="bg-surface w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <h2 className="font-serif text-lg text-text">{tipo === 'cancelamento' ? 'Taxa de Cancelamento' : 'Taxa de Reserva'}</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
@@ -825,6 +956,7 @@ export default function FinanceiroPage() {
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
+  const [verTodasDespesas, setVerTodasDespesas] = useState(false);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
@@ -1309,7 +1441,7 @@ export default function FinanceiroPage() {
             <button key={label} type="button" onClick={() => setDetalhe({ titulo: label, cor: corVar, itens: ledger })}
               className="text-left bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 block transition-opacity hover:opacity-80">
               <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-              <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
+              <p className={`text-lg sm:text-xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
               {d !== null && (
                 <div className="flex items-center gap-1 min-w-0">
                   {(invertDelta ? d < 0 : d >= 0)
@@ -1393,7 +1525,11 @@ export default function FinanceiroPage() {
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <button onClick={() => setVerTodasDespesas(true)}
+                className="press flex items-center gap-1.5 px-3 h-8 rounded-xl border border-border text-text-2 text-xs font-bold hover:bg-bg transition">
+                Ver todas
+              </button>
               <button onClick={() => setModalDespesa(true)}
                 className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
                 style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
@@ -1482,8 +1618,8 @@ export default function FinanceiroPage() {
                   <button
                     onClick={() => setEditarDespesa(d)}
                     title="Editar despesa"
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
-                    <Pencil size={12} strokeWidth={2}/>
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-text-3 border border-border hover:bg-bg hover:text-primary hover:border-primary/40 transition flex-shrink-0">
+                    <Pencil size={13} strokeWidth={2}/>
                   </button>
                   {progresso !== null && (
                     <div className="absolute left-4 right-4 bottom-0 h-0.5 rounded-full overflow-hidden bg-border">
@@ -1698,7 +1834,8 @@ export default function FinanceiroPage() {
         <NovaDespesaModal empresaId={empresaId} onClose={() => setModalDespesa(false)} onSalvo={() => { setModalDespesa(false); recarregar(); }}/>
       )}
       {marcarPago && (
-        <MarcarPagoModal despesa={marcarPago} onClose={() => setMarcarPago(null)} onSalvo={() => { setMarcarPago(null); recarregar(); }}/>
+        <MarcarPagoModal despesa={marcarPago} onClose={() => setMarcarPago(null)} onSalvo={() => { setMarcarPago(null); recarregar(); }}
+          onEditar={() => { setEditarDespesa(marcarPago); setMarcarPago(null); }}/>
       )}
       {editarDespesa && (
         <EditarDespesaModal despesa={editarDespesa} onClose={() => setEditarDespesa(null)} onSalvo={() => { setEditarDespesa(null); recarregar(); }}/>
@@ -1709,6 +1846,11 @@ export default function FinanceiroPage() {
       {detalheTaxa && (
         <TaxaDetalheModal tipo={detalheTaxa.tipo} taxa={detalheTaxa.taxa} marcando={marcandoTaxa}
           onClose={() => setDetalheTaxa(null)} onMarcarPaga={confirmarMarcarTaxaPaga}/>
+      )}
+      {verTodasDespesas && empresaId && (
+        <TodasDespesasModal empresaId={empresaId} onClose={() => setVerTodasDespesas(false)}
+          onMarcarPago={d => { setVerTodasDespesas(false); setMarcarPago(d); }}
+          onEditar={d => { setVerTodasDespesas(false); setEditarDespesa(d); }}/>
       )}
     </div>
   );
