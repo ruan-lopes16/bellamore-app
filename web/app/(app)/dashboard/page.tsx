@@ -336,7 +336,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 {pctBruto >= 0 ? '+' : '-'}{Math.abs(pctBruto).toFixed(0)}%
               </span>
             )}
-            <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, color: 'rgba(255,255,255,0.38)' }}>
+            <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, color: 'rgba(255,255,255,0.38)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               Lucro {fmt(lucro)}
             </span>
           </div>

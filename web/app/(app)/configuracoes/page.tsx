@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target, Ban, Banknote } from 'lucide-react';
-import { validaCNPJ } from '@/lib/masks';
+import { validaCNPJ, maskMoeda, parseMoeda, formatMoeda, maskComCursor } from '@/lib/masks';
 import Image from 'next/image';
 
 const supabase = createClient();
@@ -195,7 +195,7 @@ export default function ConfiguracoesPage() {
         setLogoUrl(empresa.logo_url ?? '');
         setLogoPreview(empresa.logo_url ?? '');
         setIsOwner(empresa.owner_id === user.id);
-        setMetaMensal(empresa.meta_mensal ? String(empresa.meta_mensal) : '');
+        setMetaMensal(empresa.meta_mensal ? formatMoeda(Number(empresa.meta_mensal)) : '');
 
         setTaxaAtiva(empresa.taxa_cancelamento_ativa ?? false);
         setTaxaModo((empresa.taxa_cancelamento_modo as 'percentual' | 'fixo') ?? 'percentual');
@@ -351,7 +351,7 @@ export default function ConfiguracoesPage() {
       endereco:              enderecoFinal   || null,
       logo_url:              logoUrl         || null,
       horario_funcionamento: horarios,
-      meta_mensal:           parseFloat(metaMensal.replace(',', '.')) || 0,
+      meta_mensal:           parseMoeda(metaMensal),
       taxa_cancelamento_ativa:             taxaAtiva,
       taxa_cancelamento_modo:              taxaModo,
       taxa_cancelamento_valor:             parseFloat(taxaValor.replace(',', '.')) || 0,
@@ -524,7 +524,7 @@ export default function ConfiguracoesPage() {
                 <div className="relative">
                   <input
                     value={cnpj}
-                    onChange={e => { const m = maskCnpj(e.target.value); setCnpj(m); buscarCNPJ(m); }}
+                    onChange={e => maskComCursor(e.target, maskCnpj, m => { setCnpj(m); buscarCNPJ(m); })}
                     placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18}
                     className={inputCls} disabled={!isOwner}/>
                   {buscandoCnpj && <Loader2 size={14} className="absolute right-3 top-3 text-text-4 animate-spin"/>}
@@ -532,7 +532,7 @@ export default function ConfiguracoesPage() {
               </div>
               <div>
                 <label className={labelCls}>Telefone</label>
-                <input value={telefone} onChange={e => setTelefone(maskPhone(e.target.value))}
+                <input value={telefone} onChange={e => maskComCursor(e.target, maskPhone, setTelefone)}
                   placeholder="(11) 99999-9999" inputMode="numeric" maxLength={15}
                   className={inputCls} disabled={!isOwner}/>
               </div>
@@ -599,7 +599,7 @@ export default function ConfiguracoesPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
                 <input
                   value={metaMensal}
-                  onChange={e => setMetaMensal(e.target.value)}
+                  onChange={e => maskComCursor(e.target, maskMoeda, setMetaMensal)}
                   inputMode="decimal"
                   placeholder="0,00"
                   disabled={!isOwner}
@@ -644,12 +644,15 @@ export default function ConfiguracoesPage() {
                 <div>
                   <label className={labelCls}>{taxaModo === 'percentual' ? 'Percentual da taxa' : 'Valor da taxa'}</label>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">
-                      {taxaModo === 'percentual' ? '%' : 'R$'}
-                    </span>
+                    {taxaModo === 'fixo' && (
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                    )}
                     <input value={taxaValor} onChange={e => setTaxaValor(e.target.value)}
                       inputMode="decimal" placeholder="0,00" disabled={!podeEditarTaxa}
-                      className={`${inputCls} pl-9`}/>
+                      className={`${inputCls} ${taxaModo === 'percentual' ? 'pr-9' : 'pl-9'}`}/>
+                    {taxaModo === 'percentual' && (
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -706,12 +709,15 @@ export default function ConfiguracoesPage() {
                 <div>
                   <label className={labelCls}>{reservaModo === 'percentual' ? 'Percentual sugerido' : 'Valor sugerido'}</label>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">
-                      {reservaModo === 'percentual' ? '%' : 'R$'}
-                    </span>
+                    {reservaModo === 'fixo' && (
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                    )}
                     <input value={reservaValor} onChange={e => setReservaValor(e.target.value)}
                       inputMode="decimal" placeholder="0,00" disabled={!podeEditarTaxa}
-                      className={`${inputCls} pl-9`}/>
+                      className={`${inputCls} ${reservaModo === 'percentual' ? 'pr-9' : 'pl-9'}`}/>
+                    {reservaModo === 'percentual' && (
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+                    )}
                   </div>
                 </div>
               </>
@@ -781,7 +787,7 @@ export default function ConfiguracoesPage() {
             </div>
             <div>
               <label className={labelCls}>Telefone</label>
-              <input value={perfilTelefone} onChange={e => setPerfilTelefone(maskPhone(e.target.value))}
+              <input value={perfilTelefone} onChange={e => maskComCursor(e.target, maskPhone, setPerfilTelefone)}
                 placeholder="(11) 99999-9999" inputMode="numeric" maxLength={15} className={inputCls}/>
             </div>
             <div className="flex flex-col gap-2">
