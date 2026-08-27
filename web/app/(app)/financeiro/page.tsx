@@ -74,7 +74,23 @@ type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentua
 type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number };
 
 /** Uma linha do painel de detalhamento (histórico) aberto ao clicar num KPI ou forma de pagamento. */
-type LedgerItem = { data: string; descricao: string; valor: number; sinal: 1 | -1; sub?: string };
+type LedgerItem = { data: string; descricao: string; valor: number; sinal: 1 | -1; categoria: string };
+
+/** Cor fixa para as categorias de transação já conhecidas — nomes (ex.: de profissional) caem no hash abaixo. */
+const CATEGORIA_CORES: Record<string, string> = {
+  'Serviço':               'var(--color-green)',
+  'Venda':                 'var(--color-primary)',
+  'Taxa de cancelamento':  'var(--color-rose)',
+  'Taxa de cartão':        'var(--color-amber)',
+  'Comissão':              '#7C3AED',
+  'Despesa':               'var(--color-red)',
+};
+function corCategoria(categoria: string): string {
+  if (CATEGORIA_CORES[categoria]) return CATEGORIA_CORES[categoria];
+  let hue = 0;
+  for (let i = 0; i < categoria.length; i++) hue = (hue * 31 + categoria.charCodeAt(i)) % 360;
+  return `oklch(0.5 0.15 ${hue})`;
+}
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -636,8 +652,17 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
   titulo: string; cor: string; itens: LedgerItem[]; onClose: () => void;
 }) {
   useScrollLock();
-  const ordenados = [...itens].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
-  const total = itens.reduce((s, i) => s + i.valor * i.sinal, 0);
+  const [filtro, setFiltro] = useState<string | null>(null);
+
+  const categorias = useMemo(() => {
+    const contagem = new Map<string, number>();
+    itens.forEach(i => contagem.set(i.categoria, (contagem.get(i.categoria) ?? 0) + 1));
+    return Array.from(contagem.entries()).sort((a, b) => b[1] - a[1]).map(([nome]) => nome);
+  }, [itens]);
+
+  const filtrados  = filtro ? itens.filter(i => i.categoria === filtro) : itens;
+  const ordenados  = [...filtrados].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+  const total      = filtrados.reduce((s, i) => s + i.valor * i.sinal, 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
@@ -652,6 +677,27 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
           </button>
         </div>
 
+        {categorias.length > 1 && (
+          <div className="flex gap-1.5 px-5 py-3 border-b border-border flex-shrink-0 overflow-x-auto">
+            <button onClick={() => setFiltro(null)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                filtro === null ? 'bg-primary text-white border-primary' : 'bg-surface text-text-3 border-border hover:border-accent/40'
+              }`}>
+              Todas
+            </button>
+            {categorias.map(catg => (
+              <button key={catg} onClick={() => setFiltro(catg)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                  filtro === catg ? 'text-white border-transparent' : 'bg-surface border-border hover:border-accent/40'
+                }`}
+                style={filtro === catg ? { background: corCategoria(catg) } : { color: corCategoria(catg) }}>
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: filtro === catg ? '#fff' : corCategoria(catg) }}/>
+                {catg}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="overflow-y-auto flex-1">
           {ordenados.length === 0 ? (
             <div className="text-center py-12">
@@ -660,7 +706,7 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
           ) : ordenados.map((item, i) => (
             <div key={i} className={`flex items-center gap-3 px-5 py-3 ${i < ordenados.length - 1 ? 'border-b border-border' : ''}`}>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-text truncate">{item.descricao}</p>
+                <p className="text-sm font-semibold truncate" style={{ color: corCategoria(item.categoria) }}>{item.descricao}</p>
                 <p className="text-xs text-text-4 mt-0.5">{format(new Date(item.data), "dd 'de' MMMM", { locale: ptBR })}</p>
               </div>
               <p className={`text-sm font-bold flex-shrink-0 ${item.sinal > 0 ? 'text-green' : 'text-red'}`}>
@@ -671,8 +717,10 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
         </div>
 
         <div className="flex items-center justify-between px-5 py-4 border-t border-border flex-shrink-0">
-          <span className="text-xs font-bold uppercase tracking-wide text-text-3">Total do período</span>
-          <span className="text-lg font-bold" style={{ color: cor }}>{fmtBRL(Math.abs(total))}</span>
+          <span className="text-xs font-bold uppercase tracking-wide text-text-3">
+            {filtro ? `Total · ${filtro}` : 'Total do período'}
+          </span>
+          <span className="text-lg font-bold" style={{ color: filtro ? corCategoria(filtro) : cor }}>{fmtBRL(Math.abs(total))}</span>
         </div>
       </div>
     </div>
@@ -767,7 +815,7 @@ export default function FinanceiroPage() {
   const [seriesVisiveis, setSeriesVisiveis] = useState({ receita: true, comissoes: true, gastos: true });
 
   // Listas brutas do mês — só para montar o detalhamento (ledger) ao clicar num KPI
-  const [agsDetalhe,     setAgsDetalhe]     = useState<{ data: string; descricao: string; valor: number; profissional_id: string | null }[]>([]);
+  const [agsDetalhe,     setAgsDetalhe]     = useState<{ data: string; descricao: string; valor: number; profissional_id: string | null; profissionalNome: string }[]>([]);
   const [vendasDetalhe,  setVendasDetalhe]  = useState<{ data: string; descricao: string; valor: number }[]>([]);
   const [pagsDetalhe,    setPagsDetalhe]    = useState<{ data: string; metodo: string; valor: number; valor_liquido: number | null }[]>([]);
   const [comMapState,    setComMapState]    = useState<Record<string, number>>({});
@@ -815,7 +863,7 @@ export default function FinanceiroPage() {
     const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes] = await Promise.all([
       // Agendamentos concluídos do mês (com profissional, serviço, data e cliente — usados
       // também no detalhamento por KPI ao clicar)
-      supabase.from('agendamentos').select('profissional_id, servico_id, valor, data_hora_inicio, servico:servicos(nome), cliente:clientes!agendamentos_cliente_id_fkey(nome)')
+      supabase.from('agendamentos').select('profissional_id, servico_id, valor, data_hora_inicio, servico:servicos(nome), cliente:clientes!agendamentos_cliente_id_fkey(nome), profissional:users!agendamentos_profissional_id_fkey(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
         .gte('data_hora_inicio', ini).lte('data_hora_inicio', fim),
       // Agendamentos mês anterior
@@ -887,10 +935,15 @@ export default function FinanceiroPage() {
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('paga_em', iniA).lte('paga_em', fimA),
-      // Lista de taxas de reserva do mês (pendentes + pagas + retidas)
+      // Lista de taxas de reserva do mês (pendentes + pagas + retidas —
+      // exclui 'cancelada' explicitamente: mesmo não sendo um status
+      // documentado no schema atual, já apareceu em dados reais e sem esse
+      // filtro cai no fallback "Pendente" da renderização, inflando a
+      // contagem de pendências com taxas que na verdade foram canceladas)
       supabase.from('taxas_reserva')
         .select('*, cliente:clientes(nome)')
         .eq('empresa_id', empId)
+        .neq('status', 'cancelada')
         .gte('created_at', ini).lte('created_at', fim)
         .order('status').order('created_at'),
       // Taxas de reserva pagas no mês (exibidas à parte, não somadas ao bruto)
@@ -961,9 +1014,10 @@ export default function FinanceiroPage() {
     setTaxasReservaPagas(brutoReserva);
 
     // Listas brutas para o detalhamento por KPI (histórico ao clicar)
-    type AgDetalheRow = { profissional_id: string | null; valor: number; data_hora_inicio: string; servico: { nome: string } | null; cliente: { nome: string } | null };
+    type AgDetalheRow = { profissional_id: string | null; valor: number; data_hora_inicio: string; servico: { nome: string } | null; cliente: { nome: string } | null; profissional: { nome: string } | null };
     setAgsDetalhe(((agsMes.data ?? []) as unknown as AgDetalheRow[]).map(a => ({
       data: a.data_hora_inicio, valor: Number(a.valor), profissional_id: a.profissional_id,
+      profissionalNome: a.profissional?.nome ?? 'Profissional',
       descricao: `${a.servico?.nome ?? 'Serviço'} · ${a.cliente?.nome ?? 'Cliente'}`,
     })));
     type VendaDetalheRow = { valor_final: number; created_at: string; cliente: { nome: string } | null };
@@ -1134,51 +1188,62 @@ export default function FinanceiroPage() {
   const METODO_LABEL: Record<string, string> = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Crédito', debito: 'Débito', cortesia: 'Cortesia' };
 
   const ledgerServicos: LedgerItem[] = useMemo(() => agsDetalhe.map(a => ({
-    data: a.data, descricao: a.descricao, valor: a.valor, sinal: 1 as const,
+    data: a.data, descricao: a.descricao, valor: a.valor, sinal: 1 as const, categoria: 'Serviço',
   })), [agsDetalhe]);
 
   const ledgerVendas: LedgerItem[] = useMemo(() => vendasDetalhe.map(v => ({
-    data: v.data, descricao: v.descricao, valor: v.valor, sinal: 1 as const,
+    data: v.data, descricao: v.descricao, valor: v.valor, sinal: 1 as const, categoria: 'Venda',
   })), [vendasDetalhe]);
 
   const ledgerTaxasCancPagas: LedgerItem[] = useMemo(() => taxasCancelamento
     .filter(t => t.status === 'pago')
-    .map(t => ({ data: t.paga_em ?? t.created_at, descricao: `Taxa de cancelamento · ${t.cliente?.nome ?? 'Cliente'}`, valor: Number(t.valor), sinal: 1 as const })),
+    .map(t => ({ data: t.paga_em ?? t.created_at, descricao: `Taxa de cancelamento · ${t.cliente?.nome ?? 'Cliente'}`, valor: Number(t.valor), sinal: 1 as const, categoria: 'Taxa de cancelamento' })),
     [taxasCancelamento]);
 
-  const ledgerComissoes: LedgerItem[] = useMemo(() => agsDetalhe
+  // Comissão por profissional — usada tanto na KPI "Comissões" (categoria =
+  // nome da profissional, para filtrar por quem gerou) quanto embutida no
+  // Lucro Real (categoria única "Comissão", pra não fragmentar o filtro ali).
+  const ledgerComissoesPorProfissional: LedgerItem[] = useMemo(() => agsDetalhe
     .filter(a => a.profissional_id != null)
     .map(a => ({
       data: a.data,
-      descricao: a.descricao,
+      descricao: `${a.profissionalNome} · ${a.descricao}`,
       valor: Number(a.valor) * (comMapState[a.profissional_id!] ?? 0) / 100,
       sinal: 1 as const,
+      categoria: a.profissionalNome,
     }))
     .filter(l => l.valor > 0),
     [agsDetalhe, comMapState]);
+  const ledgerComissoesParaLucro: LedgerItem[] = useMemo(() =>
+    ledgerComissoesPorProfissional.map(l => ({ ...l, sinal: -1 as const, categoria: 'Comissão' })),
+    [ledgerComissoesPorProfissional]);
 
   const ledgerGastos: LedgerItem[] = useMemo(() => despesas
     .filter(d => d.status === 'pago')
-    .map(d => ({ data: d.data_pagamento ?? d.created_at ?? hojeIso, descricao: d.descricao, valor: Number(d.valor), sinal: -1 as const })),
+    .map(d => ({ data: d.data_pagamento ?? d.created_at ?? hojeIso, descricao: d.descricao, valor: Number(d.valor), sinal: -1 as const, categoria: d.categoria ?? 'Despesa' })),
     [despesas, hojeIso]);
 
-  const ledgerBruto: LedgerItem[]   = useMemo(() => [...ledgerServicos, ...ledgerVendas, ...ledgerTaxasCancPagas], [ledgerServicos, ledgerVendas, ledgerTaxasCancPagas]);
-  const ledgerLiquido: LedgerItem[] = useMemo(() => [...ledgerBruto, ...ledgerComissoes.map(l => ({ ...l, sinal: -1 as const }))], [ledgerBruto, ledgerComissoes]);
-  const ledgerLucro: LedgerItem[]   = useMemo(() => [...ledgerLiquido, ...ledgerGastos], [ledgerLiquido, ledgerGastos]);
+  const ledgerBruto: LedgerItem[] = useMemo(() => [...ledgerServicos, ...ledgerVendas, ...ledgerTaxasCancPagas], [ledgerServicos, ledgerVendas, ledgerTaxasCancPagas]);
 
   const ledgerTaxasCartao: LedgerItem[] = useMemo(() => pagsDetalhe
     .filter(p => p.valor_liquido != null)
     .map(p => ({
       data: p.data, descricao: `Taxa de cartão · ${METODO_LABEL[p.metodo] ?? p.metodo}`,
-      valor: p.valor - (p.valor_liquido as number), sinal: -1 as const,
+      valor: p.valor - (p.valor_liquido as number), sinal: -1 as const, categoria: 'Taxa de cartão',
     }))
     .filter(l => l.valor > 0.001),
     [pagsDetalhe]);
 
+  // Líquido após Taxas = Bruto − Taxas de Cartão (não comissões — a fórmula
+  // real é `receita - taxasCartao`, ver liquidoAposTaxas abaixo). Lucro Real
+  // segue subtraindo comissões e gastos por cima do líquido.
+  const ledgerLiquido: LedgerItem[] = useMemo(() => [...ledgerBruto, ...ledgerTaxasCartao], [ledgerBruto, ledgerTaxasCartao]);
+  const ledgerLucro: LedgerItem[]   = useMemo(() => [...ledgerLiquido, ...ledgerComissoesParaLucro, ...ledgerGastos], [ledgerLiquido, ledgerComissoesParaLucro, ledgerGastos]);
+
   function abrirDetalheMetodo(metodo: string) {
     const itens: LedgerItem[] = pagsDetalhe
       .filter(p => p.metodo === metodo)
-      .map(p => ({ data: p.data, descricao: METODO_LABEL[metodo] ?? metodo, valor: p.valor, sinal: 1 as const }));
+      .map(p => ({ data: p.data, descricao: METODO_LABEL[metodo] ?? metodo, valor: p.valor, sinal: 1 as const, categoria: 'Pagamento' }));
     setDetalhe({ titulo: `Formas de pagamento · ${METODO_LABEL[metodo] ?? metodo}`, cor: 'var(--color-primary)', itens });
   }
 
@@ -1234,7 +1299,7 @@ export default function FinanceiroPage() {
             { label: 'Faturamento Bruto',   ledger: ledgerBruto,        value: receita,          d: dReceita,   cor: 'text-green',   corVar: 'var(--color-green)',   invertDelta: false },
             { label: 'Taxas de Cartão',     ledger: ledgerTaxasCartao,  value: taxasCartao,      d: null,       cor: 'text-rose',    corVar: 'var(--color-rose)',    invertDelta: false },
             { label: 'Líquido após Taxas',  ledger: ledgerLiquido,      value: liquidoAposTaxas, d: null,       cor: 'text-primary', corVar: 'var(--color-primary)', invertDelta: false },
-            { label: 'Comissões',           ledger: ledgerComissoes,    value: comissoes, d: dComissoes, cor: 'text-amber',                                    corVar: 'var(--color-amber)',   invertDelta: true  },
+            { label: 'Comissões',           ledger: ledgerComissoesPorProfissional, value: comissoes, d: dComissoes, cor: 'text-amber',                        corVar: 'var(--color-amber)',   invertDelta: true  },
             { label: 'Gastos Operacionais', ledger: ledgerGastos,       value: gastos,    d: dGastos,   cor: 'text-rose',                                     corVar: 'var(--color-rose)',    invertDelta: true  },
             { label: 'Lucro Real',          ledger: ledgerLucro,        value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        corVar: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-red)', invertDelta: false },
             ...(taxasCancelamentoPagas > 0
@@ -1538,9 +1603,10 @@ export default function FinanceiroPage() {
           </div>
         )}
 
-        {/* Taxas de cancelamento */}
+        {/* Taxas de cancelamento — lado a lado com Taxas de Reserva no
+            desktop quando as duas existem; largura total quando só uma */}
         {taxasCancelamento.length > 0 && (
-          <div id="secao-taxas-cancelamento" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div id="secao-taxas-cancelamento" className={`${taxasReserva.length > 0 ? '' : 'md:col-span-2'} bg-surface border border-border rounded-2xl overflow-hidden shadow-sm`}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <p className="font-serif text-lg text-text">Taxas de Cancelamento</p>
               <span className="text-xs text-text-4">{taxasCancelamento.length} lançamento(s)</span>
@@ -1582,7 +1648,7 @@ export default function FinanceiroPage() {
 
         {/* Taxas de reserva */}
         {taxasReserva.length > 0 && (
-          <div id="secao-taxas-reserva" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div id="secao-taxas-reserva" className={`${taxasCancelamento.length > 0 ? '' : 'md:col-span-2'} bg-surface border border-border rounded-2xl overflow-hidden shadow-sm`}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <p className="font-serif text-lg text-text">Taxas de Reserva</p>
               <span className="text-xs text-text-4">{taxasReserva.length} lançamento(s)</span>

@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog, ChevronDown, CheckCircle2,
+  Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog, ChevronDown, CheckCircle2, BarChart2, Trophy,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths, isSameMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { maskPhone } from '@/lib/masks';
 import { podeAtribuirRole } from '@/lib/permissions';
@@ -289,15 +289,164 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
   );
 }
 
+// ── Desempenho individual ───────────────────────────────────────
+// Busca sob demanda (só quando o modal abre) pra não pagar N+1 queries no
+// carregamento normal da lista de equipe.
+
+function DesempenhoModal({ prof, empresaId, onClose }: {
+  prof: Profissional; empresaId: string; onClose: () => void;
+}) {
+  useScrollLock();
+  const [loading, setLoading] = useState(true);
+  const [tendencia, setTendencia] = useState<{ mes: string; valor: number }[]>([]);
+  const [topServicos, setTopServicos] = useState<{ nome: string; qtd: number; valor: number }[]>([]);
+  const [comparecimento, setComparecimento] = useState<{ concluido: number; perdido: number } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const hoje = new Date();
+      const ini6 = startOfMonth(subMonths(hoje, 5));
+      const fimMesAtual = endOfMonth(hoje);
+      const iniMesAtual = startOfMonth(hoje);
+
+      const { data } = await supabase.from('agendamentos')
+        .select('valor, status, data_hora_inicio, servico:servicos(nome)')
+        .eq('empresa_id', empresaId).eq('profissional_id', prof.user_id)
+        .gte('data_hora_inicio', ini6.toISOString()).lte('data_hora_inicio', fimMesAtual.toISOString());
+
+      type Row = { valor: number; status: string; data_hora_inicio: string; servico: { nome: string } | null };
+      const rows = (data ?? []) as unknown as Row[];
+
+      // Tendência 6 meses (só concluídos)
+      const porMes = Array.from({ length: 6 }, (_, i) => {
+        const m = subMonths(hoje, 5 - i);
+        const valor = rows
+          .filter(r => r.status === 'concluido' && isSameMonth(new Date(r.data_hora_inicio), m))
+          .reduce((s, r) => s + Number(r.valor), 0);
+        return { mes: format(m, 'MMM', { locale: ptBR }), valor };
+      });
+      setTendencia(porMes);
+
+      // Top serviços do mês atual
+      const rowsMes = rows.filter(r => r.status === 'concluido' && new Date(r.data_hora_inicio) >= iniMesAtual);
+      const svcMap: Record<string, { qtd: number; valor: number }> = {};
+      rowsMes.forEach(r => {
+        const nome = r.servico?.nome ?? 'Serviço';
+        if (!svcMap[nome]) svcMap[nome] = { qtd: 0, valor: 0 };
+        svcMap[nome].qtd += 1; svcMap[nome].valor += Number(r.valor);
+      });
+      setTopServicos(Object.entries(svcMap).map(([nome, s]) => ({ nome, ...s })).sort((a, b) => b.valor - a.valor).slice(0, 5));
+
+      // Comparecimento do mês atual (só agendamentos já ocorridos: concluído/cancelado/faltou)
+      const rowsFinalizados = rows.filter(r =>
+        new Date(r.data_hora_inicio) >= iniMesAtual &&
+        ['concluido', 'cancelado', 'faltou'].includes(r.status)
+      );
+      const concluido = rowsFinalizados.filter(r => r.status === 'concluido').length;
+      const perdido    = rowsFinalizados.filter(r => r.status !== 'concluido').length;
+      setComparecimento({ concluido, perdido });
+
+      setLoading(false);
+    })();
+  }, [prof.user_id, empresaId]);
+
+  const ticketMedio = prof.atendimentos_mes > 0 ? prof.total_mes / prof.atendimentos_mes : 0;
+  const maxTendencia = Math.max(...tendencia.map(t => t.valor), 1);
+  const totalComparecimento = comparecimento ? comparecimento.concluido + comparecimento.perdido : 0;
+  const pctComparecimento = totalComparecimento > 0 ? (comparecimento!.concluido / totalComparecimento) * 100 : null;
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[85dvh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
+          <div>
+            <h2 className="font-serif text-lg text-text">{prof.user.nome}</h2>
+            <p className="text-xs text-text-3 mt-0.5">Desempenho individual</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
+          {loading ? (
+            <div className="flex flex-col gap-3">
+              {[1,2,3].map(i => <div key={i} className="h-16 rounded-xl bg-bg animate-pulse"/>)}
+            </div>
+          ) : (
+            <>
+              {/* KPIs rápidos */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-bg rounded-xl p-3">
+                  <p className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Ticket médio · mês</p>
+                  <p className="text-lg font-bold text-text">{fmtBRL(ticketMedio)}</p>
+                </div>
+                <div className="bg-bg rounded-xl p-3">
+                  <p className="text-[10px] text-text-3 uppercase tracking-wide mb-1">Comparecimento · mês</p>
+                  <p className="text-lg font-bold" style={{ color: pctComparecimento === null ? 'var(--color-ink4)' : pctComparecimento >= 80 ? 'var(--color-green)' : 'var(--color-amber)' }}>
+                    {pctComparecimento === null ? '—' : `${pctComparecimento.toFixed(0)}%`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Tendência 6 meses */}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-text-3 mb-3">Faturamento gerado · 6 meses</p>
+                <div className="flex items-end gap-2" style={{ height: 96 }}>
+                  {tendencia.map((t, i) => {
+                    const isAtual = i === tendencia.length - 1;
+                    const h = maxTendencia > 0 ? (t.valor / maxTendencia) * 100 : 0;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                        <div className="w-full flex items-end" style={{ height: 76 }}>
+                          <div className="w-full rounded-t-sm transition-all" style={{ height: `${h}%`, background: 'var(--color-primary)', opacity: isAtual ? 1 : 0.35 + (i / tendencia.length) * 0.5 }}/>
+                        </div>
+                        <p className={`text-[9px] font-semibold capitalize ${isAtual ? 'text-primary' : 'text-text-4'}`}>{t.mes}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Top serviços do mês */}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-text-3 mb-3 flex items-center gap-1.5">
+                  <Trophy size={12}/> Top serviços · mês
+                </p>
+                {topServicos.length === 0 ? (
+                  <p className="text-sm text-text-4 italic">Sem atendimentos concluídos este mês.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {topServicos.map((s, i) => (
+                      <div key={s.nome} className="flex items-center gap-2">
+                        <span className={`text-sm font-bold w-4 flex-shrink-0 ${i < 2 ? 'text-primary' : 'text-text-4'}`}>{i + 1}</span>
+                        <span className="text-sm text-text flex-1 truncate">{s.nome}</span>
+                        <span className="text-xs text-text-4 flex-shrink-0">{s.qtd}×</span>
+                        <span className="text-sm font-bold text-text flex-shrink-0 w-16 text-right">{fmtBRL(s.valor)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Card profissional ─────────────────────────────────────────
 
-function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlterarRole }: {
+function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlterarRole, onVerDesempenho }: {
   prof: Profissional;
   podeAlterarRole: boolean;
   onEditInfo: () => void;
   onToggle: () => void;
   onPagar: () => void;
   onAlterarRole: () => void;
+  onVerDesempenho: () => void;
 }) {
   const [expandido, setExpandido] = useState(false);
   const [pagando,   setPagando]   = useState(false);
@@ -379,6 +528,15 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             </div>
           )}
 
+          {/* Desempenho individual */}
+          {prof.ativo && (
+            <button onClick={onVerDesempenho}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 36, borderRadius: 14, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)', marginBottom: 12 }}
+              className="hover:bg-bg">
+              <BarChart2 size={13} strokeWidth={2}/> Ver desempenho
+            </button>
+          )}
+
           {/* Comissão % */}
           {prof.ativo && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 14, background: 'var(--color-primary-soft)', marginBottom: 12 }}>
@@ -442,6 +600,7 @@ export default function EquipePage() {
   const [meuUserId, setMeuUserId] = useState<string | null>(null);
   const [meuRole,   setMeuRole]   = useState<'owner' | 'gestor' | 'profissional'>('profissional');
   const [toast,     setToast]     = useState('');
+  const [desempenho, setDesempenho] = useState<Profissional | null>(null);
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
@@ -693,6 +852,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
                   onToggle={() => toggleAtivo(p)}
                   onPagar={() => pagarComissoes(p.user_id)}
                   onAlterarRole={() => alterarRole(p)}
+                  onVerDesempenho={() => setDesempenho(p)}
                 />
               </div>
             ))}
@@ -721,6 +881,10 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
         onConfirm={confirmarDesativar}
         onCancel={() => setConfirmDesativar(null)}
       />
+
+      {desempenho && empresaId && (
+        <DesempenhoModal prof={desempenho} empresaId={empresaId} onClose={() => setDesempenho(null)}/>
+      )}
 
     </div>
   );
