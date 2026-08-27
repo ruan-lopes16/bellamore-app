@@ -247,7 +247,7 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 min-h-0 p-5 flex flex-col gap-4">
+        <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 p-5 flex flex-col gap-4">
 
           {/* Nome */}
           <div>

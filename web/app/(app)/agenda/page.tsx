@@ -107,6 +107,13 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
   onEditar?: (ag: Ag) => void;
 }) {
   const [menuAberto, setMenuAberto] = useState(false);
+  // Posição calculada via JS (em vez de `absolute` ancorado no card) porque
+  // este card também é renderizado dentro do modal "Detalhes" no mobile, cujo
+  // corpo é `overflow-y-auto` — um menu `absolute` que ultrapassa as bordas
+  // desse container fica cortado. `fixed` com coordenadas do próprio botão
+  // escapa desse corte independente de onde o card estiver aninhado.
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const statusBtnRef = useRef<HTMLButtonElement>(null);
   const inicio = format(parseISO(ag.data_hora_inicio), 'HH:mm');
   const fim    = format(parseISO(ag.data_hora_fim), 'HH:mm');
   const st     = STATUS[ag.status] ?? { label: ag.status, bg: 'bg-bg', text: 'text-text-3' };
@@ -145,14 +152,26 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
               {/* Badge de status clicável */}
               <div className="relative">
               <button
-                onClick={() => setMenuAberto(v => !v)}
+                ref={statusBtnRef}
+                onClick={() => {
+                  if (!menuAberto && statusBtnRef.current) {
+                    const r = statusBtnRef.current.getBoundingClientRect();
+                    const largura = 130;
+                    setMenuPos({
+                      top: r.bottom + 4,
+                      left: Math.min(Math.max(8, r.right - largura), window.innerWidth - largura - 8),
+                    });
+                  }
+                  setMenuAberto(v => !v);
+                }}
                 className={`text-xs font-semibold px-2 py-0.5 rounded-lg transition hover:opacity-80 ${st.bg} ${st.text}`}>
                 {st.label} ▾
               </button>
-              {menuAberto && (
+              {menuAberto && menuPos && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setMenuAberto(false)}/>
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-surface border border-border rounded-xl shadow-lg py-1 min-w-[130px]">
+                  <div className="fixed z-20 bg-surface border border-border rounded-xl shadow-lg py-1 min-w-[130px]"
+                    style={{ top: menuPos.top, left: menuPos.left }}>
                     {STATUS_OPCOES.map(({ key, label, cor }) => (
                       <button key={key} onClick={() => selecionarStatus(key)}
                         className={`w-full text-left px-3 py-2 text-xs font-semibold hover:bg-bg transition flex items-center gap-2 ${
@@ -1350,7 +1369,7 @@ function TimelineView({
                   <X size={14} />
                 </button>
               </div>
-              <div className="p-3 overflow-y-auto flex-1">
+              <div className="p-3 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
                 <AgCard ag={agSel} empresaId={empresaId}
                   onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                   onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
