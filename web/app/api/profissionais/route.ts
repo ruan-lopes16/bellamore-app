@@ -22,7 +22,7 @@ function errorMessage(error: unknown, fallback = 'Erro interno.') {
 
 export async function POST(req: NextRequest) {
   try {
-    const { empresaId, nome, telefone, email, percentual_comissao, role } = await req.json();
+    const { empresaId, nome, telefone, email, percentual_comissao, role, tipo_contrato, documento, data_admissao } = await req.json();
 
     if (!empresaId || !nome) {
       return NextResponse.json({ error: 'Nome e empresa são obrigatórios.' }, { status: 400 });
@@ -105,8 +105,11 @@ export async function POST(req: NextRequest) {
         role:                roleToUse,
         percentual_comissao: percentual_comissao ?? 0,
         ativo:               true,
+        tipo_contrato:       tipo_contrato || null,
+        documento:           documento?.trim() || null,
+        data_admissao:       data_admissao || null,
       }, { onConflict: 'empresa_id,user_id' })
-      .select('id, user_id, role, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
+      .select('id, user_id, role, percentual_comissao, ativo, created_at, tipo_contrato, documento, data_admissao, contrato_arquivo_path, user:users(id, nome, telefone, email)')
       .single();
 
     if (membroError) {
@@ -121,7 +124,10 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, nome, telefone, email, membroId, percentual_comissao } = await req.json();
+    const {
+      userId, nome, telefone, email, membroId, percentual_comissao,
+      tipo_contrato, documento, data_admissao, contrato_arquivo_path,
+    } = await req.json();
 
     if (!userId || !nome?.trim()) {
       return NextResponse.json({ error: 'userId e nome são obrigatórios.' }, { status: 400 });
@@ -166,13 +172,31 @@ export async function PATCH(req: NextRequest) {
       user_metadata: { nome: nome.trim() },
     });
 
-    // Atualiza percentual de comissão se fornecido
-    if (membroId != null && percentual_comissao != null) {
-      const { error: errComissao } = await adminClient
-        .from('empresa_membros')
-        .update({ percentual_comissao })
-        .eq('id', membroId);
-      if (errComissao) return NextResponse.json({ error: errComissao.message }, { status: 400 });
+    // Atualiza percentual de comissão / dados contratuais se fornecidos.
+    // Filtra undefined explicitamente em vez de mandar o objeto inteiro:
+    // contrato_arquivo_path chega em uma chamada separada (depois do upload
+    // no Storage), sem os outros campos — um `update` com `undefined` em
+    // algum campo apagaria silenciosamente o que já estava salvo.
+    if (membroId != null) {
+      const patch: Record<string, unknown> = {};
+      if (percentual_comissao   != null) patch.percentual_comissao   = percentual_comissao;
+      if (tipo_contrato         !== undefined) patch.tipo_contrato   = tipo_contrato || null;
+      if (documento             !== undefined) patch.documento       = documento?.trim() || null;
+      if (data_admissao         !== undefined) patch.data_admissao   = data_admissao || null;
+      if (contrato_arquivo_path !== undefined) patch.contrato_arquivo_path = contrato_arquivo_path || null;
+
+      if (Object.keys(patch).length > 0) {
+        // membroId só é aceito se pertencer à mesma empresa já validada acima
+        // (alvoMembro.empresa_id) — sem isso, qualquer membro autenticado
+        // poderia passar o id de um membro de OUTRA empresa e sobrescrever
+        // dados contratuais alheios (CPF/CNPJ, contrato).
+        const { error: errPatch } = await adminClient
+          .from('empresa_membros')
+          .update(patch)
+          .eq('id', membroId)
+          .eq('empresa_id', alvoMembro.empresa_id);
+        if (errPatch) return NextResponse.json({ error: errPatch.message }, { status: 400 });
+      }
     }
 
     return NextResponse.json({ ok: true });

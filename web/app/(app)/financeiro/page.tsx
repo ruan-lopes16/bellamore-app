@@ -743,6 +743,7 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
   const [loading, setLoading] = useState(true);
   const [todas, setTodas] = useState<Despesa[]>([]);
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'pago'>('todas');
+  const [filtroCategoria, setFiltroCategoria] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
 
   useEffect(() => {
@@ -757,13 +758,29 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
     })();
   }, [empresaId]);
 
-  const filtradas = useMemo(() => {
+  // Status + busca primeiro (a lista de categorias abaixo reflete só o que
+  // sobrou desses dois filtros, pra não oferecer chip de categoria sem
+  // nenhum resultado no momento).
+  const porStatusEBusca = useMemo(() => {
     const q = busca.trim().toLowerCase();
     return todas.filter(d =>
       (filtroStatus === 'todas' || d.status === filtroStatus) &&
       (q === '' || d.descricao.toLowerCase().includes(q) || (d.categoria ?? '').toLowerCase().includes(q))
     );
   }, [todas, filtroStatus, busca]);
+
+  const categorias = useMemo(() => {
+    const contagem = new Map<string, number>();
+    porStatusEBusca.forEach(d => {
+      const c = d.categoria || 'Outros';
+      contagem.set(c, (contagem.get(c) ?? 0) + 1);
+    });
+    return Array.from(contagem.entries()).sort((a, b) => b[1] - a[1]).map(([nome]) => nome);
+  }, [porStatusEBusca]);
+
+  const filtradas = useMemo(() =>
+    filtroCategoria ? porStatusEBusca.filter(d => (d.categoria || 'Outros') === filtroCategoria) : porStatusEBusca,
+  [porStatusEBusca, filtroCategoria]);
 
   const grupos = useMemo(() => {
     const porMes = new Map<string, Despesa[]>();
@@ -807,6 +824,27 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
             className="flex-1 h-8 px-3 rounded-full border border-border bg-bg text-xs focus:outline-none focus:border-accent transition"/>
         </div>
 
+        {categorias.length > 1 && (
+          <div className="flex gap-1.5 px-5 py-2.5 border-b border-border flex-shrink-0 overflow-x-auto">
+            <button onClick={() => setFiltroCategoria(null)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                filtroCategoria === null ? 'bg-primary text-white border-primary' : 'bg-surface text-text-3 border-border hover:border-accent/40'
+              }`}>
+              Todas categorias
+            </button>
+            {categorias.map(catg => (
+              <button key={catg} onClick={() => setFiltroCategoria(catg)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                  filtroCategoria === catg ? 'text-white border-transparent' : 'bg-surface border-border hover:border-accent/40'
+                }`}
+                style={filtroCategoria === catg ? { background: corCategoria(catg) } : { color: corCategoria(catg) }}>
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: filtroCategoria === catg ? '#fff' : corCategoria(catg) }}/>
+                {catg}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0">
           {loading ? (
             <div className="p-5 flex flex-col gap-2">{[1,2,3,4].map(i => <div key={i} className="h-12 bg-bg rounded-lg animate-pulse"/>)}</div>
@@ -840,9 +878,6 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
                   </button>
                   <div className="text-right flex-shrink-0">
                     <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
-                    <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'}`}>
-                      {d.status === 'pago' ? 'Paga' : 'Pendente'}
-                    </span>
                   </div>
                   <button onClick={() => onEditar(d)} title="Editar despesa"
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 border border-border hover:bg-bg hover:text-primary hover:border-primary/40 transition flex-shrink-0">
@@ -1442,17 +1477,22 @@ export default function FinanceiroPage() {
               className="text-left bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 block transition-opacity hover:opacity-80">
               <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
               <p className={`text-lg sm:text-xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
-              {d !== null && (
-                <div className="flex items-center gap-1 min-w-0">
-                  {(invertDelta ? d < 0 : d >= 0)
-                    ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
-                    : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
-                  }
-                  <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                    {d >= 0 ? '+' : ''}{d}% vs mês anterior
-                  </span>
-                </div>
-              )}
+              {/* Altura sempre reservada (mesmo sem delta) — cards do mesmo par na
+                  grid ficavam com alturas diferentes quando um tinha a linha de
+                  variação e o outro não, quebrando o alinhamento entre eles. */}
+              <div className="flex items-center gap-1 min-w-0 h-4">
+                {d !== null && (
+                  <>
+                    {(invertDelta ? d < 0 : d >= 0)
+                      ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
+                      : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
+                    }
+                    <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
+                      {d >= 0 ? '+' : ''}{d}% vs mês anterior
+                    </span>
+                  </>
+                )}
+              </div>
             </button>
           ))}
         </div>

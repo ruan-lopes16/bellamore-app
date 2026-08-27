@@ -379,7 +379,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-7">
         {[
           { label: 'Agenda hoje', href: '/agenda',    value: String(agsHoje.length), sub: `${agsConcluidos.length} concluído(s)`, icon: CalendarDays,  color: 'var(--color-accent)'   },
-          { label: 'Faturamento Hoje', href: '/financeiro', value: fmt(fatHoje),         sub: 'Serv. + vendas',                       icon: ShoppingBag,   color: 'var(--color-primary)' },
+          { label: 'Faturamento', href: '/financeiro', value: fmt(fatHoje),         sub: 'Serv. + vendas',                       icon: ShoppingBag,   color: 'var(--color-primary)' },
           { label: 'Clientes', href: '/clientes',        value: String(totalClientes.count ?? 0), sub: 'Total na base',          icon: Users,         color: 'var(--color-amber)'    },
         ].map(({ label, href, value, sub, icon: Icon, color }, i) => (
           <Link key={label} href={href} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0 block transition-opacity hover:opacity-80"

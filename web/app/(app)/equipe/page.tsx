@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog, ChevronDown, CheckCircle2, BarChart2, Trophy,
+  UploadCloud, FileText,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -10,7 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { format, startOfMonth, endOfMonth, subMonths, isSameMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
-import { maskPhone } from '@/lib/masks';
+import { maskPhone, maskCNPJ, maskCPF, validaCNPJ, validaCPF } from '@/lib/masks';
 import { podeAtribuirRole } from '@/lib/permissions';
 // createClient usado apenas nas funções da tela principal (carregarEquipe, toggleAtivo, salvarComissao)
 import { ptBR } from 'date-fns/locale';
@@ -18,6 +19,8 @@ import { ptBR } from 'date-fns/locale';
 const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
+
+type TipoContrato = 'clt' | 'pj' | 'autonomo';
 
 type Profissional = {
   id: string;           // empresa_membros.id
@@ -30,6 +33,15 @@ type Profissional = {
   total_mes: number;
   atendimentos_mes: number;
   comissao_pendente: number;
+  // Dados contratuais — todos opcionais, preenchidos depois da criação
+  tipo_contrato?: TipoContrato | null;
+  documento?: string | null;              // CPF (CLT/autônomo) ou CNPJ (PJ)
+  data_admissao?: string | null;
+  contrato_arquivo_path?: string | null;  // caminho no bucket privado, não URL
+};
+
+const TIPO_CONTRATO_LABEL: Record<TipoContrato, string> = {
+  clt: 'CLT', pj: 'PJ', autonomo: 'Autônomo',
 };
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -58,6 +70,54 @@ function fmtBRL(v: number) {
 const inputClass = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5";
 
+// ── Campos de dados contratuais (reaproveitado em Nova/Editar profissional) ──
+// Tipo de contrato define qual documento faz sentido pedir: CLT e Autônomo
+// pedem CPF (é a pessoa física que assina), PJ pede CNPJ (é a empresa dela).
+function CamposContratuais({ tipoContrato, setTipoContrato, documento, setDocumento, dataAdmissao, setDataAdmissao }: {
+  tipoContrato: TipoContrato | '';   setTipoContrato: (v: TipoContrato | '') => void;
+  documento: string;                 setDocumento: (v: string) => void;
+  dataAdmissao: string;              setDataAdmissao: (v: string) => void;
+}) {
+  return (
+    <div className="border-t border-border pt-4 flex flex-col gap-4">
+      <p className={labelClass}>Dados contratuais <span className="text-text-4 normal-case font-normal">(opcional)</span></p>
+      <div>
+        <label className={labelClass}>Tipo de contrato</label>
+        <div className="grid grid-cols-3 gap-2">
+          {(['clt', 'pj', 'autonomo'] as const).map(t => (
+            <button key={t} type="button"
+              onClick={() => setTipoContrato(tipoContrato === t ? '' : t)}
+              className="h-10 rounded-xl border text-sm font-semibold transition"
+              style={{
+                borderColor: tipoContrato === t ? 'var(--color-primary)' : 'var(--color-border)',
+                background:  tipoContrato === t ? 'var(--color-primary-soft)' : 'transparent',
+                color:       tipoContrato === t ? 'var(--color-primary)' : 'var(--color-text-2)',
+              }}>
+              {TIPO_CONTRATO_LABEL[t]}
+            </button>
+          ))}
+        </div>
+      </div>
+      {tipoContrato && (
+        <>
+          <div>
+            <label className={labelClass}>{tipoContrato === 'pj' ? 'CNPJ' : 'CPF'}</label>
+            <input value={documento}
+              onChange={e => setDocumento(tipoContrato === 'pj' ? maskCNPJ(e.target.value) : maskCPF(e.target.value))}
+              placeholder={tipoContrato === 'pj' ? '00.000.000/0000-00' : '000.000.000-00'}
+              inputMode="numeric" className={inputClass}/>
+          </div>
+          <div>
+            <label className={labelClass}>Data de admissão</label>
+            <input value={dataAdmissao} onChange={e => setDataAdmissao(e.target.value)}
+              type="date" className={inputClass}/>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Modal adicionar profissional ──────────────────────────────
 
 function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
@@ -73,6 +133,9 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   const [enviarConvite, setEnviarConvite] = useState(true);
   const [comissao,      setComissao]      = useState('0');
   const [role,          setRole]          = useState<'gestor' | 'profissional'>('profissional');
+  const [tipoContrato,  setTipoContrato]  = useState<TipoContrato | ''>('');
+  const [documento,     setDocumento]     = useState('');
+  const [dataAdmissao,  setDataAdmissao]  = useState('');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
 
@@ -80,7 +143,10 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
-    setErro(''); setSalvando(true);
+    setErro('');
+    if (documento.trim() && tipoContrato === 'pj' && !validaCNPJ(documento)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
+    if (documento.trim() && tipoContrato !== 'pj' && !validaCPF(documento))  { setErro('CPF inválido. Verifique os dígitos.'); return; }
+    setSalvando(true);
 
     const usarConvite = temEmail && enviarConvite;
     const res = await fetch(usarConvite ? '/api/convites' : '/api/profissionais', {
@@ -93,6 +159,9 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
         email:                email.trim() || null,
         percentual_comissao:  parseFloat(comissao) || 0,
         role,
+        tipo_contrato:        tipoContrato || null,
+        documento:            documento.trim() || null,
+        data_admissao:        dataAdmissao || null,
       }),
     });
 
@@ -178,6 +247,11 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
             </div>
           </div>
+          <CamposContratuais
+            tipoContrato={tipoContrato} setTipoContrato={setTipoContrato}
+            documento={documento}       setDocumento={setDocumento}
+            dataAdmissao={dataAdmissao} setDataAdmissao={setDataAdmissao}/>
+          <p className="text-[11px] text-text-4 -mt-2">Documento do contrato pode ser anexado depois, em "Editar profissional".</p>
           {erro && <p className="text-red text-sm">{erro}</p>}
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose}
@@ -199,23 +273,65 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
 
 // ── Modal editar informações ──────────────────────────────────
 
-function EditInfoModal({ prof, onClose, onSalvo }: {
+function EditInfoModal({ prof, empresaId, onClose, onSalvo }: {
   prof: Profissional;
+  empresaId: string;
   onClose: () => void;
-  onSalvo: (dados: { nome: string; telefone: string; email: string; comissao: number }) => void;
+  onSalvo: (dados: {
+    nome: string; telefone: string; email: string; comissao: number;
+    tipoContrato: TipoContrato | ''; documento: string; dataAdmissao: string;
+    contratoArquivoPath?: string;
+  }) => void;
 }) {
   useScrollLock();
-  const [nome,     setNome]     = useState(prof.user.nome);
-  const [telefone, setTelefone] = useState(prof.user.telefone ?? '');
-  const [email,    setEmail]    = useState(prof.user.email ?? '');
-  const [comissao, setComissao] = useState(String(prof.percentual_comissao));
-  const [salvando, setSalvando] = useState(false);
-  const [erro,     setErro]     = useState('');
+  const [nome,         setNome]         = useState(prof.user.nome);
+  const [telefone,     setTelefone]     = useState(prof.user.telefone ?? '');
+  const [email,        setEmail]        = useState(prof.user.email ?? '');
+  const [comissao,     setComissao]     = useState(String(prof.percentual_comissao));
+  const [tipoContrato, setTipoContrato] = useState<TipoContrato | ''>(prof.tipo_contrato ?? '');
+  const [documento,    setDocumento]    = useState(prof.documento ?? '');
+  const [dataAdmissao, setDataAdmissao] = useState(prof.data_admissao ?? '');
+  const [arquivo,      setArquivo]      = useState<File | null>(null);
+  const [enviandoArq,  setEnviandoArq]  = useState(false);
+  const [abrindoDoc,   setAbrindoDoc]   = useState(false);
+  const [salvando,     setSalvando]     = useState(false);
+  const [erro,         setErro]         = useState('');
+
+  async function verDocumentoAtual() {
+    if (!prof.contrato_arquivo_path) return;
+    setAbrindoDoc(true);
+    const { data, error } = await supabase.storage
+      .from('contratos-equipe')
+      .createSignedUrl(prof.contrato_arquivo_path, 60);
+    setAbrindoDoc(false);
+    if (error || !data) { setErro('Não foi possível abrir o documento.'); return; }
+    window.open(data.signedUrl, '_blank');
+  }
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     if (!nome.trim()) return;
-    setErro(''); setSalvando(true);
+    setErro('');
+    if (documento.trim() && tipoContrato === 'pj' && !validaCNPJ(documento)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
+    if (documento.trim() && tipoContrato !== 'pj' && !validaCPF(documento))  { setErro('CPF inválido. Verifique os dígitos.'); return; }
+    setSalvando(true);
+
+    // Upload do documento primeiro (se um arquivo novo foi escolhido) — nome
+    // fixo por profissional (não usa o nome original do arquivo), então um
+    // reenvio sempre substitui o anterior em vez de acumular versões soltas
+    // no bucket.
+    let contratoArquivoPath: string | undefined;
+    if (arquivo) {
+      setEnviandoArq(true);
+      const ext = arquivo.name.split('.').pop()?.toLowerCase() || 'pdf';
+      const path = `${empresaId}/${prof.id}/contrato.${ext}`;
+      const { error: erroUpload } = await supabase.storage
+        .from('contratos-equipe')
+        .upload(path, arquivo, { upsert: true });
+      setEnviandoArq(false);
+      if (erroUpload) { setErro(`Erro ao enviar documento: ${erroUpload.message}`); setSalvando(false); return; }
+      contratoArquivoPath = path;
+    }
 
     const pct = parseFloat(comissao) || 0;
     const res = await fetch('/api/profissionais', {
@@ -228,13 +344,20 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
         email:                email.trim() || null,
         membroId:             prof.id,
         percentual_comissao:  pct,
+        tipo_contrato:        tipoContrato || null,
+        documento:            documento.trim() || null,
+        data_admissao:        dataAdmissao || null,
+        ...(contratoArquivoPath ? { contrato_arquivo_path: contratoArquivoPath } : {}),
       }),
     });
     const json = await res.json();
     setSalvando(false);
     if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
 
-    onSalvo({ nome: nome.trim(), telefone: telefone.trim(), email: email.trim(), comissao: pct });
+    onSalvo({
+      nome: nome.trim(), telefone: telefone.trim(), email: email.trim(), comissao: pct,
+      tipoContrato, documento: documento.trim(), dataAdmissao, contratoArquivoPath,
+    });
   }
 
   return (
@@ -272,6 +395,25 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
             </div>
           </div>
+          <CamposContratuais
+            tipoContrato={tipoContrato} setTipoContrato={setTipoContrato}
+            documento={documento}       setDocumento={setDocumento}
+            dataAdmissao={dataAdmissao} setDataAdmissao={setDataAdmissao}/>
+          <div>
+            <label className={labelClass}>Documento do contrato <span className="text-text-4 normal-case font-normal">(PDF ou imagem, opcional)</span></label>
+            <label className="flex items-center gap-3 h-10 px-3.5 rounded-xl border border-dashed border-border bg-bg text-sm text-text-3 cursor-pointer hover:border-accent transition">
+              <UploadCloud size={15} strokeWidth={2} className="flex-shrink-0"/>
+              <span className="truncate">{arquivo ? arquivo.name : 'Selecionar arquivo...'}</span>
+              <input type="file" accept="application/pdf,image/*" className="hidden"
+                onChange={e => setArquivo(e.target.files?.[0] ?? null)}/>
+            </label>
+            {!arquivo && prof.contrato_arquivo_path && (
+              <button type="button" onClick={verDocumentoAtual} disabled={abrindoDoc}
+                className="mt-1.5 text-xs font-semibold text-primary hover:underline disabled:opacity-50">
+                {abrindoDoc ? 'Abrindo...' : 'Ver documento já enviado'}
+              </button>
+            )}
+          </div>
           {erro && <p className="text-red text-sm">{erro}</p>}
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose}
@@ -280,7 +422,7 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
             </button>
             <button type="submit" disabled={salvando || !nome.trim()}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
-              {salvando ? 'Salvando...' : 'Salvar'}
+              {salvando ? (enviandoArq ? 'Enviando documento...' : 'Salvando...') : 'Salvar'}
             </button>
           </div>
         </form>
@@ -450,6 +592,7 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
 }) {
   const [expandido, setExpandido] = useState(false);
   const [pagando,   setPagando]   = useState(false);
+  const [abrindoDoc,setAbrindoDoc]= useState(false);
 
   let hue = 0;
   for (let i = 0; i < prof.user.nome.length; i++) hue = (hue * 31 + prof.user.nome.charCodeAt(i)) % 360;
@@ -460,6 +603,16 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
     setPagando(true);
     await onPagar();
     setPagando(false);
+  }
+
+  async function verDocumento() {
+    if (!prof.contrato_arquivo_path) return;
+    setAbrindoDoc(true);
+    const { data, error } = await supabase.storage
+      .from('contratos-equipe')
+      .createSignedUrl(prof.contrato_arquivo_path, 60);
+    setAbrindoDoc(false);
+    if (!error && data) window.open(data.signedUrl, '_blank');
   }
 
   return (
@@ -546,6 +699,35 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             </div>
           )}
 
+          {/* Dados contratuais — só aparece se algo já foi preenchido */}
+          {prof.tipo_contrato && (
+            <div style={{ padding: '10px 14px', borderRadius: 14, background: 'var(--color-bg)', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <UserCog size={13} strokeWidth={2} style={{ color: 'var(--color-ink3)', flexShrink: 0 }}/>
+                <span style={{ fontSize: 11.5, color: 'var(--color-ink3)', flex: 1 }}>Contrato</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-ink2)' }}>{TIPO_CONTRATO_LABEL[prof.tipo_contrato]}</span>
+              </div>
+              {prof.documento && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 21 }}>
+                  <span style={{ fontSize: 11, color: 'var(--color-ink4)' }}>{prof.tipo_contrato === 'pj' ? 'CNPJ' : 'CPF'}</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-ink2)' }}>{prof.documento}</span>
+                </div>
+              )}
+              {prof.data_admissao && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 21 }}>
+                  <span style={{ fontSize: 11, color: 'var(--color-ink4)' }}>Admissão</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-ink2)' }}>{format(new Date(prof.data_admissao + 'T12:00'), 'dd/MM/yyyy')}</span>
+                </div>
+              )}
+              {prof.contrato_arquivo_path && (
+                <button onClick={e => { e.stopPropagation(); verDocumento(); }} disabled={abrindoDoc}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, paddingLeft: 21, background: 'transparent', border: 'none', cursor: abrindoDoc ? 'default' : 'pointer', color: 'var(--color-primary)', fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-sans)' }}>
+                  <FileText size={11} strokeWidth={2}/> {abrindoDoc ? 'Abrindo...' : 'Ver documento'}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Pagar comissão */}
           {prof.ativo && temPendente && (
             <button onClick={handlePagar} disabled={pagando}
@@ -623,7 +805,7 @@ export default function EquipePage() {
 
     const { data: membros } = await supabase
       .from('empresa_membros')
-      .select('id, user_id, role, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
+      .select('id, user_id, role, percentual_comissao, ativo, created_at, tipo_contrato, documento, data_admissao, contrato_arquivo_path, user:users(id, nome, telefone, email)')
       .eq('empresa_id', empId)
       .in('role', ['owner', 'gestor', 'profissional'])
       .order('ativo', { ascending: false })
@@ -691,12 +873,20 @@ export default function EquipePage() {
     setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, role: novoRole } : p));
   }
 
-function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number }) {
+function salvarInfo(prof: Profissional, dados: {
+    nome: string; telefone: string; email: string; comissao: number;
+    tipoContrato: TipoContrato | ''; documento: string; dataAdmissao: string;
+    contratoArquivoPath?: string;
+  }) {
     setProfs(prev => prev.map(p =>
       p.id === prof.id ? {
         ...p,
         percentual_comissao: dados.comissao,
         user: { ...p.user, nome: dados.nome, telefone: dados.telefone || undefined, email: dados.email || undefined },
+        tipo_contrato: dados.tipoContrato || null,
+        documento: dados.documento || null,
+        data_admissao: dados.dataAdmissao || null,
+        contrato_arquivo_path: dados.contratoArquivoPath ?? p.contrato_arquivo_path,
       } : p
     ));
     setEditandoInfo(null);
@@ -865,9 +1055,10 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
         <NovoProfModal empresaId={empresaId} meuRole={meuRole} onClose={() => setModal(false)} onSalvo={onProfSalva}/>
       )}
 
-      {editandoInfo && (
+      {editandoInfo && empresaId && (
         <EditInfoModal
           prof={editandoInfo}
+          empresaId={empresaId}
           onClose={() => setEditandoInfo(null)}
           onSalvo={dados => salvarInfo(editandoInfo, dados)}/>
       )}

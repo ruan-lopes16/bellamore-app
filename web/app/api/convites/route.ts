@@ -22,7 +22,7 @@ function errorMessage(error: unknown, fallback = 'Erro interno.') {
 
 export async function POST(req: NextRequest) {
   try {
-    const { empresaId, nome, telefone, email, role, percentual_comissao } = await req.json();
+    const { empresaId, nome, telefone, email, role, percentual_comissao, tipo_contrato, documento, data_admissao } = await req.json();
 
     if (!empresaId || !nome?.trim() || !email?.trim()) {
       return NextResponse.json({ error: 'Nome, e-mail e empresa são obrigatórios.' }, { status: 400 });
@@ -108,8 +108,11 @@ export async function POST(req: NextRequest) {
         role:                membroAtual?.role ?? roleSolicitado,
         percentual_comissao: percentual_comissao ?? 0,
         ativo:               true,
+        tipo_contrato:       tipo_contrato || null,
+        documento:           documento?.trim() || null,
+        data_admissao:       data_admissao || null,
       }, { onConflict: 'empresa_id,user_id' })
-      .select('id, user_id, role, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
+      .select('id, user_id, role, percentual_comissao, ativo, created_at, tipo_contrato, documento, data_admissao, contrato_arquivo_path, user:users(id, nome, telefone, email)')
       .single();
 
     if (membroError) {

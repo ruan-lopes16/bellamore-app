@@ -707,7 +707,7 @@ export default function ServicosPage() {
 
       {/* Lista */}
       {loading ? (
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-4">
           {[1,2].map(group => (
             <div key={group}>
               {/* Cabeçalho da categoria */}
@@ -745,7 +745,7 @@ export default function ServicosPage() {
           </button>
         </div>
       ) : (
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-4">
           {porCategoria.map(({ cat, items }) => {
             const Icon = cat.icon;
             const colapsado = colapsos.has(cat.key);
