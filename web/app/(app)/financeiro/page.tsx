@@ -212,7 +212,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
           <h2 className="font-serif text-xl text-text">Nova despesa</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} className="overflow-y-auto flex-1 min-h-0 p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Descrição *</label>
             <input value={descricao} onChange={e => setDescricao(e.target.value)}
@@ -503,7 +503,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
           <h2 className="font-serif text-xl text-text">Editar despesa</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} className="overflow-y-auto flex-1 min-h-0 p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Descrição *</label>
             <input value={descricao} onChange={e => setDescricao(e.target.value)}
@@ -703,7 +703,7 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
           </div>
         )}
 
-        <div className="overflow-y-auto flex-1">
+        <div className="overflow-y-auto flex-1 min-h-0">
           {ordenados.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-sm text-text-4 italic">Nenhum lançamento neste período.</p>
@@ -807,7 +807,7 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
             className="flex-1 h-8 px-3 rounded-full border border-border bg-bg text-xs focus:outline-none focus:border-accent transition"/>
         </div>
 
-        <div className="overflow-y-auto flex-1">
+        <div className="overflow-y-auto flex-1 min-h-0">
           {loading ? (
             <div className="p-5 flex flex-col gap-2">{[1,2,3,4].map(i => <div key={i} className="h-12 bg-bg rounded-lg animate-pulse"/>)}</div>
           ) : grupos.length === 0 ? (
@@ -1652,7 +1652,7 @@ export default function FinanceiroPage() {
               ))}
             </div>
           </div>
-          <div className="flex items-end gap-3 h-32 overflow-x-auto pb-1">
+          <div className="flex items-end gap-3 overflow-x-auto pb-1">
             {evolucao.map((e, i) => {
               const rH = maxEvolucao > 0 && seriesVisiveis.receita   ? (e.receita          / maxEvolucao) * 100 : 0;
               const cH = maxEvolucao > 0 && seriesVisiveis.comissoes ? ((e.comissoes ?? 0) / maxEvolucao) * 100 : 0;

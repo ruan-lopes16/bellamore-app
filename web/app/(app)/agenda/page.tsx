@@ -29,7 +29,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 import {
   ChevronLeft, ChevronRight, Plus, Clock, User, X,
-  CalendarPlus, AlertTriangle, Pencil, Star, Ban, Trash2, UserPlus, Check,
+  CalendarPlus, AlertTriangle, Pencil, Star, Ban, Trash2, UserPlus, Check, Wallet,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
@@ -693,7 +693,7 @@ function NovoAgModal({
           {clienteId && !pacoteClienteId && pacotesCatalogo.length > 0 && (
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">
-                Vender pacote agora <span className="text-text-4 normal-case font-normal">(opcional — preenche os serviços e vende na hora)</span>
+                Vender pacote agora <span className="text-text-4 normal-case font-normal">(opcional)</span>
               </label>
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
@@ -792,15 +792,17 @@ function NovoAgModal({
           </div>
 
           {taxaReservaCfg.ativa && !agEditar && (
-            <div>
-              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Taxa de reserva</label>
+            <div className="rounded-xl border border-amber/30 p-3" style={{ background: 'var(--color-amber-soft)' }}>
+              <label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--color-amber)' }}>
+                <Wallet size={13} strokeWidth={2.5}/> Taxa de reserva
+              </label>
               <div className="relative">
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
                 <input
                   value={taxaReserva}
                   onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
                   inputMode="decimal" placeholder="0,00"
-                  className={`${inputClass} pl-9`}
+                  className={`${inputClass} pl-9 bg-surface`}
                 />
               </div>
               {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (

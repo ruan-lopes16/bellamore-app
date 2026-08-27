@@ -369,7 +369,7 @@ function DesempenhoModal({ prof, empresaId, onClose }: {
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
+        <div className="overflow-y-auto flex-1 min-h-0 p-5 flex flex-col gap-5">
           {loading ? (
             <div className="flex flex-col gap-3">
               {[1,2,3].map(i => <div key={i} className="h-16 rounded-xl bg-bg animate-pulse"/>)}

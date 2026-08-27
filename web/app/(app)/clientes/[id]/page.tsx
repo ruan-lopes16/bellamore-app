@@ -365,7 +365,7 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
+        <div className="overflow-y-auto flex-1 min-h-0 p-5 flex flex-col gap-5">
           {carregando ? (
             <div className="flex flex-col gap-3">
               <Sk className="h-4 w-40"/><Sk className="h-4 w-56"/><Sk className="h-4 w-32"/>

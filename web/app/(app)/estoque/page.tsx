@@ -203,7 +203,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
+        <div className="overflow-y-auto flex-1 min-h-0 p-5 flex flex-col gap-5">
 
           {/* Tipo de produto — Material ou Para venda */}
           <div>

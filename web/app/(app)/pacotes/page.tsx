@@ -194,7 +194,7 @@ function PacoteModal({
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
 
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} className="overflow-y-auto flex-1 min-h-0 p-5 flex flex-col gap-4">
           <div>
             <label className={labelCls}>Nome *</label>
             <input value={nome} onChange={e => setNome(e.target.value)} required placeholder="Ex: Pacote Escova Mensal" className={inputCls}/>
