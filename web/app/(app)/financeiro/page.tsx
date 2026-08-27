@@ -812,6 +812,23 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar, onNova
     return Array.from(porMes.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [filtradas]);
 
+  // "Ativas" mostra 1 linha por recorrência, não 1 por mês lançado — nada de
+  // data aqui (nem "vence dd/mm" nem agrupamento por mês). `todas` já vem
+  // ordenada por data_vencimento/created_at desc, então o primeiro lançamento
+  // de cada chave composta (descricao+categoria — mesma chave usada em
+  // templatesRecorrentesParaLancar) é sempre o mais recente.
+  const ativasResumo = useMemo(() => {
+    const vistas = new Set<string>();
+    const resumo: Despesa[] = [];
+    for (const d of filtradas) {
+      const chave = `${d.descricao}||${d.categoria ?? ''}`;
+      if (vistas.has(chave)) continue;
+      vistas.add(chave);
+      resumo.push(d);
+    }
+    return resumo;
+  }, [filtradas]);
+
   const totalPendenteGeral = todas.filter(d => d.status === 'pendente').reduce((s, d) => s + Number(d.valor), 0);
 
   return (
@@ -875,6 +892,26 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar, onNova
         <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0">
           {loading ? (
             <div className="p-5 flex flex-col gap-2">{[1,2,3,4].map(i => <div key={i} className="h-12 bg-bg rounded-lg animate-pulse"/>)}</div>
+          ) : filtroStatus === 'ativas' ? (
+            ativasResumo.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-sm text-text-4 italic">Nenhuma despesa recorrente ativa.</p>
+              </div>
+            ) : ativasResumo.map(d => (
+              <button key={d.id} onClick={() => onEditar(d)}
+                className="w-full flex items-center gap-3 px-5 py-2.5 border-b border-border last:border-0 text-left hover:bg-bg transition">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-primary-soft">
+                  <RefreshCw size={12} strokeWidth={2} className="text-primary"/>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                  <p className="text-[10px] text-text-4 mt-0.5 truncate">
+                    {d.categoria ? `${d.categoria} · ` : ''}{PERIODICIDADES.find(p => p.key === d.periodicidade)?.label ?? 'Recorrente'}
+                  </p>
+                </div>
+                <p className="text-sm font-bold text-text flex-shrink-0">{fmtBRL(d.valor)}</p>
+              </button>
+            ))
           ) : grupos.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-sm text-text-4 italic">Nenhuma despesa encontrada.</p>
