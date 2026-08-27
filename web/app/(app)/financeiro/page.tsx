@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra, recorrenciaAindaAtiva } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -138,6 +138,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>('mensal');
   const [vencimento,    setVencimento]    = useState('');
   const [recorrenciaAte, setRecorrenciaAte] = useState('');
+  const [mostrarDataTermino, setMostrarDataTermino] = useState(false);
   const [modoRepeticao, setModoRepeticao] = useState<'data' | 'parcelas'>('data');
   const [quantidadeParcelas, setQuantidadeParcelas] = useState('');
   const [contratoEmAndamento, setContratoEmAndamento] = useState(false);
@@ -317,9 +318,14 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
                           inputMode="decimal" placeholder="Valor total da compra" className={inputClass}/>
                       )}
                     </div>
-                  ) : (
+                  ) : mostrarDataTermino || recorrenciaAte ? (
                     <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
-                      type="date" className={inputClass}/>
+                      type="date" className={inputClass} autoFocus/>
+                  ) : (
+                    <button type="button" onClick={() => setMostrarDataTermino(true)}
+                      className="w-full flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-border text-xs font-semibold text-text-3 hover:border-accent hover:text-accent transition">
+                      <Plus size={12} strokeWidth={2.5}/> Definir data de término
+                    </button>
                   )}
                 </div>
               </div>
@@ -370,7 +376,7 @@ function MarcarPagoModal({ despesa, onClose, onSalvo, onEditar }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto overflow-x-hidden">
         <div className="flex items-start justify-between gap-2 mb-1">
           <p className="text-xs text-text-4 uppercase tracking-wide font-semibold">Confirmar pagamento</p>
           <button type="button" onClick={onEditar} className="text-xs font-semibold text-accent hover:underline flex-shrink-0">
@@ -422,6 +428,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   );
   const [vencimento,    setVencimento]    = useState(despesa.data_vencimento ?? '');
   const [recorrenciaAte, setRecorrenciaAte] = useState(despesa.recorrencia_ate ?? '');
+  const [mostrarDataTermino, setMostrarDataTermino] = useState(false);
   const [modoRepeticao, setModoRepeticao] = useState<'data' | 'parcelas'>(despesa.total_parcelas ? 'parcelas' : 'data');
   const [quantidadeParcelas, setQuantidadeParcelas] = useState(despesa.total_parcelas ? String(despesa.total_parcelas) : '');
   const [contratoEmAndamento, setContratoEmAndamento] = useState((despesa.parcela_atual ?? 1) > 1);
@@ -608,9 +615,14 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
                           inputMode="decimal" placeholder="Valor total da compra" className={inputClass}/>
                       )}
                     </div>
-                  ) : (
+                  ) : mostrarDataTermino || recorrenciaAte ? (
                     <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
-                      type="date" className={inputClass}/>
+                      type="date" className={inputClass} autoFocus/>
+                  ) : (
+                    <button type="button" onClick={() => setMostrarDataTermino(true)}
+                      className="w-full flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-border text-xs font-semibold text-text-3 hover:border-accent hover:text-accent transition">
+                      <Plus size={12} strokeWidth={2.5}/> Definir data de término
+                    </button>
                   )}
                 </div>
               </div>
@@ -735,14 +747,14 @@ function DetalheModal({ titulo, cor, itens, onClose }: {
 
 // ── Modal: todas as despesas (não só as do mês selecionado no Financeiro) ──
 
-function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
+function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar, onNova }: {
   empresaId: string; onClose: () => void;
-  onMarcarPago: (d: Despesa) => void; onEditar: (d: Despesa) => void;
+  onMarcarPago: (d: Despesa) => void; onEditar: (d: Despesa) => void; onNova: () => void;
 }) {
   useScrollLock();
   const [loading, setLoading] = useState(true);
   const [todas, setTodas] = useState<Despesa[]>([]);
-  const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'pago'>('todas');
+  const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'pago' | 'ativas'>('todas');
   const [filtroCategoria, setFiltroCategoria] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
 
@@ -758,16 +770,24 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
     })();
   }, [empresaId]);
 
+  // "Ativas" = despesas recorrentes cujo template ainda está em vigor (sem
+  // recorrencia_ate, ou com recorrencia_ate no futuro) — não é sobre o
+  // status pendente/pago de um lançamento específico, é sobre a
+  // recorrência em si ainda gerar lançamentos novos ou não.
+  const hojeIso = format(new Date(), 'yyyy-MM-dd');
+
   // Status + busca primeiro (a lista de categorias abaixo reflete só o que
   // sobrou desses dois filtros, pra não oferecer chip de categoria sem
   // nenhum resultado no momento).
   const porStatusEBusca = useMemo(() => {
     const q = busca.trim().toLowerCase();
     return todas.filter(d =>
-      (filtroStatus === 'todas' || d.status === filtroStatus) &&
+      (filtroStatus === 'todas' ? true
+        : filtroStatus === 'ativas' ? (d.recorrente && recorrenciaAindaAtiva(d.recorrencia_ate, hojeIso))
+        : d.status === filtroStatus) &&
       (q === '' || d.descricao.toLowerCase().includes(q) || (d.categoria ?? '').toLowerCase().includes(q))
     );
-  }, [todas, filtroStatus, busca]);
+  }, [todas, filtroStatus, busca, hojeIso]);
 
   const categorias = useMemo(() => {
     const contagem = new Map<string, number>();
@@ -803,19 +823,26 @@ function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar }: {
             <h2 className="font-serif text-lg text-text">Todas as despesas</h2>
             <p className="text-xs text-text-3 mt-0.5">{fmtBRL(totalPendenteGeral)} pendente no total · {todas.length} despesa{todas.length !== 1 ? 's' : ''}</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
-            <X size={16}/>
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button onClick={onNova}
+              className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
+              style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
+              <Plus size={13} strokeWidth={2.5}/> Nova
+            </button>
+            <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
+              <X size={16}/>
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2 px-5 py-3 border-b border-border flex-shrink-0">
-          <div className="flex gap-1.5">
-            {(['todas', 'pendente', 'pago'] as const).map(s => (
+          <div className="flex gap-1.5 overflow-x-auto">
+            {(['todas', 'pendente', 'pago', 'ativas'] as const).map(s => (
               <button key={s} onClick={() => setFiltroStatus(s)}
                 className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
                   filtroStatus === s ? 'bg-primary text-white border-primary' : 'bg-surface text-text-3 border-border hover:border-accent/40'
                 }`}>
-                {s === 'todas' ? 'Todas' : s === 'pendente' ? 'Pendentes' : 'Pagas'}
+                {s === 'todas' ? 'Todas' : s === 'pendente' ? 'Pendentes' : s === 'pago' ? 'Pagas' : 'Ativas'}
               </button>
             ))}
           </div>
@@ -1890,7 +1917,8 @@ export default function FinanceiroPage() {
       {verTodasDespesas && empresaId && (
         <TodasDespesasModal empresaId={empresaId} onClose={() => setVerTodasDespesas(false)}
           onMarcarPago={d => { setVerTodasDespesas(false); setMarcarPago(d); }}
-          onEditar={d => { setVerTodasDespesas(false); setEditarDespesa(d); }}/>
+          onEditar={d => { setVerTodasDespesas(false); setEditarDespesa(d); }}
+          onNova={() => { setVerTodasDespesas(false); setModalDespesa(true); }}/>
       )}
     </div>
   );
