@@ -129,7 +129,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       supabase.from('agendamentos').select('profissional_id,valor,data_hora_inicio')
         .eq('empresa_id', empresaId).eq('status', 'concluido')
         .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
-      supabase.from('agendamentos').select('valor')
+      supabase.from('agendamentos').select('profissional_id,valor')
         .eq('empresa_id', empresaId).eq('status', 'concluido')
         .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
       supabase.from('empresa_membros').select('user_id,percentual_comissao')
@@ -202,6 +202,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const brutoAnt = (agsMesAnt.data ?? []).reduce((s, a) => s + Number(a.valor), 0)
                  + (vendasMesAnt.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0)
                  + (taxasPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+  const comissoesAnt = (agsMesAnt.data ?? []).reduce(
+    (s, a) => s + Number(a.valor) * (comMap[a.profissional_id] ?? 0) / 100, 0,
+  );
+  const liquidoAnt = brutoAnt - comissoesAnt;
   const gastosAnt = (despMesAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
 
   const agsHoje       = agendamentosHoje.data ?? [];
@@ -220,8 +224,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const perdidosMes      = agsStatusList.filter(a => a.status === 'cancelado' || a.status === 'faltou').length;
   const pctCancelamento  = totalAgsMes > 0 ? (perdidosMes / totalAgsMes) * 100 : 0;
 
-  const pctBruto = pct(bruto, brutoAnt);
-  const pctLucro = pct(lucro, brutoAnt - gastosAnt);
+  const pctBruto   = pct(bruto, brutoAnt);
+  const pctLiquido = pct(liquido, liquidoAnt);
+  // Antes comparava com "brutoAnt - gastosAnt" (sem descontar comissoesAnt) --
+  // base inconsistente com `lucro`, que já desconta comissão do mês atual.
+  const pctLucro   = pct(lucro, liquidoAnt - gastosAnt);
 
   // Clientes inativos: última visita há mais de 45 dias
   const cutoff45 = new Date(Date.now() - 45 * 86400000);
@@ -349,7 +356,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="grid gap-2 sm:gap-3 mb-4 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
         {[
           { label: 'Faturamento Bruto',    href: '/financeiro', value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
-          { label: 'Faturamento Líquido',  href: '/financeiro', value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
+          { label: 'Faturamento Líquido',  href: '/financeiro', value: fmt(liquido),     color: 'var(--color-primary)', delta: pctLiquido, sub: null,       icon: Wallet          },
           { label: 'Lucro do mês',  href: '/financeiro', value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: null, icon: Wallet },
           { label: 'Despesas', href: '/financeiro', value: fmt(gastos), color: 'var(--color-rose)', delta: (() => { const d = pct(gastos, gastosAnt); return d === null ? null : -d; })(), sub: null, icon: Receipt },
           { label: 'Comissões',     href: '/equipe', value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} pendente` : 'Em dia', icon: BadgeDollarSign },
@@ -358,7 +365,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <Link key={label} href={href} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0 block transition-opacity hover:opacity-80"
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
             <div className="flex items-start justify-between mb-2 gap-1">
-              <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.3 }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
             <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
@@ -385,7 +392,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <Link key={label} href={href} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0 block transition-opacity hover:opacity-80"
             style={{ '--bm-i': i + 3, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
             <div className="flex items-start justify-between mb-2 gap-1">
-              <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.3 }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
             <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
