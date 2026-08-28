@@ -1,16 +1,23 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Clock, Edit3, X, Trash2, Package2, Layers, Zap, EyeOff, ChevronDown } from 'lucide-react';
+import { Plus, Clock, Edit3, X, Trash2, Package2, Layers, Zap, EyeOff, ChevronDown, Tags } from 'lucide-react';
 import {
   IconCilios, IconSobrancelhas, IconDepilacao, IconUnhas,
   IconPele, IconDermaplaning, IconMaquiagem, IconOutros,
+  CategoriaIcon, CategoriaIconCustom,
 } from '@/components/CategoriaIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ExportButton } from '@/components/ExportButton';
+import { CategoriaPicker } from '@/components/CategoriaPicker';
+import { CategoriasManagerModal } from '@/components/CategoriasManagerModal';
+import {
+  resolverCategoriaServico, bgDaCor,
+  type CategoriaCustom, type CategoriaResolvida,
+} from '@shared/categorias';
 
 const supabase = createClient();
 
@@ -22,7 +29,7 @@ type CategoriaKey =
 
 type Servico = {
   id: string; empresa_id: string; nome: string; descricao?: string;
-  categoria: CategoriaKey; preco: number; custo: number;
+  categoria: string | null; categoria_id?: string | null; preco: number; custo: number;
   duracao_minutos: number; ativo: boolean;
 };
 
@@ -39,7 +46,6 @@ const CATEGORIAS: { key: CategoriaKey; label: string; icon: React.ElementType; c
   { key: 'outros',        label: 'Outros',        icon: IconOutros,       cor: '#6B7280', bg: '#F3F4F6' },
 ];
 
-const CAT_MAP = Object.fromEntries(CATEGORIAS.map(c => [c.key, c])) as Record<CategoriaKey, typeof CATEGORIAS[0]>;
 
 const DURACOES = [
   { label: '30 min', valor: 30  },
@@ -71,7 +77,7 @@ const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-w
 // ── Modal criar / editar ──────────────────────────────────────
 
 type ModalState =
-  | { modo: 'criar'; categoria?: CategoriaKey }
+  | { modo: 'criar'; categoria?: CategoriaKey; categoriaId?: string }
   | { modo: 'editar'; servico: Servico };
 
 type InsumoItem = {
@@ -81,19 +87,27 @@ type InsumoItem = {
   quantidade: string; // string p/ input controlado
 };
 
-function ServicoModal({ empresaId, state, onClose, onSalvo }: {
+function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCriada }: {
   empresaId: string;
   state: ModalState;
+  customs: CategoriaCustom[];
   onClose: () => void;
   onSalvo: (s: Servico) => void;
+  onCustomCriada: (c: CategoriaCustom) => void;
 }) {
   useScrollLock();
   const editando = state.modo === 'editar' ? state.servico : null;
-  const catInicial: CategoriaKey = editando?.categoria ?? (state.modo === 'criar' ? (state.categoria ?? 'outros') : 'outros');
+  const categoriaIdInicial: string | null = editando
+    ? (editando.categoria_id ?? null)
+    : (state.modo === 'criar' ? (state.categoriaId ?? null) : null);
+  const categoriaInicial: string | null = categoriaIdInicial
+    ? null
+    : (editando?.categoria ?? (state.modo === 'criar' ? (state.categoria ?? 'outros') : 'outros'));
 
   const [nome,        setNome]        = useState(editando?.nome      ?? '');
   const [descricao,   setDescricao]   = useState(editando?.descricao ?? '');
-  const [categoria,   setCategoria]   = useState<CategoriaKey>(catInicial);
+  const [categoria,   setCategoria]   = useState<string | null>(categoriaInicial);
+  const [categoriaId, setCategoriaId] = useState<string | null>(categoriaIdInicial);
   const [preco,       setPreco]       = useState(editando ? String(editando.preco) : '');
   const [custo,       setCusto]       = useState(editando && editando.custo > 0 ? String(editando.custo) : '');
   const duracaoInicial = editando?.duracao_minutos ?? 60;
@@ -175,7 +189,8 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
       empresa_id:      empresaId,
       nome:            nome.trim(),
       descricao:       descricao.trim() || null,
-      categoria,
+      categoria:       categoriaId ? null : categoria,
+      categoria_id:    categoriaId,
       preco:           parseValor(preco),
       custo:           parseValor(custo),
       duracao_minutos: duracao,
@@ -205,10 +220,10 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
     return () => clearTimeout(t);
   }, [sucesso]);
 
-  const catAtual = CAT_MAP[categoria];
+  const catAtual = resolverCategoriaServico(categoria, categoriaId, customs);
 
   if (sucesso) {
-    const catSucesso = CAT_MAP[sucesso.categoria] ?? CAT_MAP.outros;
+    const catSucesso = resolverCategoriaServico(sucesso.categoria, sucesso.categoria_id, customs);
     return (
       <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
@@ -267,26 +282,14 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
           {/* Categoria */}
           <div>
             <label className={labelClass}>Categoria</label>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORIAS.map(({ key, label, icon: Icon, cor, bg }) => {
-                const ativo = categoria === key;
-                return (
-                  <button key={key} type="button" onClick={() => setCategoria(key)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition"
-                    style={{
-                      backgroundColor: ativo ? bg : undefined,
-                      borderColor: ativo ? cor : undefined,
-                      color: ativo ? cor : undefined,
-                    }}
-                    data-inactive={!ativo || undefined}>
-                    <Icon size={12} strokeWidth={2}
-                      style={{ color: ativo ? cor : undefined }}
-                      className={!ativo ? 'text-text-4' : ''}/>
-                    <span className={!ativo ? 'text-text-3' : ''}>{label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <CategoriaPicker
+              empresaId={empresaId}
+              customs={customs}
+              categoria={categoria}
+              categoriaId={categoriaId}
+              onSelect={(c, id) => { setCategoria(c); setCategoriaId(id); }}
+              onCustomCriada={onCustomCriada}
+            />
           </div>
 
           {/* Preço e Custo */}
@@ -399,7 +402,9 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
           {/* Preview */}
           <div className="rounded-xl p-3.5 flex items-center gap-3 border"
             style={{ backgroundColor: catAtual.bg, borderColor: `${catAtual.cor}30` }}>
-            <catAtual.icon size={28} strokeWidth={1.5} style={{ color: catAtual.cor, flexShrink: 0 }}/>
+            {catAtual.iconeCustom
+              ? <CategoriaIconCustom name={catAtual.iconeCustom} size={28} strokeWidth={1.5} style={{ color: catAtual.cor, flexShrink: 0 }}/>
+              : <CategoriaIcon categoria={catAtual.iconeBuiltin ?? 'outros'} size={28} strokeWidth={1.5} style={{ color: catAtual.cor, flexShrink: 0 }}/>}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-text truncate">{nome || 'Nome do serviço'}</p>
               <p className="text-xs text-text-3 mt-0.5">
@@ -473,19 +478,17 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
 
 // ── Card de serviço ───────────────────────────────────────────
 
-function ServicoCard({ servico, onToggle, onEdit, onDelete, onCancelDelete, excluindo }: {
+function ServicoCard({ servico, resolvida, onToggle, onEdit, onDelete, onCancelDelete, excluindo }: {
   servico: Servico;
+  resolvida: CategoriaResolvida;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onCancelDelete: () => void;
   excluindo: boolean;
 }) {
-  const cat = CAT_MAP[servico.categoria] ?? CAT_MAP.outros;
-  const Icon = cat.icon;
-
   let hue = 0;
-  for (let i = 0; i < cat.key.length; i++) hue = (hue * 31 + cat.key.charCodeAt(i)) % 360;
+  for (let i = 0; i < resolvida.chave.length; i++) hue = (hue * 31 + resolvida.chave.charCodeAt(i)) % 360;
 
   return (
     <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', opacity: servico.ativo ? 1 : 0.5, transition: 'opacity 0.2s' }}>
@@ -495,7 +498,9 @@ function ServicoCard({ servico, onToggle, onEdit, onDelete, onCancelDelete, excl
         {/* Ícone + nome/descrição */}
         <div className="flex items-start gap-3 flex-1 min-w-0">
           <div style={{ width: 36, height: 36, borderRadius: 12, background: `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Icon size={15} strokeWidth={2} color="white"/>
+            {resolvida.iconeCustom
+              ? <CategoriaIconCustom name={resolvida.iconeCustom} size={15} strokeWidth={2} color="white"/>
+              : <CategoriaIcon categoria={resolvida.iconeBuiltin ?? 'outros'} size={15} strokeWidth={2} color="white"/>}
           </div>
           <div className="flex-1 min-w-0">
             <p style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{servico.nome}</p>
@@ -565,15 +570,17 @@ function ServicoCard({ servico, onToggle, onEdit, onDelete, onCancelDelete, excl
 
 export default function ServicosPage() {
   const [servicos,    setServicos]    = useState<Servico[]>([]);
+  const [categorias,  setCategorias]  = useState<CategoriaCustom[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [empresaId,   setEmpresaId]   = useState<string | null>(null);
   const [modal,       setModal]       = useState<ModalState | null>(null);
-  const [colapsos,    setColapsos]    = useState<Set<CategoriaKey>>(new Set(CATEGORIAS.map(c => c.key)));
+  const [gerenciarCategorias, setGerenciarCategorias] = useState(false);
+  const [colapsos,    setColapsos]    = useState<Set<string>>(new Set(CATEGORIAS.map(c => c.key)));
   const [excluindoId,   setExcluindoId]   = useState<string | null>(null);
   const [toastErro,     setToastErro]     = useState('');
   const [toastSucesso,  setToastSucesso]  = useState('');
 
-  function toggleColapso(key: CategoriaKey) {
+  function toggleColapso(key: string) {
     setColapsos(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
@@ -589,9 +596,16 @@ export default function ServicosPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
       setEmpresaId(membro.empresa_id);
-      const { data } = await supabase.from('servicos').select('*')
-        .eq('empresa_id', membro.empresa_id).order('categoria').order('nome');
-      setServicos((data ?? []) as Servico[]);
+      const [{ data: servs }, { data: cats }] = await Promise.all([
+        supabase.from('servicos').select('*')
+          .eq('empresa_id', membro.empresa_id).order('categoria').order('nome'),
+        supabase.from('categorias_servico').select('*')
+          .eq('empresa_id', membro.empresa_id).order('nome'),
+      ]);
+      setServicos((servs ?? []) as Servico[]);
+      const catsList = (cats ?? []) as CategoriaCustom[];
+      setCategorias(catsList);
+      setColapsos(prev => { const n = new Set(prev); catsList.forEach(c => n.add(c.id)); return n; });
       setLoading(false);
     })();
   }, []);
@@ -615,12 +629,11 @@ export default function ServicosPage() {
   }
 
   function onSalvo(novo: Servico) {
+    const chaveOrd = (s: Servico) => s.categoria ?? s.categoria_id ?? '';
     setServicos(prev => {
       const existe = prev.find(x => x.id === novo.id);
-      if (existe) return prev.map(x => x.id === novo.id ? novo : x)
-        .sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nome.localeCompare(b.nome));
-      return [...prev, novo]
-        .sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nome.localeCompare(b.nome));
+      const lista = existe ? prev.map(x => x.id === novo.id ? novo : x) : [...prev, novo];
+      return lista.sort((a, b) => chaveOrd(a).localeCompare(chaveOrd(b)) || a.nome.localeCompare(b.nome));
     });
     setModal(null);
   }
@@ -628,10 +641,23 @@ export default function ServicosPage() {
   const total  = servicos.length;
   const ativos = servicos.filter(s => s.ativo).length;
 
-  // Agrupa por categoria na ordem definida
-  const porCategoria = CATEGORIAS.map(cat => ({
-    cat,
-    items: servicos.filter(s => s.categoria === cat.key),
+  // Grupos: 8 built-ins na ordem fixa + personalizadas por nome.
+  const gruposBase: {
+    chave: string; label: string; cor: string; bg: string;
+    iconeBuiltin?: CategoriaKey; iconeCustom?: string; categoriaKey?: CategoriaKey; categoriaId?: string;
+  }[] = [
+    ...CATEGORIAS.map(c => ({
+      chave: c.key as string, label: c.label, cor: c.cor, bg: c.bg,
+      iconeBuiltin: c.key, categoriaKey: c.key,
+    })),
+    ...categorias.map(c => ({
+      chave: c.id, label: c.nome, cor: c.cor, bg: bgDaCor(c.cor),
+      iconeCustom: c.icone, categoriaId: c.id,
+    })),
+  ];
+  const porCategoria = gruposBase.map(grupo => ({
+    grupo,
+    items: servicos.filter(s => resolverCategoriaServico(s.categoria, s.categoria_id, categorias).chave === grupo.chave),
   })).filter(g => g.items.length > 0);
 
   return (
@@ -664,7 +690,7 @@ export default function ServicosPage() {
             title="Catálogo de Serviços"
             columns={[
               { header: 'Nome',      accessor: (s: Servico) => s.nome,                                                                                     width: 28 },
-              { header: 'Categoria', accessor: (s: Servico) => CAT_MAP[s.categoria]?.label ?? s.categoria,                                                   width: 16 },
+              { header: 'Categoria', accessor: (s: Servico) => resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label,                      width: 16 },
               { header: 'Duração',   accessor: (s: Servico) => fmtDuracao(s.duracao_minutos),                                                                width: 12 },
               { header: 'Preço',     accessor: (s: Servico) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(s.preco),       width: 14 },
               { header: 'Custo',     accessor: (s: Servico) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(s.custo),       width: 14 },
@@ -672,6 +698,11 @@ export default function ServicosPage() {
             ]}
             getData={() => servicos}
           />
+          <button onClick={() => setGerenciarCategorias(true)}
+            title="Gerenciar categorias"
+            className="flex items-center gap-1.5 px-3 h-10 rounded-2xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+            <Tags size={15} strokeWidth={2}/> Categorias
+          </button>
           <button onClick={() => setModal({ modo: 'criar' })} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
             style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
             <Plus size={15} strokeWidth={2.5}/> Novo serviço
@@ -746,36 +777,39 @@ export default function ServicosPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-8">
-          {porCategoria.map(({ cat, items }) => {
-            const Icon = cat.icon;
-            const colapsado = colapsos.has(cat.key);
+          {porCategoria.map(({ grupo, items }) => {
+            const colapsado = colapsos.has(grupo.chave);
             return (
-              <div key={cat.key}>
+              <div key={grupo.chave}>
                 {/* Header da categoria */}
                 <div className="flex items-center gap-2.5 mb-3 rounded-2xl pl-2.5 pr-2 py-2"
-                  style={{ background: cat.bg, border: `1px solid ${cat.cor}30` }}>
+                  style={{ background: grupo.bg, border: `1px solid ${grupo.cor}30` }}>
                   <button
-                    onClick={() => toggleColapso(cat.key)}
+                    onClick={() => toggleColapso(grupo.chave)}
                     className="flex items-center gap-2.5 flex-1 min-w-0 group"
                     title={colapsado ? 'Expandir' : 'Colapsar'}>
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm" style={{ background: cat.cor }}>
-                      <Icon size={17} strokeWidth={2} style={{ color: '#fff' }}/>
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm" style={{ background: grupo.cor }}>
+                      {grupo.iconeCustom
+                        ? <CategoriaIconCustom name={grupo.iconeCustom} size={17} strokeWidth={2} style={{ color: '#fff' }}/>
+                        : <CategoriaIcon categoria={grupo.iconeBuiltin ?? 'outros'} size={17} strokeWidth={2} style={{ color: '#fff' }}/>}
                     </div>
-                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 800, letterSpacing: '0.02em', color: cat.cor }}>
-                      {cat.label}
+                    <span style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 800, letterSpacing: '0.02em', color: grupo.cor }}>
+                      {grupo.label}
                     </span>
                     <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-ink3)' }}>
                       {items.length} {items.length === 1 ? 'serviço' : 'serviços'}
                     </span>
                     <ChevronDown
                       size={15} strokeWidth={2.5}
-                      style={{ color: cat.cor, transition: 'transform 0.2s', transform: colapsado ? 'rotate(-90deg)' : 'rotate(0deg)', flexShrink: 0 }}/>
+                      style={{ color: grupo.cor, transition: 'transform 0.2s', transform: colapsado ? 'rotate(-90deg)' : 'rotate(0deg)', flexShrink: 0 }}/>
                   </button>
                   <button
-                    onClick={() => setModal({ modo: 'criar', categoria: cat.key })}
-                    title={`Novo serviço em ${cat.label}`}
+                    onClick={() => setModal(grupo.categoriaId
+                      ? { modo: 'criar', categoriaId: grupo.categoriaId }
+                      : { modo: 'criar', categoria: grupo.categoriaKey })}
+                    title={`Novo serviço em ${grupo.label}`}
                     className="w-7 h-7 rounded-xl flex items-center justify-center border transition flex-shrink-0"
-                    style={{ borderColor: `${cat.cor}40`, color: cat.cor, background: 'var(--color-surface)' }}>
+                    style={{ borderColor: `${grupo.cor}40`, color: grupo.cor, background: 'var(--color-surface)' }}>
                     <Plus size={13} strokeWidth={2.5}/>
                   </button>
                 </div>
@@ -788,6 +822,7 @@ export default function ServicosPage() {
                         <div key={s.id} className="bm-stagger" style={{ '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
                           <ServicoCard
                             servico={s}
+                            resolvida={resolverCategoriaServico(s.categoria, s.categoria_id, categorias)}
                             onToggle={() => toggleAtivo(s)}
                             onEdit={() => setModal({ modo: 'editar', servico: s })}
                             excluindo={excluindoId === s.id}
@@ -810,8 +845,22 @@ export default function ServicosPage() {
         <ServicoModal
           empresaId={empresaId}
           state={modal}
+          customs={categorias}
           onClose={() => setModal(null)}
-          onSalvo={onSalvo}/>
+          onSalvo={onSalvo}
+          onCustomCriada={(c) => setCategorias(prev => [...prev, c].sort((a, b) => a.nome.localeCompare(b.nome)))}/>
+      )}
+
+      {gerenciarCategorias && (
+        <CategoriasManagerModal
+          customs={categorias}
+          contarUso={(id) => servicos.filter(s => s.categoria_id === id).length}
+          onClose={() => setGerenciarCategorias(false)}
+          onAtualizada={(c) => setCategorias(prev => prev.map(x => x.id === c.id ? c : x))}
+          onExcluida={(id) => {
+            setCategorias(prev => prev.filter(x => x.id !== id));
+            setServicos(prev => prev.map(s => s.categoria_id === id ? { ...s, categoria_id: null, categoria: null } : s));
+          }}/>
       )}
     </div>
   );
