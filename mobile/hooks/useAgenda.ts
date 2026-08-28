@@ -3,6 +3,7 @@ import { startOfDay, endOfDay, format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import type { Agendamento } from '@/types';
+import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -21,6 +22,8 @@ export interface AgendamentoCompleto extends Agendamento {
   profissional: { id: string; nome: string; foto_url?: string };
   servico:      { id: string; nome: string; duracao_minutos: number; categoria?: string; categoria_id?: string | null };
   categoria:    CategoriaServico;
+  /** Aparência resolvida da categoria (built-in ou personalizada). */
+  categoriaResolvida?: { label: string; cor: string; bg: string; iconeCustom?: string; iconeBuiltin?: CategoriaServico };
 }
 
 export interface ProfissionalAgenda {
@@ -84,7 +87,7 @@ export function useAgendamentoDia(dia: Date, profissionalFiltro?: string) {
           *,
           cliente:users!agendamentos_cliente_id_fkey(id, nome, telefone, foto_url),
           profissional:users!agendamentos_profissional_id_fkey(id, nome, foto_url),
-          servico:servicos(id, nome, duracao_minutos, categoria)
+          servico:servicos(id, nome, duracao_minutos, categoria, categoria_id)
         `)
         .eq('empresa_id', empresaId!)
         .gte('data_hora_inicio', startOfDay(dia).toISOString())
@@ -96,13 +99,21 @@ export function useAgendamentoDia(dia: Date, profissionalFiltro?: string) {
         query = query.eq('profissional_id', profissionalFiltro);
       }
 
-      const { data, error } = await query;
+      const [{ data, error }, { data: cats }] = await Promise.all([
+        query,
+        supabase.from('categorias_servico').select('*').eq('empresa_id', empresaId!).order('nome'),
+      ]);
       if (error) throw error;
+      const customs = (cats ?? []) as CategoriaCustom[];
 
-      return (data ?? []).map((ag: any) => ({
-        ...ag,
-        categoria: resolverCategoria(ag.servico?.categoria),
-      })) as AgendamentoCompleto[];
+      return (data ?? []).map((ag: any) => {
+        const r = resolverCategoriaServico(ag.servico?.categoria, ag.servico?.categoria_id, customs);
+        return {
+          ...ag,
+          categoria: resolverCategoria(ag.servico?.categoria),
+          categoriaResolvida: { label: r.label, cor: r.cor, bg: r.bg, iconeCustom: r.iconeCustom, iconeBuiltin: r.iconeBuiltin },
+        };
+      }) as AgendamentoCompleto[];
     },
   });
 }
