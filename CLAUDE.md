@@ -375,6 +375,39 @@ bruto (Dashboard, Financeiro e Relatórios somam `taxas_reserva` com `paga_em` p
 
 ---
 
+### Sessão 2026-08-28 — Ajustes de UI (despesas/KPIs) + categorias de serviço personalizadas
+
+*Escopo, num PR só (#113): (Parte A) linha de metadados das despesas mais legível (10→11px,*
+*cor um tom acima, `Recorrente`/`(X/Y)` em semibold) e valores de KPI do Financeiro que cortavam*
+*(`truncate` → `whitespace-nowrap tabular-nums`, grid 3-col só a partir de `lg` para não espremer*
+*ao lado da sidebar) — web e mobile onde aplicável; (Parte B) feature: cada empresa cadastra*
+*categorias de serviço próprias (nome + cor de paleta curada + ícone de conjunto curado de 12*
+*nomes lucide) além das 8 fixas. Tabela `categorias_servico` (migration 063), `servicos.categoria_id`*
+*com `on delete set null` e CHECK XOR contra `categoria` texto. Criação inline no form de serviço,*
+*mini-gerenciador na tela Serviços, consumo resolvido em Serviços/Agenda/Comissões nas duas*
+*plataformas via `resolverCategoriaServico` (função pura nova em `shared/categorias.ts`). Parte A*
+*direto; Parte B via brainstorming→spec→plano→execução inline (12 tasks, tsc+testes por task).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web em todas as 12 tasks; mobile mantém exatamente os 10 erros pré-existentes (conjunto idêntico ao capturado no início), nenhum novo |
+| UX / Padrões    | 9.0  | `CategoriaPicker` reaproveita o visual dos chips de categoria já existentes (mesmo formato pílula, cor ativa = cor da categoria); mini-gerenciador espelha a estrutura de modal de `MarcarPagoModal`; as 8 fixas continuam com os ícones SVG desenhados à mão, intactas |
+| Segurança       | 9.0  | RLS da tabela nova espelha `despesas` (SELECT p/ membro, escrita só gestor/owner via `is_gestor_ou_owner`); CHECK `servicos_categoria_xor` impede os dois vínculos preenchidos juntos; erro de permissão tratado no cliente sem quebrar o fluxo de cadastro do serviço |
+| Documentação    | 9.0  | Spec + plano completos em `docs/superpowers/`; JSDoc pt-BR nos 3 helpers novos do shared; cabeçalho da migration 063 explica o modelo `categoria` XOR `categoria_id` e o `on delete set null` |
+| Arquitetura     | 9.5  | `resolverCategoriaServico(categoria, categoria_id, customs)` como função pura única, testada, consumida por 5 telas em 2 plataformas; a tela Serviços mantém sua cópia local `CATEGORIAS`/`CategoriaKey` (só as 8 fixas) e ganha o caminho custom por cima, sem refatoração ampla |
+| Performance     | 9.0  | Toda tela que passou a precisar das custom carrega `categorias_servico` numa query paralela dentro do `Promise.all` existente (sem waterfall); mobile agenda dobrou a query do dia com a de categorias em `Promise.all` |
+| Visual (UI)     | —    | Sem conta de teste para login local — verificação visual não executada, como nas sessões anteriores |
+| **Completude**  | 9.0  | Migration + shared + 6 telas web + 5 telas mobile + 2 componentes novos por plataforma; corrige de brinde um bug real (serviço com categoria fora das 8 fixas sumia da tela Serviços porque o agrupamento descartava grupos vazios) |
+| **Proatividade**| 9.0  | Estendi o resolver também ao `ComissoesProfissionalView` (o plano só citava o do gestor — mesmo padrão, serviço de categoria custom apareceria cinza); registrei como achado fora de escopo que `public.servicos` só tem policy de SELECT nos arquivos de migration (descompasso pré-existente, não corrigido) |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Pendências para o PR entrar em produção:**
+- Aplicar a migration `063_categorias_servico.sql` (`supabase db push`) — a coluna `categoria_id` e a tabela nova são pré-requisito do código; sem isso as telas de serviço quebram ao carregar. Mesma pendência da migration `062` (forma de pagamento das taxas), que também segue sem aplicar.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
