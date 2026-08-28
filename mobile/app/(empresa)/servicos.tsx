@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { Plus, Clock, Edit3 } from 'lucide-react-native';
+import { Plus, Clock, Edit3, Tags } from 'lucide-react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useFonts,
@@ -22,10 +22,23 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
-import { resolverCategoria, CATEGORIA_CONFIG } from '@/hooks/useAgenda';
-import { CategoriaIcon, CATEGORIA_COR, CATEGORIA_BG } from '@/components/CategoriaIcon';
+import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
+import { CategoriasManagerModal } from '@/components/CategoriasManagerModal';
+import {
+  resolverCategoriaServico, bgDaCor,
+  type CategoriaCustom, type CategoriaServico,
+} from '@shared/categorias';
 import type { Servico } from '@/types';
-import type { CategoriaServico } from '@/components/CategoriaIcon';
+
+/** Cor/fundo/label/ícone de uma chave de categoria resolvida (built-in ou id de personalizada). */
+function infoChave(chave: string, customs: CategoriaCustom[]): {
+  cor: string; bg: string; label: string; iconeBuiltin?: CategoriaServico; iconeCustom?: string;
+} {
+  const c = customs.find((x) => x.id === chave);
+  if (c) return { cor: c.cor, bg: bgDaCor(c.cor), label: c.nome, iconeCustom: c.icone };
+  const r = resolverCategoriaServico(chave, null, []);
+  return { cor: r.cor, bg: r.bg, label: r.label, iconeBuiltin: r.iconeBuiltin };
+}
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -48,14 +61,17 @@ function useServicos() {
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('servicos')
-        .select('*')
-        .eq('empresa_id', empresaId!)
-        .order('categoria')
-        .order('nome');
-      if (error) throw error;
-      return (data ?? []) as Servico[];
+      const [rServ, rCat] = await Promise.all([
+        supabase.from('servicos').select('*')
+          .eq('empresa_id', empresaId!).order('categoria').order('nome'),
+        supabase.from('categorias_servico').select('*')
+          .eq('empresa_id', empresaId!).order('nome'),
+      ]);
+      if (rServ.error) throw rServ.error;
+      return {
+        servicos: (rServ.data ?? []) as Servico[],
+        categorias: (rCat.data ?? []) as CategoriaCustom[],
+      };
     },
   });
 }
@@ -141,7 +157,10 @@ export default function Servicos() {
   const { empresaAtiva } = useAuthStore();
   const qc = useQueryClient();
 
-  const { data: servicos = [], isLoading, refetch } = useServicos();
+  const { data, isLoading, refetch } = useServicos();
+  const servicos = data?.servicos ?? [];
+  const categorias = data?.categorias ?? [];
+  const [gerenciar, setGerenciar] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -155,11 +174,10 @@ export default function Servicos() {
 
   if (!fontsLoaded) return null;
 
-  // Agrupa por categoria
+  // Agrupa por chave de categoria resolvida (built-in, id de personalizada, ou 'outros')
   const porCategoria = servicos.reduce<Record<string, Servico[]>>((acc, s) => {
-    const cat = s.categoria ?? 'outros';
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(s);
+    const chave = resolverCategoriaServico(s.categoria, s.categoria_id, categorias).chave;
+    (acc[chave] ??= []).push(s);
     return acc;
   }, {});
 
@@ -199,17 +217,30 @@ export default function Servicos() {
                 Serviços
               </Text>
             </View>
-            <TouchableOpacity
-              onPress={() => router.push('/(empresa)/novo-servico' as any)}
-              style={{
-                width: 38, height: 38,
-                backgroundColor: 'rgba(255,255,255,0.15)',
-                borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
-                borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              <Plus size={18} color="#fff" strokeWidth={2.5} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                onPress={() => setGerenciar(true)}
+                style={{
+                  width: 38, height: 38,
+                  backgroundColor: 'rgba(255,255,255,0.15)',
+                  borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+                  borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <Tags size={17} color="#fff" strokeWidth={2.2} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => router.push('/(empresa)/novo-servico' as any)}
+                style={{
+                  width: 38, height: 38,
+                  backgroundColor: 'rgba(255,255,255,0.15)',
+                  borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+                  borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <Plus size={18} color="#fff" strokeWidth={2.5} />
+              </TouchableOpacity>
+            </View>
           </View>
         </LinearGradient>
 
@@ -242,15 +273,14 @@ export default function Servicos() {
         </MotiView>
 
         {/* ── Seções por categoria ── */}
-        {Object.entries(porCategoria).map(([cat, items], gi) => {
-          const catKey = resolverCategoria(cat) as CategoriaServico;
-          const cfg    = CATEGORIA_CONFIG[catKey];
-          const cor    = CATEGORIA_COR[catKey];
-          const bg     = CATEGORIA_BG[catKey];
+        {Object.entries(porCategoria).map(([chave, items], gi) => {
+          const info = infoChave(chave, categorias);
+          const cor  = info.cor;
+          const bg   = info.bg;
 
           return (
             <MotiView
-              key={cat}
+              key={chave}
               from={{ opacity: 0, translateY: 8 }}
               animate={{ opacity: 1, translateY: 0 }}
               transition={{ type: 'timing', duration: 320, delay: 80 + gi * 50 }}
@@ -263,10 +293,12 @@ export default function Servicos() {
                 borderRadius: 14, paddingHorizontal: 10, paddingVertical: 8,
               }}>
                 <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: cor, alignItems: 'center', justifyContent: 'center' }}>
-                  <CategoriaIcon categoria={catKey} size={16} color="#fff" />
+                  {info.iconeCustom
+                    ? <CategoriaIconCustom name={info.iconeCustom} size={16} color="#fff" />
+                    : <CategoriaIcon categoria={info.iconeBuiltin ?? 'outros'} size={16} color="#fff" />}
                 </View>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: cor }}>
-                  {cfg.label}
+                  {info.label}
                 </Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, marginLeft: 'auto' as any }}>
                   {items.length} {items.length === 1 ? 'serviço' : 'serviços'}
@@ -317,6 +349,18 @@ export default function Servicos() {
       >
         <Plus size={22} color="#fff" strokeWidth={2.5} />
       </TouchableOpacity>
+
+      <CategoriasManagerModal
+        visible={gerenciar}
+        customs={categorias}
+        contarUso={(cid) => servicos.filter((s) => s.categoria_id === cid).length}
+        onClose={() => setGerenciar(false)}
+        onAtualizada={() => qc.invalidateQueries({ queryKey: ['servicos-gestao'] })}
+        onExcluida={() => {
+          qc.invalidateQueries({ queryKey: ['servicos-gestao'] });
+          qc.invalidateQueries({ queryKey: ['servicos-empresa'] });
+        }}
+      />
     </View>
   );
 }
