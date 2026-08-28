@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StatusBar, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
@@ -22,11 +22,9 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
-import {
-  CategoriaIcon,
-  CATEGORIA_COR, CATEGORIA_BG,
-  type CategoriaServico,
-} from '@/components/CategoriaIcon';
+import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
+import { CategoriaPicker } from '@/components/CategoriaPicker';
+import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 import SuccessCheck from '@/components/SuccessCheck';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -38,17 +36,6 @@ const C = {
   green: '#0D7E5F',
   text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
 };
-
-const CATEGORIAS: { key: CategoriaServico; label: string }[] = [
-  { key: 'cilios',       label: 'Cílios'        },
-  { key: 'sobrancelhas', label: 'Sobrancelhas'  },
-  { key: 'depilacao',    label: 'Depilação'     },
-  { key: 'unhas',        label: 'Unhas'         },
-  { key: 'pele',         label: 'Pele'          },
-  { key: 'dermaplaning', label: 'Dermaplaning'  },
-  { key: 'maquiagem',    label: 'Maquiagem'     },
-  { key: 'outros',       label: 'Outros'        },
-];
 
 const DURACOES = [
   { label: '30 min', valor: 30 },
@@ -87,7 +74,9 @@ export default function NovoServico() {
 
   const [nome,      setNome]      = useState('');
   const [descricao, setDescricao] = useState('');
-  const [categoria, setCategoria] = useState<CategoriaServico>('outros');
+  const [categoria,   setCategoria]   = useState<string | null>('outros');
+  const [categoriaId, setCategoriaId] = useState<string | null>(null);
+  const [customs,     setCustoms]      = useState<CategoriaCustom[]>([]);
   const [preco,     setPreco]     = useState('');
   const [custo,     setCusto]     = useState('');
   const [duracao,   setDuracao]   = useState(60);
@@ -99,6 +88,12 @@ export default function NovoServico() {
     PlusJakartaSans_400Regular, PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold,
   });
+
+  useEffect(() => {
+    if (!empresaAtiva) return;
+    supabase.from('categorias_servico').select('*').eq('empresa_id', empresaAtiva.id).order('nome')
+      .then(({ data }) => setCustoms((data ?? []) as CategoriaCustom[]));
+  }, [empresaAtiva]);
 
   if (!fontsLoaded) return null;
 
@@ -116,7 +111,8 @@ export default function NovoServico() {
       empresa_id:       empresaAtiva.id,
       nome:             nome.trim(),
       descricao:        descricao.trim() || null,
-      categoria,
+      categoria:        categoriaId ? null : categoria,
+      categoria_id:     categoriaId,
       preco:            parseValor(preco),
       custo:            parseValor(custo),
       duracao_minutos:  duracao,
@@ -151,8 +147,9 @@ export default function NovoServico() {
     );
   }
 
-  const catCor = CATEGORIA_COR[categoria];
-  const catBg  = CATEGORIA_BG[categoria];
+  const catRes = resolverCategoriaServico(categoria, categoriaId, customs);
+  const catCor = catRes.cor;
+  const catBg  = catRes.bg;
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: C.bg }}>
@@ -197,32 +194,14 @@ export default function NovoServico() {
 
           {/* Categoria */}
           <Campo label="Categoria">
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {CATEGORIAS.map(({ key, label }) => {
-                const ativo = categoria === key;
-                return (
-                  <TouchableOpacity
-                    key={key}
-                    onPress={() => setCategoria(key)}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 6,
-                      paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
-                      backgroundColor: ativo ? CATEGORIA_BG[key] : C.surface,
-                      borderWidth: 1,
-                      borderColor: ativo ? CATEGORIA_COR[key] : C.border,
-                    }}
-                  >
-                    <CategoriaIcon categoria={key} size={16} color={ativo ? CATEGORIA_COR[key] : C.text4} />
-                    <Text style={{
-                      fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12,
-                      color: ativo ? CATEGORIA_COR[key] : C.text3,
-                    }}>
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <CategoriaPicker
+              empresaId={empresaAtiva?.id ?? ''}
+              customs={customs}
+              categoria={categoria}
+              categoriaId={categoriaId}
+              onSelect={(c, id) => { setCategoria(c); setCategoriaId(id); }}
+              onCustomCriada={(c) => setCustoms((prev) => [...prev, c])}
+            />
           </Campo>
 
           {/* Preço e Custo */}
@@ -286,7 +265,9 @@ export default function NovoServico() {
 
           {/* Preview do card */}
           <View style={{ backgroundColor: catBg, borderWidth: 1, borderColor: `${catCor}30`, borderRadius: 14, padding: 14, marginBottom: 24, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <CategoriaIcon categoria={categoria} size={36} color={catCor} />
+            {catRes.iconeCustom
+              ? <CategoriaIconCustom name={catRes.iconeCustom} size={36} color={catCor} />
+              : <CategoriaIcon categoria={catRes.iconeBuiltin ?? 'outros'} size={36} color={catCor} />}
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>
                 {nome || 'Nome do serviço'}
