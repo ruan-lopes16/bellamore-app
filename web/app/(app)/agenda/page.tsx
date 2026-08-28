@@ -816,7 +816,7 @@ function NovoAgModal({
                 <Wallet size={13} strokeWidth={2.5}/> Taxa de reserva
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input
                   value={taxaReserva}
                   onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}

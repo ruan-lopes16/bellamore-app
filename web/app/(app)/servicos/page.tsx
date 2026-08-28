@@ -294,7 +294,7 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
             <div>
               <label className={labelClass}>Preço cobrado *</label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input value={preco} onChange={e => setPreco(e.target.value)}
                   inputMode="decimal" placeholder="0,00"
                   className={`${inputClass} pl-9`}/>
@@ -303,7 +303,7 @@ function ServicoModal({ empresaId, state, onClose, onSalvo }: {
             <div>
               <label className={labelClass}>Custo <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input value={custo} onChange={e => setCusto(e.target.value)}
                   inputMode="decimal" placeholder="0,00"
                   className={`${inputClass} pl-9`}/>

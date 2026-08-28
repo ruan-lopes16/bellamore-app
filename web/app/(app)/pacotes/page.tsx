@@ -223,7 +223,7 @@ function PacoteModal({
             <div>
               <label className={labelCls}>Preço *</label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input value={preco} onChange={e => setPreco(e.target.value)} inputMode="decimal" placeholder="0,00" required className={`${inputCls} pl-9`}/>
               </div>
             </div>
@@ -411,7 +411,7 @@ function VenderModal({
             <div>
               <label className={labelCls}>Valor cobrado</label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input value={valorPago} onChange={e => setValorPago(e.target.value)} inputMode="decimal" className={`${inputCls} pl-9`}/>
               </div>
             </div>

@@ -244,7 +244,7 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
               <input value={comissao} onChange={e => setComissao(e.target.value)}
                 inputMode="decimal" placeholder="0" min="0" max="100"
                 className={`${inputClass} pr-8`}/>
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">%</span>
             </div>
           </div>
           <CamposContratuais
@@ -392,7 +392,7 @@ function EditInfoModal({ prof, empresaId, onClose, onSalvo }: {
               <input value={comissao} onChange={e => setComissao(e.target.value)}
                 inputMode="decimal" placeholder="0" min="0" max="100"
                 className={`${inputClass} pr-8`}/>
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">%</span>
             </div>
           </div>
           <CamposContratuais

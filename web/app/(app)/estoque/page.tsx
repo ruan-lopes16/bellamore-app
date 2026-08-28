@@ -326,7 +326,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
               Custo unitário <span className="text-text-4 normal-case font-normal">(opcional)</span>
             </label>
             <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
               <input value={custo} onChange={e => setCusto(e.target.value)}
                 inputMode="decimal" placeholder="0,00" className={`${inputClass} pl-9`}/>
             </div>
@@ -340,7 +340,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
                 <span className="ml-1 text-green font-normal normal-case">(exibido no PDV)</span>
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input value={precoVenda} onChange={e => setPrecoVenda(e.target.value)}
                   inputMode="decimal" placeholder="0,00" className={`${inputClass} pl-9`}/>
               </div>
@@ -519,7 +519,7 @@ function MovModal({ produto, onClose, onSalvo }: {
             <div className="relative">
               <input value={qtd} onChange={e => setQtd(e.target.value)}
                 inputMode="decimal" placeholder="0" autoFocus className={inputClass}/>
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm">
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm pointer-events-none">
                 {produto.unidade}
               </span>
             </div>
@@ -892,7 +892,7 @@ export default function EstoquePage() {
       {/* Busca + filtro status */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
         <div className="relative flex-1">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-4" strokeWidth={2}/>
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-4 pointer-events-none" strokeWidth={2}/>
           <input value={busca} onChange={e => setBusca(e.target.value)}
             placeholder="Buscar produto..."
             className="w-full h-10 pl-10 pr-4 rounded-xl border border-border bg-surface text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"/>

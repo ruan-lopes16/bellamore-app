@@ -542,7 +542,7 @@ export default function VendasPage() {
                     <input value={descontoPct} onChange={e => setDescontoPct(e.target.value)}
                       inputMode="decimal" placeholder="0"
                       className={`${inputCls} pr-9`}/>
-                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">%</span>
                   </div>
                 </div>
               </div>

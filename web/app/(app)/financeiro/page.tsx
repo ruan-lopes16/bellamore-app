@@ -222,7 +222,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
           <div>
             <label className={labelClass}>Valor *</label>
             <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
               <input value={valorCalculadoPreview !== null ? formatValorMonetarioInput(valorCalculadoPreview) : valor}
                 onChange={e => setValor(e.target.value)}
                 readOnly={valorCalculadoPreview !== null}
@@ -387,7 +387,7 @@ function MarcarPagoModal({ despesa, onClose, onSalvo, onEditar }: {
         <div className="bg-red-soft rounded-xl p-4 mb-4">
           <label className="block text-xs text-red mb-2 text-center">Valor deste mês</label>
           <div className="relative">
-            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-red text-sm font-bold">R$</span>
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-red text-sm font-bold pointer-events-none">R$</span>
             <input value={valor} onChange={e => setValor(e.target.value)}
               inputMode="decimal" className={`${inputClass} pl-9 text-center text-2xl font-bold text-red bg-white/70 border-red/20`}/>
           </div>
@@ -519,7 +519,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
           <div>
             <label className={labelClass}>Valor *</label>
             <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
               <input value={valorCalculadoPreview !== null ? formatValorMonetarioInput(valorCalculadoPreview) : valor}
                 onChange={e => setValor(e.target.value)}
                 readOnly={valorCalculadoPreview !== null}
