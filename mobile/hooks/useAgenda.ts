@@ -19,7 +19,7 @@ export type CategoriaServico =
 export interface AgendamentoCompleto extends Agendamento {
   cliente:      { id: string; nome: string; telefone?: string; foto_url?: string };
   profissional: { id: string; nome: string; foto_url?: string };
-  servico:      { id: string; nome: string; duracao_minutos: number; categoria?: string };
+  servico:      { id: string; nome: string; duracao_minutos: number; categoria?: string; categoria_id?: string | null };
   categoria:    CategoriaServico;
 }
 
