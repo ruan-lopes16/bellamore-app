@@ -68,7 +68,7 @@ describe('trava de scroll nos modais embutidos', () => {
       'app/(app)/comissoes/ComissoesGestorView.tsx': 1,
       'app/(app)/equipe/page.tsx':                   2,
       'app/(app)/estoque/page.tsx':                  2,
-      'app/(app)/financeiro/page.tsx':               4,
+      'app/(app)/financeiro/page.tsx':               5,
       'app/(app)/pacotes/page.tsx':                  3,
       'app/(app)/servicos/page.tsx':                 1,
       'components/ConfirmDialog.tsx':                1,
