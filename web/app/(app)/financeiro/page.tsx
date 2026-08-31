@@ -503,6 +503,159 @@ function RetiradaModal({ empresaId, editando, onClose, onSalvo }: {
   );
 }
 
+// ── Modal Registrar devolução de empréstimo ──────────────────
+
+function DevolucaoModal({ retirada, saldo, empresaId, onClose, onSalvo }: {
+  retirada: RetiradaSocia; saldo: number; empresaId: string;
+  onClose: () => void; onSalvo: () => void;
+}) {
+  useScrollLock();
+  const sugestao = retirada.valor_parcela && saldo > 0
+    ? Math.min(Number(retirada.valor_parcela), saldo)
+    : saldo;
+  const [valor, setValor] = useState(formatValorMonetarioInput(sugestao));
+  const [data, setData] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [metodo, setMetodo] = useState<string>('');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  const valorNum = parseValorMonetario(valor);
+  const sobra = valorNum && valorNum > saldo ? valorNum - saldo : 0;
+
+  async function confirmar() {
+    setErro('');
+    const built = montarDevolucaoInsert(retirada.id, empresaId, valor, data, (metodo || null) as MetodoPagamentoRetirada | null);
+    if (!built.ok) { setErro(built.erro); return; }
+    setSalvando(true);
+    const { error } = await supabase.from('retiradas_socia_devolucoes').insert(built.payload).select('id');
+    setSalvando(false);
+    if (error) { setErro('Não foi possível salvar. Verifique se você é a dona da conta.'); return; }
+    onSalvo();
+  }
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
+        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Registrar devolução</p>
+        <p className="font-serif text-xl text-text mb-1">Saldo devedor {fmtBRL(saldo)}</p>
+        <div className="mt-4 mb-4">
+          <label className={labelClass}>Valor devolvido</label>
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+            <input value={valor} onChange={e => setValor(e.target.value)} inputMode="decimal" className={`${inputClass} pl-9`}/>
+          </div>
+          {sobra > 0 && <p className="text-[11px] text-amber mt-1">Isso quita o empréstimo e sobra {fmtBRL(sobra)}.</p>}
+        </div>
+        <div className="mb-4">
+          <label className={labelClass}>Data</label>
+          <input value={data} onChange={e => setData(e.target.value)} type="date" className={inputClass}/>
+        </div>
+        <div className="mb-5">
+          <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-2">Forma de pagamento <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
+          <div className="flex flex-wrap gap-1.5">
+            {METODOS_RETIRADA.map(k => (
+              <button key={k} type="button" onClick={() => setMetodo(prev => prev === k ? '' : k)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                  metodo === k ? 'text-white border-transparent' : 'bg-bg text-text-2 border-border hover:border-primary/40'
+                }`}
+                style={metodo === k ? { backgroundColor: METODO_CFG[k]?.cor } : undefined}>
+                {METODO_CFG[k]?.label ?? k}
+              </button>
+            ))}
+          </div>
+        </div>
+        {erro && <p className="text-red text-sm mb-2">{erro}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
+          <button onClick={confirmar} disabled={salvando} className="flex-1 h-10 rounded-xl bg-green text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+            {salvando ? 'Salvando...' : 'Confirmar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Converter empréstimo em retirada ───────────────────
+
+function ConverterModal({ retirada, saldo, onClose, onSalvo }: {
+  retirada: RetiradaSocia; saldo: number; onClose: () => void; onSalvo: () => void;
+}) {
+  useScrollLock();
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function confirmar() {
+    setErro(''); setSalvando(true);
+    const { error } = await supabase.from('retiradas_socia')
+      .update({ convertido_em: format(new Date(), 'yyyy-MM-dd') })
+      .eq('id', retirada.id).select('id');
+    setSalvando(false);
+    if (error) { setErro('Não foi possível converter. Verifique se você é a dona da conta.'); return; }
+    onSalvo();
+  }
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
+        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Converter em retirada</p>
+        <p className="font-serif text-xl text-text mb-3">{fmtBRL(saldo)} não serão devolvidos</p>
+        <p className="text-sm text-text-3 mb-5">
+          O saldo em aberto vira uma retirada definitiva na data de hoje. Sai do
+          &quot;a dona deve&quot; e passa a contar em &quot;Retiradas da dona&quot; no mês atual.
+        </p>
+        {erro && <p className="text-red text-sm mb-2">{erro}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
+          <button onClick={confirmar} disabled={salvando} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+            {salvando ? 'Convertendo...' : 'Converter'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Excluir retirada / empréstimo ──────────────────────
+
+function ExcluirRetiradaModal({ retirada, onClose, onSalvo }: {
+  retirada: RetiradaSocia; onClose: () => void; onSalvo: () => void;
+}) {
+  useScrollLock();
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function confirmar() {
+    setErro(''); setSalvando(true);
+    const { error } = await supabase.from('retiradas_socia').delete().eq('id', retirada.id).select('id');
+    setSalvando(false);
+    if (error) { setErro('Não foi possível excluir. Verifique se você é a dona da conta.'); return; }
+    onSalvo();
+  }
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
+        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Excluir lançamento</p>
+        <p className="font-serif text-xl text-text mb-3">
+          {retirada.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'} de {fmtBRL(Number(retirada.valor))}
+        </p>
+        <p className="text-sm text-text-3 mb-5">Isso apaga o lançamento e todas as devoluções ligadas a ele. Não dá pra desfazer.</p>
+        {erro && <p className="text-red text-sm mb-2">{erro}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
+          <button onClick={confirmar} disabled={salvando} className="flex-1 h-10 rounded-xl bg-red text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+            {salvando ? 'Excluindo...' : 'Excluir'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Modal Marcar como pago ────────────────────────────────────
 
 function MarcarPagoModal({ despesa, onClose, onSalvo }: {
@@ -1849,6 +2002,29 @@ export default function FinanceiroPage() {
           editando={editarRetirada}
           onClose={() => { setModalRetirada(false); setEditarRetirada(null); }}
           onSalvo={() => { setModalRetirada(false); setEditarRetirada(null); recarregar(); }}
+        />
+      )}
+      {devolucaoDe && empresaId && (
+        <DevolucaoModal
+          retirada={devolucaoDe} empresaId={empresaId}
+          saldo={saldoEmprestimo(Number(devolucaoDe.valor), devPorRetirada[devolucaoDe.id] ?? 0)}
+          onClose={() => setDevolucaoDe(null)}
+          onSalvo={() => { setDevolucaoDe(null); recarregar(); }}
+        />
+      )}
+      {converterEmRetirada && (
+        <ConverterModal
+          retirada={converterEmRetirada}
+          saldo={saldoEmprestimo(Number(converterEmRetirada.valor), devPorRetirada[converterEmRetirada.id] ?? 0)}
+          onClose={() => setConverterEmRetirada(null)}
+          onSalvo={() => { setConverterEmRetirada(null); recarregar(); }}
+        />
+      )}
+      {excluirRetirada && (
+        <ExcluirRetiradaModal
+          retirada={excluirRetirada}
+          onClose={() => setExcluirRetirada(null)}
+          onSalvo={() => { setExcluirRetirada(null); recarregar(); }}
         />
       )}
       {confirmarTaxaCanc && (
