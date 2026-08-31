@@ -3,7 +3,7 @@ import {
   getFechamentoForMonth,
   resolveFinanceiroKpis,
   somarPeriodoComFechamentos,
-} from '../../lib/financeiro/fechamentos-mensais';
+} from '@shared/fechamentos-mensais';
 
 describe('fechamentos financeiros mensais', () => {
   it('usa exatamente os quatro valores do fechamento historico', () => {
