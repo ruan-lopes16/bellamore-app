@@ -687,6 +687,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 export default function FinanceiroPage() {
   const [mesRef,   setMesRef]   = useState(new Date());
   const [empresaId,setEmpresaId]= useState<string | null>(null);
+  const [isOwner,  setIsOwner]  = useState(false);
   const [loading,  setLoading]  = useState(true);
 
   // Dados
@@ -725,7 +726,12 @@ export default function FinanceiroPage() {
       if (!user) return;
       const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (membro) { setEmpresaId(membro.empresa_id); }
+      if (membro) {
+        setEmpresaId(membro.empresa_id);
+        const { data: emp } = await supabase.from('empresas')
+          .select('owner_id').eq('id', membro.empresa_id).single();
+        setIsOwner(!!emp && emp.owner_id === user.id);
+      }
     })();
   }, []);
 

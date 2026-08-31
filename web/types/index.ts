@@ -317,6 +317,15 @@ export interface ServicoProduto {
   produto?: Pick<Produto, 'nome' | 'unidade'>;
 }
 
+// ── Retiradas e empréstimos da dona ──────────────────────────
+
+export type {
+  RetiradaSociaRow as RetiradaSocia,
+  RetiradaSociaDevolucaoRow as RetiradaSociaDevolucao,
+  RetiradaSociaTipo,
+  MetodoPagamentoRetirada,
+} from '@shared/retiradas-socia';
+
 // ── Helpers de form ───────────────────────────────────────────
 
 /** Opção para SearchSelect */
