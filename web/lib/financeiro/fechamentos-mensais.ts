@@ -51,6 +51,56 @@ export function resolveFinanceiroKpis(
   };
 }
 
+export type ValoresPorMes = {
+  receita: Record<string, number>;      // chave 'yyyy-MM' -> receita ao vivo (servicos + vendas + taxas)
+  comissoes: Record<string, number>;    // chave 'yyyy-MM' -> comissoes geradas ao vivo
+  taxasCartao: Record<string, number>;  // chave 'yyyy-MM' -> taxa de cartao (valor - valor_liquido)
+};
+
+/**
+ * Soma faturamento bruto, comissoes e taxa de cartao de um periodo que pode
+ * abranger varios meses, aplicando os fechamentos historicos importados
+ * (financeiro_ajustes_mensais) mes a mes — mesma regra de resolveFinanceiroKpis
+ * ja usada no Financeiro. Para cada mes de `mesesChave`: se existe um fechamento
+ * importado, ele substitui por inteiro receita + comissoes daquele mes (e zera a
+ * taxa de cartao, que nao faz parte do numero importado); senao, usa os valores
+ * ao vivo em `porMes`.
+ *
+ * Sem isso, Relatorios e Dashboard mostram receita zerada em meses cobertos so
+ * por importacao (sem agendamento/venda por tras), enquanto as despesas desses
+ * meses continuam contando — distorcendo o "Lucro real".
+ */
+export function somarPeriodoComFechamentos(
+  porMes: ValoresPorMes,
+  fechamentos: FinanceiroFechamentoRow[],
+  mesesChave: string[],
+): { bruto: number; comTot: number; taxasCartao: number } {
+  let bruto = 0;
+  let comTot = 0;
+  let taxasCartao = 0;
+
+  for (const chave of mesesChave) {
+    const kpis = resolveFinanceiroKpis(
+      {
+        receita: porMes.receita[chave] ?? 0,
+        comissoes: porMes.comissoes[chave] ?? 0,
+        gastos: 0,
+        taxasCartao: porMes.taxasCartao[chave] ?? 0,
+      },
+      getFechamentoForMonth(fechamentos, chave),
+    );
+    bruto += kpis.receita;
+    comTot += kpis.comissoes;
+    taxasCartao += kpis.taxasCartao;
+  }
+
+  return {
+    bruto: roundMoney(bruto),
+    comTot: roundMoney(comTot),
+    taxasCartao: roundMoney(taxasCartao),
+  };
+}
+
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }

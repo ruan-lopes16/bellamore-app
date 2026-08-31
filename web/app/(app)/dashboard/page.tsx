@@ -11,6 +11,11 @@ import {
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import {
+  type FinanceiroFechamentoRow,
+  getFechamentoForMonth,
+  somarPeriodoComFechamentos,
+} from '@/lib/financeiro/fechamentos-mensais';
 
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -117,7 +122,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
       totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
       todasAgsCompletas, clientesComAniversario, taxasPagasMes, taxasReservaPagasMes,
-      taxasPagasMesAnt, taxasReservaPagasMesAnt,
+      taxasPagasMesAnt, taxasReservaPagasMesAnt, fechamentosRows,
     ],
     agsStatusList,
   ] = await Promise.all([
@@ -178,6 +183,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       supabase.from('taxas_reserva').select('valor')
         .eq('empresa_id', empresaId).not('paga_em', 'is', null)
         .gte('paga_em', inicioMesAnt).lte('paga_em', fimMesAnt),
+      // Fechamentos importados do mês exibido e do anterior (comparativo).
+      supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
+        .eq('empresa_id', empresaId)
+        .gte('mes', format(startOfMonth(subMonths(mesRef, 1)), 'yyyy-MM-dd'))
+        .lte('mes', format(startOfMonth(mesRef), 'yyyy-MM-dd')),
     ]),
     buscarTodasPaginas<{ status: string }>((from, to) =>
       supabase.from('agendamentos').select('status')
@@ -195,17 +206,36 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const brutoVendas    = (vendasMes.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0);
   const brutoTaxas     = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
   const brutoReserva   = (taxasReservaPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-  const bruto          = brutoConcluido + brutoVendas + brutoTaxas + brutoReserva;
-  const comissoes      = (agsMes.data ?? []).reduce(
+  const brutoLive      = brutoConcluido + brutoVendas + brutoTaxas + brutoReserva;
+  const comissoesLive  = (agsMes.data ?? []).reduce(
     (s, a) => s + Number(a.valor) * (comMap[a.profissional_id] ?? 0) / 100, 0,
   );
-  const liquido  = bruto - comissoes;
-  const gastos   = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
-  const lucro    = liquido - gastos;
-  const brutoAnt = (agsMesAnt.data ?? []).reduce((s, a) => s + Number(a.valor), 0)
+  const brutoAntLive = (agsMesAnt.data ?? []).reduce((s, a) => s + Number(a.valor), 0)
                  + (vendasMesAnt.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0)
                  + (taxasPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0)
                  + (taxasReservaPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+
+  // Meses cobertos só por importação (financeiro_ajustes_mensais) não têm
+  // agendamento/venda por trás. O mês exibido — e o anterior, para o comparativo
+  // — são resolvidos contra o fechamento importado, mesma regra do Financeiro.
+  // Sem isso o Dashboard mostra faturamento/comissão/lucro zerados nesses meses.
+  const fechamentos  = (fechamentosRows.data ?? []) as FinanceiroFechamentoRow[];
+  const mesRefKey    = format(mesRef, 'yyyy-MM');
+  const mesRefAntKey = format(subMonths(mesRef, 1), 'yyyy-MM');
+  const { bruto, comTot: comissoes } = somarPeriodoComFechamentos(
+    { receita: { [mesRefKey]: brutoLive }, comissoes: { [mesRefKey]: comissoesLive }, taxasCartao: {} },
+    fechamentos,
+    [mesRefKey],
+  );
+  const { bruto: brutoAnt } = somarPeriodoComFechamentos(
+    { receita: { [mesRefAntKey]: brutoAntLive }, comissoes: {}, taxasCartao: {} },
+    fechamentos,
+    [mesRefAntKey],
+  );
+
+  const liquido  = bruto - comissoes;
+  const gastos   = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
+  const lucro    = liquido - gastos;
   const gastosAnt = (despMesAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
 
   const agsHoje       = agendamentosHoje.data ?? [];
@@ -216,7 +246,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const estoqueBaixoItems  = estoqueBaixo.data ?? [];
   const despPendentesItems = despPendentes.data ?? [];
   const totalComPendente   = (comissoesPendentes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
-  const totalComMes        = (comissoesMes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
+  const totalComMesLive    = (comissoesMes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
+  // Mês importado: usa a comissão do fechamento (mesmo número do Financeiro).
+  const totalComMes        = getFechamentoForMonth(fechamentos, mesRefKey)?.comissao ?? totalComMesLive;
   const comPendenteMes     = (comissoesMes.data ?? []).filter(c => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
   const totalAlertas       = estoqueBaixoItems.length + despPendentesItems.length + (totalComPendente > 0 ? 1 : 0);
 

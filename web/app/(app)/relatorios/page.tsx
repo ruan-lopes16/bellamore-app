@@ -43,6 +43,11 @@ import {
   startOfWeek, endOfWeek, isSameDay, addWeeks, addYears, startOfDay, endOfDay, differenceInCalendarDays,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import {
+  type FinanceiroFechamentoRow,
+  getFechamentoForMonth,
+  somarPeriodoComFechamentos,
+} from '@/lib/financeiro/fechamentos-mensais';
 
 const supabase = createClient();
 
@@ -350,7 +355,10 @@ export default function RelatoriosPage() {
   const [taxas,      setTaxas]      = useState<TaxaPaga[]>([]);
   const [reserva,    setReserva]    = useState<TaxaPaga[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
-  const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null }[]>([]);
+  const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null; created_at: string }[]>([]);
+  // Fechamentos mensais importados (financeiro_ajustes_mensais) — meses históricos
+  // lançados só com o número de faturamento, sem agendamento/venda por trás.
+  const [fechamentos, setFechamentos] = useState<FinanceiroFechamentoRow[]>([]);
 
   // Abas de baixo uso (Estoque/Avaliações) carregam sob demanda — evita buscar
   // dados que a maioria das visitas ao relatório nunca chega a abrir.
@@ -416,8 +424,10 @@ export default function RelatoriosPage() {
     const isoFim  = fim.toISOString();
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
+    const mesIni  = format(startOfMonth(inicio), 'yyyy-MM-dd');
+    const mesFim  = format(startOfMonth(fim),    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas, rReserva] = await Promise.all([
+    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas, rReserva, rFechamentos] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       buscarTodasPaginas<Ag>((from, to) =>
         supabase.from('agendamentos')
@@ -465,9 +475,9 @@ export default function RelatoriosPage() {
         .gte('created_at', isoIni)
         .lte('created_at', isoFim),
 
-      // 5. Pagamentos do período (para cálculo de taxas de cartão)
+      // 5. Pagamentos do período (para cálculo de taxas de cartão, agrupadas por mês)
       supabase.from('pagamentos')
-        .select('valor, valor_liquido')
+        .select('valor, valor_liquido, created_at')
         .eq('empresa_id', empId)
         .eq('status', 'pago')
         .gte('created_at', isoIni)
@@ -488,15 +498,25 @@ export default function RelatoriosPage() {
         .not('paga_em', 'is', null)
         .gte('paga_em', isoIni)
         .lte('paga_em', isoFim),
+
+      // 8. Fechamentos mensais importados que caem no período (meses históricos
+      // sem agendamento/venda por trás — só o número de faturamento). Sem isso,
+      // qualquer mês coberto só por importação aparece com faturamento zerado
+      // aqui, mesmo estando lançado corretamente no Financeiro.
+      supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
+        .eq('empresa_id', empId)
+        .gte('mes', mesIni).lte('mes', mesFim),
     ]);
 
     setAgs(rAgs as unknown as Ag[]);
     setDespesas((rDesp.data  ?? []) as Despesa[]);
     setComissoes(rCom as unknown as Comissao[]);
     setVendas((rVendas.data ?? []) as Venda[]);
-    setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null }[]);
+    setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null; created_at: string }[]);
     setTaxas((rTaxas.data   ?? []) as TaxaPaga[]);
     setReserva((rReserva.data ?? []) as TaxaPaga[]);
+    setFechamentos((rFechamentos.data ?? []) as FinanceiroFechamentoRow[]);
     setLoading(false);
   }, [supabase]);
 
@@ -568,15 +588,52 @@ export default function RelatoriosPage() {
   const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
   const brutoTaxas      = useMemo(() => taxas.reduce((s, t) => s + Number(t.valor), 0), [taxas]);
   const brutoReserva    = useMemo(() => reserva.reduce((s, t) => s + Number(t.valor), 0), [reserva]);
-  const bruto           = brutoServicos + brutoVendas + brutoTaxas + brutoReserva;
-  const comTot          = useMemo(
-    () => comissoes.reduce((s, c) => s + c.valor_comissao, 0),
-    [comissoes],
-  );
+
+  // Faturamento bruto / comissões / taxa de cartão resolvidos MÊS A MÊS contra os
+  // fechamentos históricos importados. Um mês coberto só por importação não tem
+  // agendamento/venda por trás — sem esse merge ele aparece com faturamento
+  // zerado aqui (mesmo aparecendo certo no Financeiro), e as despesas desse mês
+  // ainda contam, distorcendo o "Lucro real" ao escolher um período longo.
+  const { bruto, comTot, taxasCartao } = useMemo(() => {
+    const acumularPorMes = (
+      linhas: { data: string | null | undefined; valor: number }[],
+    ): Record<string, number> => {
+      const mapa: Record<string, number> = {};
+      for (const linha of linhas) {
+        if (!linha.data) continue;
+        const chave = linha.data.slice(0, 7);
+        mapa[chave] = (mapa[chave] ?? 0) + linha.valor;
+      }
+      return mapa;
+    };
+
+    const receitaPorMes = acumularPorMes([
+      ...concluidos.map(a => ({ data: a.data_hora_inicio, valor: a.valor })),
+      ...vendas.map(v => ({ data: v.created_at, valor: Number(v.valor_final) })),
+      ...taxas.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
+      ...reserva.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
+    ]);
+    const comissoesPorMes = acumularPorMes(
+      comissoes.map(c => ({ data: c.created_at, valor: c.valor_comissao })),
+    );
+    const taxasCartaoPorMes = acumularPorMes(
+      pags.map(p => ({
+        data: p.created_at,
+        valor: p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0,
+      })),
+    );
+
+    const mesesChave = eachMonthOfInterval({ start: inicio, end: fim })
+      .map(m => format(m, 'yyyy-MM'));
+
+    return somarPeriodoComFechamentos(
+      { receita: receitaPorMes, comissoes: comissoesPorMes, taxasCartao: taxasCartaoPorMes },
+      fechamentos,
+      mesesChave,
+    );
+  }, [concluidos, vendas, taxas, reserva, comissoes, pags, fechamentos, inicio, fim]);
+
   const despTot         = useMemo(() => despesas.reduce((s, d) => s + d.valor, 0), [despesas]);
-  const taxasCartao     = useMemo(() =>
-    pags.reduce((s, p) => s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0),
-  [pags]);
   const liquido         = bruto - comTot;
   const liquidoAposTaxas = bruto - taxasCartao;
   const lucro           = liquidoAposTaxas - comTot - despTot;
@@ -779,12 +836,15 @@ export default function RelatoriosPage() {
     const meses = eachMonthOfInterval({ start: inicio, end: fim });
     return meses.map(mesIni => {
       const mesFim = endOfMonth(mesIni);
-      const valor  = concluidos
+      // Mês coberto por importação: usa o faturamento importado; senão, soma os
+      // atendimentos concluídos do mês (comportamento original do gráfico).
+      const fechamento = getFechamentoForMonth(fechamentos, format(mesIni, 'yyyy-MM'));
+      const valor  = fechamento?.receitaBruta ?? concluidos
         .filter(ag => { const d = parseISO(ag.data_hora_inicio); return d >= mesIni && d <= mesFim; })
         .reduce((s, ag) => s + ag.valor, 0);
       return { label: format(mesIni, 'MMM', { locale: ptBR }), valor };
     });
-  }, [concluidos, inicio, fim]);
+  }, [concluidos, inicio, fim, fechamentos]);
 
   const maxGrafico = useMemo(() => Math.max(...serieGrafico.map(s => s.valor), 1), [serieGrafico]);
 
