@@ -55,7 +55,11 @@ import {
   resolveFinanceiroKpis,
 } from '@/lib/financeiro/fechamentos-mensais';
 import { getMonthQueryBounds } from '@/lib/financeiro/periodo-mensal';
-import type { TaxaCancelamento, TaxaReserva } from '@/types';
+import {
+  somaDevolucoesPorRetirada, saldoEmprestimo, saldoDevedorTotal,
+  retiradasNoPeriodo, statusParcela,
+} from '@shared/retiradas-socia';
+import type { TaxaCancelamento, TaxaReserva, RetiradaSocia, RetiradaSociaDevolucao } from '@/types';
 
 const supabase = createClient();
 
@@ -706,9 +710,16 @@ export default function FinanceiroPage() {
   const [taxasReserva,      setTaxasReserva]      = useState<TaxaReserva[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState(0);
   const [evolucao,      setEvolucao]      = useState<{ mes: string; receita: number; comissoes: number; gastos: number }[]>([]);
+  const [retiradas,     setRetiradas]     = useState<RetiradaSocia[]>([]);
+  const [retiradasDevs, setRetiradasDevs] = useState<RetiradaSociaDevolucao[]>([]);
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
+  const [modalRetirada,       setModalRetirada]       = useState(false);
+  const [editarRetirada,      setEditarRetirada]      = useState<RetiradaSocia | null>(null);
+  const [devolucaoDe,         setDevolucaoDe]         = useState<RetiradaSocia | null>(null);
+  const [converterEmRetirada, setConverterEmRetirada] = useState<RetiradaSocia | null>(null);
+  const [excluirRetirada,     setExcluirRetirada]     = useState<RetiradaSocia | null>(null);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [confirmarTaxaCanc,     setConfirmarTaxaCanc]     = useState<TaxaCancelamento | null>(null);
@@ -738,7 +749,7 @@ export default function FinanceiroPage() {
   useEffect(() => {
     if (!empresaId) return;
     carregar(empresaId, mesRef);
-  }, [empresaId, mesRef]);
+  }, [empresaId, mesRef, isOwner]);
 
   async function carregar(empId: string, mes: Date) {
     setLoading(true);
@@ -979,6 +990,26 @@ export default function FinanceiroPage() {
     );
     setHistoricoMensal(todasMensais);
 
+    // Retiradas/empréstimos da dona — só o owner enxerga (RLS + guarda de UI).
+    if (isOwner) {
+      const [rRet, rDev] = await Promise.all([
+        supabase.from('retiradas_socia')
+          .select('id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at')
+          .eq('empresa_id', empId)
+          .or(`and(data.gte.${periodo.startDate},data.lte.${periodo.endDate}),and(convertido_em.gte.${periodo.startDate},convertido_em.lte.${periodo.endDate})`)
+          .order('data', { ascending: false }),
+        // devoluções de TODOS os empréstimos — o saldo devedor é histórico, não do mês
+        supabase.from('retiradas_socia_devolucoes')
+          .select('id,retirada_id,valor,data,metodo')
+          .eq('empresa_id', empId),
+      ]);
+      setRetiradas((rRet.data ?? []) as RetiradaSocia[]);
+      setRetiradasDevs((rDev.data ?? []) as RetiradaSociaDevolucao[]);
+    } else {
+      setRetiradas([]);
+      setRetiradasDevs([]);
+    }
+
     setLoading(false);
   }
 
@@ -1066,6 +1097,12 @@ export default function FinanceiroPage() {
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const maxEvolucao = Math.max(...evolucao.flatMap(e => [e.receita, e.gastos, e.comissoes ?? 0]), 1);
+
+  // Retiradas/empréstimos da dona (derivados — nada disso muda o Lucro Real acima)
+  const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
+  const aDonaDeve      = saldoDevedorTotal(retiradas, devPorRetirada);
+  const retiradaBounds = getMonthQueryBounds(mesRef);
+  const retiradasMes   = retiradasNoPeriodo(retiradas, devPorRetirada, retiradaBounds.startDate, retiradaBounds.endDate);
 
   return (
     <div className="bm-page">
@@ -1525,6 +1562,97 @@ export default function FinanceiroPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Retiradas e empréstimos da dona — só o owner */}
+        {isOwner && (
+          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border gap-3">
+              <div className="min-w-0">
+                <p className="font-serif text-lg text-text">Retiradas da dona</p>
+                <p className="text-[11px] text-text-4 mt-0.5">
+                  {aDonaDeve > 0 ? `A dona deve ao estúdio: ${fmtBRL(aDonaDeve)}` : 'Nenhum empréstimo em aberto'}
+                  {retiradasMes > 0 && ` · Retiradas no mês: ${fmtBRL(retiradasMes)}`}
+                </p>
+              </div>
+              <button
+                onClick={() => setModalRetirada(true)}
+                className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold flex-shrink-0"
+                style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
+                <Plus size={12}/> Registrar
+              </button>
+            </div>
+
+            {retiradas.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-text-4">Nenhuma retirada ou empréstimo neste mês.</p>
+            ) : retiradas.map((r, i) => {
+              const devolvido = devPorRetirada[r.id] ?? 0;
+              const saldo = saldoEmprestimo(r.valor, devolvido);
+              const parc = (r.tipo === 'emprestimo' && r.parcelado && r.valor_parcela && r.primeira_parcela_em)
+                ? statusParcela(r.valor_parcela, r.primeira_parcela_em, r.total_parcelas ?? 0, devolvido, hojeIso)
+                : null;
+              const quitado = r.tipo === 'emprestimo' && (!!r.convertido_em || saldo <= 0);
+              const podeAgir = r.tipo === 'emprestimo' && !quitado;
+              const parcelaLabel = parc
+                ? Math.min(parc.parcelasQuitadas + (parc.proximaParcelaEm ? 1 : 0), r.total_parcelas ?? 0)
+                : 0;
+              return (
+                <div key={r.id}
+                  className={`flex items-start gap-2 px-4 py-3 ${i < retiradas.length - 1 ? 'border-b border-border' : ''}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                        r.tipo === 'emprestimo' ? 'bg-amber-soft text-amber' : 'bg-green-soft text-green'
+                      }`}>
+                        {r.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'}
+                      </span>
+                      <span className="text-sm font-bold text-text">{fmtBRL(r.valor)}</span>
+                      <span className="text-[10px] text-text-4">
+                        {format(new Date(r.data + 'T12:00'), 'dd/MM/yyyy')}
+                        {r.metodo && ` · ${METODO_CFG[r.metodo]?.label ?? r.metodo}`}
+                      </span>
+                    </div>
+                    {r.descricao && <p className="text-xs text-text-3 truncate mt-0.5">{r.descricao}</p>}
+                    {r.tipo === 'emprestimo' && !r.convertido_em && (
+                      <p className="text-[11px] text-text-4 mt-0.5">
+                        Devolvido {fmtBRL(devolvido)} de {fmtBRL(r.valor)} · saldo {fmtBRL(saldo)}
+                        {parc && ` · Parcela ${parcelaLabel}/${r.total_parcelas}`}
+                        {parc?.atrasada && <span className="text-red font-bold"> · atrasada</span>}
+                        {quitado && <span className="text-green font-bold"> · quitado</span>}
+                      </p>
+                    )}
+                    {r.convertido_em && (
+                      <p className="text-[11px] text-text-4 mt-0.5">
+                        Convertido em retirada em {format(new Date(r.convertido_em + 'T12:00'), 'dd/MM/yyyy')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    {podeAgir && (
+                      <>
+                        <button onClick={() => setDevolucaoDe(r)} title="Registrar devolução"
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition">
+                          <RefreshCw size={12} strokeWidth={2}/>
+                        </button>
+                        <button onClick={() => setConverterEmRetirada(r)} title="Converter saldo em retirada"
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition">
+                          <Ban size={12} strokeWidth={2}/>
+                        </button>
+                      </>
+                    )}
+                    <button onClick={() => setEditarRetirada(r)} title="Editar"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition">
+                      <Pencil size={12} strokeWidth={2}/>
+                    </button>
+                    <button onClick={() => setExcluirRetirada(r)} title="Excluir"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-red transition">
+                      <Trash2 size={12} strokeWidth={2}/>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
