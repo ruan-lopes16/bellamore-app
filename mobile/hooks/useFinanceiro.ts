@@ -11,6 +11,10 @@ import {
   getFechamentoForMonth,
   somarPeriodoComFechamentos,
 } from '@shared/fechamentos-mensais';
+import {
+  somaDevolucoesPorRetirada, retiradasNoPeriodo, saldoDevedorTotal,
+  type RetiradaSociaRow, type RetiradaSociaDevolucaoRow,
+} from '@shared/retiradas-socia';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -63,7 +67,7 @@ export interface EvolucaoMes {
 // ── Hook principal ───────────────────────────────────────────
 
 export function useFinanceiro(mesRef: Date) {
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, isOwner } = useAuthStore();
   const empresaId = empresaAtiva?.id;
 
   const inicio = startOfMonth(mesRef).toISOString();
@@ -303,6 +307,35 @@ export function useFinanceiro(mesRef: Date) {
     },
   });
 
+  // ── Retiradas/empréstimos da dona (owner-only, isOwner vem do authStore) ──
+  const retiradasQ = useQuery<{ rows: RetiradaSociaRow[]; devs: RetiradaSociaDevolucaoRow[] }>({
+    queryKey: ['fin-retiradas', empresaId, chave],
+    enabled: !!empresaId && isOwner,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const di = inicio.slice(0, 10);
+      const df = fim.slice(0, 10);
+      const [rRet, rDev] = await Promise.all([
+        supabase.from('retiradas_socia')
+          .select('id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at')
+          .eq('empresa_id', empresaId!)
+          .or(`and(data.gte.${di},data.lte.${df}),and(convertido_em.gte.${di},convertido_em.lte.${df})`)
+          .order('data', { ascending: false }),
+        supabase.from('retiradas_socia_devolucoes')
+          .select('id,retirada_id,valor,data,metodo').eq('empresa_id', empresaId!),
+      ]);
+      return {
+        rows: (rRet.data ?? []) as RetiradaSociaRow[],
+        devs: (rDev.data ?? []) as RetiradaSociaDevolucaoRow[],
+      };
+    },
+  });
+  const retiradas     = retiradasQ.data?.rows ?? [];
+  const retiradasDevs  = retiradasQ.data?.devs ?? [];
+  const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
+  const aDonaDeve       = saldoDevedorTotal(retiradas, devPorRetirada);
+  const retiradasPeriodo = retiradasNoPeriodo(retiradas, devPorRetirada, inicio.slice(0, 10), fim.slice(0, 10));
+
   const isLoading = resumo.isLoading || metodos.isLoading || topServicos.isLoading;
 
   return {
@@ -314,6 +347,11 @@ export function useFinanceiro(mesRef: Date) {
     taxasCancelamento: taxasCancelamento.data ?? [],
     taxasReserva:      taxasReserva.data ?? [],
     evolucao:          evolucao.data ?? [],
+    isOwner,
+    retiradas,
+    retiradasDevs,
+    aDonaDeve,
+    retiradasPeriodo,
     isLoading,
     refetch: () => {
       resumo.refetch();
@@ -324,6 +362,7 @@ export function useFinanceiro(mesRef: Date) {
       taxasCancelamento.refetch();
       taxasReserva.refetch();
       evolucao.refetch();
+      retiradasQ.refetch();
     },
   };
 }
