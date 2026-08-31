@@ -48,6 +48,8 @@ import {
   getFechamentoForMonth,
   somarPeriodoComFechamentos,
 } from '@/lib/financeiro/fechamentos-mensais';
+import { retiradasNoPeriodo, somaDevolucoesPorRetirada } from '@shared/retiradas-socia';
+import type { RetiradaSocia, RetiradaSociaDevolucao } from '@/types';
 
 const supabase = createClient();
 
@@ -359,6 +361,10 @@ export default function RelatoriosPage() {
   // Fechamentos mensais importados (financeiro_ajustes_mensais) — meses históricos
   // lançados só com o número de faturamento, sem agendamento/venda por trás.
   const [fechamentos, setFechamentos] = useState<FinanceiroFechamentoRow[]>([]);
+  // Retiradas/empréstimos da dona — só o owner enxerga (RLS + guarda de UI).
+  const [isOwner, setIsOwner] = useState(false);
+  const [retiradasRows,     setRetiradasRows]     = useState<RetiradaSocia[]>([]);
+  const [retiradasDevsRows, setRetiradasDevsRows] = useState<RetiradaSociaDevolucao[]>([]);
 
   // Abas de baixo uso (Estoque/Avaliações) carregam sob demanda — evita buscar
   // dados que a maioria das visitas ao relatório nunca chega a abrir.
@@ -374,7 +380,11 @@ export default function RelatoriosPage() {
       const { data } = await supabase
         .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (data) setEmpresaId(data.empresa_id);
+      if (data) {
+        setEmpresaId(data.empresa_id);
+        const { data: emp } = await supabase.from('empresas').select('owner_id').eq('id', data.empresa_id).single();
+        setIsOwner(!!emp && emp.owner_id === user.id);
+      }
     })();
   }, []);
 
@@ -531,6 +541,26 @@ export default function RelatoriosPage() {
     if (empresaId) carregar(empresaId, periodo, periodoOpts);
   }, [empresaId, periodo, periodoOpts, carregar]);
 
+  // Retiradas/empréstimos da dona no período (owner-only).
+  useEffect(() => {
+    if (!empresaId || !isOwner) { setRetiradasRows([]); setRetiradasDevsRows([]); return; }
+    (async () => {
+      const { inicio, fim } = periodoParaDatas(periodo, periodoOpts);
+      const di = format(inicio, 'yyyy-MM-dd');
+      const df = format(fim,    'yyyy-MM-dd');
+      const [rRet, rDev] = await Promise.all([
+        supabase.from('retiradas_socia')
+          .select('id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em')
+          .eq('empresa_id', empresaId)
+          .or(`and(data.gte.${di},data.lte.${df}),and(convertido_em.gte.${di},convertido_em.lte.${df})`),
+        supabase.from('retiradas_socia_devolucoes')
+          .select('id,retirada_id,valor,data,metodo').eq('empresa_id', empresaId),
+      ]);
+      setRetiradasRows((rRet.data ?? []) as RetiradaSocia[]);
+      setRetiradasDevsRows((rDev.data ?? []) as RetiradaSociaDevolucao[]);
+    })();
+  }, [empresaId, isOwner, periodo, periodoOpts]);
+
   // ── Aba Estoque: carrega sob demanda (sai da query principal)
   useEffect(() => {
     if (aba !== 'estoque' || !empresaId) return;
@@ -637,6 +667,13 @@ export default function RelatoriosPage() {
   const liquido         = bruto - comTot;
   const liquidoAposTaxas = bruto - taxasCartao;
   const lucro           = liquidoAposTaxas - comTot - despTot;
+  // Retiradas da dona no período — linha ADITIVA, não muda o "Lucro real" acima.
+  const retiradasPeriodo = useMemo(() => {
+    if (!isOwner) return 0;
+    const devMap = somaDevolucoesPorRetirada(retiradasDevsRows);
+    return retiradasNoPeriodo(retiradasRows, devMap, format(inicio, 'yyyy-MM-dd'), format(fim, 'yyyy-MM-dd'));
+  }, [isOwner, retiradasRows, retiradasDevsRows, inicio, fim]);
+  const resultadoAposRetiradas = lucro - retiradasPeriodo;
   // Ticket médio baseado apenas em serviços (mais representativo)
   const ticket  = concluidos.length > 0 ? brutoServicos / concluidos.length : 0;
   const taxaBase = concluidos.length + faltaram.length;
@@ -1018,6 +1055,11 @@ export default function RelatoriosPage() {
         )}
         <KpiCard icon={TrendingUp} label="Líquido após taxas"   value={fmtBRL(liquidoAposTaxas)}    cor="#16A34A" loading={loading} />
         <KpiCard icon={Activity}   label="Lucro real"           value={fmtBRL(lucro)}               cor={lucro >= 0 ? '#0D7E5F' : '#DC2626'} loading={loading} />
+        {isOwner && retiradasPeriodo > 0 && (
+          <KpiCard icon={Activity} label="Resultado após retiradas" value={fmtBRL(resultadoAposRetiradas)}
+            sub={`(−) ${fmtBRL(retiradasPeriodo)} da dona`}
+            cor={resultadoAposRetiradas >= 0 ? '#0D7E5F' : '#DC2626'} loading={loading} />
+        )}
         <KpiCard icon={Scissors}   label="Atendimentos"         value={String(concluidos.length)}   sub="concluídos" cor="#D4608A" loading={loading} />
         <KpiCard icon={Target}     label="Ticket médio"         value={fmtBRL(ticket)}              cor="#B45309" loading={loading} />
         <KpiCard icon={Users}      label="Taxa comparecimento"  value={`${taxa.toFixed(1)}%`}       cor="#1D4ED8" loading={loading} />
@@ -1112,6 +1154,20 @@ export default function RelatoriosPage() {
                       {fmtBRL(lucro)}
                     </span>
                   </div>
+                  {isOwner && retiradasPeriodo > 0 && (
+                    <>
+                      <div className="flex items-center justify-between py-2.5 border-t border-border mt-1">
+                        <span className="text-sm text-text-2">(−) Retiradas da dona</span>
+                        <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>− {fmtBRL(retiradasPeriodo)}</span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-sm font-bold text-text">Resultado após retiradas</span>
+                        <span className="text-base font-bold" style={{ color: resultadoAposRetiradas >= 0 ? '#0D7E5F' : '#DC2626' }}>
+                          {fmtBRL(resultadoAposRetiradas)}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
