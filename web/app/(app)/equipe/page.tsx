@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
 import { podeAtribuirRole } from '@/lib/permissions';
 // createClient usado apenas nas funções da tela principal (carregarEquipe, toggleAtivo, salvarComissao)
@@ -350,7 +351,7 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             </span>
             {temPendente && !expandido && (
               <span style={{ display: 'inline-flex', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: 'rgba(217,119,6,0.12)', color: '#B45309' }}>
-                {fmtBRL(prof.comissao_pendente)} pendente
+                <Secret>{fmtBRL(prof.comissao_pendente)}</Secret> pendente
               </span>
             )}
           </div>
@@ -369,11 +370,11 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
           {prof.ativo && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14, marginTop: 16 }}>
               <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
-                <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{prof.atendimentos_mes}</p>
+                <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}><Secret>{prof.atendimentos_mes}</Secret></p>
                 <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Atendimentos</p>
               </div>
               <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
-                <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{fmtBRL(prof.total_mes)}</p>
+                <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}><Secret>{fmtBRL(prof.total_mes)}</Secret></p>
                 <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Faturado · mês</p>
               </div>
             </div>
@@ -384,7 +385,7 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 14, background: 'var(--color-primary-soft)', marginBottom: 12 }}>
               <Percent size={14} strokeWidth={2} style={{ color: 'var(--color-primary)', flexShrink: 0 }}/>
               <span style={{ fontSize: 11.5, color: 'var(--color-ink3)', flex: 1 }}>Comissão por atendimento</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)' }}>{prof.percentual_comissao}%</span>
+              <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'var(--font-sans)' }}><Secret>{prof.percentual_comissao}%</Secret></span>
             </div>
           )}
 
@@ -393,7 +394,7 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             <button onClick={handlePagar} disabled={pagando}
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, height: 40, borderRadius: 14, fontSize: 12, fontWeight: 700, cursor: pagando ? 'default' : 'pointer', transition: 'all 0.15s', border: 'none', background: pagando ? 'var(--color-bg2)' : '#B45309', color: pagando ? 'var(--color-ink4)' : '#fff', fontFamily: 'var(--font-sans)', marginBottom: 10, opacity: pagando ? 0.7 : 1 }}>
               <CheckCircle2 size={14} strokeWidth={2.5}/>
-              {pagando ? 'Registrando...' : `Pagar ${fmtBRL(prof.comissao_pendente)}`}
+              {pagando ? 'Registrando...' : <>Pagar <Secret>{fmtBRL(prof.comissao_pendente)}</Secret></>}
             </button>
           )}
 
@@ -580,6 +581,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Gestão</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Equipe</h1>
+          <PrivacyToggle />
         </div>
         <div className="flex gap-2 pt-1 bm-mobile-page-actions">
           <ExportButton

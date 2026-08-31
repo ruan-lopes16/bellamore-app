@@ -10,6 +10,7 @@ import { format, differenceInYears, differenceInDays, addMinutes, parseISO } fro
 import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { ptBR } from 'date-fns/locale';
 import { Sk } from '@/components/Skeleton';
+import { Secret } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
@@ -422,7 +423,7 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
                         <span className="block text-xs text-text-4">com {item.profissional.split(' ')[0]}</span>
                       )}
                     </span>
-                    <span className="flex-shrink-0">{fmtBRL(item.valorLinha)}</span>
+                    <span className="flex-shrink-0"><Secret>{fmtBRL(item.valorLinha)}</Secret></span>
                   </div>
                 ))}
               </section>
@@ -430,20 +431,20 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
               <section className="flex flex-col gap-1.5 border-t border-border pt-4">
                 <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Fechamento</p>
                 <div className="flex justify-between text-sm text-text-2">
-                  <span>Subtotal</span><span>{fmtBRL(detalhe.subtotal)}</span>
+                  <span>Subtotal</span><span><Secret>{fmtBRL(detalhe.subtotal)}</Secret></span>
                 </div>
                 {detalhe.descontoManual > 0 && (
                   <div className="flex justify-between text-sm text-text-2">
-                    <span>Desconto</span><span>− {fmtBRL(detalhe.descontoManual)}</span>
+                    <span>Desconto</span><span>− <Secret>{fmtBRL(detalhe.descontoManual)}</Secret></span>
                   </div>
                 )}
                 {detalhe.descontoReserva > 0 && (
                   <div className="flex justify-between text-sm text-text-2">
-                    <span>Taxa de reserva já paga</span><span>− {fmtBRL(detalhe.descontoReserva)}</span>
+                    <span>Taxa de reserva já paga</span><span>− <Secret>{fmtBRL(detalhe.descontoReserva)}</Secret></span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm font-bold text-text pt-1">
-                  <span>Total</span><span>{fmtBRL(detalhe.total)}</span>
+                  <span>Total</span><span><Secret>{fmtBRL(detalhe.total)}</Secret></span>
                 </div>
               </section>
 
@@ -459,11 +460,11 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
                       {p.parcelas > 1 && ` · ${p.parcelas}×`}
                       {p.taxaPerc != null && (
                         <span className="block text-xs text-text-4 normal-case">
-                          taxa {p.taxaPerc}% · líquido {fmtBRL(p.valorLiquido ?? 0)}
+                          taxa <Secret>{p.taxaPerc}%</Secret> · líquido <Secret>{fmtBRL(p.valorLiquido ?? 0)}</Secret>
                         </span>
                       )}
                     </span>
-                    <span>{fmtBRL(p.valor)}</span>
+                    <span><Secret>{fmtBRL(p.valor)}</Secret></span>
                   </div>
                 ))}
               </section>
@@ -960,14 +961,14 @@ export default function ClientePerfilPage() {
             {/* KPIs */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
               {[
-                { label: 'Visitas', value: stats.totalVisitas > 0 ? String(stats.totalVisitas) : '—' },
-                { label: 'Total gasto', value: stats.totalGasto > 0 ? `R$ ${stats.totalGasto.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : '—' },
-                { label: 'Última visita', value: ultimaLabel },
-                { label: 'Serv. favorito', value: stats.servicoFavorito ?? '—' },
+                { label: 'Visitas', value: stats.totalVisitas > 0 ? String(stats.totalVisitas) : '—', secret: true },
+                { label: 'Total gasto', value: stats.totalGasto > 0 ? `R$ ${stats.totalGasto.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : '—', secret: true },
+                { label: 'Última visita', value: ultimaLabel, secret: false },
+                { label: 'Serv. favorito', value: stats.servicoFavorito ?? '—', secret: false },
               ].map((kpi, i) => (
                 <div key={kpi.label} className="bm-stagger"
                   style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 14, padding: '10px 12px', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 16, fontWeight: 800, color: '#fff', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kpi.value}</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 16, fontWeight: 800, color: '#fff', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kpi.secret ? <Secret>{kpi.value}</Secret> : kpi.value}</p>
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 4, fontWeight: 600 }}>{kpi.label}</p>
                 </div>
               ))}
@@ -1206,7 +1207,7 @@ export default function ClientePerfilPage() {
                         </div>
                         <div className="flex flex-col items-end gap-1 flex-shrink-0">
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${cfg.bg} ${cfg.text}`}>{cfg.label}</span>
-                          <span className="text-xs font-bold text-text-2">{fmtBRL(ag.valor)}</span>
+                          <span className="text-xs font-bold text-text-2"><Secret>{fmtBRL(ag.valor)}</Secret></span>
                         </div>
                       </button>
                     );
@@ -1263,7 +1264,7 @@ export default function ClientePerfilPage() {
                             <p className="text-xs text-text-4 mt-0.5 truncate">{v.observacao}</p>
                           )}
                         </div>
-                        <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(v.valor_final)}</span>
+                        <span className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(v.valor_final)}</Secret></span>
                       </div>
                     );
                   })}
@@ -1295,7 +1296,7 @@ export default function ClientePerfilPage() {
                             {dataFmt}{t.status === 'pago' && labelMetodo(t.metodo) ? ` · ${labelMetodo(t.metodo)}` : ''}
                           </p>
                         </div>
-                        <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(t.valor)}</span>
+                        <span className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(t.valor)}</Secret></span>
                       </div>
                     );
                   })}
@@ -1327,7 +1328,7 @@ export default function ClientePerfilPage() {
                             {dataFmt}{t.status === 'pago' && labelMetodo(t.metodo) ? ` · ${labelMetodo(t.metodo)}` : ''}
                           </p>
                         </div>
-                        <span className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(t.valor)}</span>
+                        <span className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(t.valor)}</Secret></span>
                       </div>
                     );
                   })}

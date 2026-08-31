@@ -49,6 +49,7 @@ import {
   somarPeriodoComFechamentos,
 } from '@/lib/financeiro/fechamentos-mensais';
 import { retiradasNoPeriodo, somaDevolucoesPorRetirada } from '@shared/retiradas-socia';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 import type { RetiradaSocia, RetiradaSociaDevolucao } from '@/types';
 
 const supabase = createClient();
@@ -241,9 +242,9 @@ function KpiCard({
         <Icon size={18} style={{ color: cor }} />
       </div>
       <div className="flex-1 min-w-0 w-full">
-        <p className="text-base sm:text-lg font-bold text-text leading-tight truncate">{value}</p>
+        <p className="text-base sm:text-lg font-bold text-text leading-tight truncate"><Secret>{value}</Secret></p>
         <p className="text-[11px] sm:text-xs text-text-3 leading-tight">{label}</p>
-        {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}>{sub}</p>}
+        {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}><Secret>{sub}</Secret></p>}
       </div>
     </div>
   );
@@ -271,8 +272,8 @@ function RankRow({
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-sm font-semibold text-text truncate pr-2">{nome}</span>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-xs text-text-3">{qtd}{qtdSuffix}</span>
-            <span className="text-sm font-bold text-text">{valor}</span>
+            <span className="text-xs text-text-3"><Secret>{qtd}{qtdSuffix}</Secret></span>
+            <span className="text-sm font-bold text-text"><Secret>{valor}</Secret></span>
           </div>
         </div>
         {/* Barra de progresso */}
@@ -281,9 +282,9 @@ function RankRow({
             <div className="h-full rounded-full transition-all duration-500"
               style={{ width: `${Math.min(pct, 100)}%`, background: cor }} />
           </div>
-          <span className="text-xs text-text-3 w-10 text-right flex-shrink-0">{pct.toFixed(1)}%</span>
+          <span className="text-xs text-text-3 w-10 text-right flex-shrink-0"><Secret>{pct.toFixed(1)}%</Secret></span>
         </div>
-        {extra && <p className="text-xs text-text-3 mt-0.5">{extra}</p>}
+        {extra && <p className="text-xs text-text-3 mt-0.5"><Secret>{extra}</Secret></p>}
       </div>
     </div>
   );
@@ -296,7 +297,7 @@ function ChartBar({ label, value, maxValue }: { label: string; value: number; ma
     <div className="flex-1 flex flex-col items-center gap-1 min-w-0">
       {value > 0 && (
         <span className="text-[9px] text-text-3 truncate w-full text-center">
-          {fmtBRL(value)}
+          <Secret>{fmtBRL(value)}</Secret>
         </span>
       )}
       <div className="flex-1 flex flex-col justify-end w-full">
@@ -909,7 +910,7 @@ export default function RelatoriosPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Análise</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Relatórios</h1>
+          <div className="flex items-center gap-3"><h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Relatórios</h1><PrivacyToggle /></div>
           {!loading && (
             periodo === 'custom' ? (
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
@@ -1134,7 +1135,7 @@ export default function RelatoriosPage() {
                   {brutoVendas > 0 && (
                     <div className="flex items-center justify-between py-2.5 border-b border-border bg-bg/50 px-1 rounded">
                       <span className="text-sm font-semibold text-text">= Faturamento bruto</span>
-                      <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>{fmtBRL(bruto)}</span>
+                      <span className="text-sm font-bold" style={{ color: '#7C3AED' }}><Secret>{fmtBRL(bruto)}</Secret></span>
                     </div>
                   )}
                   {([
@@ -1144,26 +1145,26 @@ export default function RelatoriosPage() {
                     <div key={label} className="flex items-center justify-between py-2.5 border-b border-border">
                       <span className="text-sm text-text-2">{label}</span>
                       <span className="text-sm font-semibold" style={{ color: cor }}>
-                        {v > 0 ? '− ' : ''}{fmtBRL(v)}
+                        <Secret>{v > 0 ? '− ' : ''}{fmtBRL(v)}</Secret>
                       </span>
                     </div>
                   ))}
                   <div className="flex items-center justify-between pt-3 mt-1">
                     <span className="text-sm font-bold text-text">Lucro real</span>
                     <span className="text-base font-bold" style={{ color: lucro >= 0 ? '#0D7E5F' : '#DC2626' }}>
-                      {fmtBRL(lucro)}
+                      <Secret>{fmtBRL(lucro)}</Secret>
                     </span>
                   </div>
                   {isOwner && retiradasPeriodo > 0 && (
                     <>
                       <div className="flex items-center justify-between py-2.5 border-t border-border mt-1">
                         <span className="text-sm text-text-2">(−) Retiradas da dona</span>
-                        <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>− {fmtBRL(retiradasPeriodo)}</span>
+                        <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>− <Secret>{fmtBRL(retiradasPeriodo)}</Secret></span>
                       </div>
                       <div className="flex items-center justify-between pt-1">
                         <span className="text-sm font-bold text-text">Resultado após retiradas</span>
                         <span className="text-base font-bold" style={{ color: resultadoAposRetiradas >= 0 ? '#0D7E5F' : '#DC2626' }}>
-                          {fmtBRL(resultadoAposRetiradas)}
+                          <Secret>{fmtBRL(resultadoAposRetiradas)}</Secret>
                         </span>
                       </div>
                     </>
@@ -1251,7 +1252,7 @@ export default function RelatoriosPage() {
               ))}
               <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                 <span className="text-xs text-text-3">Total</span>
-                <span className="text-sm font-bold text-text">{fmtBRL(bruto)}</span>
+                <span className="text-sm font-bold text-text"><Secret>{fmtBRL(bruto)}</Secret></span>
               </div>
             </>
           )}
@@ -1316,7 +1317,7 @@ export default function RelatoriosPage() {
               {comTot > 0 && (
                 <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                   <span className="text-xs text-text-3">Total comissões no período</span>
-                  <span className="text-sm font-bold text-pink-500">{fmtBRL(comTot)}</span>
+                  <span className="text-sm font-bold text-pink-500"><Secret>{fmtBRL(comTot)}</Secret></span>
                 </div>
               )}
             </>
