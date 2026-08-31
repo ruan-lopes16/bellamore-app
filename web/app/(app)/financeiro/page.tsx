@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -57,9 +57,12 @@ import {
 import { getMonthQueryBounds } from '@/lib/financeiro/periodo-mensal';
 import {
   somaDevolucoesPorRetirada, saldoEmprestimo, saldoDevedorTotal,
-  retiradasNoPeriodo, statusParcela,
+  retiradasNoPeriodo, statusParcela, montarRetiradaSociaInsert, montarDevolucaoInsert,
 } from '@shared/retiradas-socia';
-import type { TaxaCancelamento, TaxaReserva, RetiradaSocia, RetiradaSociaDevolucao } from '@/types';
+import type {
+  TaxaCancelamento, TaxaReserva, RetiradaSocia, RetiradaSociaDevolucao,
+  RetiradaSociaTipo, MetodoPagamentoRetirada,
+} from '@/types';
 
 const supabase = createClient();
 
@@ -319,6 +322,179 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
             <button type="submit" disabled={salvando || !descricao.trim() || (valorCalculadoPreview === null && !valor)}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
               {salvando ? 'Salvando...' : 'Registrar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Registrar / Editar retirada da dona ────────────────
+
+const METODOS_RETIRADA: MetodoPagamentoRetirada[] = ['dinheiro', 'pix', 'credito', 'debito', 'cortesia'];
+
+function RetiradaModal({ empresaId, editando, onClose, onSalvo }: {
+  empresaId: string;
+  editando: RetiradaSocia | null;
+  onClose: () => void;
+  onSalvo: () => void;
+}) {
+  useScrollLock();
+  const hoje = format(new Date(), 'yyyy-MM-dd');
+  const [tipo, setTipo] = useState<RetiradaSociaTipo>(editando?.tipo ?? 'emprestimo');
+  const [valor, setValor] = useState(editando ? formatValorMonetarioInput(Number(editando.valor)) : '');
+  const [data, setData] = useState(editando?.data ?? hoje);
+  const [descricao, setDescricao] = useState(editando?.descricao ?? '');
+  const [metodo, setMetodo] = useState<string>(editando?.metodo ?? '');
+  const [parcelado, setParcelado] = useState(editando?.parcelado ?? false);
+  const [totalParcelas, setTotalParcelas] = useState(editando?.total_parcelas ? String(editando.total_parcelas) : '');
+  const [valorParcela, setValorParcela] = useState(editando?.valor_parcela ? formatValorMonetarioInput(Number(editando.valor_parcela)) : '');
+  const [primeiraParcela, setPrimeiraParcela] = useState(editando?.primeira_parcela_em ?? '');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  const valorNum = parseValorMonetario(valor);
+  const nParc = parseInt(totalParcelas, 10) || 0;
+  const sugestaoParcela = (valorNum && nParc >= 2)
+    ? formatValorMonetarioInput(dividirValorCompra(valorNum, nParc).valorBase) : '';
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro('');
+    const criadoPor = (await supabase.auth.getUser()).data.user?.id ?? null;
+    const built = montarRetiradaSociaInsert({
+      empresaId, tipo, valorInput: valor, data, descricao,
+      metodo: (metodo || null) as MetodoPagamentoRetirada | null,
+      parcelado: tipo === 'emprestimo' && parcelado,
+      totalParcelasInput: totalParcelas,
+      valorParcelaInput: valorParcela || sugestaoParcela,
+      primeiraParcelaEm: primeiraParcela,
+    }, criadoPor);
+    if (!built.ok) { setErro(built.erro); return; }
+
+    setSalvando(true);
+    const p = built.payload;
+    if (editando) {
+      const { error } = await supabase.from('retiradas_socia').update({
+        valor: p.valor, data: p.data, descricao: p.descricao, metodo: p.metodo,
+        parcelado: p.parcelado, total_parcelas: p.total_parcelas,
+        valor_parcela: p.valor_parcela, primeira_parcela_em: p.primeira_parcela_em,
+      }).eq('id', editando.id).select('id');
+      if (error) { setErro('Não foi possível salvar. Verifique se você é a dona da conta.'); setSalvando(false); return; }
+    } else {
+      const { error } = await supabase.from('retiradas_socia').insert(p).select('id');
+      if (error) { setErro('Não foi possível salvar. Verifique se você é a dona da conta.'); setSalvando(false); return; }
+    }
+    setSalvando(false);
+    onSalvo();
+  }
+
+  const chipBase = 'flex-1 px-3 py-2 rounded-xl text-xs font-bold border transition';
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
+          <h2 className="font-serif text-xl text-text">{editando ? 'Editar lançamento' : 'Registrar retirada'}</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
+        </div>
+        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+          <div>
+            <label className={labelClass}>Tipo</label>
+            <div className="flex gap-2">
+              <button type="button" disabled={!!editando} onClick={() => setTipo('emprestimo')}
+                className={`${chipBase} ${tipo === 'emprestimo' ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3'} disabled:opacity-60`}>
+                Empréstimo<span className="block font-normal opacity-80">ela devolve</span>
+              </button>
+              <button type="button" disabled={!!editando} onClick={() => setTipo('retirada')}
+                className={`${chipBase} ${tipo === 'retirada' ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3'} disabled:opacity-60`}>
+                Retirada<span className="block font-normal opacity-80">não devolve</span>
+              </button>
+            </div>
+            {editando && <p className="text-[10px] text-text-4 mt-1">O tipo não pode ser alterado. Para mudar, exclua e recrie.</p>}
+          </div>
+
+          <div>
+            <label className={labelClass}>Valor *</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <input value={valor} onChange={e => setValor(e.target.value)} inputMode="decimal" placeholder="0,00" required
+                className={`${inputClass} pl-9`}/>
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Data *</label>
+            <input value={data} onChange={e => setData(e.target.value)} type="date" required className={inputClass}/>
+          </div>
+
+          <div>
+            <label className={labelClass}>Descrição</label>
+            <input value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex: uso pessoal" className={inputClass}/>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-2">De onde saiu <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
+            <div className="flex flex-wrap gap-1.5">
+              {METODOS_RETIRADA.map(k => (
+                <button key={k} type="button" onClick={() => setMetodo(prev => prev === k ? '' : k)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                    metodo === k ? 'text-white border-transparent' : 'bg-bg text-text-2 border-border hover:border-primary/40'
+                  }`}
+                  style={metodo === k ? { backgroundColor: METODO_CFG[k]?.cor } : undefined}>
+                  {METODO_CFG[k]?.label ?? k}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {tipo === 'emprestimo' && (
+            <div className="border-t border-border pt-4 flex flex-col gap-3">
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setParcelado(false)}
+                  className={`${chipBase} ${!parcelado ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3'}`}>
+                  Devolução avulsa
+                </button>
+                <button type="button" onClick={() => setParcelado(true)}
+                  className={`${chipBase} ${parcelado ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3'}`}>
+                  Em parcelas
+                </button>
+              </div>
+              {parcelado && (
+                <>
+                  <div>
+                    <label className={labelClass}>Nº de parcelas *</label>
+                    <input value={totalParcelas} onChange={e => setTotalParcelas(e.target.value.replace(/\D/g, ''))}
+                      inputMode="numeric" placeholder="Ex: 3" className={inputClass}/>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Valor da parcela</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                      <input value={valorParcela} onChange={e => setValorParcela(e.target.value)} inputMode="decimal"
+                        placeholder={sugestaoParcela || '0,00'} className={`${inputClass} pl-9`}/>
+                    </div>
+                    <p className="text-[10px] text-text-4 mt-1">Em branco = divide o valor pelas parcelas.</p>
+                  </div>
+                  <div>
+                    <label className={labelClass}>1ª parcela em *</label>
+                    <input value={primeiraParcela} onChange={e => setPrimeiraParcela(e.target.value)} type="date" className={inputClass}/>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {erro && <p className="text-red text-sm">{erro}</p>}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+              Cancelar
+            </button>
+            <button type="submit" disabled={salvando}
+              className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+              {salvando ? 'Salvando...' : 'Salvar'}
             </button>
           </div>
         </form>
@@ -1666,6 +1842,14 @@ export default function FinanceiroPage() {
       )}
       {editarDespesa && (
         <EditarDespesaModal despesa={editarDespesa} onClose={() => setEditarDespesa(null)} onSalvo={() => { setEditarDespesa(null); recarregar(); }}/>
+      )}
+      {(modalRetirada || editarRetirada) && empresaId && (
+        <RetiradaModal
+          empresaId={empresaId}
+          editando={editarRetirada}
+          onClose={() => { setModalRetirada(false); setEditarRetirada(null); }}
+          onSalvo={() => { setModalRetirada(false); setEditarRetirada(null); recarregar(); }}
+        />
       )}
       {confirmarTaxaCanc && (
         <ConfirmarPagamentoTaxaModal
