@@ -22,11 +22,8 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
-import {
-  CategoriaIcon,
-  CATEGORIA_COR, CATEGORIA_BG,
-  type CategoriaServico,
-} from '@/components/CategoriaIcon';
+import { CategoriaPicker } from '@/components/CategoriaPicker';
+import { type CategoriaCustom } from '@shared/categorias';
 
 // ── Constantes (iguais ao novo-servico) ───────────────────────
 
@@ -36,17 +33,6 @@ const C = {
   accent: '#9B6FE8', red: '#C0392B', redSoft: '#FEF2F2',
   text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
 };
-
-const CATEGORIAS: { key: CategoriaServico; label: string }[] = [
-  { key: 'cilios',       label: 'Cílios'        },
-  { key: 'sobrancelhas', label: 'Sobrancelhas'  },
-  { key: 'depilacao',    label: 'Depilação'     },
-  { key: 'unhas',        label: 'Unhas'         },
-  { key: 'pele',         label: 'Pele'          },
-  { key: 'dermaplaning', label: 'Dermaplaning'  },
-  { key: 'maquiagem',    label: 'Maquiagem'     },
-  { key: 'outros',       label: 'Outros'        },
-];
 
 const DURACOES = [
   { label: '30 min', valor: 30 },
@@ -82,7 +68,9 @@ export default function EditarServico() {
 
   const [nome,      setNome]      = useState('');
   const [descricao, setDescricao] = useState('');
-  const [categoria, setCategoria] = useState<CategoriaServico>('outros');
+  const [categoria,   setCategoria]   = useState<string | null>('outros');
+  const [categoriaId, setCategoriaId] = useState<string | null>(null);
+  const [customs,     setCustoms]      = useState<CategoriaCustom[]>([]);
   const [preco,     setPreco]     = useState('');
   const [custo,     setCusto]     = useState('');
   const [duracao,   setDuracao]   = useState(60);
@@ -95,7 +83,7 @@ export default function EditarServico() {
     PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold,
   });
 
-  // Carrega dados do serviço
+  // Carrega dados do serviço + categorias personalizadas da empresa
   useEffect(() => {
     if (!id) return;
     supabase.from('servicos').select('*').eq('id', id).single()
@@ -103,7 +91,8 @@ export default function EditarServico() {
         if (data) {
           setNome(data.nome ?? '');
           setDescricao(data.descricao ?? '');
-          setCategoria((data.categoria ?? 'outros') as CategoriaServico);
+          setCategoriaId(data.categoria_id ?? null);
+          setCategoria(data.categoria_id ? null : (data.categoria ?? 'outros'));
           setPreco(String(data.preco ?? ''));
           setCusto(data.custo ? String(data.custo) : '');
           setDuracao(data.duracao_minutos ?? 60);
@@ -111,6 +100,12 @@ export default function EditarServico() {
         setCarregando(false);
       });
   }, [id]);
+
+  useEffect(() => {
+    if (!empresaAtiva) return;
+    supabase.from('categorias_servico').select('*').eq('empresa_id', empresaAtiva.id).order('nome')
+      .then(({ data }) => setCustoms((data ?? []) as CategoriaCustom[]));
+  }, [empresaAtiva]);
 
   if (!fontsLoaded || carregando) return null;
 
@@ -124,7 +119,8 @@ export default function EditarServico() {
     const { error } = await supabase.from('servicos').update({
       nome: nome.trim(),
       descricao: descricao.trim() || null,
-      categoria,
+      categoria: categoriaId ? null : categoria,
+      categoria_id: categoriaId,
       preco: parseValor(preco),
       custo: parseValor(custo),
       duracao_minutos: duracao,
@@ -154,9 +150,6 @@ export default function EditarServico() {
       ]
     );
   }
-
-  const catCor = CATEGORIA_COR[categoria];
-  const catBg  = CATEGORIA_BG[categoria];
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: C.bg }}>
@@ -189,17 +182,14 @@ export default function EditarServico() {
           </Campo>
 
           <Campo label="Categoria">
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {CATEGORIAS.map(({ key, label }) => {
-                const ativo = categoria === key;
-                return (
-                  <TouchableOpacity key={key} onPress={() => setCategoria(key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: ativo ? CATEGORIA_BG[key] : C.surface, borderWidth: 1, borderColor: ativo ? CATEGORIA_COR[key] : C.border }}>
-                    <CategoriaIcon categoria={key} size={16} color={ativo ? CATEGORIA_COR[key] : C.text4} />
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? CATEGORIA_COR[key] : C.text3 }}>{label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <CategoriaPicker
+              empresaId={empresaAtiva?.id ?? ''}
+              customs={customs}
+              categoria={categoria}
+              categoriaId={categoriaId}
+              onSelect={(c, cid) => { setCategoria(c); setCategoriaId(cid); }}
+              onCustomCriada={(c) => setCustoms((prev) => [...prev, c])}
+            />
           </Campo>
 
           <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
