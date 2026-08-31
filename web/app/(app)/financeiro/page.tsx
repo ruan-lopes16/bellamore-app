@@ -63,6 +63,7 @@ import type {
   TaxaCancelamento, TaxaReserva, RetiradaSocia, RetiradaSociaDevolucao,
   RetiradaSociaTipo, MetodoPagamentoRetirada,
 } from '@/types';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 
 const supabase = createClient();
 
@@ -1437,9 +1438,12 @@ export default function FinanceiroPage() {
     <div className="bm-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 bm-mobile-page-header">
-        <div>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Visão Geral</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Financeiro</h1>
+        <div className="flex items-center gap-3">
+          <div>
+            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Visão Geral</p>
+            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Financeiro</h1>
+          </div>
+          <PrivacyToggle />
         </div>
         <ExportButton
           variant="mobileHeader"
@@ -1492,7 +1496,7 @@ export default function FinanceiroPage() {
             ].map(({ label, value, d, cor, invertDelta }) => (
               <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
                 <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
+                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}><Secret>{fmtBRL(value)}</Secret></p>
                 {d !== null && (
                   <div className="flex items-center gap-1 min-w-0">
                     {(invertDelta ? d < 0 : d >= 0)
@@ -1500,7 +1504,7 @@ export default function FinanceiroPage() {
                       : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
                     }
                     <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      {d >= 0 ? '+' : ''}{d}% vs mês anterior
+                      <Secret>{d >= 0 ? '+' : ''}{d}%</Secret> vs mês anterior
                     </span>
                   </div>
                 )}
@@ -1522,7 +1526,7 @@ export default function FinanceiroPage() {
             ].map(({ label, value, d, cor, invertDelta }) => (
               <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
                 <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
+                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}><Secret>{fmtBRL(value)}</Secret></p>
                 {d !== null && (
                   <div className="flex items-center gap-1 min-w-0">
                     {(invertDelta ? d < 0 : d >= 0)
@@ -1530,7 +1534,7 @@ export default function FinanceiroPage() {
                       : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
                     }
                     <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      {d >= 0 ? '+' : ''}{d}% vs mês anterior
+                      <Secret>{d >= 0 ? '+' : ''}{d}%</Secret> vs mês anterior
                     </span>
                   </div>
                 )}
@@ -1644,7 +1648,7 @@ export default function FinanceiroPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <p className="text-xs font-semibold text-text truncate">{s.nome}</p>
-                      <p className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(s.receita)}</p>
+                      <p className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(s.receita)}</Secret></p>
                     </div>
                     <div className="h-1.5 bg-border rounded-full overflow-hidden">
                       <div className="h-full bg-accent rounded-full transition-all"
@@ -1677,7 +1681,7 @@ export default function FinanceiroPage() {
                     <p className="text-[10px] text-text-4">{m.quantidade} {m.quantidade === 1 ? 'transação' : 'transações'}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-text">{fmtBRL(m.valor)}</p>
+                    <p className="text-sm font-bold text-text"><Secret>{fmtBRL(m.valor)}</Secret></p>
                     <p className="text-[10px] text-text-4">{m.percentual}%</p>
                   </div>
                 </div>
@@ -1699,7 +1703,7 @@ export default function FinanceiroPage() {
               <p className="font-serif text-lg text-text">Despesas</p>
               {despesasPendentes.length > 0 && (
                 <p className="text-[10px] text-text-4 mt-0.5">
-                  {fmtBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                  <Secret>{fmtBRL(totalPendente)}</Secret> pendente · <Secret>{despesasPendentes.length}</Secret> despesa{despesasPendentes.length !== 1 ? 's' : ''}
                 </p>
               )}
             </div>
@@ -1781,7 +1785,7 @@ export default function FinanceiroPage() {
                       </p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                      <p className="text-sm font-bold text-red"><Secret>{fmtBRL(d.valor)}</Secret></p>
                       <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
                         d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
                       }`}>
@@ -1835,7 +1839,7 @@ export default function FinanceiroPage() {
                     </p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-red">{fmtBRL(t.valor)}</p>
+                    <p className="text-sm font-bold text-red"><Secret>{fmtBRL(t.valor)}</Secret></p>
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
                       t.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
                     }`}>
@@ -1881,7 +1885,7 @@ export default function FinanceiroPage() {
                     </p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-red">{fmtBRL(t.valor)}</p>
+                    <p className="text-sm font-bold text-red"><Secret>{fmtBRL(t.valor)}</Secret></p>
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
                       t.status === 'pago' ? 'bg-green-soft text-green' : t.status === 'retida' ? 'bg-border text-text-3' : 'bg-amber-soft text-amber'
                     }`}>
@@ -1901,8 +1905,8 @@ export default function FinanceiroPage() {
               <div className="min-w-0">
                 <p className="font-serif text-lg text-text">Retiradas da dona</p>
                 <p className="text-[11px] text-text-4 mt-0.5">
-                  {aDonaDeve > 0 ? `A dona deve ao estúdio: ${fmtBRL(aDonaDeve)}` : 'Nenhum empréstimo em aberto'}
-                  {retiradasMes > 0 && ` · Retiradas no mês: ${fmtBRL(retiradasMes)}`}
+                  {aDonaDeve > 0 ? <>A dona deve ao estúdio: <Secret>{fmtBRL(aDonaDeve)}</Secret></> : 'Nenhum empréstimo em aberto'}
+                  {retiradasMes > 0 && <> · Retiradas no mês: <Secret>{fmtBRL(retiradasMes)}</Secret></>}
                 </p>
               </div>
               <button
@@ -1936,7 +1940,7 @@ export default function FinanceiroPage() {
                       }`}>
                         {r.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'}
                       </span>
-                      <span className="text-sm font-bold text-text">{fmtBRL(r.valor)}</span>
+                      <span className="text-sm font-bold text-text"><Secret>{fmtBRL(r.valor)}</Secret></span>
                       <span className="text-[10px] text-text-4">
                         {format(new Date(r.data + 'T12:00'), 'dd/MM/yyyy')}
                         {r.metodo && ` · ${METODO_CFG[r.metodo]?.label ?? r.metodo}`}
@@ -1945,8 +1949,8 @@ export default function FinanceiroPage() {
                     {r.descricao && <p className="text-xs text-text-3 truncate mt-0.5">{r.descricao}</p>}
                     {r.tipo === 'emprestimo' && !r.convertido_em && (
                       <p className="text-[11px] text-text-4 mt-0.5">
-                        Devolvido {fmtBRL(devolvido)} de {fmtBRL(r.valor)} · saldo {fmtBRL(saldo)}
-                        {parc && ` · Parcela ${parcelaLabel}/${r.total_parcelas}`}
+                        Devolvido <Secret>{fmtBRL(devolvido)}</Secret> de <Secret>{fmtBRL(r.valor)}</Secret> · saldo <Secret>{fmtBRL(saldo)}</Secret>
+                        {parc && <> · Parcela <Secret>{parcelaLabel}/{r.total_parcelas}</Secret></>}
                         {parc?.atrasada && <span className="text-red font-bold"> · atrasada</span>}
                         {quitado && <span className="text-green font-bold"> · quitado</span>}
                       </p>

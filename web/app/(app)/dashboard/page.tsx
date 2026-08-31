@@ -19,6 +19,7 @@ import {
 import {
   somaDevolucoesPorRetirada, retiradasNoPeriodo, saldoDevedorTotal,
 } from '@shared/retiradas-socia';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -359,9 +360,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </Link>
           )}
         </div>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
-          Dashboard
-        </h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
+            Dashboard
+          </h1>
+          <PrivacyToggle />
+        </div>
       </div>
 
       {/* ── Hero receita ── */}
@@ -380,17 +384,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </p>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 'clamp(28px, 8vw, 38px)', fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
             <span style={{ fontSize: 16, fontWeight: 500, opacity: 0.6, marginRight: 4 }}>R$</span>
-            <CountUp value={bruto} />
+            <Secret><CountUp value={bruto} /></Secret>
           </p>
           <div className="flex items-center gap-3 mt-3">
             {pctBruto !== null && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: pctBruto >= 0 ? 'rgba(52,201,146,0.20)' : 'rgba(232,114,154,0.20)', borderRadius: 999, padding: '4px 10px', fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 700, color: pctBruto >= 0 ? '#A8F0D4' : '#F4B8CE' }}>
                 {pctBruto >= 0 ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
-                {pctBruto >= 0 ? '+' : '-'}{Math.abs(pctBruto).toFixed(0)}%
+                <Secret>{pctBruto >= 0 ? '+' : '-'}{Math.abs(pctBruto).toFixed(0)}%</Secret>
               </span>
             )}
             <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, color: 'rgba(255,255,255,0.38)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Lucro {fmt(lucro)}
+              Lucro <Secret>{fmt(lucro)}</Secret>
             </span>
           </div>
         </div>
@@ -420,15 +424,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
+            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
             {delta !== null && (
               <span className="flex items-center gap-0.5 mt-1.5" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 600, color: delta >= 0 ? 'var(--color-green)' : 'var(--color-rose)' }}>
                 {delta >= 0 ? <ArrowUp size={9} /> : <ArrowDown size={9} />}
-                {Math.abs(delta).toFixed(0)}%
+                <Secret>{Math.abs(delta).toFixed(0)}%</Secret>
               </span>
             )}
             {sub !== null && (
-              <p className="mt-1.5 leading-tight sm:truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}>{sub}</p>
+              <p className="mt-1.5 leading-tight sm:truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}><Secret>{sub}</Secret></p>
             )}
           </div>
         ))}
@@ -447,8 +451,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
-            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'var(--color-ink4)', marginTop: 4 }}>{sub}</p>
+            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
+            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'var(--color-ink4)', marginTop: 4 }}><Secret>{sub}</Secret></p>
           </div>
         ))}
       </div>
@@ -466,7 +470,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 Meta do mês
               </p>
               <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 700, color: atingida ? 'var(--color-green)' : 'var(--color-ink2)' }}>
-                {fmt(bruto)} / {fmt(metaMensal)}
+                <Secret>{fmt(bruto)} / {fmt(metaMensal)}</Secret>
               </p>
             </div>
             <div className="relative h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-bg)' }}>
@@ -474,7 +478,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 style={{ width: `${pctMeta}%`, background: atingida ? 'var(--color-green)' : 'linear-gradient(90deg, var(--color-primary), var(--color-accent))' }}/>
             </div>
             <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: atingida ? 'var(--color-green)' : 'var(--color-ink4)', marginTop: 6, fontWeight: atingida ? 700 : 400 }}>
-              {atingida ? `Meta atingida! +${fmt(bruto - metaMensal)} acima` : `${pctMeta.toFixed(0)}% concluído · faltam ${fmt(metaMensal - bruto)}`}
+              <Secret>{atingida ? `Meta atingida! +${fmt(bruto - metaMensal)} acima` : `${pctMeta.toFixed(0)}% concluído · faltam ${fmt(metaMensal - bruto)}`}</Secret>
             </p>
           </div>
         );
@@ -676,7 +680,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <div className="min-w-0">
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-amber)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</p>
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
-                    {p.estoque_atual} un · mín. {p.estoque_minimo}
+                    <Secret>{p.estoque_atual} un · mín. {p.estoque_minimo}</Secret>
                   </p>
                 </div>
               </Link>
@@ -690,7 +694,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <div className="min-w-0">
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-rose)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.descricao}</p>
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
-                    Vence {format(new Date(d.data_vencimento + 'T12:00:00'), 'dd/MM', { locale: ptBR })} · {fmt(Number(d.valor))}
+                    Vence {format(new Date(d.data_vencimento + 'T12:00:00'), 'dd/MM', { locale: ptBR })} · <Secret>{fmt(Number(d.valor))}</Secret>
                   </p>
                 </div>
               </Link>
@@ -703,7 +707,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <Wallet size={13} style={{ color: 'var(--color-primary)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
                 <div>
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-primary)' }}>Comissões a pagar</p>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>{fmt(totalComPendente)} pendentes</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}><Secret>{fmt(totalComPendente)}</Secret> pendentes</p>
                 </div>
               </Link>
             )}
