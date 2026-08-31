@@ -19,7 +19,7 @@
  * `delta(atual, anterior)` retorna null se anterior = 0 (evita divisão por zero).
  *
  * ## Gráfico de evolução
- * Busca agendamentos dos últimos 6 meses em UMA query só (range de datas),
+ * Busca agendamentos dos últimos 12 meses em UMA query só (range de datas),
  * depois agrupa por mês no client usando `isSameMonth` do date-fns.
  * Evita 6 queries paralelas.
  *
@@ -33,7 +33,7 @@
  * - Taxas pagas no mês entram no Faturamento Bruto
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, Ban, X, Layers, Banknote, CreditCard, Gift,
@@ -48,7 +48,7 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra, recorrenciaAindaAtiva } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
@@ -72,6 +72,25 @@ type Despesa = {
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
 type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentual: number };
 type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number };
+
+/** Uma linha do painel de detalhamento (histórico) aberto ao clicar num KPI ou forma de pagamento. */
+type LedgerItem = { data: string; descricao: string; valor: number; sinal: 1 | -1; categoria: string };
+
+/** Cor fixa para as categorias de transação já conhecidas — nomes (ex.: de profissional) caem no hash abaixo. */
+const CATEGORIA_CORES: Record<string, string> = {
+  'Serviço':               'var(--color-green)',
+  'Venda':                 'var(--color-primary)',
+  'Taxa de cancelamento':  'var(--color-rose)',
+  'Taxa de cartão':        'var(--color-amber)',
+  'Comissão':              '#7C3AED',
+  'Despesa':               'var(--color-red)',
+};
+function corCategoria(categoria: string): string {
+  if (CATEGORIA_CORES[categoria]) return CATEGORIA_CORES[categoria];
+  let hue = 0;
+  for (let i = 0; i < categoria.length; i++) hue = (hue * 31 + categoria.charCodeAt(i)) % 360;
+  return `oklch(0.5 0.15 ${hue})`;
+}
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -119,6 +138,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
   const [periodicidade, setPeriodicidade] = useState<'mensal' | 'semanal' | 'trimestral' | 'semestral' | 'anual'>('mensal');
   const [vencimento,    setVencimento]    = useState('');
   const [recorrenciaAte, setRecorrenciaAte] = useState('');
+  const [mostrarDataTermino, setMostrarDataTermino] = useState(false);
   const [modoRepeticao, setModoRepeticao] = useState<'data' | 'parcelas'>('data');
   const [quantidadeParcelas, setQuantidadeParcelas] = useState('');
   const [contratoEmAndamento, setContratoEmAndamento] = useState(false);
@@ -193,7 +213,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
           <h2 className="font-serif text-xl text-text">Nova despesa</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Descrição *</label>
             <input value={descricao} onChange={e => setDescricao(e.target.value)}
@@ -202,7 +222,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
           <div>
             <label className={labelClass}>Valor *</label>
             <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
               <input value={valorCalculadoPreview !== null ? formatValorMonetarioInput(valorCalculadoPreview) : valor}
                 onChange={e => setValor(e.target.value)}
                 readOnly={valorCalculadoPreview !== null}
@@ -298,9 +318,14 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
                           inputMode="decimal" placeholder="Valor total da compra" className={inputClass}/>
                       )}
                     </div>
-                  ) : (
+                  ) : mostrarDataTermino || recorrenciaAte ? (
                     <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
-                      type="date" className={inputClass}/>
+                      type="date" className={inputClass} autoFocus/>
+                  ) : (
+                    <button type="button" onClick={() => setMostrarDataTermino(true)}
+                      className="w-full flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-border text-xs font-semibold text-text-3 hover:border-accent hover:text-accent transition">
+                      <Plus size={12} strokeWidth={2.5}/> Definir data de término
+                    </button>
                   )}
                 </div>
               </div>
@@ -325,8 +350,8 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
 
 // ── Modal Marcar como pago ────────────────────────────────────
 
-function MarcarPagoModal({ despesa, onClose, onSalvo }: {
-  despesa: Despesa; onClose: () => void; onSalvo: () => void;
+function MarcarPagoModal({ despesa, onClose, onSalvo, onEditar }: {
+  despesa: Despesa; onClose: () => void; onSalvo: () => void; onEditar: () => void;
 }) {
   useScrollLock();
   const [data,    setData]    = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -351,13 +376,18 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
-        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Confirmar pagamento</p>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto overflow-x-hidden">
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <p className="text-xs text-text-4 uppercase tracking-wide font-semibold">Confirmar pagamento</p>
+          <button type="button" onClick={onEditar} className="text-xs font-semibold text-accent hover:underline flex-shrink-0">
+            Editar despesa
+          </button>
+        </div>
         <p className="font-serif text-xl text-text mb-4">{despesa.descricao}</p>
         <div className="bg-red-soft rounded-xl p-4 mb-4">
           <label className="block text-xs text-red mb-2 text-center">Valor deste mês</label>
           <div className="relative">
-            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-red text-sm font-bold">R$</span>
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-red text-sm font-bold pointer-events-none">R$</span>
             <input value={valor} onChange={e => setValor(e.target.value)}
               inputMode="decimal" className={`${inputClass} pl-9 text-center text-2xl font-bold text-red bg-white/70 border-red/20`}/>
           </div>
@@ -398,6 +428,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   );
   const [vencimento,    setVencimento]    = useState(despesa.data_vencimento ?? '');
   const [recorrenciaAte, setRecorrenciaAte] = useState(despesa.recorrencia_ate ?? '');
+  const [mostrarDataTermino, setMostrarDataTermino] = useState(false);
   const [modoRepeticao, setModoRepeticao] = useState<'data' | 'parcelas'>(despesa.total_parcelas ? 'parcelas' : 'data');
   const [quantidadeParcelas, setQuantidadeParcelas] = useState(despesa.total_parcelas ? String(despesa.total_parcelas) : '');
   const [contratoEmAndamento, setContratoEmAndamento] = useState((despesa.parcela_atual ?? 1) > 1);
@@ -479,7 +510,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
           <h2 className="font-serif text-xl text-text">Editar despesa</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Descrição *</label>
             <input value={descricao} onChange={e => setDescricao(e.target.value)}
@@ -488,7 +519,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
           <div>
             <label className={labelClass}>Valor *</label>
             <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
               <input value={valorCalculadoPreview !== null ? formatValorMonetarioInput(valorCalculadoPreview) : valor}
                 onChange={e => setValor(e.target.value)}
                 readOnly={valorCalculadoPreview !== null}
@@ -584,9 +615,14 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
                           inputMode="decimal" placeholder="Valor total da compra" className={inputClass}/>
                       )}
                     </div>
-                  ) : (
+                  ) : mostrarDataTermino || recorrenciaAte ? (
                     <input value={recorrenciaAte} onChange={e => setRecorrenciaAte(e.target.value)}
-                      type="date" className={inputClass}/>
+                      type="date" className={inputClass} autoFocus/>
+                  ) : (
+                    <button type="button" onClick={() => setMostrarDataTermino(true)}
+                      className="w-full flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-border text-xs font-semibold text-text-3 hover:border-accent hover:text-accent transition">
+                      <Plus size={12} strokeWidth={2.5}/> Definir data de término
+                    </button>
                   )}
                 </div>
               </div>
@@ -627,6 +663,362 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   );
 }
 
+// ── Modal: detalhamento (histórico) de um KPI ou forma de pagamento ──
+
+function DetalheModal({ titulo, cor, itens, onClose }: {
+  titulo: string; cor: string; itens: LedgerItem[]; onClose: () => void;
+}) {
+  useScrollLock();
+  const [filtro, setFiltro] = useState<string | null>(null);
+
+  const categorias = useMemo(() => {
+    const contagem = new Map<string, number>();
+    itens.forEach(i => contagem.set(i.categoria, (contagem.get(i.categoria) ?? 0) + 1));
+    return Array.from(contagem.entries()).sort((a, b) => b[1] - a[1]).map(([nome]) => nome);
+  }, [itens]);
+
+  const filtrados  = filtro ? itens.filter(i => i.categoria === filtro) : itens;
+  const ordenados  = [...filtrados].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+  const total      = filtrados.reduce((s, i) => s + i.valor * i.sinal, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-surface w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[85dvh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
+          <div>
+            <h2 className="font-serif text-lg text-text">{titulo}</h2>
+            <p className="text-xs text-text-3 mt-0.5">{ordenados.length} lançamento{ordenados.length !== 1 ? 's' : ''} no período</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
+            <X size={16}/>
+          </button>
+        </div>
+
+        {categorias.length > 1 && (
+          <div className="flex gap-1.5 px-5 py-3 border-b border-border flex-shrink-0 overflow-x-auto">
+            <button onClick={() => setFiltro(null)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                filtro === null ? 'bg-primary text-white border-primary' : 'bg-surface text-text-3 border-border hover:border-accent/40'
+              }`}>
+              Todas
+            </button>
+            {categorias.map(catg => (
+              <button key={catg} onClick={() => setFiltro(catg)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                  filtro === catg ? 'text-white border-transparent' : 'bg-surface border-border hover:border-accent/40'
+                }`}
+                style={filtro === catg ? { background: corCategoria(catg) } : { color: corCategoria(catg) }}>
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: filtro === catg ? '#fff' : corCategoria(catg) }}/>
+                {catg}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0">
+          {ordenados.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm text-text-4 italic">Nenhum lançamento neste período.</p>
+            </div>
+          ) : ordenados.map((item, i) => (
+            <div key={i} className={`flex items-center gap-3 px-5 py-3 ${i < ordenados.length - 1 ? 'border-b border-border' : ''}`}>
+              <span className="w-3 h-3 rounded-[4px] flex-shrink-0" style={{ background: corCategoria(item.categoria) }} title={item.categoria}/>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-text truncate">{item.descricao}</p>
+                <p className="text-xs text-text-4 mt-0.5">{format(new Date(item.data), "dd 'de' MMMM", { locale: ptBR })}</p>
+              </div>
+              <p className={`text-sm font-bold flex-shrink-0 ${item.sinal > 0 ? 'text-green' : 'text-red'}`}>
+                {item.sinal > 0 ? '+' : '−'} {fmtBRL(item.valor)}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between px-5 py-4 border-t border-border flex-shrink-0">
+          <span className="text-xs font-bold uppercase tracking-wide text-text-3">
+            {filtro ? `Total · ${filtro}` : 'Total do período'}
+          </span>
+          <span className="text-lg font-bold" style={{ color: filtro ? corCategoria(filtro) : cor }}>{fmtBRL(Math.abs(total))}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: todas as despesas (não só as do mês selecionado no Financeiro) ──
+
+function TodasDespesasModal({ empresaId, onClose, onMarcarPago, onEditar, onNova }: {
+  empresaId: string; onClose: () => void;
+  onMarcarPago: (d: Despesa) => void; onEditar: (d: Despesa) => void; onNova: () => void;
+}) {
+  useScrollLock();
+  const [loading, setLoading] = useState(true);
+  const [todas, setTodas] = useState<Despesa[]>([]);
+  const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'pago' | 'ativas'>('todas');
+  const [filtroCategoria, setFiltroCategoria] = useState<string | null>(null);
+  const [busca, setBusca] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('despesas').select('*')
+        .eq('empresa_id', empresaId)
+        .order('data_vencimento', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(1000);
+      setTodas((data ?? []) as Despesa[]);
+      setLoading(false);
+    })();
+  }, [empresaId]);
+
+  // "Ativas" = despesas recorrentes cujo template ainda está em vigor (sem
+  // recorrencia_ate, ou com recorrencia_ate no futuro) — não é sobre o
+  // status pendente/pago de um lançamento específico, é sobre a
+  // recorrência em si ainda gerar lançamentos novos ou não.
+  const hojeIso = format(new Date(), 'yyyy-MM-dd');
+
+  // Status + busca primeiro (a lista de categorias abaixo reflete só o que
+  // sobrou desses dois filtros, pra não oferecer chip de categoria sem
+  // nenhum resultado no momento).
+  const porStatusEBusca = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return todas.filter(d =>
+      (filtroStatus === 'todas' ? true
+        : filtroStatus === 'ativas' ? (d.recorrente && recorrenciaAindaAtiva(d.recorrencia_ate, hojeIso))
+        : d.status === filtroStatus) &&
+      (q === '' || d.descricao.toLowerCase().includes(q) || (d.categoria ?? '').toLowerCase().includes(q))
+    );
+  }, [todas, filtroStatus, busca, hojeIso]);
+
+  const categorias = useMemo(() => {
+    const contagem = new Map<string, number>();
+    porStatusEBusca.forEach(d => {
+      const c = d.categoria || 'Outros';
+      contagem.set(c, (contagem.get(c) ?? 0) + 1);
+    });
+    return Array.from(contagem.entries()).sort((a, b) => b[1] - a[1]).map(([nome]) => nome);
+  }, [porStatusEBusca]);
+
+  const filtradas = useMemo(() =>
+    filtroCategoria ? porStatusEBusca.filter(d => (d.categoria || 'Outros') === filtroCategoria) : porStatusEBusca,
+  [porStatusEBusca, filtroCategoria]);
+
+  const grupos = useMemo(() => {
+    const porMes = new Map<string, Despesa[]>();
+    filtradas.forEach(d => {
+      const ref = d.data_vencimento ?? d.data_pagamento ?? d.created_at ?? new Date().toISOString();
+      const chave = ref.slice(0, 7); // yyyy-MM
+      porMes.set(chave, [...(porMes.get(chave) ?? []), d]);
+    });
+    return Array.from(porMes.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filtradas]);
+
+  // "Ativas" mostra 1 linha por recorrência, não 1 por mês lançado — nada de
+  // data aqui (nem "vence dd/mm" nem agrupamento por mês). `todas` já vem
+  // ordenada por data_vencimento/created_at desc, então o primeiro lançamento
+  // de cada chave composta (descricao+categoria — mesma chave usada em
+  // templatesRecorrentesParaLancar) é sempre o mais recente.
+  const ativasResumo = useMemo(() => {
+    const vistas = new Set<string>();
+    const resumo: Despesa[] = [];
+    for (const d of filtradas) {
+      const chave = `${d.descricao}||${d.categoria ?? ''}`;
+      if (vistas.has(chave)) continue;
+      vistas.add(chave);
+      resumo.push(d);
+    }
+    return resumo;
+  }, [filtradas]);
+
+  const totalPendenteGeral = todas.filter(d => d.status === 'pendente').reduce((s, d) => s + Number(d.valor), 0);
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col max-h-[88dvh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
+          <div>
+            <h2 className="font-serif text-lg text-text">Todas as despesas</h2>
+            <p className="text-xs text-text-3 mt-0.5">{fmtBRL(totalPendenteGeral)} pendente no total · {todas.length} despesa{todas.length !== 1 ? 's' : ''}</p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button onClick={onNova}
+              className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
+              style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
+              <Plus size={13} strokeWidth={2.5}/> Nova
+            </button>
+            <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition flex-shrink-0">
+              <X size={16}/>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2 px-5 py-3 border-b border-border flex-shrink-0">
+          <div className="flex gap-1.5 overflow-x-auto">
+            {(['todas', 'pendente', 'pago', 'ativas'] as const).map(s => (
+              <button key={s} onClick={() => setFiltroStatus(s)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                  filtroStatus === s ? 'bg-primary text-white border-primary' : 'bg-surface text-text-3 border-border hover:border-accent/40'
+                }`}>
+                {s === 'todas' ? 'Todas' : s === 'pendente' ? 'Pendentes' : s === 'pago' ? 'Pagas' : 'Ativas'}
+              </button>
+            ))}
+          </div>
+          <input value={busca} onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar por descrição ou categoria..."
+            className="flex-1 h-8 px-3 rounded-full border border-border bg-bg text-xs focus:outline-none focus:border-accent transition"/>
+        </div>
+
+        {categorias.length > 1 && (
+          <div className="flex gap-1.5 px-5 py-2.5 border-b border-border flex-shrink-0 overflow-x-auto">
+            <button onClick={() => setFiltroCategoria(null)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                filtroCategoria === null ? 'bg-primary text-white border-primary' : 'bg-surface text-text-3 border-border hover:border-accent/40'
+              }`}>
+              Todas categorias
+            </button>
+            {categorias.map(catg => (
+              <button key={catg} onClick={() => setFiltroCategoria(catg)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition flex-shrink-0 ${
+                  filtroCategoria === catg ? 'text-white border-transparent' : 'bg-surface border-border hover:border-accent/40'
+                }`}
+                style={filtroCategoria === catg ? { background: corCategoria(catg) } : { color: corCategoria(catg) }}>
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: filtroCategoria === catg ? '#fff' : corCategoria(catg) }}/>
+                {catg}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0">
+          {loading ? (
+            <div className="p-5 flex flex-col gap-2">{[1,2,3,4].map(i => <div key={i} className="h-12 bg-bg rounded-lg animate-pulse"/>)}</div>
+          ) : filtroStatus === 'ativas' ? (
+            ativasResumo.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-sm text-text-4 italic">Nenhuma despesa recorrente ativa.</p>
+              </div>
+            ) : ativasResumo.map(d => (
+              <button key={d.id} onClick={() => onEditar(d)}
+                className="w-full flex items-center gap-3 px-5 py-2.5 border-b border-border last:border-0 text-left hover:bg-bg transition">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-primary-soft">
+                  <RefreshCw size={12} strokeWidth={2} className="text-primary"/>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                  <p className="text-[10px] text-text-4 mt-0.5 truncate">
+                    {d.categoria ? `${d.categoria} · ` : ''}{PERIODICIDADES.find(p => p.key === d.periodicidade)?.label ?? 'Recorrente'}
+                  </p>
+                </div>
+                <p className="text-sm font-bold text-text flex-shrink-0">{fmtBRL(d.valor)}</p>
+              </button>
+            ))
+          ) : grupos.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm text-text-4 italic">Nenhuma despesa encontrada.</p>
+            </div>
+          ) : grupos.map(([mesKey, itens]) => (
+            <div key={mesKey}>
+              <p className="px-5 pt-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-text-4 capitalize sticky top-0 bg-surface">
+                {format(new Date(`${mesKey}-01T12:00:00`), "MMMM 'de' yyyy", { locale: ptBR })}
+              </p>
+              {itens.map(d => (
+                <div key={d.id} className="flex items-center gap-2 px-5 py-2.5 border-b border-border last:border-0">
+                  <button onClick={() => d.status === 'pendente' ? onMarcarPago(d) : onEditar(d)}
+                    className="flex items-center gap-3 flex-1 min-w-0 rounded-lg text-left hover:bg-bg transition py-0.5">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
+                      {d.status === 'pago'
+                        ? <CheckCircle2 size={12} strokeWidth={2} className="text-green"/>
+                        : <AlertTriangle size={12} strokeWidth={2} className="text-amber"/>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-text truncate">{d.descricao}</p>
+                      <p className="text-[10px] text-text-4 mt-0.5 truncate">
+                        {d.categoria ? `${d.categoria} · ` : ''}
+                        {d.status === 'pago'
+                          ? `Pago ${d.data_pagamento ? format(new Date(d.data_pagamento + 'T12:00'), 'dd/MM') : ''}`
+                          : `Vence ${d.data_vencimento ? format(new Date(d.data_vencimento + 'T12:00'), 'dd/MM') : 'sem data'}`}
+                      </p>
+                    </div>
+                  </button>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                  </div>
+                  <button onClick={() => onEditar(d)} title="Editar despesa"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-3 border border-border hover:bg-bg hover:text-primary hover:border-primary/40 transition flex-shrink-0">
+                    <Pencil size={12} strokeWidth={2}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: detalhe de uma taxa (cancelamento/reserva) individual ──
+// Substitui o clique instantâneo que só mudava o status sem feedback nenhum.
+
+function TaxaDetalheModal({ tipo, taxa, marcando, onClose, onMarcarPaga }: {
+  tipo: 'cancelamento' | 'reserva'; taxa: TaxaCancelamento | TaxaReserva;
+  marcando: boolean; onClose: () => void; onMarcarPaga: () => void;
+}) {
+  useScrollLock();
+  const statusCfg: Record<string, { label: string; cls: string }> = {
+    pago:      { label: 'Paga',     cls: 'bg-green-soft text-green' },
+    pendente:  { label: 'Pendente', cls: 'bg-amber-soft text-amber' },
+    retida:    { label: 'Retida',   cls: 'bg-border text-text-3'    },
+    cancelada: { label: 'Cancelada',cls: 'bg-border text-text-3'    },
+  };
+  const cfg = statusCfg[taxa.status] ?? statusCfg.pendente;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-surface w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl shadow-xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h2 className="font-serif text-lg text-text">{tipo === 'cancelamento' ? 'Taxa de Cancelamento' : 'Taxa de Reserva'}</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
+            <X size={16}/>
+          </button>
+        </div>
+        <div className="p-5 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-3">Cliente</span>
+            <span className="text-sm font-semibold text-text">{taxa.cliente?.nome ?? 'Cliente'}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-3">Valor</span>
+            <span className="text-lg font-bold text-red">{fmtBRL(taxa.valor)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-3">Status</span>
+            <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-md ${cfg.cls}`}>{cfg.label}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-3">Gerada em</span>
+            <span className="text-sm text-text-2">{format(new Date(taxa.created_at), "dd 'de' MMMM 'às' HH:mm", { locale: ptBR })}</span>
+          </div>
+          {taxa.paga_em && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-3">Paga em</span>
+              <span className="text-sm text-text-2">{format(new Date(taxa.paga_em), "dd 'de' MMMM 'às' HH:mm", { locale: ptBR })}</span>
+            </div>
+          )}
+        </div>
+        {taxa.status === 'pendente' && (
+          <div className="px-5 pb-5">
+            <button onClick={onMarcarPaga} disabled={marcando}
+              className="w-full h-11 rounded-xl bg-green text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50">
+              {marcando ? 'Marcando...' : 'Marcar como paga'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Tela principal ────────────────────────────────────────────
 
 export default function FinanceiroPage() {
@@ -650,9 +1042,20 @@ export default function FinanceiroPage() {
   const [taxasReserva,      setTaxasReserva]      = useState<TaxaReserva[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState(0);
   const [evolucao,      setEvolucao]      = useState<{ mes: string; receita: number; comissoes: number; gastos: number }[]>([]);
+  const [seriesVisiveis, setSeriesVisiveis] = useState({ receita: true, comissoes: true, gastos: true });
+
+  // Listas brutas do mês — só para montar o detalhamento (ledger) ao clicar num KPI
+  const [agsDetalhe,     setAgsDetalhe]     = useState<{ data: string; descricao: string; valor: number; profissional_id: string | null; profissionalNome: string }[]>([]);
+  const [vendasDetalhe,  setVendasDetalhe]  = useState<{ data: string; descricao: string; valor: number }[]>([]);
+  const [pagsDetalhe,    setPagsDetalhe]    = useState<{ data: string; metodo: string; valor: number; valor_liquido: number | null }[]>([]);
+  const [comMapState,    setComMapState]    = useState<Record<string, number>>({});
+  const [detalhe, setDetalhe] = useState<{ titulo: string; cor: string; itens: LedgerItem[] } | null>(null);
+  const [detalheTaxa, setDetalheTaxa] = useState<{ tipo: 'cancelamento' | 'reserva'; taxa: TaxaCancelamento | TaxaReserva } | null>(null);
+  const [marcandoTaxa, setMarcandoTaxa] = useState(false);
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
+  const [verTodasDespesas, setVerTodasDespesas] = useState(false);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [recorrentesParaLancar, setRecorrentesParaLancar] = useState<RecorrenteTemplate[]>([]);
@@ -681,23 +1084,24 @@ export default function FinanceiroPage() {
     setLoading(true);
     const periodo    = getMonthQueryBounds(mes);
     const periodoAnt = getMonthQueryBounds(subMonths(mes, 1));
-    const periodo6   = getMonthQueryBounds(subMonths(mes, 5));
+    const periodo6   = getMonthQueryBounds(subMonths(mes, 11));
     const ini  = periodo.startIso;
     const fim  = periodo.endIso;
     const iniA = periodoAnt.startIso;
     const fimA = periodoAnt.endIso;
     const ini6 = periodo6.startIso;
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes, reservaPagasAnt] = await Promise.all([
-      // Agendamentos concluídos do mês (com profissional e serviço)
-      supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
+    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes] = await Promise.all([
+      // Agendamentos concluídos do mês (com profissional, serviço, data e cliente — usados
+      // também no detalhamento por KPI ao clicar)
+      supabase.from('agendamentos').select('profissional_id, servico_id, valor, data_hora_inicio, servico:servicos(nome), cliente:clientes!agendamentos_cliente_id_fkey(nome), profissional:users!agendamentos_profissional_id_fkey(nome)')
         .eq('empresa_id', empId).eq('status', 'concluido')
         .gte('data_hora_inicio', ini).lte('data_hora_inicio', fim),
       // Agendamentos mês anterior
       supabase.from('agendamentos').select('profissional_id, valor')
         .eq('empresa_id', empId).eq('status', 'concluido')
         .gte('data_hora_inicio', iniA).lte('data_hora_inicio', fimA),
-      // Agendamentos 6 meses (evolução)
+      // Agendamentos 12 meses (evolução)
       supabase.from('agendamentos').select('profissional_id, valor, data_hora_inicio')
         .eq('empresa_id', empId).eq('status', 'concluido')
         .gte('data_hora_inicio', ini6).lte('data_hora_inicio', fim),
@@ -712,12 +1116,12 @@ export default function FinanceiroPage() {
       supabase.from('despesas').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('data_pagamento', periodoAnt.startDate).lte('data_pagamento', periodoAnt.endDate),
-      // Despesas 6 meses (evolução)
+      // Despesas 12 meses (evolução)
       supabase.from('despesas').select('valor, data_pagamento')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('data_pagamento', periodo6.startDate).lte('data_pagamento', periodo.endDate),
-      // Formas de pagamento
-      supabase.from('pagamentos').select('metodo, valor, valor_liquido')
+      // Formas de pagamento (com data — usada no detalhamento por método/por KPI)
+      supabase.from('pagamentos').select('metodo, valor, valor_liquido, created_at')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('created_at', ini).lte('created_at', fim),
       // Lista de despesas do mês (pendentes + pagas)
@@ -725,13 +1129,13 @@ export default function FinanceiroPage() {
         .eq('empresa_id', empId)
         .or(`and(data_vencimento.gte.${periodo.startDate},data_vencimento.lte.${periodo.endDate}),and(data_pagamento.gte.${periodo.startDate},data_pagamento.lte.${periodo.endDate})`)
         .order('status').order('data_vencimento'),
-      // Vendas avulsas do mês
-      supabase.from('vendas').select('valor_final')
+      // Vendas avulsas do mês (com data e cliente — usadas no detalhamento)
+      supabase.from('vendas').select('valor_final, created_at, cliente:clientes(nome)')
         .eq('empresa_id', empId).gte('created_at', ini).lte('created_at', fim),
       // Vendas avulsas mês anterior
       supabase.from('vendas').select('valor_final')
         .eq('empresa_id', empId).gte('created_at', iniA).lte('created_at', fimA),
-      // Vendas avulsas 6 meses
+      // Vendas avulsas 12 meses
       supabase.from('vendas').select('valor_final, created_at')
         .eq('empresa_id', empId).gte('created_at', ini6).lte('created_at', fim),
       // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
@@ -762,26 +1166,28 @@ export default function FinanceiroPage() {
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empId).eq('status', 'pago')
         .gte('paga_em', iniA).lte('paga_em', fimA),
-      // Lista de taxas de reserva do mês (pendentes + pagas + retidas)
+      // Lista de taxas de reserva do mês (pendentes + pagas + retidas —
+      // exclui 'cancelada' explicitamente: mesmo não sendo um status
+      // documentado no schema atual, já apareceu em dados reais e sem esse
+      // filtro cai no fallback "Pendente" da renderização, inflando a
+      // contagem de pendências com taxas que na verdade foram canceladas)
       supabase.from('taxas_reserva')
         .select('*, cliente:clientes(nome)')
         .eq('empresa_id', empId)
+        .neq('status', 'cancelada')
         .gte('created_at', ini).lte('created_at', fim)
         .order('status').order('created_at'),
-      // Taxas de reserva pagas no mês (para somar ao bruto, inclui as posteriormente retidas)
+      // Taxas de reserva pagas no mês (exibidas à parte, não somadas ao bruto)
       supabase.from('taxas_reserva').select('valor')
         .eq('empresa_id', empId).not('paga_em', 'is', null)
         .gte('paga_em', ini).lte('paga_em', fim),
-      // Taxas de reserva pagas no mês anterior (para somar ao bruto do mês anterior)
-      supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empId).not('paga_em', 'is', null)
-        .gte('paga_em', iniA).lte('paga_em', fimA),
     ]);
 
     // Mapa de comissão por profissional (user_id → %)
     const comMap: Record<string, number> = {};
     ((membros.data ?? []) as { user_id: string; percentual_comissao: number }[])
       .forEach(m => { comMap[m.user_id] = m.percentual_comissao ?? 0; });
+    setComMapState(comMap);
 
     type AgRow = { profissional_id: string | null; valor: number };
     const calcCom = (ags: AgRow[]) =>
@@ -796,13 +1202,14 @@ export default function FinanceiroPage() {
     const brutoVendas     = ((vendasMes.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
     const brutoTaxasCanc  = ((taxasPagasMes.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
     const brutoTaxasCancAnt = ((taxasPagasAnt.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
+    // Taxa de reserva NÃO entra na receita bruta: quando o cliente realiza o
+    // procedimento ela é abatida do valor da comanda (já contado em
+    // brutoServicos); fica só como card informativo próprio abaixo.
     const brutoReserva    = ((reservaPagasMes.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
-    const brutoReservaAnt = ((reservaPagasAnt.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
-    const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc + brutoReserva;
+    const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc;
     const receitaAntVal   = ((agsAnt.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0)
                           + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0)
-                          + brutoTaxasCancAnt
-                          + brutoReservaAnt;
+                          + brutoTaxasCancAnt;
     const comissoesVal    = calcCom((agsMes.data ?? []) as AgRow[]);
     const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
     const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
@@ -837,6 +1244,24 @@ export default function FinanceiroPage() {
     setTaxasReserva((reservaLista.data ?? []) as TaxaReserva[]);
     setTaxasReservaPagas(brutoReserva);
 
+    // Listas brutas para o detalhamento por KPI (histórico ao clicar)
+    type AgDetalheRow = { profissional_id: string | null; valor: number; data_hora_inicio: string; servico: { nome: string } | null; cliente: { nome: string } | null; profissional: { nome: string } | null };
+    setAgsDetalhe(((agsMes.data ?? []) as unknown as AgDetalheRow[]).map(a => ({
+      data: a.data_hora_inicio, valor: Number(a.valor), profissional_id: a.profissional_id,
+      profissionalNome: a.profissional?.nome ?? 'Profissional',
+      descricao: `${a.servico?.nome ?? 'Serviço'} · ${a.cliente?.nome ?? 'Cliente'}`,
+    })));
+    type VendaDetalheRow = { valor_final: number; created_at: string; cliente: { nome: string } | null };
+    setVendasDetalhe(((vendasMes.data ?? []) as unknown as VendaDetalheRow[]).map(v => ({
+      data: v.created_at, valor: Number(v.valor_final),
+      descricao: `Venda avulsa · ${v.cliente?.nome ?? 'Sem cliente'}`,
+    })));
+    type PagDetalheRow = { metodo: string; valor: number; valor_liquido: number | null; created_at: string };
+    setPagsDetalhe(((pagsMes.data ?? []) as unknown as PagDetalheRow[]).map(p => ({
+      data: p.created_at, metodo: p.metodo, valor: Number(p.valor),
+      valor_liquido: p.valor_liquido != null ? Number(p.valor_liquido) : null,
+    })));
+
     // Top serviços
     type TopServicoRow = { servico_id: string | null; valor: number; servico: { nome: string } | null };
     const svcMap: Record<string, { nome: string; qtd: number; receita: number }> = {};
@@ -864,9 +1289,9 @@ export default function FinanceiroPage() {
       percentual: metTotal > 0 ? Math.round((m.valor / metTotal) * 100) : 0,
     })).sort((a, b) => b.valor - a.valor));
 
-    // Evolução 6 meses (client-side, a partir das queries únicas)
-    const evolucaoData = Array.from({ length: 6 }, (_, i) => {
-      const m    = subMonths(mes, 5 - i);
+    // Evolução 12 meses (client-side, a partir das queries únicas) — arrastável no card
+    const evolucaoData = Array.from({ length: 12 }, (_, i) => {
+      const m    = subMonths(mes, 11 - i);
       type Desp6Row = { valor: number; data_pagamento: string | null };
       type Venda6Row = { valor_final: number; created_at: string };
       const mesAgs  = ((ags6m.data ?? []) as (AgRow & { data_hora_inicio: string })[]).filter(a =>
@@ -968,6 +1393,18 @@ export default function FinanceiroPage() {
     if (empresaId) await carregar(empresaId, mesRef);
   }
 
+  async function confirmarMarcarTaxaPaga() {
+    if (!detalheTaxa) return;
+    setMarcandoTaxa(true);
+    if (detalheTaxa.tipo === 'cancelamento') {
+      await marcarTaxaPaga(detalheTaxa.taxa as TaxaCancelamento);
+    } else {
+      await marcarReservaPaga(detalheTaxa.taxa as TaxaReserva);
+    }
+    setMarcandoTaxa(false);
+    setDetalheTaxa(null);
+  }
+
   const liquidoAposTaxas = receita - taxasCartao;
   const lucro            = liquidoAposTaxas - comissoes - gastos;
   const dReceita         = delta(receita,   receitaAnt);
@@ -977,6 +1414,69 @@ export default function FinanceiroPage() {
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const maxEvolucao = Math.max(...evolucao.flatMap(e => [e.receita, e.gastos, e.comissoes ?? 0]), 1);
+
+  // ── Ledgers do detalhamento por KPI (histórico ao clicar) ──────
+  const METODO_LABEL: Record<string, string> = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Crédito', debito: 'Débito', cortesia: 'Cortesia' };
+
+  const ledgerServicos: LedgerItem[] = useMemo(() => agsDetalhe.map(a => ({
+    data: a.data, descricao: a.descricao, valor: a.valor, sinal: 1 as const, categoria: 'Serviço',
+  })), [agsDetalhe]);
+
+  const ledgerVendas: LedgerItem[] = useMemo(() => vendasDetalhe.map(v => ({
+    data: v.data, descricao: v.descricao, valor: v.valor, sinal: 1 as const, categoria: 'Venda',
+  })), [vendasDetalhe]);
+
+  const ledgerTaxasCancPagas: LedgerItem[] = useMemo(() => taxasCancelamento
+    .filter(t => t.status === 'pago')
+    .map(t => ({ data: t.paga_em ?? t.created_at, descricao: `Taxa de cancelamento · ${t.cliente?.nome ?? 'Cliente'}`, valor: Number(t.valor), sinal: 1 as const, categoria: 'Taxa de cancelamento' })),
+    [taxasCancelamento]);
+
+  // Comissão por profissional — usada tanto na KPI "Comissões" (categoria =
+  // nome da profissional, para filtrar por quem gerou) quanto embutida no
+  // Lucro Real (categoria única "Comissão", pra não fragmentar o filtro ali).
+  const ledgerComissoesPorProfissional: LedgerItem[] = useMemo(() => agsDetalhe
+    .filter(a => a.profissional_id != null)
+    .map(a => ({
+      data: a.data,
+      descricao: `${a.profissionalNome} · ${a.descricao}`,
+      valor: Number(a.valor) * (comMapState[a.profissional_id!] ?? 0) / 100,
+      sinal: 1 as const,
+      categoria: a.profissionalNome,
+    }))
+    .filter(l => l.valor > 0),
+    [agsDetalhe, comMapState]);
+  const ledgerComissoesParaLucro: LedgerItem[] = useMemo(() =>
+    ledgerComissoesPorProfissional.map(l => ({ ...l, sinal: -1 as const, categoria: 'Comissão' })),
+    [ledgerComissoesPorProfissional]);
+
+  const ledgerGastos: LedgerItem[] = useMemo(() => despesas
+    .filter(d => d.status === 'pago')
+    .map(d => ({ data: d.data_pagamento ?? d.created_at ?? hojeIso, descricao: d.descricao, valor: Number(d.valor), sinal: -1 as const, categoria: d.categoria ?? 'Despesa' })),
+    [despesas, hojeIso]);
+
+  const ledgerBruto: LedgerItem[] = useMemo(() => [...ledgerServicos, ...ledgerVendas, ...ledgerTaxasCancPagas], [ledgerServicos, ledgerVendas, ledgerTaxasCancPagas]);
+
+  const ledgerTaxasCartao: LedgerItem[] = useMemo(() => pagsDetalhe
+    .filter(p => p.valor_liquido != null)
+    .map(p => ({
+      data: p.data, descricao: `Taxa de cartão · ${METODO_LABEL[p.metodo] ?? p.metodo}`,
+      valor: p.valor - (p.valor_liquido as number), sinal: -1 as const, categoria: 'Taxa de cartão',
+    }))
+    .filter(l => l.valor > 0.001),
+    [pagsDetalhe]);
+
+  // Líquido após Taxas = Bruto − Taxas de Cartão (não comissões — a fórmula
+  // real é `receita - taxasCartao`, ver liquidoAposTaxas abaixo). Lucro Real
+  // segue subtraindo comissões e gastos por cima do líquido.
+  const ledgerLiquido: LedgerItem[] = useMemo(() => [...ledgerBruto, ...ledgerTaxasCartao], [ledgerBruto, ledgerTaxasCartao]);
+  const ledgerLucro: LedgerItem[]   = useMemo(() => [...ledgerLiquido, ...ledgerComissoesParaLucro, ...ledgerGastos], [ledgerLiquido, ledgerComissoesParaLucro, ledgerGastos]);
+
+  function abrirDetalheMetodo(metodo: string) {
+    const itens: LedgerItem[] = pagsDetalhe
+      .filter(p => p.metodo === metodo)
+      .map(p => ({ data: p.data, descricao: METODO_LABEL[metodo] ?? metodo, valor: p.valor, sinal: 1 as const, categoria: 'Pagamento' }));
+    setDetalhe({ titulo: `Formas de pagamento · ${METODO_LABEL[metodo] ?? metodo}`, cor: 'var(--color-primary)', itens });
+  }
 
   return (
     <div className="bm-page">
@@ -1013,33 +1513,40 @@ export default function FinanceiroPage() {
         onNextMonth={() => setMesRef(m => addMonths(m, 1))}
       />
 
-      {/* KPIs */}
+      {/* KPIs — grid auto-fit: preenche a largura sem deixar buraco na
+          última linha, não importa quantos cards existam (a lista cresce
+          com taxas condicionais e deve continuar crescendo no futuro). */}
       {loading ? (
-        <div className="flex flex-col gap-3 mb-6">
-          {[0,1].map(row => (
-            <div key={row} className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-              {[1,2,3].map(i => (
-                <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm">
-                  <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
-                </div>
-              ))}
+        <div className="grid gap-3 sm:gap-4 mb-6 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+          {[1,2,3,4,5,6].map(i => (
+            <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm">
+              <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
             </div>
           ))}
         </div>
       ) : (
-        <div className="flex flex-col gap-3 mb-6">
-          {/* Linha 1: Bruto → Taxas Cartão → Líquido após Taxas */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-            {[
-              { label: 'Faturamento Bruto',   value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
-              { label: 'Taxas de Cartão',     value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
-              { label: 'Líquido após Taxas',  value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
-            ].map(({ label, value, d, cor, invertDelta }) => (
-              <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-                <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
+        <div className="grid gap-3 sm:gap-4 mb-6 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+          {[
+            { label: 'Faturamento Bruto',   ledger: ledgerBruto,        value: receita,          d: dReceita,   cor: 'text-green',   corVar: 'var(--color-green)',   invertDelta: false },
+            { label: 'Taxas de Cartão',     ledger: ledgerTaxasCartao,  value: taxasCartao,      d: null,       cor: 'text-rose',    corVar: 'var(--color-rose)',    invertDelta: false },
+            { label: 'Líquido após Taxas',  ledger: ledgerLiquido,      value: liquidoAposTaxas, d: null,       cor: 'text-primary', corVar: 'var(--color-primary)', invertDelta: false },
+            { label: 'Comissões',           ledger: ledgerComissoesPorProfissional, value: comissoes, d: dComissoes, cor: 'text-amber',                        corVar: 'var(--color-amber)',   invertDelta: true  },
+            { label: 'Gastos Operacionais', ledger: ledgerGastos,       value: gastos,    d: dGastos,   cor: 'text-rose',                                     corVar: 'var(--color-rose)',    invertDelta: true  },
+            { label: 'Lucro Real',          ledger: ledgerLucro,        value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        corVar: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-red)', invertDelta: false },
+            ...(taxasCancelamentoPagas > 0
+              ? [{ label: 'Taxas de Cancelamento', ledger: ledgerTaxasCancPagas, value: taxasCancelamentoPagas, d: null, cor: 'text-rose', corVar: 'var(--color-rose)', invertDelta: false }]
+              : []),
+          ].map(({ label, ledger, value, d, cor, corVar, invertDelta }) => (
+            <button key={label} type="button" onClick={() => setDetalhe({ titulo: label, cor: corVar, itens: ledger })}
+              className="text-left bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 block transition-opacity hover:opacity-80">
+              <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
+              <p className={`text-lg sm:text-xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
+              {/* Altura sempre reservada (mesmo sem delta) — cards do mesmo par na
+                  grid ficavam com alturas diferentes quando um tinha a linha de
+                  variação e o outro não, quebrando o alinhamento entre eles. */}
+              <div className="flex items-center gap-1 min-w-0 h-4">
                 {d !== null && (
-                  <div className="flex items-center gap-1 min-w-0">
+                  <>
                     {(invertDelta ? d < 0 : d >= 0)
                       ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
                       : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
@@ -1047,52 +1554,44 @@ export default function FinanceiroPage() {
                     <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
                       {d >= 0 ? '+' : ''}{d}% vs mês anterior
                     </span>
-                  </div>
+                  </>
                 )}
               </div>
-            ))}
-          </div>
-          {/* Linha 2: Comissões | Gastos | Lucro Real */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-            {[
-              { label: 'Comissões',           value: comissoes, d: dComissoes, cor: 'text-amber',                                    invertDelta: true  },
-              { label: 'Gastos Operacionais', value: gastos,    d: dGastos,   cor: 'text-rose',                                     invertDelta: true  },
-              { label: 'Lucro Real',          value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        invertDelta: false },
-              ...(taxasCancelamentoPagas > 0
-                ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
-                : []),
-              ...(taxasReservaPagas > 0
-                ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
-                : []),
-            ].map(({ label, value, d, cor, invertDelta }) => (
-              <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-                <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 truncate ${cor}`}>{fmtBRL(value)}</p>
-                {d !== null && (
-                  <div className="flex items-center gap-1 min-w-0">
-                    {(invertDelta ? d < 0 : d >= 0)
-                      ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
-                      : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
-                    }
-                    <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      {d >= 0 ? '+' : ''}{d}% vs mês anterior
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+            </button>
+          ))}
         </div>
       )}
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Skeleton: evolução */}
+          {/* Skeleton: despesas (col-span-2, agora no topo) */}
+          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <Sk className="h-5 w-24"/>
+              <Sk className="h-4 w-16"/>
+            </div>
+            <div className="p-5 flex flex-col gap-3">
+              {[1,2,3].map(i => (
+                <div key={i} className="flex items-center gap-3">
+                  <Sk className="w-8 h-8 rounded-lg flex-shrink-0"/>
+                  <div className="flex-1 flex flex-col gap-1.5">
+                    <Sk className="h-3.5 w-40"/>
+                    <Sk className="h-3 w-24"/>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5">
+                    <Sk className="h-4 w-16"/>
+                    <Sk className="h-4 w-20 rounded-md"/>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Skeleton: evolução (12 meses) */}
           <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
             <Sk className="h-5 w-36 mb-5"/>
-            <div className="flex items-end gap-3 h-24">
-              {[60,80,45,90,70,100].map((h,i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+            <div className="flex items-end gap-3 h-24 overflow-hidden">
+              {[60,80,45,90,70,100,55,75,40,85,65,95].map((h,i) => (
+                <div key={i} className="flex-1 min-w-[16px] flex flex-col items-center gap-1">
                   <Sk className="w-full rounded-t-sm" style={{ height: `${h}%` }}/>
                   <Sk className="h-2.5 w-6"/>
                 </div>
@@ -1115,130 +1614,12 @@ export default function FinanceiroPage() {
               ))}
             </div>
           </div>
-          {/* Skeleton: despesas (col-span-2) */}
-          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <Sk className="h-5 w-24"/>
-              <Sk className="h-4 w-16"/>
-            </div>
-            <div className="p-5 flex flex-col gap-3">
-              {[1,2,3].map(i => (
-                <div key={i} className="flex items-center gap-3">
-                  <Sk className="w-8 h-8 rounded-lg flex-shrink-0"/>
-                  <div className="flex-1 flex flex-col gap-1.5">
-                    <Sk className="h-3.5 w-40"/>
-                    <Sk className="h-3 w-24"/>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    <Sk className="h-4 w-16"/>
-                    <Sk className="h-4 w-20 rounded-md"/>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
 
-        {/* Evolução mensal */}
-        <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-4">
-            <p className="font-serif text-lg text-text flex-1">Evolução Mensal</p>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-text-4">
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-primary inline-block"/>Bruto</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-amber inline-block opacity-80"/>Comissões</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-red inline-block opacity-60"/>Gastos</span>
-            </div>
-          </div>
-          <div className="flex items-end gap-3 h-32">
-            {evolucao.map((e, i) => {
-              const rH = maxEvolucao > 0 ? (e.receita          / maxEvolucao) * 100 : 0;
-              const cH = maxEvolucao > 0 ? ((e.comissoes ?? 0) / maxEvolucao) * 100 : 0;
-              const gH = maxEvolucao > 0 ? (e.gastos           / maxEvolucao) * 100 : 0;
-              const isAtual = i === evolucao.length - 1;
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full flex items-end gap-0.5 h-24">
-                    <div className="flex-1 rounded-t-sm bm-grow"
-                      style={{ '--bm-i': i, height: `${rH}%`, backgroundColor: 'var(--color-primary)', opacity: isAtual ? 1 : 0.3 + i * 0.12 } as React.CSSProperties}/>
-                    <div className="flex-1 rounded-t-sm bm-grow"
-                      style={{ '--bm-i': i + 0.65, height: `${cH}%`, backgroundColor: 'var(--color-amber)', opacity: isAtual ? 0.8 : 0.2 + i * 0.1 } as React.CSSProperties}/>
-                    <div className="flex-1 rounded-t-sm bm-grow"
-                      style={{ '--bm-i': i + 1.3, height: `${gH}%`, backgroundColor: 'var(--color-rose)', opacity: isAtual ? 0.7 : 0.2 + i * 0.08 } as React.CSSProperties}/>
-                  </div>
-                  <p className={`text-[10px] font-semibold capitalize ${isAtual ? 'text-primary' : 'text-text-4'}`}>{e.mes}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Top serviços */}
-        <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-          <p className="font-serif text-lg text-text mb-4">Top Serviços</p>
-          {loading ? (
-            <div className="flex flex-col gap-3">{[1,2,3].map(i => <div key={i} className="h-8 bg-bg rounded-lg animate-pulse"/>)}</div>
-          ) : topServicos.length === 0 ? (
-            <p className="text-sm text-text-4 italic">Sem atendimentos concluídos no mês.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {topServicos.map((s, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span className={`text-lg font-bold w-5 flex-shrink-0 ${i < 2 ? 'text-primary' : 'text-text-4'}`}>{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <p className="text-xs font-semibold text-text truncate">{s.nome}</p>
-                      <p className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(s.receita)}</p>
-                    </div>
-                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
-                      <div className="h-full bg-accent rounded-full transition-all"
-                        style={{ width: `${s.percentual}%`, opacity: 0.5 + s.percentual / 200 }}/>
-                    </div>
-                    <p className="text-[10px] text-text-4 mt-0.5">{s.quantidade} atend.</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Formas de pagamento */}
-        {metodos.length > 0 && (
-          <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
-            <p className="font-serif text-lg text-text px-5 pt-5 pb-4">Formas de Pagamento</p>
-            {metodos.map((m, i) => {
-              const cfg = METODO_CFG[m.metodo] ?? METODO_CFG.cortesia;
-              const Icon = cfg.icon;
-              return (
-                <div key={m.metodo}
-                  className={`flex items-center gap-3 px-5 py-3 ${i < metodos.length - 1 ? 'border-b border-border' : ''}`}>
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: cfg.bg }}>
-                    <Icon size={14} strokeWidth={2} style={{ color: cfg.cor }}/>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-text">{cfg.label}</p>
-                    <p className="text-[10px] text-text-4">{m.quantidade} {m.quantidade === 1 ? 'transação' : 'transações'}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-text">{fmtBRL(m.valor)}</p>
-                    <p className="text-[10px] text-text-4">{m.percentual}%</p>
-                  </div>
-                </div>
-              );
-            })}
-            <div className="flex h-1.5 mx-4 mb-3 mt-2 rounded-full overflow-hidden">
-              {metodos.map(m => {
-                const cfg = METODO_CFG[m.metodo];
-                return <div key={m.metodo} style={{ flex: m.percentual, backgroundColor: cfg?.cor ?? '#9CA3AF', opacity: 0.6 }}/>;
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Despesas */}
-        <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-sm ${metodos.length > 0 ? '' : 'md:col-span-2'}`}>
+        {/* Despesas — no topo, é o que mais precisa de atenção no dia a dia */}
+        <div id="secao-despesas" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <div>
               <p className="font-serif text-lg text-text">Despesas</p>
@@ -1248,7 +1629,11 @@ export default function FinanceiroPage() {
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <button onClick={() => setVerTodasDespesas(true)}
+                className="press flex items-center gap-1.5 px-3 h-8 rounded-xl border border-border text-text-2 text-xs font-bold hover:bg-bg transition">
+                Ver todas
+              </button>
               <button onClick={() => setModalDespesa(true)}
                 className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
                 style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
@@ -1298,8 +1683,8 @@ export default function FinanceiroPage() {
                 <div key={d.id}
                   className={`relative flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
                   <div
-                    className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                    onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
+                    className="flex items-center gap-3 flex-1 min-w-0 rounded-lg cursor-pointer hover:bg-bg transition"
+                    onClick={() => d.status === 'pendente' ? setMarcarPago(d) : setEditarDespesa(d)}>
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                       {d.status === 'pago'
                         ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
@@ -1337,8 +1722,8 @@ export default function FinanceiroPage() {
                   <button
                     onClick={() => setEditarDespesa(d)}
                     title="Editar despesa"
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
-                    <Pencil size={12} strokeWidth={2}/>
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-text-3 border border-border hover:bg-bg hover:text-primary hover:border-primary/40 transition flex-shrink-0">
+                    <Pencil size={13} strokeWidth={2}/>
                   </button>
                   {progresso !== null && (
                     <div className="absolute left-4 right-4 bottom-0 h-0.5 rounded-full overflow-hidden bg-border">
@@ -1351,9 +1736,117 @@ export default function FinanceiroPage() {
           )}
         </div>
 
-        {/* Taxas de cancelamento */}
+        {/* Evolução mensal — 12 meses, arrastável no mobile (overflow-x),
+            cada série pode ser escondida clicando na legenda */}
+        <div id="secao-evolucao" className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-4">
+            <p className="font-serif text-lg text-text flex-1">Evolução Mensal</p>
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] sm:text-xs">
+              {([
+                { key: 'receita' as const,   cor: 'bg-primary', label: 'Bruto'      },
+                { key: 'comissoes' as const, cor: 'bg-amber',   label: 'Comissões'  },
+                { key: 'gastos' as const,    cor: 'bg-red',     label: 'Gastos'     },
+              ]).map(({ key, cor, label }) => (
+                <button key={key} type="button"
+                  onClick={() => setSeriesVisiveis(s => ({ ...s, [key]: !s[key] }))}
+                  className={`flex items-center gap-1.5 transition ${seriesVisiveis[key] ? 'text-text-4' : 'text-text-4/40'}`}>
+                  <span className={`w-2 h-2 rounded-sm inline-block ${cor}`} style={{ opacity: seriesVisiveis[key] ? 0.8 : 0.25 }}/>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-end gap-3 overflow-x-auto pb-1">
+            {evolucao.map((e, i) => {
+              const rH = maxEvolucao > 0 && seriesVisiveis.receita   ? (e.receita          / maxEvolucao) * 100 : 0;
+              const cH = maxEvolucao > 0 && seriesVisiveis.comissoes ? ((e.comissoes ?? 0) / maxEvolucao) * 100 : 0;
+              const gH = maxEvolucao > 0 && seriesVisiveis.gastos    ? (e.gastos           / maxEvolucao) * 100 : 0;
+              const isAtual = i === evolucao.length - 1;
+              const fade = evolucao.length > 1 ? 0.3 + (i / (evolucao.length - 1)) * 0.7 : 1;
+              return (
+                <div key={i} className="flex-1 min-w-[40px] flex flex-col items-center gap-1">
+                  <div className="w-full flex items-end gap-0.5 h-24">
+                    <div className="flex-1 rounded-t-sm bm-grow"
+                      style={{ '--bm-i': i, height: `${rH}%`, backgroundColor: 'var(--color-primary)', opacity: isAtual ? 1 : fade } as React.CSSProperties}/>
+                    <div className="flex-1 rounded-t-sm bm-grow"
+                      style={{ '--bm-i': i + 0.65, height: `${cH}%`, backgroundColor: 'var(--color-amber)', opacity: isAtual ? 0.8 : fade * 0.85 } as React.CSSProperties}/>
+                    <div className="flex-1 rounded-t-sm bm-grow"
+                      style={{ '--bm-i': i + 1.3, height: `${gH}%`, backgroundColor: 'var(--color-rose)', opacity: isAtual ? 0.7 : fade * 0.7 } as React.CSSProperties}/>
+                  </div>
+                  <p className={`text-[10px] font-semibold capitalize ${isAtual ? 'text-primary' : 'text-text-4'}`}>{e.mes}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Top serviços */}
+        <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
+          <p className="font-serif text-lg text-text mb-4">Top Serviços</p>
+          {loading ? (
+            <div className="flex flex-col gap-3">{[1,2,3].map(i => <div key={i} className="h-8 bg-bg rounded-lg animate-pulse"/>)}</div>
+          ) : topServicos.length === 0 ? (
+            <p className="text-sm text-text-4 italic">Sem atendimentos concluídos no mês.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {topServicos.map((s, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className={`text-lg font-bold w-5 flex-shrink-0 ${i < 2 ? 'text-primary' : 'text-text-4'}`}>{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-xs font-semibold text-text truncate">{s.nome}</p>
+                      <p className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(s.receita)}</p>
+                    </div>
+                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                      <div className="h-full bg-accent rounded-full transition-all"
+                        style={{ width: `${s.percentual}%`, opacity: 0.5 + s.percentual / 200 }}/>
+                    </div>
+                    <p className="text-[10px] text-text-4 mt-0.5">{s.quantidade} atend.</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Formas de pagamento */}
+        {metodos.length > 0 && (
+          <div id="secao-formas-pagamento" className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <p className="font-serif text-lg text-text px-5 pt-5 pb-4">Formas de Pagamento</p>
+            {metodos.map((m, i) => {
+              const cfg = METODO_CFG[m.metodo] ?? METODO_CFG.cortesia;
+              const Icon = cfg.icon;
+              return (
+                <button key={m.metodo} type="button" onClick={() => abrirDetalheMetodo(m.metodo)}
+                  className={`w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-bg transition ${i < metodos.length - 1 ? 'border-b border-border' : ''}`}>
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: cfg.bg }}>
+                    <Icon size={14} strokeWidth={2} style={{ color: cfg.cor }}/>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-text">{cfg.label}</p>
+                    <p className="text-[10px] text-text-4">{m.quantidade} {m.quantidade === 1 ? 'transação' : 'transações'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-text">{fmtBRL(m.valor)}</p>
+                    <p className="text-[10px] text-text-4">{m.percentual}%</p>
+                  </div>
+                </button>
+              );
+            })}
+            <div className="flex h-1.5 mx-4 mb-3 mt-2 rounded-full overflow-hidden">
+              {metodos.map(m => {
+                const cfg = METODO_CFG[m.metodo];
+                return <div key={m.metodo} style={{ flex: m.percentual, backgroundColor: cfg?.cor ?? '#9CA3AF', opacity: 0.6 }}/>;
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Taxas de cancelamento — lado a lado com Taxas de Reserva no
+            desktop quando as duas existem; largura total quando só uma */}
         {taxasCancelamento.length > 0 && (
-          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div id="secao-taxas-cancelamento" className={`${taxasReserva.length > 0 ? '' : 'md:col-span-2'} bg-surface border border-border rounded-2xl overflow-hidden shadow-sm`}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <p className="font-serif text-lg text-text">Taxas de Cancelamento</p>
               <span className="text-xs text-text-4">{taxasCancelamento.length} lançamento(s)</span>
@@ -1362,8 +1855,8 @@ export default function FinanceiroPage() {
               <div key={t.id}
                 className={`flex items-center gap-2 px-4 py-3 ${i < taxasCancelamento.length - 1 ? 'border-b border-border' : ''}`}>
                 <div
-                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => t.status === 'pendente' && marcarTaxaPaga(t)}>
+                  className="flex items-center gap-3 flex-1 min-w-0 rounded-lg cursor-pointer hover:bg-bg transition"
+                  onClick={() => setDetalheTaxa({ tipo: 'cancelamento', taxa: t })}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                     {t.status === 'pago'
                       ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
@@ -1395,7 +1888,7 @@ export default function FinanceiroPage() {
 
         {/* Taxas de reserva */}
         {taxasReserva.length > 0 && (
-          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+          <div id="secao-taxas-reserva" className={`${taxasCancelamento.length > 0 ? '' : 'md:col-span-2'} bg-surface border border-border rounded-2xl overflow-hidden shadow-sm`}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <p className="font-serif text-lg text-text">Taxas de Reserva</p>
               <span className="text-xs text-text-4">{taxasReserva.length} lançamento(s)</span>
@@ -1404,8 +1897,8 @@ export default function FinanceiroPage() {
               <div key={t.id}
                 className={`flex items-center gap-2 px-4 py-3 ${i < taxasReserva.length - 1 ? 'border-b border-border' : ''}`}>
                 <div
-                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => t.status === 'pendente' && marcarReservaPaga(t)}>
+                  className="flex items-center gap-3 flex-1 min-w-0 rounded-lg cursor-pointer hover:bg-bg transition"
+                  onClick={() => setDetalheTaxa({ tipo: 'reserva', taxa: t })}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                     t.status === 'pago' ? 'bg-green-soft' : t.status === 'retida' ? 'bg-border' : 'bg-amber-soft'
                   }`}>
@@ -1445,10 +1938,24 @@ export default function FinanceiroPage() {
         <NovaDespesaModal empresaId={empresaId} onClose={() => setModalDespesa(false)} onSalvo={() => { setModalDespesa(false); recarregar(); }}/>
       )}
       {marcarPago && (
-        <MarcarPagoModal despesa={marcarPago} onClose={() => setMarcarPago(null)} onSalvo={() => { setMarcarPago(null); recarregar(); }}/>
+        <MarcarPagoModal despesa={marcarPago} onClose={() => setMarcarPago(null)} onSalvo={() => { setMarcarPago(null); recarregar(); }}
+          onEditar={() => { setEditarDespesa(marcarPago); setMarcarPago(null); }}/>
       )}
       {editarDespesa && (
         <EditarDespesaModal despesa={editarDespesa} onClose={() => setEditarDespesa(null)} onSalvo={() => { setEditarDespesa(null); recarregar(); }}/>
+      )}
+      {detalhe && (
+        <DetalheModal titulo={detalhe.titulo} cor={detalhe.cor} itens={detalhe.itens} onClose={() => setDetalhe(null)}/>
+      )}
+      {detalheTaxa && (
+        <TaxaDetalheModal tipo={detalheTaxa.tipo} taxa={detalheTaxa.taxa} marcando={marcandoTaxa}
+          onClose={() => setDetalheTaxa(null)} onMarcarPaga={confirmarMarcarTaxaPaga}/>
+      )}
+      {verTodasDespesas && empresaId && (
+        <TodasDespesasModal empresaId={empresaId} onClose={() => setVerTodasDespesas(false)}
+          onMarcarPago={d => { setVerTodasDespesas(false); setMarcarPago(d); }}
+          onEditar={d => { setVerTodasDespesas(false); setEditarDespesa(d); }}
+          onNova={() => { setVerTodasDespesas(false); setModalDespesa(true); }}/>
       )}
     </div>
   );

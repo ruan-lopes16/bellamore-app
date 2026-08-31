@@ -191,7 +191,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto overflow-x-hidden">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div>
             <h2 className="font-serif text-xl text-text">Novo agendamento</h2>
@@ -244,7 +244,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Taxa de reserva</label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input
                   value={taxaReserva}
                   onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
@@ -365,7 +365,7 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
+        <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 p-5 flex flex-col gap-5">
           {carregando ? (
             <div className="flex flex-col gap-3">
               <Sk className="h-4 w-40"/><Sk className="h-4 w-56"/><Sk className="h-4 w-32"/>

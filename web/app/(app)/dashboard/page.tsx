@@ -116,8 +116,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       agendamentosHoje, agsMes, agsMesAnt, membros,
       despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
       totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
-      todasAgsCompletas, clientesComAniversario, taxasPagasMes, taxasReservaPagasMes,
-      taxasPagasMesAnt, taxasReservaPagasMesAnt,
+      todasAgsCompletas, clientesComAniversario, taxasPagasMes,
+      taxasPagasMesAnt,
     ],
     agsStatusList,
   ] = await Promise.all([
@@ -129,7 +129,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       supabase.from('agendamentos').select('profissional_id,valor,data_hora_inicio')
         .eq('empresa_id', empresaId).eq('status', 'concluido')
         .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
-      supabase.from('agendamentos').select('valor')
+      supabase.from('agendamentos').select('profissional_id,valor')
         .eq('empresa_id', empresaId).eq('status', 'concluido')
         .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
       supabase.from('empresa_membros').select('user_id,percentual_comissao')
@@ -169,14 +169,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empresaId).eq('status', 'pago')
         .gte('paga_em', inicioMes).lte('paga_em', fimMes),
-      supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empresaId).not('paga_em', 'is', null)
-        .gte('paga_em', inicioMes).lte('paga_em', fimMes),
       supabase.from('taxas_cancelamento').select('valor')
         .eq('empresa_id', empresaId).eq('status', 'pago')
-        .gte('paga_em', inicioMesAnt).lte('paga_em', fimMesAnt),
-      supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empresaId).not('paga_em', 'is', null)
         .gte('paga_em', inicioMesAnt).lte('paga_em', fimMesAnt),
     ]),
     buscarTodasPaginas<{ status: string }>((from, to) =>
@@ -194,8 +188,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const brutoConcluido = (agsMes.data ?? []).reduce((s, a) => s + Number(a.valor), 0);
   const brutoVendas    = (vendasMes.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0);
   const brutoTaxas     = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-  const brutoReserva   = (taxasReservaPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-  const bruto          = brutoConcluido + brutoVendas + brutoTaxas + brutoReserva;
+  // Taxa de reserva NÃO entra no bruto: quando o cliente realiza o
+  // procedimento ela é abatida do valor da comanda (já contado em
+  // brutoConcluido); só apareceria "solta" aqui se o agendamento fosse
+  // cancelado — caso em que já é a taxa de cancelamento que é cobrada.
+  const bruto          = brutoConcluido + brutoVendas + brutoTaxas;
   const comissoes      = (agsMes.data ?? []).reduce(
     (s, a) => s + Number(a.valor) * (comMap[a.profissional_id] ?? 0) / 100, 0,
   );
@@ -204,8 +201,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const lucro    = liquido - gastos;
   const brutoAnt = (agsMesAnt.data ?? []).reduce((s, a) => s + Number(a.valor), 0)
                  + (vendasMesAnt.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0)
-                 + (taxasPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0)
-                 + (taxasReservaPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+                 + (taxasPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+  const comissoesAnt = (agsMesAnt.data ?? []).reduce(
+    (s, a) => s + Number(a.valor) * (comMap[a.profissional_id] ?? 0) / 100, 0,
+  );
+  const liquidoAnt = brutoAnt - comissoesAnt;
   const gastosAnt = (despMesAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
 
   const agsHoje       = agendamentosHoje.data ?? [];
@@ -224,8 +224,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const perdidosMes      = agsStatusList.filter(a => a.status === 'cancelado' || a.status === 'faltou').length;
   const pctCancelamento  = totalAgsMes > 0 ? (perdidosMes / totalAgsMes) * 100 : 0;
 
-  const pctBruto = pct(bruto, brutoAnt);
-  const pctLucro = pct(lucro, brutoAnt - gastosAnt);
+  const pctBruto   = pct(bruto, brutoAnt);
+  const pctLiquido = pct(liquido, liquidoAnt);
+  // Antes comparava com "brutoAnt - gastosAnt" (sem descontar comissoesAnt) --
+  // base inconsistente com `lucro`, que já desconta comissão do mês atual.
+  const pctLucro   = pct(lucro, liquidoAnt - gastosAnt);
 
   // Clientes inativos: última visita há mais de 45 dias
   const cutoff45 = new Date(Date.now() - 45 * 86400000);
@@ -348,19 +351,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
       </Tilt>
 
-      {/* ── KPIs do mês ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
+      {/* ── KPIs do mês — auto-fit: nunca deixa buraco na última linha,
+          mesmo quando a lista de KPIs crescer ── */}
+      <div className="grid gap-2 sm:gap-3 mb-4 grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
         {[
-          { label: 'Fat. Bruto',    value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
-          { label: 'Fat. Líquido',  value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
-          { label: 'Lucro do mês',  value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: null, icon: Wallet },
-          { label: 'Comissões',     value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} de ${fmt(totalComMes)} pendente` : 'Em dia', icon: BadgeDollarSign },
-          { label: '% Cancelamento', value: `${pctCancelamento.toFixed(1)}%`, color: 'var(--color-rose)', delta: null, sub: perdidosMes > 0 ? `${perdidosMes} perdido(s)` : null, icon: XCircle },
-        ].map(({ label, value, color, delta, sub, icon: Icon }, i) => (
-          <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
+          { label: 'Faturamento Bruto',    href: '/financeiro', value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
+          { label: 'Faturamento Líquido',  href: '/financeiro', value: fmt(liquido),     color: 'var(--color-primary)', delta: pctLiquido, sub: null,       icon: Wallet          },
+          { label: 'Lucro do mês',  href: '/financeiro', value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: null, icon: Wallet },
+          { label: 'Despesas', href: '/financeiro', value: fmt(gastos), color: 'var(--color-rose)', delta: (() => { const d = pct(gastos, gastosAnt); return d === null ? null : -d; })(), sub: null, icon: Receipt },
+          { label: 'Comissões',     href: '/equipe', value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} pendente` : 'Em dia', icon: BadgeDollarSign },
+          { label: '% Cancelamento', href: '/relatorios', value: `${pctCancelamento.toFixed(1)}%`, color: 'var(--color-rose)', delta: null, sub: perdidosMes > 0 ? `${perdidosMes} perdido(s)` : null, icon: XCircle },
+        ].map(({ label, href, value, color, delta, sub, icon: Icon }, i) => (
+          <Link key={label} href={href} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0 block transition-opacity hover:opacity-80"
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
             <div className="flex items-start justify-between mb-2 gap-1">
-              <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.3 }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
             <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
@@ -373,26 +378,26 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             {sub !== null && (
               <p className="mt-1.5 leading-tight sm:truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}>{sub}</p>
             )}
-          </div>
+          </Link>
         ))}
       </div>
 
       {/* ── KPIs do dia ── */}
       <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-7">
         {[
-          { label: 'Agenda hoje',    value: String(agsHoje.length), sub: `${agsConcluidos.length} concluído(s)`, icon: CalendarDays,  color: 'var(--color-accent)'   },
-          { label: 'Fat. hoje',       value: fmt(fatHoje),         sub: 'Serv. + vendas',                       icon: ShoppingBag,   color: 'var(--color-primary)' },
-          { label: 'Clientes',         value: String(totalClientes.count ?? 0), sub: 'Total na base',          icon: Users,         color: 'var(--color-amber)'    },
-        ].map(({ label, value, sub, icon: Icon, color }, i) => (
-          <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
+          { label: 'Agenda hoje', href: '/agenda',    value: String(agsHoje.length), sub: `${agsConcluidos.length} concluído(s)`, icon: CalendarDays,  color: 'var(--color-accent)'   },
+          { label: 'Faturamento', href: '/financeiro', value: fmt(fatHoje),         sub: 'Serv. + vendas',                       icon: ShoppingBag,   color: 'var(--color-primary)' },
+          { label: 'Clientes', href: '/clientes',        value: String(totalClientes.count ?? 0), sub: 'Total na base',          icon: Users,         color: 'var(--color-amber)'    },
+        ].map(({ label, href, value, sub, icon: Icon, color }, i) => (
+          <Link key={label} href={href} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0 block transition-opacity hover:opacity-80"
             style={{ '--bm-i': i + 3, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
             <div className="flex items-start justify-between mb-2 gap-1">
-              <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.3 }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
             <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
             <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'var(--color-ink4)', marginTop: 4 }}>{sub}</p>
-          </div>
+          </Link>
         ))}
       </div>
 
@@ -610,45 +615,64 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             )}
           </div>
 
-          <div className="flex flex-col gap-2">
-            {estoqueBaixoItems.map((p: any) => (
-              <Link key={p.id} href="/estoque"
-                className="flex items-start gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
-                style={{ background: 'var(--color-amber-soft)', border: '1px solid rgba(166,90,27,0.13)' }}>
-                <AlertTriangle size={13} style={{ color: 'var(--color-amber)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
-                <div className="min-w-0">
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-amber)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</p>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
-                    {p.estoque_atual} un · mín. {p.estoque_minimo}
-                  </p>
-                </div>
-              </Link>
-            ))}
+          <div className="flex flex-col gap-4">
+            {estoqueBaixoItems.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9.5, fontWeight: 700, color: 'var(--color-amber)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  Estoque baixo
+                </p>
+                {estoqueBaixoItems.map((p: any) => (
+                  <Link key={p.id} href="/estoque"
+                    className="flex items-start gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
+                    style={{ background: 'var(--color-amber-soft)', border: '1px solid rgba(166,90,27,0.13)' }}>
+                    <AlertTriangle size={13} style={{ color: 'var(--color-amber)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
+                    <div className="min-w-0">
+                      <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-amber)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</p>
+                      <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
+                        {p.estoque_atual} un · mín. {p.estoque_minimo}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
 
-            {despPendentesItems.map((d: any) => (
-              <Link key={d.id} href="/financeiro"
-                className="flex items-start gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
-                style={{ background: 'var(--color-rose-soft)', border: '1px solid rgba(201,82,127,0.13)' }}>
-                <AlertTriangle size={13} style={{ color: 'var(--color-rose)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
-                <div className="min-w-0">
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-rose)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.descricao}</p>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
-                    Vence {format(new Date(d.data_vencimento + 'T12:00:00'), 'dd/MM', { locale: ptBR })} · {fmt(Number(d.valor))}
-                  </p>
-                </div>
-              </Link>
-            ))}
+            {despPendentesItems.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9.5, fontWeight: 700, color: 'var(--color-rose)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  Despesas a vencer
+                </p>
+                {despPendentesItems.map((d: any) => (
+                  <Link key={d.id} href="/financeiro"
+                    className="flex items-start gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
+                    style={{ background: 'var(--color-rose-soft)', border: '1px solid rgba(201,82,127,0.13)' }}>
+                    <AlertTriangle size={13} style={{ color: 'var(--color-rose)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
+                    <div className="min-w-0">
+                      <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-rose)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.descricao}</p>
+                      <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
+                        Vence {format(new Date(d.data_vencimento + 'T12:00:00'), 'dd/MM', { locale: ptBR })} · {fmt(Number(d.valor))}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
 
             {totalComPendente > 0 && (
-              <Link href="/equipe"
-                className="flex items-start gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
-                style={{ background: 'var(--color-primary-soft)', border: '1px solid rgba(44,23,80,0.1)' }}>
-                <Wallet size={13} style={{ color: 'var(--color-primary)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
-                <div>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-primary)' }}>Comissões a pagar</p>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>{fmt(totalComPendente)} pendentes</p>
-                </div>
-              </Link>
+              <div className="flex flex-col gap-2">
+                <p style={{ fontFamily: 'var(--font-sans)', fontSize: 9.5, fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  Comissões
+                </p>
+                <Link href="/equipe"
+                  className="flex items-start gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
+                  style={{ background: 'var(--color-primary-soft)', border: '1px solid rgba(44,23,80,0.1)' }}>
+                  <Wallet size={13} style={{ color: 'var(--color-primary)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
+                  <div>
+                    <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-primary)' }}>Comissões a pagar</p>
+                    <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>{fmt(totalComPendente)} pendentes</p>
+                  </div>
+                </Link>
+              </div>
             )}
 
             {totalAlertas === 0 && (

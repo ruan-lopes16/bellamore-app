@@ -27,3 +27,16 @@ export function fmtTaxa(taxa: number): string {
 export function valorLiquido(bruto: number, taxa: number): number {
   return Math.round(bruto * (1 - taxa) * 100) / 100;
 }
+
+/**
+ * Valor bruto que, cobrado do cliente, resulta no `liquidoDesejado` líquido
+ * depois de descontada a taxa — usado quando a taxa de parcelamento é
+ * repassada ao cliente em vez de absorvida pelo negócio.
+ *
+ * @example
+ * valorComRepasse(100, 0.0559) // → 105.92 (cliente paga 105,92; negócio recebe 100)
+ */
+export function valorComRepasse(liquidoDesejado: number, taxa: number): number {
+  if (taxa <= 0) return liquidoDesejado;
+  return Math.round((liquidoDesejado / (1 - taxa)) * 100) / 100;
+}

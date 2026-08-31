@@ -48,7 +48,7 @@ import {
   startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
+import { calcTaxa, fmtTaxa, valorLiquido, valorComRepasse, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
 import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 
@@ -87,7 +87,7 @@ type ComandaItem = {
   profissional_id?: string;
 };
 
-type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number };
+type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number; repassarTaxa?: boolean };
 
 type ClienteComanda = {
   id: string;
@@ -200,6 +200,8 @@ export default function ComandaPage() {
   );
   const [agsMes,            setAgsMes]            = useState<Map<string, number>>(new Map());
   const [comandaExistenteId, setComandaExistenteId] = useState<string | null>(null);
+  const [reabrindo,          setReabrindo]          = useState(false);
+  const [confirmarReabrir,   setConfirmarReabrir]   = useState(false);
 
   // Catálogos para pesquisa
   const [servicos,  setServicos]    = useState<{ id: string; nome: string; preco: number }[]>([]);
@@ -456,7 +458,7 @@ export default function ComandaPage() {
     const [{ data: cmd }, { data: extraItems }, { data: pags }] = await Promise.all([
       supabase.from('comandas').select('desconto').eq('id', comandaId).single(),
       supabase.from('comanda_itens').select('tipo,descricao,servico_id,produto_id,pacote_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId),
-      supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas').eq('comanda_id', comandaId),
+      supabase.from('pagamentos').select('metodo,valor,valor_liquido,bandeira,parcelas,repassar_taxa').eq('comanda_id', comandaId),
     ]);
 
     setDescontoPct('');
@@ -472,12 +474,18 @@ export default function ComandaPage() {
     }));
 
     setItens([...agItems, ...extras]);
-    setSplits((pags ?? []).map((p: any) => ({
-      metodo:   p.metodo,
-      valor:    Number(p.valor).toFixed(2).replace('.', ','),
-      bandeira: p.bandeira ?? undefined,
-      parcelas: p.parcelas ?? 1,
-    })));
+    setSplits((pags ?? []).map((p: any) => {
+      // Se a taxa foi repassada, `valor` é o valor cobrado (com acréscimo) —
+      // volta pro formulário o valor_liquido, que é o valor base original.
+      const valorBase = p.repassar_taxa && p.valor_liquido != null ? p.valor_liquido : p.valor;
+      return {
+        metodo:        p.metodo,
+        valor:         Number(valorBase).toFixed(2).replace('.', ','),
+        bandeira:      p.bandeira ?? undefined,
+        parcelas:      p.parcelas ?? 1,
+        repassarTaxa:  p.repassar_taxa ?? false,
+      };
+    }));
   }
 
   // ── Editar comanda já fechada (UPDATE ao invés de INSERT)
@@ -515,15 +523,20 @@ export default function ComandaPage() {
           const v    = parseFloat(s.valor.replace(',', '.'));
           const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
           const taxa = calcTaxa(s.metodo, parc);
+          // Quando a taxa é repassada, o cliente paga mais no cartão (v vira
+          // o valor cobrado) e o líquido para o negócio é o valor original.
+          const repassar = s.metodo === 'credito' && parc >= 2 && s.repassarTaxa && taxa > 0;
+          const valorCobrado = repassar ? valorComRepasse(v, taxa) : v;
           return {
             empresa_id:    empresaId,
             comanda_id:    comandaId,
-            valor:         v,
+            valor:         valorCobrado,
             metodo:        s.metodo,
             bandeira:      (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
             parcelas:      parc,
             taxa_perc:     taxa > 0 ? taxa : null,
-            valor_liquido: taxa > 0 ? valorLiquido(v, taxa) : null,
+            valor_liquido: taxa > 0 ? (repassar ? v : valorLiquido(v, taxa)) : null,
+            repassar_taxa: !!repassar,
             status:        'pago',
           };
         })
@@ -541,6 +554,92 @@ export default function ComandaPage() {
     setClienteSel(null);
     setComandaExistenteId(null);
     setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, descontoReserva: reciboDescontoReserva, data: new Date() });
+  }
+
+  /**
+   * Reabre uma comanda fechada por engano: desfaz tudo que o fechamento
+   * gerou (comissão, baixa de estoque, venda avulsa, venda de pacote,
+   * pagamentos) e volta o status para 'aberta' para o operador refazer do
+   * zero. Consulta direto no banco (não confia no estado do formulário, que
+   * pode já ter sido editado antes de decidir reabrir).
+   *
+   * Bloqueia (sem desfazer nada) quando encontra dinheiro/uso já
+   * consolidado que não pode ser revertido com segurança:
+   * - comissão já marcada como paga
+   * - sessão de pacote já consumida (pacote_uso)
+   */
+  async function reabrirComanda(comandaId: string) {
+    setReabrindo(true); setErro('');
+
+    const { data: agsData, error: errAgs } = await supabase
+      .from('agendamentos').select('id').eq('comanda_id', comandaId);
+    if (errAgs) { setErro(errAgs.message); setReabrindo(false); return; }
+    const agIds = (agsData ?? []).map((a: { id: string }) => a.id);
+
+    if (agIds.length > 0) {
+      const { data: comissoesPagas } = await supabase
+        .from('comissoes').select('id').in('agendamento_id', agIds).eq('status', 'pago');
+      if (comissoesPagas && comissoesPagas.length > 0) {
+        setErro('Não é possível reabrir: já existe comissão paga para esta comanda. Ajuste em Equipe antes de reabrir.');
+        setReabrindo(false); return;
+      }
+    }
+
+    const { data: pacotesVendidos } = await supabase
+      .from('pacote_clientes').select('id').eq('comanda_id', comandaId);
+    const pacoteClienteIds = (pacotesVendidos ?? []).map((p: { id: string }) => p.id);
+    if (pacoteClienteIds.length > 0) {
+      const { data: usos } = await supabase
+        .from('pacote_uso').select('id').in('pacote_cliente_id', pacoteClienteIds);
+      if (usos && usos.length > 0) {
+        setErro('Não é possível reabrir: um pacote vendido nesta comanda já teve sessão utilizada.');
+        setReabrindo(false); return;
+      }
+    }
+
+    // A partir daqui está tudo seguro para desfazer.
+    if (agIds.length > 0) {
+      await supabase.from('comissoes').delete().in('agendamento_id', agIds);
+      const { error: errAgUpdate } = await supabase
+        .from('agendamentos')
+        .update({ status: 'confirmado', comanda_id: null })
+        .in('id', agIds);
+      if (errAgUpdate) { setErro(errAgUpdate.message); setReabrindo(false); return; }
+    }
+
+    // Devolve estoque: DELETE não reverte o trigger de saldo, então lança
+    // uma entrada compensatória em vez de apagar o histórico da saída.
+    const { data: movimentos } = await supabase
+      .from('estoque_movimentos').select('produto_id, quantidade').eq('comanda_id', comandaId).eq('tipo', 'saida');
+    if (movimentos && movimentos.length > 0) {
+      await supabase.from('estoque_movimentos').insert(
+        movimentos.map((m: { produto_id: string; quantidade: number }) => ({
+          produto_id: m.produto_id,
+          empresa_id: empresaId,
+          tipo:       'entrada',
+          quantidade: m.quantidade,
+          motivo:     'Estorno — comanda reaberta',
+        }))
+      );
+    }
+
+    if (pacoteClienteIds.length > 0) {
+      await supabase.from('pacote_clientes').delete().in('id', pacoteClienteIds);
+    }
+    await supabase.from('vendas').delete().eq('comanda_id', comandaId);
+    await supabase.from('pagamentos').delete().eq('comanda_id', comandaId);
+
+    const { error: errComanda } = await supabase
+      .from('comandas').update({ status: 'aberta', fechada_at: null }).eq('id', comandaId);
+    if (errComanda) { setErro(errComanda.message); setReabrindo(false); return; }
+
+    setReabrindo(false);
+    setConfirmarReabrir(false);
+    setClienteSel(null);
+    setComandaExistenteId(null);
+    setItens([]);
+    setSplits([]);
+    setDataComanda(new Date(dataComanda)); // força o useEffect de carga do dia a rodar de novo
   }
 
   // ── Itens: adicionar/remover
@@ -611,7 +710,10 @@ export default function ComandaPage() {
     setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
   }
   function atualizarSplitParcelas(idx: number, parcelas: number) {
-    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas } : s));
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas, repassarTaxa: parcelas >= 2 ? s.repassarTaxa : false } : s));
+  }
+  function atualizarSplitRepassarTaxa(idx: number, repassarTaxa: boolean) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, repassarTaxa } : s));
   }
 
   // ── Fechar / salvar comanda
@@ -684,6 +786,7 @@ export default function ComandaPage() {
           empresa_id:    empresaId,
           pacote_id:     i.pacote_id!,
           cliente_id:    clienteSel.id,
+          comanda_id:    comandaId,
           data_inicio:   dataInicio,
           data_validade: dataValidade,
           valor_pago:    i.valor,
@@ -703,6 +806,7 @@ export default function ComandaPage() {
         extrasProdutos.map(i => ({
           produto_id: i.produto_id!,
           empresa_id: empresaId,
+          comanda_id: comandaId,
           tipo:       'saida',
           quantidade: i.quantidade,
           motivo:     `Produto via comanda — ${i.descricao}`,
@@ -717,6 +821,7 @@ export default function ComandaPage() {
       const { data: venda } = await supabase.from('vendas').insert({
         empresa_id:  empresaId,
         cliente_id:  clienteSel.id === '__sem__' ? null : clienteSel.id,
+        comanda_id:  comandaId,
         valor_total: totalProdutos,
         desconto:    0,
         observacao:  `Via comanda`,
@@ -743,15 +848,20 @@ export default function ComandaPage() {
           const v    = parseFloat(s.valor.replace(',', '.'));
           const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
           const taxa = calcTaxa(s.metodo, parc);
+          // Quando a taxa é repassada, o cliente paga mais no cartão (v vira
+          // o valor cobrado) e o líquido para o negócio é o valor original.
+          const repassar = s.metodo === 'credito' && parc >= 2 && s.repassarTaxa && taxa > 0;
+          const valorCobrado = repassar ? valorComRepasse(v, taxa) : v;
           return {
             empresa_id:    empresaId,
             comanda_id:    comandaId,
-            valor:         v,
+            valor:         valorCobrado,
             metodo:        s.metodo,
             bandeira:      (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
             parcelas:      parc,
             taxa_perc:     taxa > 0 ? taxa : null,
-            valor_liquido: taxa > 0 ? valorLiquido(v, taxa) : null,
+            valor_liquido: taxa > 0 ? (repassar ? v : valorLiquido(v, taxa)) : null,
+            repassar_taxa: !!repassar,
             status:        'pago',
           };
         })
@@ -1330,15 +1440,33 @@ export default function ComandaPage() {
                                 </select>
                               </div>
                             )}
+                            {s.metodo === 'credito' && (s.parcelas ?? 1) >= 2 && (
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={s.repassarTaxa ?? false}
+                                  onChange={e => atualizarSplitRepassarTaxa(i, e.target.checked)}
+                                  className="w-3.5 h-3.5 rounded border-border/50 accent-primary"/>
+                                <span className="text-xs" style={{ color: m.cor }}>Passar a taxa de parcelamento para a cliente</span>
+                              </label>
+                            )}
                             {isCard && (() => {
                               const valorN = parseFloat(s.valor.replace(',', '.')) || 0;
                               const taxa   = calcTaxa(s.metodo, s.parcelas ?? 1);
-                              const liq    = valorLiquido(valorN, taxa);
+                              const repassar = s.metodo === 'credito' && (s.parcelas ?? 1) >= 2 && s.repassarTaxa;
+                              const liq    = repassar ? valorN : valorLiquido(valorN, taxa);
+                              const cobrado = repassar ? valorComRepasse(valorN, taxa) : valorN;
                               if (!valorN) return null;
                               return (
-                                <div className="flex items-center justify-between text-xs opacity-70" style={{ color: m.cor }}>
-                                  <span>Taxa {fmtTaxa(taxa)}</span>
-                                  <span>Líquido {fmtBRL(liq)}</span>
+                                <div className="flex flex-col gap-0.5 text-xs opacity-70" style={{ color: m.cor }}>
+                                  <div className="flex items-center justify-between">
+                                    <span>Taxa {fmtTaxa(taxa)}</span>
+                                    <span>Líquido {fmtBRL(liq)}</span>
+                                  </div>
+                                  {repassar && (
+                                    <div className="flex items-center justify-between font-semibold">
+                                      <span>Cliente paga (com taxa)</span>
+                                      <span>{fmtBRL(cobrado)}</span>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -1423,6 +1551,35 @@ export default function ComandaPage() {
                   <p className="text-xs text-amber text-center mt-2 font-semibold">
                     Ainda faltam {fmtBRL(restante)} para cobrir o total
                   </p>
+                )}
+
+                {/* Reabrir comanda — só para comanda já fechada sendo editada */}
+                {comandaExistenteId && !confirmarReabrir && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmarReabrir(true)}
+                    disabled={reabrindo}
+                    className="w-full mt-2 text-xs font-semibold text-text-4 hover:text-red transition text-center disabled:opacity-50"
+                  >
+                    Reabrir comanda (desfazer fechamento)
+                  </button>
+                )}
+                {comandaExistenteId && confirmarReabrir && (
+                  <div className="mt-2 rounded-xl border border-red/30 bg-red-soft p-3 flex flex-col gap-2">
+                    <p className="text-xs text-red font-semibold">
+                      Isso desfaz a comissão gerada, devolve o estoque e apaga vendas/pacotes desta comanda. Não pode ser desfeito. Confirma?
+                    </p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setConfirmarReabrir(false)} disabled={reabrindo}
+                        className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold hover:bg-bg transition">
+                        Cancelar
+                      </button>
+                      <button type="button" onClick={() => reabrirComanda(comandaExistenteId)} disabled={reabrindo}
+                        className="flex-1 h-8 rounded-lg bg-red text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50">
+                        {reabrindo ? 'Reabrindo...' : 'Confirmar reabertura'}
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

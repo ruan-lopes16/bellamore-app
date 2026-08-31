@@ -30,7 +30,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
   ChevronDown, ChevronLeft, ChevronRight, DollarSign, Target, Activity, User, Check, Star, CreditCard, XCircle,
-  Receipt,
+  Receipt, CalendarRange,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
@@ -43,6 +43,11 @@ import {
   startOfWeek, endOfWeek, isSameDay, addWeeks, addYears, startOfDay, endOfDay, differenceInCalendarDays,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import {
+  type FinanceiroFechamentoRow,
+  getFechamentoForMonth,
+  resolveFinanceiroKpis,
+} from '@/lib/financeiro/fechamentos-mensais';
 
 const supabase = createClient();
 
@@ -348,9 +353,12 @@ export default function RelatoriosPage() {
   const [movs,       setMovs]       = useState<MovEstoque[]>([]);
   const [vendas,     setVendas]     = useState<Venda[]>([]);
   const [taxas,      setTaxas]      = useState<TaxaPaga[]>([]);
-  const [reserva,    setReserva]    = useState<TaxaPaga[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
-  const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null }[]>([]);
+  const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null; created_at: string }[]>([]);
+  // Fechamentos mensais importados (meses históricos lançados só com o
+  // número de faturamento, sem agendamento/venda/pagamento por trás —
+  // ver lib/financeiro/fechamentos-mensais.ts, mesma fonte usada em Financeiro).
+  const [fechamentos, setFechamentos] = useState<FinanceiroFechamentoRow[]>([]);
 
   // Abas de baixo uso (Estoque/Avaliações) carregam sob demanda — evita buscar
   // dados que a maioria das visitas ao relatório nunca chega a abrir.
@@ -417,7 +425,10 @@ export default function RelatoriosPage() {
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas, rReserva] = await Promise.all([
+    const mesIni = format(startOfMonth(inicio), 'yyyy-MM-dd');
+    const mesFim = format(startOfMonth(fim),    'yyyy-MM-dd');
+
+    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas, rFechamentos] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       buscarTodasPaginas<Ag>((from, to) =>
         supabase.from('agendamentos')
@@ -467,7 +478,7 @@ export default function RelatoriosPage() {
 
       // 5. Pagamentos do período (para cálculo de taxas de cartão)
       supabase.from('pagamentos')
-        .select('valor, valor_liquido')
+        .select('valor, valor_liquido, created_at')
         .eq('empresa_id', empId)
         .eq('status', 'pago')
         .gte('created_at', isoIni)
@@ -481,22 +492,23 @@ export default function RelatoriosPage() {
         .gte('paga_em', isoIni)
         .lte('paga_em', isoFim),
 
-      // 7. Taxas de reserva pagas no período (somam ao faturamento bruto, inclui retidas apos pagas)
-      supabase.from('taxas_reserva')
-        .select('valor, paga_em')
+      // 7. Fechamentos mensais importados (meses históricos sem agendamento/
+      // venda por trás — só o número de faturamento). Sem isso, qualquer mês
+      // coberto só por importação aparece com faturamento zerado no relatório,
+      // mesmo tendo sido lançado corretamente em Financeiro.
+      supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
         .eq('empresa_id', empId)
-        .not('paga_em', 'is', null)
-        .gte('paga_em', isoIni)
-        .lte('paga_em', isoFim),
+        .gte('mes', mesIni).lte('mes', mesFim),
     ]);
 
     setAgs(rAgs as unknown as Ag[]);
     setDespesas((rDesp.data  ?? []) as Despesa[]);
     setComissoes(rCom as unknown as Comissao[]);
     setVendas((rVendas.data ?? []) as Venda[]);
-    setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null }[]);
+    setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null; created_at: string }[]);
     setTaxas((rTaxas.data   ?? []) as TaxaPaga[]);
-    setReserva((rReserva.data ?? []) as TaxaPaga[]);
+    setFechamentos((rFechamentos.data ?? []) as FinanceiroFechamentoRow[]);
     setLoading(false);
   }, [supabase]);
 
@@ -567,16 +579,51 @@ export default function RelatoriosPage() {
   const brutoServicos   = useMemo(() => concluidos.reduce((s, a) => s + a.valor, 0), [concluidos]);
   const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
   const brutoTaxas      = useMemo(() => taxas.reduce((s, t) => s + Number(t.valor), 0), [taxas]);
-  const brutoReserva    = useMemo(() => reserva.reduce((s, t) => s + Number(t.valor), 0), [reserva]);
-  const bruto           = brutoServicos + brutoVendas + brutoTaxas + brutoReserva;
-  const comTot          = useMemo(
-    () => comissoes.reduce((s, c) => s + c.valor_comissao, 0),
-    [comissoes],
-  );
+  // Taxa de reserva NÃO entra no bruto: quando o cliente realiza o
+  // procedimento ela é abatida do valor da comanda (já contado em
+  // brutoServicos); só sobra "solta" se o agendamento for cancelado, caso em
+  // que a taxa de cancelamento (já somada acima) é que é cobrada.
+  //
+  // Bruto/Comissões/Taxas de cartão são resolvidos mês a mês contra os
+  // fechamentos importados (financeiro_ajustes_mensais — meses históricos
+  // lançados só com o número de faturamento, sem agendamento/venda por
+  // trás). Quando um mês do período tem um fechamento, ele substitui por
+  // inteiro o cálculo ao vivo daquele mês (mesma regra de
+  // resolveFinanceiroKpis usada em Financeiro) — sem isso, qualquer mês
+  // coberto só por importação aparecia com faturamento zerado aqui.
+  const { bruto, comTot, taxasCartao } = useMemo(() => {
+    const somaPorMes = (rows: { data: string | null; valor: number }[]) => {
+      const map = new Map<string, number>();
+      for (const r of rows) {
+        if (!r.data) continue;
+        const chave = r.data.slice(0, 7);
+        map.set(chave, (map.get(chave) ?? 0) + r.valor);
+      }
+      return map;
+    };
+    const receitaServicosPorMes = somaPorMes(concluidos.map(a => ({ data: a.data_hora_inicio, valor: a.valor })));
+    const receitaVendasPorMes   = somaPorMes(vendas.map(v => ({ data: v.created_at, valor: Number(v.valor_final) })));
+    const receitaTaxasPorMes    = somaPorMes(taxas.map(t => ({ data: t.paga_em, valor: Number(t.valor) })));
+    const comissoesPorMes       = somaPorMes(comissoes.map(c => ({ data: c.created_at, valor: c.valor_comissao })));
+    const taxasCartaoPorMes     = somaPorMes(pags.map(p => ({
+      data: p.created_at,
+      valor: p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0,
+    })));
+
+    let brutoAc = 0, comAc = 0, taxasCartaoAc = 0;
+    for (const mesIni of eachMonthOfInterval({ start: inicio, end: fim })) {
+      const chave = format(mesIni, 'yyyy-MM');
+      const kpis = resolveFinanceiroKpis({
+        receita: (receitaServicosPorMes.get(chave) ?? 0) + (receitaVendasPorMes.get(chave) ?? 0) + (receitaTaxasPorMes.get(chave) ?? 0),
+        comissoes: comissoesPorMes.get(chave) ?? 0,
+        gastos: 0,
+        taxasCartao: taxasCartaoPorMes.get(chave) ?? 0,
+      }, getFechamentoForMonth(fechamentos, chave));
+      brutoAc += kpis.receita; comAc += kpis.comissoes; taxasCartaoAc += kpis.taxasCartao;
+    }
+    return { bruto: brutoAc, comTot: comAc, taxasCartao: taxasCartaoAc };
+  }, [concluidos, vendas, taxas, comissoes, pags, fechamentos, inicio, fim]);
   const despTot         = useMemo(() => despesas.reduce((s, d) => s + d.valor, 0), [despesas]);
-  const taxasCartao     = useMemo(() =>
-    pags.reduce((s, p) => s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0),
-  [pags]);
   const liquido         = bruto - comTot;
   const liquidoAposTaxas = bruto - taxasCartao;
   const lucro           = liquidoAposTaxas - comTot - despTot;
@@ -779,12 +826,13 @@ export default function RelatoriosPage() {
     const meses = eachMonthOfInterval({ start: inicio, end: fim });
     return meses.map(mesIni => {
       const mesFim = endOfMonth(mesIni);
-      const valor  = concluidos
+      const fechamento = getFechamentoForMonth(fechamentos, format(mesIni, 'yyyy-MM'));
+      const valor  = fechamento?.receitaBruta ?? concluidos
         .filter(ag => { const d = parseISO(ag.data_hora_inicio); return d >= mesIni && d <= mesFim; })
         .reduce((s, ag) => s + ag.valor, 0);
       return { label: format(mesIni, 'MMM', { locale: ptBR }), valor };
     });
-  }, [concluidos, inicio, fim]);
+  }, [concluidos, inicio, fim, fechamentos]);
 
   const maxGrafico = useMemo(() => Math.max(...serieGrafico.map(s => s.valor), 1), [serieGrafico]);
 
@@ -815,26 +863,7 @@ export default function RelatoriosPage() {
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Relatórios</h1>
           {!loading && (
             periodo === 'custom' ? (
-              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                <input
-                  type="date"
-                  value={customIni}
-                  max={customFim}
-                  onChange={e => atualizarCustomIni(e.target.value)}
-                  aria-label="Data inicial"
-                  className="text-xs text-text-2 bg-surface border border-border rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-                <span className="text-text-4 text-xs">até</span>
-                <input
-                  type="date"
-                  value={customFim}
-                  min={customIni}
-                  max={format(new Date(), 'yyyy-MM-dd')}
-                  onChange={e => atualizarCustomFim(e.target.value)}
-                  aria-label="Data final"
-                  className="text-xs text-text-2 bg-surface border border-border rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
+              <p className="text-sm text-text-3 mt-0.5">{labelPeriodo}</p>
             ) : periodo === 'semana' ? (
               <div className="flex items-center gap-1 mt-0.5">
                 <button
@@ -938,7 +967,7 @@ export default function RelatoriosPage() {
       {/* Seletor de período — tabs */}
       <SmoothTabs
         variant="pill"
-        className="mb-6"
+        className="mb-3"
         tabs={PERIODOS}
         active={periodo}
         onChange={key => {
@@ -947,6 +976,38 @@ export default function RelatoriosPage() {
           if (key === 'ano') setAnoOffset(0);
         }}
       />
+
+      {/* Intervalo personalizado — logo abaixo da aba "Personalizado" que o ativa,
+          com destaque visual (antes ficava discreto no header, meio desconectado
+          do controle que o revela). */}
+      {periodo === 'custom' && (
+        <div className="flex items-center gap-2.5 bg-surface border border-border rounded-xl px-3.5 py-2.5 mb-6 flex-wrap">
+          <CalendarRange size={16} className="text-primary flex-shrink-0" />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <label className="text-xs font-semibold text-text-3" htmlFor="relatorios-data-ini">De</label>
+            <input
+              id="relatorios-data-ini"
+              type="date"
+              value={customIni}
+              max={customFim}
+              onChange={e => atualizarCustomIni(e.target.value)}
+              aria-label="Data inicial"
+              className="text-sm font-semibold text-text bg-bg border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
+            />
+            <label className="text-xs font-semibold text-text-3" htmlFor="relatorios-data-fim">até</label>
+            <input
+              id="relatorios-data-fim"
+              type="date"
+              value={customFim}
+              min={customIni}
+              max={format(new Date(), 'yyyy-MM-dd')}
+              onChange={e => atualizarCustomFim(e.target.value)}
+              aria-label="Data final"
+              className="text-sm font-semibold text-text bg-bg border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── KPIs ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -965,8 +1026,8 @@ export default function RelatoriosPage() {
           value={ags.length > 0 ? `${(((cancelados.length + faltaram.length) / ags.length) * 100).toFixed(1)}%` : '—'}
           sub={cancelados.length + faltaram.length > 0 ? `${cancelados.length + faltaram.length} perdido(s)` : undefined}
           cor="#DC2626" loading={loading} />
-        {(brutoTaxas + brutoReserva) > 0 && (
-          <KpiCard icon={Receipt}       label="Taxas (cancel. + reserva)" value={fmtBRL(brutoTaxas + brutoReserva)}          cor="#DC2626" loading={loading} />
+        {brutoTaxas > 0 && (
+          <KpiCard icon={Receipt}       label="Taxa de cancelamento (R$)" value={fmtBRL(brutoTaxas)}          cor="#DC2626" loading={loading} />
         )}
         <KpiCard icon={DollarSign} label="Total comissões"      value={fmtBRL(comTot)}
           sub={comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0) > 0

@@ -153,6 +153,28 @@ export function validaCNPJ(v: string): boolean {
 }
 
 /**
+ * Valida CPF pelo algoritmo de módulo 11.
+ * Rejeita sequências iguais (000.000.000-00, etc.).
+ *
+ * @example
+ * validaCPF('529.982.247-25') // → true
+ * validaCPF('111.111.111-11') // → false
+ */
+export function validaCPF(v: string): boolean {
+  const d = digits(v);
+  if (d.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(d)) return false;
+
+  const calc = (len: number) => {
+    let sum = 0;
+    for (let i = 0; i < len; i++) sum += parseInt(d[i]) * (len + 1 - i);
+    const r = (sum * 10) % 11;
+    return r === 10 ? 0 : r;
+  };
+  return calc(9) === parseInt(d[9]) && calc(10) === parseInt(d[10]);
+}
+
+/**
  * Aplica uma máscara de dígitos (maskPhone, maskCNPJ, maskCPF, maskCEP,
  * maskMoeda...) num <input> controlado SEM perder a posição do cursor.
  *

@@ -42,6 +42,7 @@ import {
   format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { CATS, CAT_MAP, type CatKey } from '@/lib/categorias-produto';
 
 const supabase = createClient();
 
@@ -75,22 +76,6 @@ type MovItem = {
 };
 
 // ── Constantes ────────────────────────────────────────────────
-
-// Ordem alfabética por label (pt-BR) — mantém filtros e seletor de categoria consistentes
-const CATS = [
-  { key: 'cilios',       label: 'Cílios',       cor: '#4F46E5', bg: '#EEF2FF' },
-  { key: 'depilacao',    label: 'Depilação',     cor: '#D4608A', bg: '#FDF0F5' },
-  { key: 'ferramentas',  label: 'Ferramentas',   cor: '#0891B2', bg: '#ECFEFF' },
-  { key: 'higiene',      label: 'Higiene',       cor: '#059669', bg: '#ECFDF5' },
-  { key: 'materiais',    label: 'Materiais',     cor: '#92400E', bg: '#FEF3E2' },
-  { key: 'outros',       label: 'Outros',        cor: '#6B7280', bg: '#F3F4F6' },
-  { key: 'pele',         label: 'Pele',          cor: '#0D7E5F', bg: '#EAFAF5' },
-  { key: 'sobrancelhas', label: 'Sobrancelhas',  cor: '#7C3AED', bg: '#F3EFFE' },
-  { key: 'unhas',        label: 'Unhas',         cor: '#B45309', bg: '#FEF3E2' },
-] as const;
-
-type CatKey = typeof CATS[number]['key'];
-const CAT_MAP = Object.fromEntries(CATS.map(c => [c.key, c])) as Record<string, typeof CATS[0]>;
 
 const UNIDADES = ['un', 'pct', 'ml', 'g', 'kg', 'L', 'cx', 'pç', 'par'];
 
@@ -218,7 +203,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
+        <div className="overflow-y-auto overflow-x-hidden flex-1 min-h-0 p-5 flex flex-col gap-5">
 
           {/* Tipo de produto — Material ou Para venda */}
           <div>
@@ -341,7 +326,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
               Custo unitário <span className="text-text-4 normal-case font-normal">(opcional)</span>
             </label>
             <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
               <input value={custo} onChange={e => setCusto(e.target.value)}
                 inputMode="decimal" placeholder="0,00" className={`${inputClass} pl-9`}/>
             </div>
@@ -355,7 +340,7 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
                 <span className="ml-1 text-green font-normal normal-case">(exibido no PDV)</span>
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input value={precoVenda} onChange={e => setPrecoVenda(e.target.value)}
                   inputMode="decimal" placeholder="0,00" className={`${inputClass} pl-9`}/>
               </div>
@@ -484,7 +469,7 @@ function MovModal({ produto, onClose, onSalvo }: {
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto overflow-x-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
@@ -534,7 +519,7 @@ function MovModal({ produto, onClose, onSalvo }: {
             <div className="relative">
               <input value={qtd} onChange={e => setQtd(e.target.value)}
                 inputMode="decimal" placeholder="0" autoFocus className={inputClass}/>
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm">
+              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm pointer-events-none">
                 {produto.unidade}
               </span>
             </div>
@@ -907,7 +892,7 @@ export default function EstoquePage() {
       {/* Busca + filtro status */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
         <div className="relative flex-1">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-4" strokeWidth={2}/>
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-4 pointer-events-none" strokeWidth={2}/>
           <input value={busca} onChange={e => setBusca(e.target.value)}
             placeholder="Buscar produto..."
             className="w-full h-10 pl-10 pr-4 rounded-xl border border-border bg-surface text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"/>

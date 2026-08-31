@@ -596,7 +596,7 @@ export default function ConfiguracoesPage() {
             <div>
               <label className={labelCls}>Meta de receita bruta</label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                 <input
                   value={metaMensal}
                   onChange={e => maskComCursor(e.target, maskMoeda, setMetaMensal)}
@@ -645,13 +645,13 @@ export default function ConfiguracoesPage() {
                   <label className={labelCls}>{taxaModo === 'percentual' ? 'Percentual da taxa' : 'Valor da taxa'}</label>
                   <div className="relative">
                     {taxaModo === 'fixo' && (
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                     )}
                     <input value={taxaValor} onChange={e => setTaxaValor(e.target.value)}
                       inputMode="decimal" placeholder="0,00" disabled={!podeEditarTaxa}
                       className={`${inputCls} ${taxaModo === 'percentual' ? 'pr-9' : 'pl-9'}`}/>
                     {taxaModo === 'percentual' && (
-                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">%</span>
                     )}
                   </div>
                 </div>
@@ -710,13 +710,13 @@ export default function ConfiguracoesPage() {
                   <label className={labelCls}>{reservaModo === 'percentual' ? 'Percentual sugerido' : 'Valor sugerido'}</label>
                   <div className="relative">
                     {reservaModo === 'fixo' && (
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">R$</span>
                     )}
                     <input value={reservaValor} onChange={e => setReservaValor(e.target.value)}
                       inputMode="decimal" placeholder="0,00" disabled={!podeEditarTaxa}
                       className={`${inputCls} ${reservaModo === 'percentual' ? 'pr-9' : 'pl-9'}`}/>
                     {reservaModo === 'percentual' && (
-                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold pointer-events-none">%</span>
                     )}
                   </div>
                 </div>

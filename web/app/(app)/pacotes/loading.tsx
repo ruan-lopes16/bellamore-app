@@ -60,9 +60,11 @@ export default function PacotesLoading() {
                 </div>
               ))}
             </div>
-            {/* Ações */}
+            {/* Legenda "vendido via comanda" + ações (editar, vender manual, ativar/desativar, excluir) */}
+            <Sk className="h-2.5 w-2/3 max-w-[180px] -mt-1" />
             <div className="flex gap-2 pt-2 border-t border-border">
               <Sk className="h-8 flex-1 rounded-lg" />
+              <Sk className="h-8 w-8 rounded-lg" />
               <Sk className="h-8 w-8 rounded-lg" />
               <Sk className="h-8 w-8 rounded-lg" />
             </div>
