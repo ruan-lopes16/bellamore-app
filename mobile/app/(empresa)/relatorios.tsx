@@ -31,6 +31,7 @@ import {
   useRelatorios, type Periodo,
   type ServicoRelatorio, type ProfissionalRelatorio,
 } from '@/hooks/useRelatorios';
+import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { CategoriaIcon } from '@/components/CategoriaIcon';
 import { SmoothTabs } from '@/components/SmoothTabs';
 
@@ -150,9 +151,9 @@ function KpiCard({
           {label}
         </Text>
       </View>
-      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: C.text, letterSpacing: -0.5, lineHeight: 24, marginBottom: 4 }}>
+      <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: C.text, letterSpacing: -0.5, lineHeight: 24, marginBottom: 4 }}>
         {valor}
-      </Text>
+      </SecretText>
       {deltaVal !== null && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
           {positivo
@@ -193,9 +194,9 @@ function ServicoRow({ item, isLast }: { item: ServicoRelatorio; isLast: boolean 
         </View>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
+        <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
           {formatBRL(item.receita)}
-        </Text>
+        </SecretText>
         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, marginTop: 2 }}>
           {item.percentual}%
         </Text>
@@ -229,9 +230,9 @@ function ProfissionalRow({ item, index, isLast }: { item: ProfissionalRelatorio;
         </Text>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
+        <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
           {formatBRL(item.faturamento)}
-        </Text>
+        </SecretText>
         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 2 }}>
           {item.atendimentos} atend.
         </Text>
@@ -316,15 +317,17 @@ export default function Relatorios() {
                   Relatórios
                 </Text>
               </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+              <PrivacyToggle />
               <TouchableOpacity style={{
                 width: 38, height: 38,
                 backgroundColor: 'rgba(255,255,255,0.12)',
                 borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
                 borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-                marginTop: 4,
               }}>
                 <Download size={15} color="rgba(255,255,255,0.7)" strokeWidth={1.8} />
               </TouchableOpacity>
+              </View>
             </View>
 
             {/* Seletor de período */}
@@ -423,9 +426,9 @@ export default function Relatorios() {
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
                 Faturamento no período
               </Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 38, color: '#fff', letterSpacing: -1, lineHeight: 42, marginBottom: 8 }}>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 38, color: '#fff', letterSpacing: -1, lineHeight: 42, marginBottom: 8 }}>
                 {formatBRL(resumo?.faturamento ?? 0)}
-              </Text>
+              </SecretText>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <View style={{
                   backgroundColor: 'rgba(110,231,183,0.2)', borderRadius: 6,

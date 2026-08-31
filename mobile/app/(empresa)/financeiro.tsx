@@ -41,6 +41,7 @@ import {
   somaDevolucoesPorRetirada, saldoEmprestimo, statusParcela, montarDevolucaoInsert,
   type RetiradaSociaRow, type MetodoPagamentoRetirada,
 } from '@shared/retiradas-socia';
+import { SecretText, PrivacyToggle } from '@/components/Secret';
 import type { OcorrenciaHistorico } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -186,9 +187,9 @@ function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean })
         </Text>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
+        <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
           {formatBRL(item.valor)}
-        </Text>
+        </SecretText>
         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, marginTop: 2 }}>
           {item.percentual}%
         </Text>
@@ -266,9 +267,9 @@ function DespesaRow({
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
             {formatBRL(item.valor)}
-          </Text>
+          </SecretText>
           <View style={{
             marginTop: 3,
             backgroundColor: pago ? C.greenSoft : C.amberSoft,
@@ -1447,6 +1448,8 @@ export default function Financeiro() {
               Financeiro
             </Text>
           </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <PrivacyToggle color={C.text} />
           <TouchableOpacity style={{
             width: 38, height: 38, borderRadius: 12,
             backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -1456,6 +1459,7 @@ export default function Financeiro() {
           }}>
             <Download size={16} color={C.text2} strokeWidth={1.8} />
           </TouchableOpacity>
+          </View>
         </MotiView>
 
         {/* ── Seletor de mês ── */}
@@ -1547,11 +1551,11 @@ export default function Financeiro() {
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
                 {s.label}
               </Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20, marginBottom: 5 }}>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20, marginBottom: 5 }}>
                 {s.value}
-              </Text>
+              </SecretText>
               {s.sub && (
-                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, marginBottom: 3 }}>{s.sub}</Text>
+                <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, marginBottom: 3 }}>{s.sub}</SecretText>
               )}
               {s.delta !== null && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
@@ -1712,9 +1716,9 @@ export default function Financeiro() {
                     </View>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
+                    <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
                       {formatBRL(s.receita)}
-                    </Text>
+                    </SecretText>
                     <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
                       {s.quantidade} atend.
                     </Text>
@@ -1739,7 +1743,7 @@ export default function Financeiro() {
               </Text>
               {despesasPendentes.length > 0 && (
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                  {formatBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                  <SecretText>{formatBRL(totalPendente)}</SecretText> pendente · <SecretText>{despesasPendentes.length}</SecretText> despesa{despesasPendentes.length !== 1 ? 's' : ''}
                 </Text>
               )}
             </View>
@@ -1858,8 +1862,8 @@ export default function Financeiro() {
                 <View style={{ flex: 1, paddingRight: 8 }}>
                   <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 15, color: C.text }}>Retiradas da dona</Text>
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                    {aDonaDeve > 0 ? `A dona deve: ${formatBRL(aDonaDeve)}` : 'Nenhum empréstimo em aberto'}
-                    {retiradasPeriodo > 0 ? ` · Retiradas no mês: ${formatBRL(retiradasPeriodo)}` : ''}
+                    {aDonaDeve > 0 ? <>A dona deve: <SecretText>{formatBRL(aDonaDeve)}</SecretText></> : 'Nenhum empréstimo em aberto'}
+                    {retiradasPeriodo > 0 ? <> · Retiradas no mês: <SecretText>{formatBRL(retiradasPeriodo)}</SecretText></> : ''}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -1893,7 +1897,7 @@ export default function Financeiro() {
                               {r.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'}
                             </Text>
                           </View>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatBRL(Number(r.valor))}</Text>
+                          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatBRL(Number(r.valor))}</SecretText>
                           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text4 }}>
                             {r.data.split('-').reverse().join('/')}
                             {r.metodo && METODO_CONFIG[r.metodo as PagamentoMetodo] ? ` · ${METODO_CONFIG[r.metodo as PagamentoMetodo].label}` : ''}
@@ -1902,7 +1906,7 @@ export default function Financeiro() {
                         {!!r.descricao && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }} numberOfLines={1}>{r.descricao}</Text>}
                         {r.tipo === 'emprestimo' && !r.convertido_em && (
                           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                            Devolvido {formatBRL(devolvido)} de {formatBRL(Number(r.valor))} · saldo {formatBRL(saldo)}
+                            Devolvido <SecretText>{formatBRL(devolvido)}</SecretText> de <SecretText>{formatBRL(Number(r.valor))}</SecretText> · saldo <SecretText>{formatBRL(saldo)}</SecretText>
                             {parc ? ` · Parcela ${Math.min(parc.parcelasQuitadas + (parc.proximaParcelaEm ? 1 : 0), r.total_parcelas ?? 0)}/${r.total_parcelas}` : ''}
                             {parc?.atrasada ? '  atrasada' : ''}
                             {quitado ? '  quitado' : ''}

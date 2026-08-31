@@ -28,6 +28,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
+import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { useDashboard } from '@/hooks/useDashboard';
 import { useNotificacoes } from '@/hooks/useNotificacoes';
 import { temPermissao } from '@/lib/permissions';
@@ -203,6 +204,7 @@ export default function Dashboard() {
           </View>
 
           <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
+            <PrivacyToggle color={C.text2} bg={C.surface} borderColor={C.border} />
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/notificacoes' as any)}
               style={{
@@ -376,7 +378,7 @@ export default function Dashboard() {
                   letterSpacing: -1,
                   marginBottom: 10,
                 }}>
-                  {formatBRL(receitaMes)}
+                  <SecretText>{formatBRL(receitaMes)}</SecretText>
                 </Text>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -497,7 +499,7 @@ export default function Dashboard() {
               lineHeight: 22,
               marginBottom: 4,
             }}>
-              {formatBRL(receitaHoje)}
+              <SecretText>{formatBRL(receitaHoje)}</SecretText>
             </Text>
             <View style={{
               backgroundColor: C.greenSoft,
@@ -546,7 +548,7 @@ export default function Dashboard() {
               lineHeight: 22,
               marginBottom: 4,
             }}>
-              {formatBRL(comissoesPendentes.total)}
+              <SecretText>{formatBRL(comissoesPendentes.total)}</SecretText>
             </Text>
             <View style={{
               backgroundColor: C.amberSoft,
@@ -799,7 +801,7 @@ export default function Dashboard() {
                           color: C.text,
                           marginBottom: 4,
                         }}>
-                          {formatBRL(ag.valor)}
+                          <SecretText>{formatBRL(ag.valor)}</SecretText>
                         </Text>
                         <View style={{
                           backgroundColor: statusCfg.bg,
@@ -927,7 +929,7 @@ export default function Dashboard() {
                       color: C.primary,
                       lineHeight: 16,
                     }}>
-                      {comissoesPendentes.quantidade} comissões pendentes de pagamento
+                      <SecretText>{comissoesPendentes.quantidade}</SecretText> comissões pendentes de pagamento
                     </Text>
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_400Regular',
@@ -935,7 +937,7 @@ export default function Dashboard() {
                       color: C.text3,
                       marginTop: 1,
                     }}>
-                      Total: {formatBRL(comissoesPendentes.total)}
+                      Total: <SecretText>{formatBRL(comissoesPendentes.total)}</SecretText>
                     </Text>
                   </View>
                   <ChevronRight size={14} color={C.accent} strokeWidth={2} />
