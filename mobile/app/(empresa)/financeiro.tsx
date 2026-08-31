@@ -13,7 +13,7 @@ import {
   ChevronLeft, ChevronRight, Download,
   TrendingUp, TrendingDown, Plus,
   Layers, CreditCard, Banknote, Smartphone, Gift,
-  AlertTriangle, CheckCircle2, Ban, X, Pencil, Trash2,
+  AlertTriangle, CheckCircle2, Ban, X, Pencil, Trash2, RefreshCw,
 } from 'lucide-react-native';
 import {
   Modal, TextInput, KeyboardAvoidingView, Platform,
@@ -36,7 +36,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
+import {
+  somaDevolucoesPorRetirada, saldoEmprestimo, statusParcela, montarDevolucaoInsert,
+  type RetiradaSociaRow, type MetodoPagamentoRetirada,
+} from '@shared/retiradas-socia';
 import type { OcorrenciaHistorico } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -709,6 +713,97 @@ function ModalConfirmarTaxa({
   );
 }
 
+// ── Modais de retirada da dona (devolução / converter / excluir) ──
+
+function ModalDevolucaoRetirada({ retirada, saldo, onClose, onSalvo }: {
+  retirada: RetiradaSociaRow | null; saldo: number; onClose: () => void; onSalvo: () => void;
+}) {
+  const sugestao = retirada?.valor_parcela && saldo > 0 ? Math.min(Number(retirada.valor_parcela), saldo) : saldo;
+  const [valor, setValor] = useState('');
+  const [metodo, setMetodo] = useState<PagamentoMetodo | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  useEffect(() => { setValor(sugestao > 0 ? formatValorMonetarioInput(sugestao) : ''); setMetodo(null); }, [retirada]);
+
+  const valorNum = parseValorMonetario(valor);
+  const sobra = valorNum && valorNum > saldo ? valorNum - saldo : 0;
+
+  async function confirmar() {
+    if (!retirada) return;
+    const built = montarDevolucaoInsert(retirada.id, retirada.empresa_id, valor, format(new Date(), 'yyyy-MM-dd'), metodo as MetodoPagamentoRetirada | null);
+    if (!built.ok) { Alert.alert('Valor inválido', built.erro); return; }
+    setSalvando(true);
+    const { error } = await supabase.from('retiradas_socia_devolucoes').insert(built.payload).select('id');
+    setSalvando(false);
+    if (error) { Alert.alert('Erro', 'Não foi possível salvar. Verifique se você é a dona da conta.'); return; }
+    onSalvo();
+  }
+
+  return (
+    <Modal visible={!!retirada} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity activeOpacity={1} onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 36 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 20 }} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4 }}>Registrar devolução</Text>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text, marginBottom: 14 }}>Saldo devedor {formatBRL(saldo)}</Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 6 }}>Valor devolvido</Text>
+            <TextInput
+              value={valor} onChangeText={setValor} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={C.text4}
+              style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, height: 46, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 15, color: C.text, marginBottom: sobra > 0 ? 6 : 18 }}
+            />
+            {sobra > 0 && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amber, marginBottom: 14 }}>Isso quita o empréstimo e sobra {formatBRL(sobra)}.</Text>}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 22 }}>
+              {(Object.keys(METODO_CONFIG) as PagamentoMetodo[]).map(key => {
+                const cfg = METODO_CONFIG[key]; const ativo = metodo === key;
+                return (
+                  <TouchableOpacity key={key} onPress={() => setMetodo(ativo ? null : key)}
+                    style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: ativo ? cfg.color : C.border, backgroundColor: ativo ? cfg.color : C.bg }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? '#fff' : C.text2 }}>{cfg.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TouchableOpacity onPress={confirmar} disabled={salvando}
+              style={{ backgroundColor: C.green, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', opacity: salvando ? 0.6 : 1 }}>
+              {salvando ? <ActivityIndicator color="#fff" /> : <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: '#fff' }}>Confirmar</Text>}
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+function ModalConfirmacaoRetirada({ visivel, titulo, texto, corBotao, textoBotao, onClose, onConfirmar }: {
+  visivel: boolean; titulo: string; texto: string; corBotao: string; textoBotao: string;
+  onClose: () => void; onConfirmar: () => Promise<void>;
+}) {
+  const [salvando, setSalvando] = useState(false);
+  useEffect(() => { setSalvando(false); }, [visivel]);
+  async function go() { setSalvando(true); await onConfirmar(); setSalvando(false); }
+  return (
+    <Modal visible={visivel} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity activeOpacity={1} onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 36 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 20 }} />
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text, marginBottom: 8 }}>{titulo}</Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, marginBottom: 22, lineHeight: 19 }}>{texto}</Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity onPress={onClose} style={{ flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 14, height: 50, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text2 }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={go} disabled={salvando} style={{ flex: 1, backgroundColor: corBotao, borderRadius: 14, height: 50, alignItems: 'center', justifyContent: 'center', opacity: salvando ? 0.6 : 1 }}>
+                {salvando ? <ActivityIndicator color="#fff" /> : <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>{textoBotao}</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
 // ── Modal editar despesa ─────────────────────────────────────
 
 function ModalEditarDespesa({
@@ -1244,9 +1339,16 @@ export default function Financeiro() {
   const [despesaParaEditar,  setDespesaParaEditar]  = useState<DespesaItem | null>(null);
   const [confirmarTaxaCanc,    setConfirmarTaxaCanc]    = useState<(TaxaCancelamento & { cliente: { nome: string } | null }) | null>(null);
   const [confirmarTaxaReserva, setConfirmarTaxaReserva] = useState<(TaxaReserva & { cliente: { nome: string } | null }) | null>(null);
+  const [devolucaoDe,  setDevolucaoDe]  = useState<RetiradaSociaRow | null>(null);
+  const [converterDe,  setConverterDe]  = useState<RetiradaSociaRow | null>(null);
+  const [excluirDe,    setExcluirDe]    = useState<RetiradaSociaRow | null>(null);
 
   const qc = useQueryClient();
-  const { resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch } = useFinanceiro(mesRef);
+  const {
+    resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch,
+    isOwner, retiradas, retiradasDevs, aDonaDeve, retiradasPeriodo,
+  } = useFinanceiro(mesRef);
+  const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const hojeIso            = format(new Date(), 'yyyy-MM-dd');
@@ -1416,6 +1518,7 @@ export default function Financeiro() {
               delta: deltaReceita,
               color: C.green,
               bg: C.greenSoft,
+              sub: null as string | null,
             },
             {
               label: 'Gastos',
@@ -1424,6 +1527,7 @@ export default function Financeiro() {
               color: C.red,
               bg: C.redSoft,
               invertDelta: true,
+              sub: null as string | null,
             },
             {
               label: 'Lucro',
@@ -1431,6 +1535,7 @@ export default function Financeiro() {
               delta: null,
               color: C.primary,
               bg: C.primarySoft,
+              sub: isOwner && retiradasPeriodo > 0 ? `Após retiradas ${formatBRL((resumo?.lucro ?? 0) - retiradasPeriodo)}` : null,
             },
           ].map((s) => (
             <View key={s.label} style={{
@@ -1445,6 +1550,9 @@ export default function Financeiro() {
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20, marginBottom: 5 }}>
                 {s.value}
               </Text>
+              {s.sub && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, marginBottom: 3 }}>{s.sub}</Text>
+              )}
               {s.delta !== null && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   {(s.invertDelta ? (s.delta ?? 0) < 0 : (s.delta ?? 0) >= 0)
@@ -1733,6 +1841,105 @@ export default function Financeiro() {
           </MotiView>
         )}
 
+        {/* ── Retiradas da dona (owner-only) ── */}
+        {isOwner && (
+          <MotiView
+            from={{ opacity: 0, translateY: 6 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 380, delay: 360 }}
+            style={{ marginHorizontal: 24, marginTop: 20 }}
+          >
+            <View style={{
+              backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16,
+              overflow: 'hidden',
+              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 15, color: C.text }}>Retiradas da dona</Text>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
+                    {aDonaDeve > 0 ? `A dona deve: ${formatBRL(aDonaDeve)}` : 'Nenhum empréstimo em aberto'}
+                    {retiradasPeriodo > 0 ? ` · Retiradas no mês: ${formatBRL(retiradasPeriodo)}` : ''}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => router.push('/(empresa)/nova-retirada' as any)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.primary, paddingHorizontal: 12, height: 32, borderRadius: 10 }}
+                >
+                  <Plus size={13} color="#fff" strokeWidth={2.5} />
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Registrar</Text>
+                </TouchableOpacity>
+              </View>
+
+              {retiradas.length === 0 ? (
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, padding: 16 }}>
+                  Nenhuma retirada ou empréstimo neste mês.
+                </Text>
+              ) : retiradas.map((r, i) => {
+                const devolvido = devPorRetirada[r.id] ?? 0;
+                const saldo = saldoEmprestimo(Number(r.valor), devolvido);
+                const parc = (r.tipo === 'emprestimo' && r.parcelado && r.valor_parcela && r.primeira_parcela_em)
+                  ? statusParcela(Number(r.valor_parcela), r.primeira_parcela_em, r.total_parcelas ?? 0, devolvido, hojeIso)
+                  : null;
+                const quitado = r.tipo === 'emprestimo' && (!!r.convertido_em || saldo <= 0);
+                const podeAgir = r.tipo === 'emprestimo' && !quitado;
+                return (
+                  <View key={r.id} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: i < retiradas.length - 1 ? 1 : 0, borderBottomColor: C.border }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: r.tipo === 'emprestimo' ? C.amberSoft : C.greenSoft }}>
+                            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: r.tipo === 'emprestimo' ? C.amber : C.green, textTransform: 'uppercase' }}>
+                              {r.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'}
+                            </Text>
+                          </View>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatBRL(Number(r.valor))}</Text>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text4 }}>
+                            {r.data.split('-').reverse().join('/')}
+                            {r.metodo && METODO_CONFIG[r.metodo as PagamentoMetodo] ? ` · ${METODO_CONFIG[r.metodo as PagamentoMetodo].label}` : ''}
+                          </Text>
+                        </View>
+                        {!!r.descricao && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }} numberOfLines={1}>{r.descricao}</Text>}
+                        {r.tipo === 'emprestimo' && !r.convertido_em && (
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
+                            Devolvido {formatBRL(devolvido)} de {formatBRL(Number(r.valor))} · saldo {formatBRL(saldo)}
+                            {parc ? ` · Parcela ${Math.min(parc.parcelasQuitadas + (parc.proximaParcelaEm ? 1 : 0), r.total_parcelas ?? 0)}/${r.total_parcelas}` : ''}
+                            {parc?.atrasada ? '  atrasada' : ''}
+                            {quitado ? '  quitado' : ''}
+                          </Text>
+                        )}
+                        {!!r.convertido_em && (
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
+                            Convertido em retirada em {r.convertido_em.split('-').reverse().join('/')}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 2 }}>
+                        {podeAgir && (
+                          <>
+                            <TouchableOpacity onPress={() => setDevolucaoDe(r)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+                              <RefreshCw size={14} color={C.text3} strokeWidth={2} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setConverterDe(r)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+                              <Ban size={14} color={C.text3} strokeWidth={2} />
+                            </TouchableOpacity>
+                          </>
+                        )}
+                        <TouchableOpacity onPress={() => router.push({ pathname: '/(empresa)/nova-retirada' as any, params: { id: r.id } })} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+                          <Pencil size={14} color={C.text3} strokeWidth={2} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setExcluirDe(r)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+                          <Trash2 size={14} color={C.red} strokeWidth={2} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </MotiView>
+        )}
+
       </ScrollView>
 
       {/* Modal marcar como paga */}
@@ -1766,6 +1973,45 @@ export default function Financeiro() {
         titulo="Confirmar taxa de reserva"
         onClose={() => setConfirmarTaxaReserva(null)}
         onConfirmar={metodo => confirmarTaxaReserva && marcarReservaPaga(confirmarTaxaReserva, metodo)}
+      />
+
+      {/* Retiradas da dona: devolução / converter / excluir */}
+      <ModalDevolucaoRetirada
+        retirada={devolucaoDe}
+        saldo={devolucaoDe ? saldoEmprestimo(Number(devolucaoDe.valor), devPorRetirada[devolucaoDe.id] ?? 0) : 0}
+        onClose={() => setDevolucaoDe(null)}
+        onSalvo={() => { setDevolucaoDe(null); qc.invalidateQueries({ queryKey: ['fin-retiradas'] }); }}
+      />
+      <ModalConfirmacaoRetirada
+        visivel={!!converterDe}
+        titulo={`${converterDe ? formatBRL(saldoEmprestimo(Number(converterDe.valor), devPorRetirada[converterDe.id] ?? 0)) : ''} não serão devolvidos`}
+        texto="O saldo em aberto vira uma retirada definitiva na data de hoje. Sai do 'a dona deve' e passa a contar em 'Retiradas da dona' no mês atual."
+        corBotao={C.primary}
+        textoBotao="Converter"
+        onClose={() => setConverterDe(null)}
+        onConfirmar={async () => {
+          if (!converterDe) return;
+          const { error } = await supabase.from('retiradas_socia')
+            .update({ convertido_em: format(new Date(), 'yyyy-MM-dd') }).eq('id', converterDe.id).select('id');
+          if (error) { Alert.alert('Erro', 'Não foi possível converter. Verifique se você é a dona da conta.'); return; }
+          setConverterDe(null);
+          qc.invalidateQueries({ queryKey: ['fin-retiradas'] });
+        }}
+      />
+      <ModalConfirmacaoRetirada
+        visivel={!!excluirDe}
+        titulo={excluirDe ? `${excluirDe.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'} de ${formatBRL(Number(excluirDe.valor))}` : ''}
+        texto="Isso apaga o lançamento e todas as devoluções ligadas a ele. Não dá pra desfazer."
+        corBotao={C.red}
+        textoBotao="Excluir"
+        onClose={() => setExcluirDe(null)}
+        onConfirmar={async () => {
+          if (!excluirDe) return;
+          const { error } = await supabase.from('retiradas_socia').delete().eq('id', excluirDe.id).select('id');
+          if (error) { Alert.alert('Erro', 'Não foi possível excluir. Verifique se você é a dona da conta.'); return; }
+          setExcluirDe(null);
+          qc.invalidateQueries({ queryKey: ['fin-retiradas'] });
+        }}
       />
     </View>
   );

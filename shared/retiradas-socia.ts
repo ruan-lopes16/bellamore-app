@@ -5,6 +5,7 @@ export type RetiradaSociaTipo = 'emprestimo' | 'retirada';
 
 export interface RetiradaSociaRow {
   id: string;
+  empresa_id: string;
   tipo: RetiradaSociaTipo;
   valor: number;
   data: string;                       // YYYY-MM-DD

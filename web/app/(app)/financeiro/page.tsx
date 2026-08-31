@@ -1323,7 +1323,7 @@ export default function FinanceiroPage() {
     if (isOwner) {
       const [rRet, rDev] = await Promise.all([
         supabase.from('retiradas_socia')
-          .select('id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at')
+          .select('id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at')
           .eq('empresa_id', empId)
           .or(`and(data.gte.${periodo.startDate},data.lte.${periodo.endDate}),and(convertido_em.gte.${periodo.startDate},convertido_em.lte.${periodo.endDate})`)
           .order('data', { ascending: false }),

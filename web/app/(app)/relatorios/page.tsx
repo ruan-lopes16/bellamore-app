@@ -550,7 +550,7 @@ export default function RelatoriosPage() {
       const df = format(fim,    'yyyy-MM-dd');
       const [rRet, rDev] = await Promise.all([
         supabase.from('retiradas_socia')
-          .select('id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em')
+          .select('id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em')
           .eq('empresa_id', empresaId)
           .or(`and(data.gte.${di},data.lte.${df}),and(convertido_em.gte.${di},convertido_em.lte.${df})`),
         supabase.from('retiradas_socia_devolucoes')
