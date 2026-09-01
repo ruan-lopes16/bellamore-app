@@ -97,14 +97,19 @@ const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wid
 // ── Modal: criar/editar pacote ────────────────────────────────
 
 function PacoteModal({
-  pacote, servicos, empresaId, onClose, onSalvo,
+  pacote, jaVendido = false, servicos, empresaId, onClose, onSalvo,
 }: {
   pacote:    Pacote | null;
+  jaVendido?: boolean;
   servicos:  Servico[];
   empresaId: string;
   onClose:   () => void;
   onSalvo:   () => void;
 }) {
+  // Pacote com venda registrada: composição (serviços/quantidades/modo) travada —
+  // as sessões vendidas são do pacote como está cadastrado. Nome/preço/validade
+  // seguem editáveis (valem para vendas futuras).
+  const servicosTravados = !!pacote && jaVendido;
   useScrollLock();
   const [nome,          setNome]          = useState(pacote?.nome ?? '');
   const [preco,         setPreco]         = useState(pacote?.preco.toFixed(2).replace('.', ',') ?? '');
@@ -142,12 +147,16 @@ function PacoteModal({
     let pacoteId: string;
 
     if (pacote) {
-      // Atualizar dados do pacote
-      const { error: e1 } = await supabase.from('pacotes').update({
-        nome: nome.trim(), preco: precoN, validade_dias: validadeN, controla_sessoes: controlaSessoes,
-      }).eq('id', pacote.id).eq('empresa_id', empresaId);
+      // Atualizar dados do pacote. Se já foi vendido, não mexe em modo/serviços.
+      const { error: e1 } = await supabase.from('pacotes').update(
+        servicosTravados
+          ? { nome: nome.trim(), preco: precoN, validade_dias: validadeN }
+          : { nome: nome.trim(), preco: precoN, validade_dias: validadeN, controla_sessoes: controlaSessoes },
+      ).eq('id', pacote.id).eq('empresa_id', empresaId);
       if (e1) { setErro(e1.message); setSalvando(false); return; }
       pacoteId = pacote.id;
+
+      if (servicosTravados) { setSalvando(false); onSalvo(); return; }
     } else {
       // Criar novo pacote
       const { data: novo, error: e1 } = await supabase.from('pacotes').insert({
@@ -200,15 +209,22 @@ function PacoteModal({
             <input value={nome} onChange={e => setNome(e.target.value)} required placeholder="Ex: Pacote Escova Mensal" className={inputCls}/>
           </div>
 
+          {servicosTravados && (
+            <div className="flex items-center gap-2 bg-amber-soft rounded-xl px-3 py-2 border border-amber/20">
+              <AlertCircle size={14} className="text-amber flex-shrink-0"/>
+              <p className="text-xs text-amber">Pacote já vendido — o tipo, os serviços e as quantidades não podem ser alterados.</p>
+            </div>
+          )}
+
           <div>
             <label className={labelCls}>Tipo de pacote</label>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setControlaSessoes(true)}
-                className={`h-10 rounded-xl text-xs font-semibold border transition ${controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
+              <button type="button" disabled={servicosTravados} onClick={() => setControlaSessoes(true)}
+                className={`h-10 rounded-xl text-xs font-semibold border transition disabled:opacity-50 disabled:cursor-not-allowed ${controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
                 Com sessões
               </button>
-              <button type="button" onClick={() => setControlaSessoes(false)}
-                className={`h-10 rounded-xl text-xs font-semibold border transition ${!controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
+              <button type="button" disabled={servicosTravados} onClick={() => setControlaSessoes(false)}
+                className={`h-10 rounded-xl text-xs font-semibold border transition disabled:opacity-50 disabled:cursor-not-allowed ${!controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
                 Combo
               </button>
             </div>
@@ -244,6 +260,8 @@ function PacoteModal({
                   <div className="flex items-center gap-2 flex-wrap justify-end sm:flex-shrink-0">
                     {controlaSessoes && item.quantidade == null ? (
                       <span className="text-xs font-semibold text-primary">Ilimitado</span>
+                    ) : servicosTravados ? (
+                      <span className="text-sm font-semibold text-text">{item.quantidade ?? 1} <span className="text-xs font-normal text-text-4">{controlaSessoes ? 'sessões' : '×'}</span></span>
                     ) : (
                       <>
                         <div className="flex items-center gap-1">
@@ -256,30 +274,34 @@ function PacoteModal({
                         <span className="text-xs text-text-4">{controlaSessoes ? 'sessões' : '×'}</span>
                       </>
                     )}
-                    {controlaSessoes && (
+                    {controlaSessoes && !servicosTravados && (
                       <button type="button" onClick={() => toggleIlimitado(item.servico_id)}
                         title={item.quantidade == null ? 'Definir quantidade' : 'Tornar ilimitado'}
                         className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${item.quantidade == null ? 'text-primary bg-primary-soft' : 'text-text-4 hover:text-primary hover:bg-primary-soft'}`}>
                         ∞
                       </button>
                     )}
-                    <button type="button" onClick={() => removerItem(item.servico_id)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
-                      <Trash2 size={12}/>
-                    </button>
+                    {!servicosTravados && (
+                      <button type="button" onClick={() => removerItem(item.servico_id)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                        <Trash2 size={12}/>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
-            <SearchSelect
-              options={servicos
-                .filter(s => !itensList.find(i => i.servico_id === s.id))
-                .map(s => ({ value: s.id, label: s.nome, sub: fmtBRL(s.preco) }))}
-              value={addServId}
-              onChange={id => { setAddServId(id); adicionarServico(id); }}
-              onOpenChange={setAddindoServico}
-              placeholder="+ Adicionar serviço..."
-            />
+            {!servicosTravados && (
+              <SearchSelect
+                options={servicos
+                  .filter(s => !itensList.find(i => i.servico_id === s.id))
+                  .map(s => ({ value: s.id, label: s.nome, sub: fmtBRL(s.preco) }))}
+                value={addServId}
+                onChange={id => { setAddServId(id); adicionarServico(id); }}
+                onOpenChange={setAddindoServico}
+                placeholder="+ Adicionar serviço..."
+              />
+            )}
           </div>
 
           {erro && (
@@ -471,25 +493,31 @@ function SessaoModal({
   onSalvo:   () => void;
 }) {
   useScrollLock();
-  const [servId,  setServId]  = useState('');
   const [obs,     setObs]     = useState('');
   const [salvando,setSalvando]= useState(false);
   const [erro,    setErro]    = useState('');
 
-  // Apenas os serviços incluídos neste pacote
-  const opcoesServico = useMemo(() => {
+  // Serviços que fazem parte deste pacote (o serviço da sessão sai daqui — não
+  // se escolhe um serviço avulso).
+  const servicosDoPacote = useMemo(() => {
     const pacote = pacotes.find(p => p.id === pc.pacote.id);
-    if (!pacote || pacote.servicos.length === 0) return servicos;
-    const ids = new Set(pacote.servicos.map(s => s.servico_id));
-    return servicos.filter(s => ids.has(s.id));
+    const ids = pacote ? pacote.servicos.map(s => s.servico_id) : [];
+    return servicos.filter(s => ids.includes(s.id));
   }, [servicos, pacotes, pc.pacote.id]);
 
+  // 1 serviço → automático, sem campo. Vários → escolhe entre os do pacote.
+  const servicoUnico = servicosDoPacote.length === 1 ? servicosDoPacote[0] : null;
+  const [servId, setServId] = useState(() => servicoUnico?.id ?? '');
+  const precisaEscolher = servicosDoPacote.length > 1;
+
   async function salvar(e: React.FormEvent) {
-    e.preventDefault(); setSalvando(true); setErro('');
+    e.preventDefault(); setErro('');
+    if (precisaEscolher && !servId) { setErro('Escolha o serviço realizado.'); return; }
+    setSalvando(true);
     const { error } = await supabase.from('pacote_uso').insert({
       empresa_id:       empresaId,
       pacote_cliente_id: pc.id,
-      servico_id:       servId || null,
+      servico_id:       servId || servicoUnico?.id || null,
       observacao:       obs.trim() || null,
     });
     setSalvando(false);
@@ -515,14 +543,21 @@ function SessaoModal({
             <span className="text-lg font-bold text-text">{pc.total_sessoes != null ? pc.total_sessoes - pc.usadas : 'Ilimitado'}</span>
           </div>
 
-          <div>
-            <label className={labelCls}>Serviço realizado</label>
-            <SearchSelect
-              options={servicos.map(s => ({ value: s.id, label: s.nome }))}
-              value={servId} onChange={setServId}
-              placeholder="Selecionar serviço (opcional)"
-            />
-          </div>
+          {servicoUnico ? (
+            <div className="bg-bg rounded-xl p-3 flex items-center justify-between border border-border">
+              <span className="text-sm text-text-2">Serviço</span>
+              <span className="text-sm font-semibold text-text">{servicoUnico.nome}</span>
+            </div>
+          ) : precisaEscolher ? (
+            <div>
+              <label className={labelCls}>Serviço realizado *</label>
+              <SearchSelect
+                options={servicosDoPacote.map(s => ({ value: s.id, label: s.nome }))}
+                value={servId} onChange={setServId}
+                placeholder="Qual serviço do pacote foi feito"
+              />
+            </div>
+          ) : null}
 
           <div>
             <label className={labelCls}>Observação</label>
@@ -1182,6 +1217,8 @@ export default function PacotesPage() {
       {modalPacoteAberto && (
         <PacoteModal
           pacote={modalPacote === 'novo' ? null : modalPacote}
+          jaVendido={modalPacote !== 'novo' && modalPacote !== null
+            && vendidos.some(v => v.pacote.id === modalPacote.id)}
           servicos={servicos}
           empresaId={empresaId!}
           onClose={() => setModalPacote(null)}
