@@ -43,6 +43,10 @@ import {
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada } from '@shared/agendamentos';
+import {
+  MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
+  montarInsertBloqueio, type EscopoBloqueio,
+} from '@shared/bloqueios';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 const supabase = createClient();
@@ -93,6 +97,21 @@ type Bloqueio   = {
   id: string;
   profissional_id: string | null;
   titulo: string;
+  data_inicio: string;
+  data_fim: string;
+  escopo: 'profissional' | 'geral';
+  motivo: string | null;
+  situacao: 'aprovado' | 'pendente';
+  criado_por: string | null;
+};
+
+type BloqueioPendente = {
+  id: string;
+  profissional_id: string | null;
+  criado_por: string | null;
+  autorNome: string;
+  titulo: string;
+  motivo: string | null;
   data_inicio: string;
   data_fim: string;
 };
@@ -1705,6 +1724,10 @@ export default function AgendaPage() {
   const [toastErro,    setToastErro]   = useState('');
   const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string; profissionalId: string | null } | null>(null);
   const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
+  const [membrosAtivos,      setMembrosAtivos]      = useState<{ id: string; nome: string }[]>([]);
+  const [bloqueiosPendentes, setBloqueiosPendentes] = useState<BloqueioPendente[]>([]);
+
+  const ehGestao = meuRole === 'owner' || meuRole === 'gestor';
 
   function showErro(msg: string) {
     setToastErro(msg);
@@ -1724,6 +1747,18 @@ export default function AgendaPage() {
         const { data: cats } = await supabase.from('categorias_servico').select('*')
           .eq('empresa_id', membro.empresa_id).order('nome');
         setCategoriasCustom((cats ?? []) as CategoriaCustom[]);
+
+        const { data: membros } = await supabase
+          .from('empresa_membros')
+          .select('user_id, user:users(id, nome)')
+          .eq('empresa_id', membro.empresa_id)
+          .in('role', ['owner', 'gestor', 'profissional'])
+          .eq('ativo', true);
+        setMembrosAtivos(
+          ((membros ?? []) as any[])
+            .map((m) => ({ id: m.user?.id, nome: m.user?.nome }))
+            .filter((m) => m.id && m.nome),
+        );
       }
     })();
   }, []);
@@ -1748,7 +1783,7 @@ export default function AgendaPage() {
         .order('data_hora_inicio'),
       supabase
         .from('agenda_bloqueios')
-        .select('id, profissional_id, titulo, data_inicio, data_fim')
+        .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
         .eq('empresa_id', empId)
         .lte('data_inicio', fimDia)
         .gte('data_fim',    iniDia),
@@ -1774,6 +1809,38 @@ export default function AgendaPage() {
     });
     setAgsMes(map);
   }, []);
+
+  // Bloqueios pendentes de aprovação (só a gestão enxerga / faz polling)
+  const recarregarPendentes = useCallback(async () => {
+    if (!empresaId) return;
+    const { data } = await supabase
+      .from('agenda_bloqueios')
+      .select('id, profissional_id, criado_por, titulo, motivo, data_inicio, data_fim, autor:users!agenda_bloqueios_criado_por_fkey(nome)')
+      .eq('empresa_id', empresaId)
+      .eq('situacao', 'pendente')
+      .order('data_inicio');
+    setBloqueiosPendentes(
+      ((data ?? []) as any[]).map((b) => ({
+        id: b.id,
+        profissional_id: b.profissional_id,
+        criado_por: b.criado_por,
+        autorNome: b.autor?.nome ?? 'Profissional',
+        titulo: b.titulo,
+        motivo: b.motivo,
+        data_inicio: b.data_inicio,
+        data_fim: b.data_fim,
+      })),
+    );
+  }, [empresaId]);
+
+  useEffect(() => {
+    if (!empresaId || !ehGestao) return;
+    recarregarPendentes();
+    const tick = () => { if (document.visibilityState === 'visible') recarregarPendentes(); };
+    const iv = setInterval(tick, 30_000);
+    window.addEventListener('focus', tick);
+    return () => { clearInterval(iv); window.removeEventListener('focus', tick); };
+  }, [empresaId, ehGestao, recarregarPendentes]);
 
   useEffect(() => {
     if (!empresaId) return;
