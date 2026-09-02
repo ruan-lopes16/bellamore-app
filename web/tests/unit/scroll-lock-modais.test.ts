@@ -23,7 +23,7 @@ const modaisAutonomos: [string, string[]][] = [
   ['app/(app)/equipe/page.tsx',        ['NovoProfModal', 'EditInfoModal']],
   ['app/(app)/estoque/page.tsx',       ['ProdutoModal', 'MovModal']],
   ['app/(app)/financeiro/page.tsx',    ['NovaDespesaModal', 'MarcarPagoModal', 'EditarDespesaModal', 'ConfirmarPagamentoTaxaModal']],
-  ['app/(app)/pacotes/page.tsx',       ['PacoteModal', 'VenderModal', 'SessaoModal']],
+  ['app/(app)/pacotes/page.tsx',       ['PacoteModal', 'VenderModal', 'SessoesModal']],
   ['app/(app)/servicos/page.tsx',      ['ServicoModal']],
 ];
 
