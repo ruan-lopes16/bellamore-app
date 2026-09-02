@@ -52,3 +52,27 @@ describe('agenda: NovoBloqueioModal reescrito (escopo + motivo + papel)', () => 
     expect(src).toMatch(/if \(b\.situacao === 'pendente'\) showErro\('Pedido de bloqueio enviado para aprovação\.'\)/);
   });
 });
+
+describe('agenda: pílula + modal de bloqueios pendentes (aprovar/recusar)', () => {
+  it('tem fluxo de aprovar/recusar pendente', () => {
+    expect(src).toContain("update({ situacao: 'aprovado'");
+    expect(src).toContain('PendentesBloqueioBtn');
+  });
+  it('handler de aprovar mantém .select(\'id\') + guarda de zero linhas', () => {
+    expect(src).toMatch(/async function aprovarBloqueio\(id: string\)[\s\S]*?\.select\('id'\);[\s\S]*?if \(error \|\| !rows \|\| rows\.length === 0\)/);
+  });
+  it('handler de recusar apaga a linha e mantém guarda de zero linhas', () => {
+    expect(src).toMatch(/async function recusarBloqueio\(id: string\)[\s\S]*?\.delete\(\)[\s\S]*?\.select\('id'\);[\s\S]*?if \(error \|\| !rows \|\| rows\.length === 0\)/);
+  });
+  it('pílula só renderiza para a gestão', () => {
+    expect(src).toMatch(/ehGestao && \(\s*<PendentesBloqueioBtn/);
+  });
+  it('componente esconde-se quando não há pendentes e usa o rótulo de motivo compartilhado', () => {
+    expect(src).toMatch(/if \(pendentes\.length === 0\) return null/);
+    expect(src).toContain('motivoBloqueioLabel(b.motivo)');
+  });
+  it('recusar exige passo de confirmação inline', () => {
+    expect(src).toContain('Confirmar recusa');
+    expect(src).toContain('confirmarRecusa');
+  });
+});

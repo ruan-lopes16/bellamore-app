@@ -1261,6 +1261,87 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
 }
 
 /**
+ * PendentesBloqueioBtn — pílula "Pendentes (N)" + modal de aprovação.
+ *
+ * Só aparece quando há pedidos de bloqueio aguardando (some com lista vazia).
+ * Cada item mostra autor, janela de horário e motivo; "Aprovar" (verde) age
+ * direto, "Recusar" abre um passo de confirmação inline antes de apagar.
+ */
+function PendentesBloqueioBtn({ pendentes, onAprovar, onRecusar }: {
+  pendentes: BloqueioPendente[];
+  onAprovar: (id: string) => void;
+  onRecusar: (id: string) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [confirmarRecusa, setConfirmarRecusa] = useState<string | null>(null);
+  if (pendentes.length === 0) return null;
+
+  return (
+    <>
+      <button onClick={() => setAberto(true)}
+        className="press flex items-center gap-2 px-3 h-10 rounded-2xl text-sm font-bold border transition"
+        style={{ borderColor: 'var(--color-amber)', color: 'var(--color-amber)', background: 'var(--color-amber-soft)' }}
+        title="Bloqueios aguardando aprovação">
+        <AlertTriangle size={14} strokeWidth={2}/><span>Pendentes ({pendentes.length})</span>
+      </button>
+
+      {aberto && (
+        <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAberto(false)}/>
+          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md max-h-[85dvh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 18, fontWeight: 600, color: 'var(--color-ink)' }}>
+                Bloqueios pendentes
+              </h2>
+              <button onClick={() => setAberto(false)} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
+                <X size={16}/>
+              </button>
+            </div>
+            <div className="p-4 flex flex-col gap-3">
+              {pendentes.map(b => (
+                <div key={b.id} className="rounded-xl border border-border p-3">
+                  <p className="font-semibold text-text text-sm">{b.autorNome}</p>
+                  <p className="text-xs text-text-3 mt-0.5">
+                    {format(parseISO(b.data_inicio), "dd/MM 'às' HH:mm")}–{format(parseISO(b.data_fim), 'HH:mm')}
+                    {' · '}{motivoBloqueioLabel(b.motivo)}
+                  </p>
+                  {b.titulo && b.titulo !== motivoBloqueioLabel(b.motivo) && (
+                    <p className="text-xs text-text-4 italic mt-0.5">{b.titulo}</p>
+                  )}
+                  {confirmarRecusa === b.id ? (
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => { onRecusar(b.id); setConfirmarRecusa(null); }}
+                        className="flex-1 h-8 rounded-lg text-white text-xs font-bold" style={{ background: 'var(--color-rose)' }}>
+                        Confirmar recusa
+                      </button>
+                      <button onClick={() => setConfirmarRecusa(null)}
+                        className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold">
+                        Voltar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => onAprovar(b.id)}
+                        className="flex-1 h-8 rounded-lg text-white text-xs font-bold" style={{ background: 'var(--color-green)' }}>
+                        Aprovar
+                      </button>
+                      <button onClick={() => setConfirmarRecusa(b.id)}
+                        className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold hover:bg-bg">
+                        Recusar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
  * TimelineView — Visão por hora dos agendamentos do dia.
  *
  * Exibe uma coluna por profissional. Agendamentos são blocos
@@ -1945,6 +2026,36 @@ export default function AgendaPage() {
     }
   }
 
+  /** Aprova um pedido de bloqueio pendente. `.select('id')` + guarda de zero linhas para não engolir bloqueio de RLS. */
+  async function aprovarBloqueio(id: string) {
+    const { data: rows, error } = await supabase
+      .from('agenda_bloqueios')
+      .update({ situacao: 'aprovado', revisado_por: meuUserId, revisado_em: new Date().toISOString() })
+      .eq('id', id)
+      .select('id');
+    if (error || !rows || rows.length === 0) {
+      showErro(error?.message ?? 'Sem permissão para aprovar.');
+      return;
+    }
+    setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
+    if (empresaId) fetchDia(dataSel, empresaId);
+  }
+
+  /** Recusa um pedido de bloqueio pendente apagando a linha. Mesma guarda de zero linhas do aprovar. */
+  async function recusarBloqueio(id: string) {
+    const { data: rows, error } = await supabase
+      .from('agenda_bloqueios')
+      .delete()
+      .eq('id', id)
+      .select('id');
+    if (error || !rows || rows.length === 0) {
+      showErro(error?.message ?? 'Sem permissão para recusar.');
+      return;
+    }
+    setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
+    if (empresaId) fetchDia(dataSel, empresaId);
+  }
+
   return (
     <div className="bm-page">
       {/* Toast de erro */}
@@ -1998,6 +2109,13 @@ export default function AgendaPage() {
             title="Bloquear horário">
             <Ban size={14} strokeWidth={2}/><span>Bloquear</span>
           </button>
+          {ehGestao && (
+            <PendentesBloqueioBtn
+              pendentes={bloqueiosPendentes}
+              onAprovar={aprovarBloqueio}
+              onRecusar={recusarBloqueio}
+            />
+          )}
           <button onClick={() => { setModalParams({}); setModal(true); }} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
             style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
             <Plus size={15} strokeWidth={2.5}/>Novo
