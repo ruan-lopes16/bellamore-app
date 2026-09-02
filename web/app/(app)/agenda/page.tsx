@@ -77,7 +77,13 @@ function categoriasDoAg(ag: Ag, customs: CategoriaCustom[]): string[] {
     .map(s => resolverCategoriaServico(s.categoria, s.categoria_id, customs).chave);
   return Array.from(new Set(chaves));
 }
-type PacoteClienteOpt = { id: string; nome: string; restantes: number | null; servicos: { servico_id: string }[] };
+type PacoteSessaoFeita = { id: string; data: string; servico: string | null; viaAg: boolean };
+type PacoteClienteOpt = {
+  id: string; nome: string;
+  restantes: number | null; total: number | null; usadas: number;
+  servicos: { servico_id: string }[];
+  sessoes: PacoteSessaoFeita[];
+};
 type PacoteCatalogoOpt = { id: string; nome: string; preco: number; validade_dias: number | null; servicos: { servico_id: string }[] };
 type ClienteOpt = { id: string; nome: string; telefone?: string };
 type Servico    = { id: string; nome: string; preco: number; duracao_minutos: number };
@@ -113,6 +119,12 @@ function iniciais(nome?: string | null) {
 }
 function fmtBRL(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
+}
+/** Data curta de uma sessão de pacote; nunca lança em data inválida. */
+function fmtSessaoData(iso: string | null): string {
+  if (!iso) return '—';
+  const d = parseISO(iso);
+  return isNaN(d.getTime()) ? '—' : format(d, 'dd/MM/yy');
 }
 
 // ── Card de agendamento ───────────────────────────────────────
@@ -324,7 +336,7 @@ function NovoAgModal({
   useEffect(() => {
     if (!clienteId) { setPacotesCliente([]); return; }
     supabase.from('pacote_clientes')
-      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id)')
+      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id, created_at, agendamento_id, servico:servicos(nome))')
       .eq('empresa_id', empresaId)
       .eq('cliente_id', clienteId)
       .eq('status', 'ativo')
@@ -335,8 +347,13 @@ function NovoAgModal({
             const servicosPac = (pc.pacote?.servicos ?? []) as { servico_id: string; quantidade: number | null }[];
             const ilimitado = servicosPac.some(s => s.quantidade == null);
             const total = ilimitado ? null : servicosPac.reduce((s, x) => s + (x.quantidade ?? 0), 0);
-            const restantes = total != null ? total - (pc.uso ?? []).length : null;
-            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes, servicos: servicosPac.map(s => ({ servico_id: s.servico_id })) };
+            const usoRows = (pc.uso ?? []) as any[];
+            const usadas = usoRows.length;
+            const restantes = total != null ? total - usadas : null;
+            const sessoes: PacoteSessaoFeita[] = usoRows
+              .map(u => ({ id: u.id, data: u.created_at as string, servico: u.servico?.nome ?? null, viaAg: !!u.agendamento_id }))
+              .sort((a, b) => (b.data ?? '').localeCompare(a.data ?? ''));
+            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes, total, usadas, servicos: servicosPac.map(s => ({ servico_id: s.servico_id })), sessoes };
           })
           .filter(p => p.restantes === null || p.restantes > 0);
         setPacotesCliente(opts);
@@ -723,6 +740,38 @@ function NovoAgModal({
                   </button>
                 )}
               </div>
+
+              {/* Histórico de sessões do pacote selecionado — feitas + pendentes */}
+              {(() => {
+                const p = pacotesCliente.find(x => x.id === pacoteClienteId);
+                if (!p) return null;
+                return (
+                  <div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold text-text-2">
+                        {p.usadas}{p.total != null ? ` de ${p.total}` : ''} {p.usadas === 1 ? 'sessão feita' : 'sessões feitas'}
+                      </span>
+                      {p.restantes != null && (
+                        <span className="text-xs text-text-3">{p.restantes} pendente{p.restantes !== 1 ? 's' : ''}</span>
+                      )}
+                    </div>
+                    {p.sessoes.length === 0 ? (
+                      <p className="text-xs text-text-4">Nenhuma sessão feita ainda.</p>
+                    ) : (
+                      <ul className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+                        {p.sessoes.map(s => (
+                          <li key={s.id} className="flex items-center justify-between text-xs text-text-3">
+                            <span className="truncate pr-2">{s.servico ?? 'Sessão'}</span>
+                            <span className="flex-shrink-0 text-text-4">
+                              {fmtSessaoData(s.data)} · {s.viaAg ? 'agendada' : 'avulsa'}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
