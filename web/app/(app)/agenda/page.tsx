@@ -1101,16 +1101,23 @@ function computeLanes(colAgs: Ag[]): Map<string, { lane: number; totalLanes: num
 
 // ── Modal de bloqueio ─────────────────────────────────────────
 
-function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }: {
+function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membros, onClose, onSalvo }: {
   data: Date;
   empresaId: string;
-  profissionais: { id: string; nome: string }[];
+  meuRole: string;
+  meuUserId: string;
+  meuNome: string;
+  membros: { id: string; nome: string }[];
   onClose: () => void;
   onSalvo: (b: Bloqueio) => void;
 }) {
   useScrollLock();
-  const [titulo,   setTitulo]   = useState('');
+  const ehGestao = podeSelecionarEscopoGeral(meuRole);
+
+  const [escopo,   setEscopo]   = useState<EscopoBloqueio>('profissional');
   const [profId,   setProfId]   = useState('');
+  const [motivo,   setMotivo]   = useState<string>('folga');
+  const [titulo,   setTitulo]   = useState('');
   const [horaIni,  setHoraIni]  = useState('08:00');
   const [horaFim,  setHoraFim]  = useState('09:00');
   const [dataBl,   setDataBl]   = useState(format(data, 'yyyy-MM-dd'));
@@ -1126,17 +1133,26 @@ function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }:
     if (dataFim <= dataInicio) {
       setErro('O horário de fim deve ser após o início.'); setSalvando(false); return;
     }
+    if (ehGestao && escopo === 'profissional' && !profId) {
+      setErro('Escolha o profissional.'); setSalvando(false); return;
+    }
+
+    const insert = montarInsertBloqueio({
+      role: meuRole,
+      meuUserId,
+      empresaId,
+      escopo,
+      profissionalId: profId || null,
+      motivo: motivo as any,
+      titulo,
+      dataInicio: dataInicio.toISOString(),
+      dataFim: dataFim.toISOString(),
+    });
 
     const { data: row, error } = await supabase
       .from('agenda_bloqueios')
-      .insert({
-        empresa_id:      empresaId,
-        profissional_id: profId || null,
-        titulo:          titulo.trim() || 'Bloqueio',
-        data_inicio:     dataInicio.toISOString(),
-        data_fim:        dataFim.toISOString(),
-      })
-      .select('id, profissional_id, titulo, data_inicio, data_fim')
+      .insert(insert)
+      .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
       .single();
 
     setSalvando(false);
@@ -1164,20 +1180,49 @@ function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }:
         </div>
 
         <form onSubmit={salvar} className="p-5 flex flex-col gap-3">
+          {ehGestao ? (
+            <>
+              <div>
+                <label className={labelCls}>Tipo de bloqueio</label>
+                <div className="flex rounded-xl border border-border overflow-hidden">
+                  <button type="button" onClick={() => setEscopo('profissional')}
+                    className={`flex-1 h-10 text-sm font-semibold transition ${escopo === 'profissional' ? 'bg-primary text-white' : 'text-text-2 hover:bg-bg'}`}>
+                    Um profissional
+                  </button>
+                  <button type="button" onClick={() => setEscopo('geral')}
+                    className={`flex-1 h-10 text-sm font-semibold transition ${escopo === 'geral' ? 'bg-primary text-white' : 'text-text-2 hover:bg-bg'}`}>
+                    Toda a agenda
+                  </button>
+                </div>
+              </div>
+              {escopo === 'profissional' && (
+                <div>
+                  <label className={labelCls}>Profissional</label>
+                  <select value={profId} onChange={e => setProfId(e.target.value)} className={inputCls}>
+                    <option value="">Selecione...</option>
+                    {membros.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                  </select>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-xl bg-bg border border-border px-3 py-2.5 text-sm text-text-2">
+              Bloqueio para: <span className="font-semibold text-text">{meuNome}</span>
+              <p className="text-xs text-text-4 mt-1">Vai para aprovação da dona ou gestora.</p>
+            </div>
+          )}
+
           <div>
-            <label className={labelCls}>Título (opcional)</label>
-            <input value={titulo} onChange={e => setTitulo(e.target.value)}
-              placeholder="Ex: Folga, Reunião, Almoço..." className={inputCls}/>
+            <label className={labelCls}>Motivo</label>
+            <select value={motivo} onChange={e => setMotivo(e.target.value)} className={inputCls} required>
+              {MOTIVOS_BLOQUEIO.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
           </div>
 
           <div>
-            <label className={labelCls}>Profissional</label>
-            <select value={profId} onChange={e => setProfId(e.target.value)} className={inputCls}>
-              <option value="">Todos os profissionais</option>
-              {profissionais.map(p => (
-                <option key={p.id} value={p.id}>{p.nome}</option>
-              ))}
-            </select>
+            <label className={labelCls}>Detalhe <span className="normal-case font-normal text-text-4">(opcional)</span></label>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)}
+              placeholder="Ex: Dentista, Viagem..." className={inputCls}/>
           </div>
 
           <div>
@@ -1206,7 +1251,7 @@ function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }:
             <button type="submit" disabled={salvando}
               className="flex-1 h-10 rounded-xl text-white text-sm font-bold transition disabled:opacity-60"
               style={{ background: 'var(--color-rose)' }}>
-              {salvando ? 'Salvando...' : 'Bloquear'}
+              {salvando ? 'Salvando...' : ehGestao ? 'Bloquear' : 'Pedir bloqueio'}
             </button>
           </div>
         </form>
@@ -2061,23 +2106,22 @@ export default function AgendaPage() {
       )}
 
       {/* Modal de bloqueio */}
-      {modalBloq && empresaId && (() => {
-        const profsUnicos = Array.from(
-          new Map(ags.filter(a => a.profissional).map(a => [a.profissional!.id, a.profissional!])).entries()
-        ).map(([, p]) => p);
-        return (
-          <NovoBloqueioModal
-            data={dataSel}
-            empresaId={empresaId}
-            profissionais={profsUnicos}
-            onClose={() => setModalBloq(false)}
-            onSalvo={b => {
-              setBloqueios(prev => [...prev, b]);
-              setModalBloq(false);
-            }}
-          />
-        );
-      })()}
+      {modalBloq && empresaId && (
+        <NovoBloqueioModal
+          data={dataSel}
+          empresaId={empresaId}
+          meuRole={meuRole}
+          meuUserId={meuUserId}
+          meuNome={membrosAtivos.find(m => m.id === meuUserId)?.nome ?? 'Você'}
+          membros={membrosAtivos}
+          onClose={() => setModalBloq(false)}
+          onSalvo={b => {
+            setBloqueios(prev => [...prev, b]);
+            setModalBloq(false);
+            if (b.situacao === 'pendente') showErro('Pedido de bloqueio enviado para aprovação.');
+          }}
+        />
+      )}
 
       {/* Modal de avaliação pós-atendimento */}
       {avaliacaoAg && empresaId && (
