@@ -137,14 +137,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   ] = await Promise.all([
     Promise.all([
       supabase.from('agendamentos')
-        .select('id,status,valor,data_hora_inicio,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
+        .select('id,status,valor,data_hora_inicio,pacote_cliente_id,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
         .eq('empresa_id', empresaId).gte('data_hora_inicio', inicioHoje).lte('data_hora_inicio', fimHoje)
         .order('data_hora_inicio'),
       supabase.from('agendamentos').select('profissional_id,valor,data_hora_inicio')
-        .eq('empresa_id', empresaId).eq('status', 'concluido')
+        .eq('empresa_id', empresaId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
       supabase.from('agendamentos').select('valor')
-        .eq('empresa_id', empresaId).eq('status', 'concluido')
+        .eq('empresa_id', empresaId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
       supabase.from('empresa_membros').select('user_id,percentual_comissao')
         .eq('empresa_id', empresaId).eq('ativo', true),
@@ -262,7 +262,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const agsHoje       = agendamentosHoje.data ?? [];
   const agsConcluidos = agsHoje.filter(a => a.status === 'concluido');
-  const fatHoje       = agsConcluidos.reduce((s, a) => s + Number(a.valor), 0)
+  const fatHoje       = agsConcluidos.filter((a: any) => !a.pacote_cliente_id).reduce((s, a) => s + Number(a.valor), 0)
                       + (vendasHoje.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0);
 
   const estoqueBaixoItems  = estoqueBaixo.data ?? [];

@@ -1093,17 +1093,19 @@ export default function FinanceiroPage() {
     const ini6 = periodo6.startIso;
 
     const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes, reservaPagasAnt] = await Promise.all([
-      // Agendamentos concluídos do mês (com profissional e serviço)
+      // Agendamentos concluídos do mês (com profissional e serviço).
+      // .is('pacote_cliente_id', null): sessão de pacote já foi paga na venda do
+      // pacote — não entra como faturamento nem comissão de novo.
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
-        .eq('empresa_id', empId).eq('status', 'concluido')
+        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', ini).lte('data_hora_inicio', fim),
       // Agendamentos mês anterior
       supabase.from('agendamentos').select('profissional_id, valor')
-        .eq('empresa_id', empId).eq('status', 'concluido')
+        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', iniA).lte('data_hora_inicio', fimA),
       // Agendamentos 6 meses (evolução)
       supabase.from('agendamentos').select('profissional_id, valor, data_hora_inicio')
-        .eq('empresa_id', empId).eq('status', 'concluido')
+        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', ini6).lte('data_hora_inicio', fim),
       // Membros ativos → percentual de comissão (inclui owner/gestor que também atendem)
       supabase.from('empresa_membros').select('user_id, percentual_comissao')

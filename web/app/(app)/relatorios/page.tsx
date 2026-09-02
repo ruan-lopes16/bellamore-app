@@ -64,6 +64,7 @@ type Ag = {
   valor: number;
   status: string;
   data_hora_inicio: string;
+  pacote_cliente_id: string | null;
   servico_id:       string | null;
   profissional_id:  string | null;
   cliente_id:       string | null;
@@ -442,7 +443,7 @@ export default function RelatoriosPage() {
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       buscarTodasPaginas<Ag>((from, to) =>
         supabase.from('agendamentos')
-          .select(`id, valor, status, data_hora_inicio, servico_id, profissional_id, cliente_id,
+          .select(`id, valor, status, data_hora_inicio, pacote_cliente_id, servico_id, profissional_id, cliente_id,
             servico:servicos(nome),
             profissional:users!agendamentos_profissional_id_fkey(nome),
             cliente:clientes!agendamentos_cliente_id_fkey(nome)`)
@@ -612,10 +613,13 @@ export default function RelatoriosPage() {
 
   // ── KPIs principais
   const concluidos = useMemo(() => ags.filter(a => a.status === 'concluido'), [ags]);
+  // Sessão de pacote não entra no faturamento (já paga na venda do pacote);
+  // continua contando em atendimentos/rankings/comparecimento.
+  const concluidosFaturaveis = useMemo(() => concluidos.filter(a => !a.pacote_cliente_id), [concluidos]);
   const faltaram   = useMemo(() => ags.filter(a => a.status === 'faltou'),    [ags]);
   const cancelados = useMemo(() => ags.filter(a => a.status === 'cancelado'), [ags]);
 
-  const brutoServicos   = useMemo(() => concluidos.reduce((s, a) => s + a.valor, 0), [concluidos]);
+  const brutoServicos   = useMemo(() => concluidosFaturaveis.reduce((s, a) => s + a.valor, 0), [concluidosFaturaveis]);
   const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
   const brutoTaxas      = useMemo(() => taxas.reduce((s, t) => s + Number(t.valor), 0), [taxas]);
   const brutoReserva    = useMemo(() => reserva.reduce((s, t) => s + Number(t.valor), 0), [reserva]);
@@ -639,7 +643,7 @@ export default function RelatoriosPage() {
     };
 
     const receitaPorMes = acumularPorMes([
-      ...concluidos.map(a => ({ data: a.data_hora_inicio, valor: a.valor })),
+      ...concluidosFaturaveis.map(a => ({ data: a.data_hora_inicio, valor: a.valor })),
       ...vendas.map(v => ({ data: v.created_at, valor: Number(v.valor_final) })),
       ...taxas.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
       ...reserva.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
@@ -855,7 +859,7 @@ export default function RelatoriosPage() {
     if (duracaoDias <= 10) {
       const dias = eachDayOfInterval({ start: inicio, end: fim });
       return dias.map(dia => {
-        const valor = concluidos
+        const valor = concluidosFaturaveis
           .filter(ag => isSameDay(parseISO(ag.data_hora_inicio), dia))
           .reduce((s, ag) => s + ag.valor, 0);
         return { label: format(dia, 'dd/MM'), valor };
@@ -865,7 +869,7 @@ export default function RelatoriosPage() {
       const semanas = eachWeekOfInterval({ start: inicio, end: fim }, { weekStartsOn: 0 });
       return semanas.map(semIni => {
         const semFim = endOfWeek(semIni, { weekStartsOn: 0 });
-        const valor  = concluidos
+        const valor  = concluidosFaturaveis
           .filter(ag => { const d = parseISO(ag.data_hora_inicio); return d >= semIni && d <= semFim; })
           .reduce((s, ag) => s + ag.valor, 0);
         return { label: format(semIni, 'dd/MM'), valor };
@@ -877,12 +881,12 @@ export default function RelatoriosPage() {
       // Mês coberto por importação: usa o faturamento importado; senão, soma os
       // atendimentos concluídos do mês (comportamento original do gráfico).
       const fechamento = getFechamentoForMonth(fechamentos, format(mesIni, 'yyyy-MM'));
-      const valor  = fechamento?.receitaBruta ?? concluidos
+      const valor  = fechamento?.receitaBruta ?? concluidosFaturaveis
         .filter(ag => { const d = parseISO(ag.data_hora_inicio); return d >= mesIni && d <= mesFim; })
         .reduce((s, ag) => s + ag.valor, 0);
       return { label: format(mesIni, 'MMM', { locale: ptBR }), valor };
     });
-  }, [concluidos, inicio, fim, fechamentos]);
+  }, [concluidos, concluidosFaturaveis, inicio, fim, fechamentos]);
 
   const maxGrafico = useMemo(() => Math.max(...serieGrafico.map(s => s.valor), 1), [serieGrafico]);
 

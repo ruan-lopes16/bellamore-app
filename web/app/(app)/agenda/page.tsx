@@ -429,6 +429,16 @@ function NovoAgModal({
         }).select('id').single();
         if (errVenda || !novaVenda) { setSalvando(false); setErro(errVenda?.message ?? 'Erro ao vender pacote'); return; }
         pacoteClienteIdFinal = novaVenda.id;
+
+        // Registra a venda do pacote como faturamento (uma vez, no ato). As
+        // sessões consumidas depois não contam como receita.
+        await supabase.from('vendas').insert({
+          empresa_id:  empresaId,
+          cliente_id:  clienteId,
+          valor_total: pacote.preco,
+          desconto:    0,
+          observacao:  `Venda de pacote: ${pacote.nome}`,
+        });
       }
     }
 

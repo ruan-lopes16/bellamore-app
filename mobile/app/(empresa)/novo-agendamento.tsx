@@ -345,6 +345,15 @@ export default function NovoAgendamento() {
           return;
         }
         pacoteClienteIdFinal = novaVenda.id;
+
+        // Registra a venda do pacote como faturamento (uma vez, no ato).
+        await supabase.from('vendas').insert({
+          empresa_id:  empresaAtiva.id,
+          cliente_id:  clienteSelecionado!.id,
+          valor_total: pacote.preco,
+          desconto:    0,
+          observacao:  `Venda de pacote: ${pacote.nome}`,
+        });
       }
     }
 
