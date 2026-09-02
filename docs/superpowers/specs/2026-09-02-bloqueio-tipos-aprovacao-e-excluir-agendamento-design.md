@@ -427,3 +427,174 @@ seguem pendentes de aplicar.
 - Bloqueio impedir efetivamente o agendamento no mesmo horário.
 - Desenhar bloqueio nas visões "Semana" e "Mês" do web.
 - Tipo de contrato na Equipe do app nativo, caso não exista tela de editar membro lá.
+
+---
+
+## 9. SQL final das migrations (revisado — substitui os esboços acima)
+
+Confirmado com o usuário: nenhuma quebra em dado ou fluxo existente. Único consumidor de
+`agenda_bloqueios` é `web/app/(app)/agenda/page.tsx` (nada em `mobile/` ou `shared/`).
+`agendamentos` não tem `DELETE` pelo cliente hoje. Todas idempotentes.
+
+### `066_agendamentos_delete_gestor_owner.sql`
+```sql
+alter table public.agendamentos enable row level security;
+
+drop policy if exists "agendamentos: excluir"                on public.agendamentos;
+drop policy if exists "agendamentos: gestor exclui"          on public.agendamentos;
+drop policy if exists "agendamentos: membro exclui"          on public.agendamentos;
+drop policy if exists "agendamentos: gestor ou owner exclui" on public.agendamentos;
+
+create policy "agendamentos: gestor ou owner exclui"
+  on public.agendamentos
+  for delete
+  using (is_gestor_ou_owner(empresa_id));
+```
+Cabeçalho deve registrar: policies de INSERT/UPDATE de `agendamentos` não estão versionadas
+(painel do Supabase) — conferir se sobrou policy de DELETE com outro nome.
+
+### `067_empresa_membros_tipo_contrato.sql`
+```sql
+alter table public.empresa_membros
+  add column if not exists tipo_contrato text
+    check (tipo_contrato in ('pj', 'clt'));
+
+comment on column public.empresa_membros.tipo_contrato is
+  'Vínculo: pj (PJ/Comissionada) | clt | NULL. Registro de cadastro; não altera regras de bloqueio.';
+```
+
+### `068_agenda_bloqueios_tipos_motivo_aprovacao.sql`
+```sql
+alter table public.agenda_bloqueios
+  add column if not exists escopo       text not null default 'profissional'
+    check (escopo in ('profissional', 'geral')),
+  add column if not exists motivo       text
+    check (motivo in ('folga', 'feriado', 'almoco', 'reuniao', 'manutencao', 'outro')),
+  add column if not exists situacao     text not null default 'aprovado'
+    check (situacao in ('aprovado', 'pendente')),
+  add column if not exists criado_por   uuid references public.users(id) on delete set null,
+  add column if not exists revisado_por uuid references public.users(id) on delete set null,
+  add column if not exists revisado_em  timestamptz;
+
+update public.agenda_bloqueios set escopo = 'geral' where profissional_id is null;
+
+drop policy if exists "bloqueios_select" on public.agenda_bloqueios;
+drop policy if exists "bloqueios_insert" on public.agenda_bloqueios;
+drop policy if exists "bloqueios_update" on public.agenda_bloqueios;
+drop policy if exists "bloqueios_delete" on public.agenda_bloqueios;
+
+create policy "bloqueios: ver" on public.agenda_bloqueios
+  for select using (
+    empresa_id in (select minha_empresas())
+    and (
+      situacao = 'aprovado'
+      or criado_por = auth.uid()
+      or is_gestor_ou_owner(empresa_id)
+    )
+  );
+
+create policy "bloqueios: criar" on public.agenda_bloqueios
+  for insert with check (
+    empresa_id in (select minha_empresas())
+    and (
+      is_gestor_ou_owner(empresa_id)
+      or (
+        escopo        = 'profissional'
+        and profissional_id = auth.uid()
+        and criado_por      = auth.uid()
+        and situacao        = 'pendente'
+        and motivo is not null
+      )
+    )
+  );
+
+create policy "bloqueios: aprovar" on public.agenda_bloqueios
+  for update using      (is_gestor_ou_owner(empresa_id))
+             with check (is_gestor_ou_owner(empresa_id));
+
+create policy "bloqueios: excluir" on public.agenda_bloqueios
+  for delete using (
+    is_gestor_ou_owner(empresa_id)
+    or (criado_por = auth.uid() and situacao = 'pendente')
+  );
+
+create index if not exists idx_bloqueios_pendentes
+  on public.agenda_bloqueios (empresa_id, situacao, data_inicio);
+```
+
+### `069_agenda_bloqueios_notificacoes_trigger.sql`
+```sql
+create or replace function public.notificar_bloqueio()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_autor_nome text;
+  v_quando     text;
+  v_motivo     text;
+begin
+  if tg_op in ('INSERT', 'UPDATE') then
+    v_quando := to_char(NEW.data_inicio at time zone 'America/Sao_Paulo', 'DD/MM HH24:MI');
+  else
+    v_quando := to_char(OLD.data_inicio at time zone 'America/Sao_Paulo', 'DD/MM HH24:MI');
+  end if;
+
+  -- 1. Pedido novo → avisa a gestão
+  if tg_op = 'INSERT' and NEW.situacao = 'pendente' and NEW.criado_por is not null then
+    select nome into v_autor_nome from public.users where id = NEW.criado_por;
+    v_motivo := coalesce(nullif(NEW.motivo, ''), 'sem motivo');
+
+    insert into public.notificacoes (user_id, empresa_id, tipo, titulo, mensagem)
+    select u.uid, NEW.empresa_id, 'bloqueio_pendente',
+           'Bloqueio aguardando aprovação',
+           coalesce(split_part(v_autor_nome, ' ', 1), 'Profissional')
+             || ' pediu bloqueio em ' || v_quando || ' (' || v_motivo || ')'
+    from (
+      select m.user_id as uid
+        from public.empresa_membros m
+       where m.empresa_id = NEW.empresa_id and m.ativo = true and m.role = 'gestor'
+      union
+      select e.owner_id
+        from public.empresas e
+       where e.id = NEW.empresa_id and e.owner_id is not null
+    ) u
+    where u.uid is not null and u.uid <> NEW.criado_por;
+
+    return NEW;
+  end if;
+
+  -- 2. Aprovado → avisa o autor
+  if tg_op = 'UPDATE'
+     and OLD.situacao = 'pendente' and NEW.situacao = 'aprovado'
+     and NEW.criado_por is not null then
+    insert into public.notificacoes (user_id, empresa_id, tipo, titulo, mensagem)
+    values (NEW.criado_por, NEW.empresa_id, 'bloqueio_aprovado',
+            'Bloqueio aprovado',
+            'Seu bloqueio de ' || v_quando || ' foi aprovado.');
+    return NEW;
+  end if;
+
+  -- 3. Recusado (delete de pendente por terceiro) → avisa o autor
+  if tg_op = 'DELETE'
+     and OLD.situacao = 'pendente'
+     and OLD.criado_por is not null
+     and OLD.criado_por <> auth.uid() then
+    insert into public.notificacoes (user_id, empresa_id, tipo, titulo, mensagem)
+    values (OLD.criado_por, OLD.empresa_id, 'bloqueio_recusado',
+            'Bloqueio recusado',
+            'Seu bloqueio de ' || v_quando || ' foi recusado.');
+    return OLD;
+  end if;
+
+  if tg_op = 'DELETE' then return OLD; end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_notificar_bloqueio on public.agenda_bloqueios;
+create trigger trg_notificar_bloqueio
+  after insert or update or delete on public.agenda_bloqueios
+  for each row execute function public.notificar_bloqueio();
+```
