@@ -42,6 +42,8 @@ import {
   resolverCategoriaServico, bgDaCor,
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { podeExcluirAgendamento, motivoExclusaoBloqueada } from '@shared/agendamentos';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 const supabase = createClient();
 
@@ -231,13 +233,15 @@ type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: n
 type ConflitoDet  = { inicio: string; fim: string; cliente: string; servico: string };
 
 function NovoAgModal({
-  data, empresaId, onClose, onSalvo, agEditar, horaInicial, profIdInicial,
+  data, empresaId, onClose, onSalvo, agEditar, horaInicial, profIdInicial, meuRole, onExcluido,
 }: {
   data: Date; empresaId: string;
   onClose: () => void; onSalvo: () => void;
   agEditar?: Ag;
   horaInicial?: string;
   profIdInicial?: string;
+  meuRole: string;
+  onExcluido: () => void;
 }) {
   useScrollLock();
   const [clientes,      setClientes]      = useState<ClienteOpt[]>([]);
@@ -251,6 +255,50 @@ function NovoAgModal({
   const [obs,       setObs]       = useState(() => agEditar?.observacao ?? '');
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
+  const [confirmarExcluir, setConfirmarExcluir] = useState(false);
+  const [excluindo,        setExcluindo]        = useState(false);
+  const [avisoTaxaExcluir, setAvisoTaxaExcluir] = useState('');
+
+  const podeExcluir = !!agEditar && podeExcluirAgendamento(agEditar.status, meuRole);
+  const motivoBloqueioExcluir = agEditar ? motivoExclusaoBloqueada(agEditar.status) : null;
+
+  async function abrirConfirmExcluir() {
+    setAvisoTaxaExcluir('');
+    if (!agEditar) return;
+    // Avisa se há taxa paga que sairá do faturamento junto
+    const [{ data: tr }, { data: tc }] = await Promise.all([
+      supabase.from('taxas_reserva').select('valor, status, paga_em').eq('agendamento_id', agEditar.id),
+      supabase.from('taxas_cancelamento').select('valor, status, paga_em').eq('agendamento_id', agEditar.id),
+    ]);
+    const pagas = [...(tr ?? []), ...(tc ?? [])].filter(
+      (t: any) => t.paga_em != null || t.status === 'pago' || t.status === 'paga',
+    );
+    const totalPago = pagas.reduce((s: number, t: any) => s + Number(t.valor || 0), 0);
+    if (totalPago > 0) {
+      setAvisoTaxaExcluir(
+        ` A taxa de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPago)} (paga) também será removida e sai do faturamento daquele período.`,
+      );
+    }
+    setConfirmarExcluir(true);
+  }
+
+  async function excluirAgendamento() {
+    if (!agEditar) return;
+    setExcluindo(true);
+    const { data: apagados, error } = await supabase
+      .from('agendamentos')
+      .delete()
+      .eq('id', agEditar.id)
+      .select('id');
+    setExcluindo(false);
+    setConfirmarExcluir(false);
+    if (error) { setErro(`Erro ao excluir: ${error.message}`); return; }
+    if (!apagados || apagados.length === 0) {
+      setErro('Você não tem permissão para excluir agendamentos.');
+      return;
+    }
+    onExcluido();
+  }
   const [sucesso,   setSucesso]   = useState<{ clienteNome: string; profNome: string; servicosNomes: string[]; inicio: Date; fim: Date } | null>(null);
   const [avisoTaxaReserva, setAvisoTaxaReserva] = useState('');
 
@@ -927,7 +975,16 @@ function NovoAgModal({
 
           {erro && <p className="text-red text-sm text-center">{erro}</p>}
 
-          <div className="flex gap-3 mt-1">
+          <div className="flex items-center gap-3 mt-1">
+            {agEditar && podeExcluir && (
+              <button type="button" onClick={abrirConfirmExcluir}
+                className="h-10 px-3 rounded-xl text-sm font-semibold text-red hover:bg-red-soft transition flex items-center gap-1.5">
+                <Trash2 size={14} strokeWidth={2}/> Excluir
+              </button>
+            )}
+            {agEditar && !podeExcluir && motivoBloqueioExcluir && meuRole !== 'profissional' && (
+              <span className="text-xs text-text-4" title={motivoBloqueioExcluir}>Não pode excluir</span>
+            )}
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
             <button type="submit" disabled={salvando} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
               {salvando ? 'Salvando...' : agEditar ? 'Salvar alterações' : 'Agendar'}
@@ -935,6 +992,19 @@ function NovoAgModal({
           </div>
         </form>
       </div>
+
+      {confirmarExcluir && agEditar && (
+        <ConfirmDialog
+          open
+          variant="danger"
+          title="Excluir agendamento"
+          message={`Excluir o agendamento de ${agEditar.cliente?.nome ?? 'cliente'}? Esta ação não pode ser desfeita.${avisoTaxaExcluir}`}
+          confirmLabel="Excluir"
+          loading={excluindo}
+          onConfirm={excluirAgendamento}
+          onCancel={() => setConfirmarExcluir(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1626,6 +1696,8 @@ export default function AgendaPage() {
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
+  const [meuRole,   setMeuRole]   = useState<string>('profissional');
+  const [meuUserId, setMeuUserId] = useState<string>('');
   const [modal,       setModal]      = useState(false);
   const [modalBloq,   setModalBloq]  = useState(false);
   const [modalParams, setModalParams] = useState<{ hora?: string; profId?: string }>({});
@@ -1643,9 +1715,11 @@ export default function AgendaPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
+      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id, role')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
+      setMeuUserId(user.id);
+      setMeuRole((membro?.role as string) ?? 'profissional');
       if (membro?.empresa_id) {
         const { data: cats } = await supabase.from('categorias_servico').select('*')
           .eq('empresa_id', membro.empresa_id).order('nome');
@@ -1899,8 +1973,16 @@ export default function AgendaPage() {
           empresaId={empresaId}
           horaInicial={modalParams.hora}
           profIdInicial={modalParams.profId}
+          meuRole={meuRole}
           onClose={() => { setModal(false); setAgEditar(null); setModalParams({}); }}
           onSalvo={() => {
+            setModal(false);
+            setAgEditar(null);
+            setModalParams({});
+            fetchDia(dataSel, empresaId);
+            if (view === 'mes') fetchMes(dataSel, empresaId);
+          }}
+          onExcluido={() => {
             setModal(false);
             setAgEditar(null);
             setModalParams({});
