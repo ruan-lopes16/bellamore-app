@@ -55,4 +55,28 @@ describe('Migrations 066–069: bloqueio + excluir agendamento', () => {
   it('068: index de pendentes', () => {
     expect(sql).toMatch(/create index if not exists idx_bloqueios_pendentes\s+on public\.agenda_bloqueios \(empresa_id, situacao, data_inicio\)/);
   });
+
+  // ── 069 ──
+  it('069: funcao notificar_bloqueio security definer + trigger after ins/upd/del', () => {
+    expect(sql).toMatch(/create or replace function public\.notificar_bloqueio\(\)[\s\S]*?security definer/);
+    expect(sql).toMatch(/create trigger trg_notificar_bloqueio\s+after insert or update or delete on public\.agenda_bloqueios/);
+  });
+
+  it('069: gera bloqueio_pendente para gestor + owner (dedupe, sem o autor)', () => {
+    expect(sql).toContain("'bloqueio_pendente'");
+    expect(sql).toMatch(/role = 'gestor'/);
+    expect(sql).toMatch(/select e\.owner_id/);
+    expect(sql).toMatch(/u\.uid <> new\.criado_por/);
+  });
+
+  it('069: bloqueio_aprovado no update pendente->aprovado e bloqueio_recusado so por terceiro', () => {
+    expect(sql).toMatch(/old\.situacao = 'pendente' and new\.situacao = 'aprovado'/);
+    expect(sql).toContain("'bloqueio_aprovado'");
+    expect(sql).toMatch(/old\.situacao = 'pendente'[\s\S]*?old\.criado_por <> auth\.uid\(\)/);
+    expect(sql).toContain("'bloqueio_recusado'");
+  });
+
+  it('069: formata data no fuso America/Sao_Paulo', () => {
+    expect(sql).toContain("at time zone 'america/sao_paulo'");
+  });
 });
