@@ -91,3 +91,95 @@ export const CATEGORIA_SVG: Record<CategoriaServico, SvgElement[]> = {
     { type: 'path', d: 'M18.8 17l.6 1.7 1.7.6-1.7.6-.6 1.7-.6-1.7-1.7-.6 1.7-.6z' },
   ],
 };
+
+// ── Categorias personalizadas (por empresa) ──────────────────
+
+export type CategoriaCustom = {
+  id: string;
+  empresa_id: string;
+  nome: string;
+  cor: string;
+  icone: string;
+};
+
+/** Paleta curada — cor = traço/texto; bg = fundo suave do chip. Ordem fixa. */
+export const CATEGORIA_PALETA: { cor: string; bg: string }[] = [
+  { cor: '#4F46E5', bg: '#EEF2FF' },
+  { cor: '#7C3AED', bg: '#F3EFFE' },
+  { cor: '#D4608A', bg: '#FDF0F5' },
+  { cor: '#B45309', bg: '#FEF3E2' },
+  { cor: '#0D7E5F', bg: '#EAFAF5' },
+  { cor: '#0891B2', bg: '#ECFEFF' },
+  { cor: '#C026D3', bg: '#FDF4FF' },
+  { cor: '#DC2626', bg: '#FEF2F2' },
+  { cor: '#2563EB', bg: '#EFF6FF' },
+  { cor: '#6B7280', bg: '#F3F4F6' },
+];
+
+/** Nomes de ícones lucide (existem em lucide-react e lucide-react-native). */
+export const CATEGORIA_ICONES = [
+  'Sparkles', 'Scissors', 'Heart', 'Star', 'Gem', 'Flower',
+  'Wand', 'Droplet', 'Sun', 'Hand', 'Smile', 'Leaf',
+] as const;
+
+/** bg correspondente a uma cor da paleta; cinza se a cor não estiver na paleta. */
+export function bgDaCor(cor: string): string {
+  return CATEGORIA_PALETA.find((p) => p.cor === cor)?.bg ?? '#F3F4F6';
+}
+
+export type CategoriaResolvida = {
+  chave: string;                    // chave built-in, id da custom, ou 'outros'
+  label: string;
+  cor: string;
+  bg: string;
+  tipo: 'builtin' | 'custom' | 'nenhuma';
+  iconeBuiltin?: CategoriaServico;  // renderizar via CategoriaIcon / CATEGORIA_SVG
+  iconeCustom?: string;             // nome lucide
+};
+
+const _CHAVES_BUILTIN = new Set<string>(ALL_CATEGORIAS);
+
+/**
+ * Resolve a aparência da categoria de um serviço.
+ * Prioridade: categoria_id (personalizada) → categoria (built-in) → Outros.
+ * Um categoria_id que não bate com nenhuma custom da lista (categoria apagada)
+ * cai em Outros.
+ */
+export function resolverCategoriaServico(
+  categoria: string | null | undefined,
+  categoriaId: string | null | undefined,
+  customs: CategoriaCustom[],
+): CategoriaResolvida {
+  if (categoriaId) {
+    const c = customs.find((x) => x.id === categoriaId);
+    if (c) {
+      return {
+        chave: c.id,
+        label: c.nome,
+        cor: c.cor,
+        bg: bgDaCor(c.cor),
+        tipo: 'custom',
+        iconeCustom: c.icone,
+      };
+    }
+  }
+  if (categoria && _CHAVES_BUILTIN.has(categoria)) {
+    const k = categoria as CategoriaServico;
+    return {
+      chave: k,
+      label: CATEGORIA_LABEL[k],
+      cor: CATEGORIA_COR[k],
+      bg: CATEGORIA_BG[k],
+      tipo: 'builtin',
+      iconeBuiltin: k,
+    };
+  }
+  return {
+    chave: 'outros',
+    label: CATEGORIA_LABEL.outros,
+    cor: CATEGORIA_COR.outros,
+    bg: CATEGORIA_BG.outros,
+    tipo: 'nenhuma',
+    iconeBuiltin: 'outros',
+  };
+}

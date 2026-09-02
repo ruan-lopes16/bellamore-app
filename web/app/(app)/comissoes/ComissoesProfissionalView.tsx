@@ -4,8 +4,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Banknote } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
-import { CategoriaIcon, CATEGORIA_COR, CATEGORIA_BG } from '@/components/CategoriaIcon';
-import type { CategoriaServico } from '@/components/CategoriaIcon';
+import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
+import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 import { addMonths, subMonths, startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -20,7 +20,7 @@ type ComissaoRow = {
   created_at: string;
   agendamento: {
     data_hora_inicio: string | null;
-    servico: { nome: string; categoria: string | null } | null;
+    servico: { nome: string; categoria: string | null; categoria_id?: string | null } | null;
   } | null;
 };
 
@@ -33,6 +33,7 @@ export default function ComissoesProfissionalView() {
   const [loading,   setLoading]   = useState(true);
   const [mesRef,    setMesRef]    = useState(new Date());
   const [comissoes, setComissoes] = useState<ComissaoRow[]>([]);
+  const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
 
   const isFuturo = startOfMonth(mesRef) > new Date();
 
@@ -52,16 +53,20 @@ export default function ComissoesProfissionalView() {
     setLoading(true);
     const ini = startOfMonth(mesRef);
     const fim = endOfMonth(mesRef);
-    const { data } = await supabase
-      .from('comissoes')
-      .select(`id, valor_servico, percentual, valor_comissao, status, created_at,
-        agendamento:agendamentos(data_hora_inicio, servico:servicos(nome, categoria))`)
-      .eq('empresa_id', empresaId)
-      .gte('created_at', ini.toISOString())
-      .lte('created_at', fim.toISOString())
-      .order('created_at', { ascending: false });
+    const [{ data }, { data: cats }] = await Promise.all([
+      supabase
+        .from('comissoes')
+        .select(`id, valor_servico, percentual, valor_comissao, status, created_at,
+          agendamento:agendamentos(data_hora_inicio, servico:servicos(nome, categoria, categoria_id))`)
+        .eq('empresa_id', empresaId)
+        .gte('created_at', ini.toISOString())
+        .lte('created_at', fim.toISOString())
+        .order('created_at', { ascending: false }),
+      supabase.from('categorias_servico').select('*').eq('empresa_id', empresaId).order('nome'),
+    ]);
     // RLS já restringe às próprias comissões — sem filtro extra necessário.
     setComissoes((data ?? []) as unknown as ComissaoRow[]);
+    setCategoriasCustom((cats ?? []) as CategoriaCustom[]);
     setLoading(false);
   }, [empresaId, mesRef]);
 
@@ -144,14 +149,16 @@ export default function ComissoesProfissionalView() {
       ) : (
         <div className="bg-surface border border-border rounded-2xl overflow-hidden" style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
           {comissoes.map((c, i) => {
-            const cat = (c.agendamento?.servico?.categoria ?? 'outros') as CategoriaServico;
-            const cor = CATEGORIA_COR[cat] ?? '#6B7280';
-            const bg  = CATEGORIA_BG[cat]  ?? '#F3F4F6';
+            const r   = resolverCategoriaServico(c.agendamento?.servico?.categoria, c.agendamento?.servico?.categoria_id, categoriasCustom);
+            const cor = r.cor;
+            const bg  = r.bg;
             return (
               <div key={c.id}
                 className={`flex items-center gap-3 px-4 py-3 ${i < comissoes.length - 1 ? 'border-b border-border' : ''}`}>
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
-                  <CategoriaIcon categoria={cat} size={16} color={cor}/>
+                  {r.iconeCustom
+                    ? <CategoriaIconCustom name={r.iconeCustom} size={16} color={cor}/>
+                    : <CategoriaIcon categoria={r.iconeBuiltin ?? 'outros'} size={16} color={cor}/>}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate" style={{ color: 'var(--color-ink)' }}>

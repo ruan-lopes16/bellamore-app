@@ -406,7 +406,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </Tilt>
 
       {/* ── KPIs do mês ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4">
         {[
           { label: 'Fat. Bruto',    value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
           { label: 'Fat. Líquido',  value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
@@ -424,7 +424,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
+            <p className="whitespace-nowrap tabular-nums" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
             {delta !== null && (
               <span className="flex items-center gap-0.5 mt-1.5" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 600, color: delta >= 0 ? 'var(--color-green)' : 'var(--color-rose)' }}>
                 {delta >= 0 ? <ArrowUp size={9} /> : <ArrowDown size={9} />}
@@ -451,7 +451,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
+            <p className="whitespace-nowrap tabular-nums" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
             <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'var(--color-ink4)', marginTop: 4 }}><Secret>{sub}</Secret></p>
           </div>
         ))}

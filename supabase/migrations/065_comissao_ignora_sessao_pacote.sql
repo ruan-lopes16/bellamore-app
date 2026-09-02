@@ -1,5 +1,5 @@
 -- ============================================================
--- MIGRATION 064 — comissão não é gerada para sessão de pacote
+-- MIGRATION 065 — comissão não é gerada para sessão de pacote
 --
 -- EXECUTE NO SUPABASE SQL EDITOR (migrations são manuais).
 --

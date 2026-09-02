@@ -76,6 +76,7 @@ export interface Servico {
   custo: number;
   duracao_minutos: number;
   categoria?: string;
+  categoria_id?: string | null;
   ativo: boolean;
 }
 

@@ -81,7 +81,11 @@ function horaStr(iso: string) {
 // ── Card de agendamento ──────────────────────────────────────
 
 function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number }) {
-  const cfg        = CATEGORIA_CONFIG[ag.categoria];
+  const cfgBase    = CATEGORIA_CONFIG[ag.categoria];
+  const cfg        = {
+    bg:     ag.categoriaResolvida?.bg  ?? cfgBase.bg,
+    border: ag.categoriaResolvida?.cor ?? cfgBase.border,
+  };
   const statusCfg  = STATUS_CONFIG[ag.status] ?? STATUS_CONFIG.agendado;
   const [c1, c2]   = avatarColors(ag.profissional?.nome ?? '');
 
@@ -201,6 +205,15 @@ export default function Agenda() {
   const { data: profissionais = [] } = useProfissionais();
   const { data: diasComAg } = useDiasComAgendamento(mesRef);
   const resumo = useResumoDia(agendamentos);
+
+  // Categorias personalizadas presentes no dia (para a legenda, além das 8 fixas)
+  const customsNoDia = Array.from(
+    new Map(
+      agendamentos
+        .filter((a) => a.categoriaResolvida?.iconeCustom)
+        .map((a) => [a.categoriaResolvida!.label, a.categoriaResolvida!]),
+    ).values(),
+  );
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -390,6 +403,19 @@ export default function Agenda() {
                 <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: cfg.accent }} />
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 9, color: cfg.accent, textTransform: 'uppercase', letterSpacing: 0.4 }}>
                   {cfg.label}
+                </Text>
+              </View>
+            ))}
+            {customsNoDia.map((info) => (
+              <View key={info.label} style={{
+                flexDirection: 'row', alignItems: 'center', gap: 4,
+                backgroundColor: info.bg, borderWidth: 1,
+                borderColor: `${info.cor}40`,
+                borderRadius: 20, paddingVertical: 4, paddingHorizontal: 9,
+              }}>
+                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: info.cor }} />
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 9, color: info.cor, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                  {info.label}
                 </Text>
               </View>
             ))}

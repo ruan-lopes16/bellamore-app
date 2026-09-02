@@ -1,5 +1,5 @@
 -- ============================================================
--- MIGRATION 063 — retiradas e empréstimos da dona
+-- MIGRATION 064 — retiradas e empréstimos da dona
 --
 -- A dona (owner) precisa registrar dinheiro tirado do estúdio como:
 --   - emprestimo: devolve depois (avulso ou parcelado). Gera saldo devedor.

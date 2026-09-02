@@ -37,30 +37,45 @@ import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { maskPhone } from '@/lib/masks';
-import { CATEGORIA_COR, CATEGORIA_BG, CATEGORIA_LABEL, type CategoriaServico } from '@shared/categorias';
+import {
+  type CategoriaServico, type CategoriaCustom,
+  resolverCategoriaServico, bgDaCor,
+} from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 
 const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-type AgServico = { servico_id: string; servico: { id: string; nome: string; categoria: CategoriaServico | null } | null; valor: number; duracao_minutos: number; ordem: number };
+type AgServicoRef = { id: string; nome: string; categoria: CategoriaServico | null; categoria_id?: string | null };
+type AgServico = { servico_id: string; servico: AgServicoRef | null; valor: number; duracao_minutos: number; ordem: number };
 type Ag = {
   id: string; data_hora_inicio: string; data_hora_fim: string;
   status: string; valor: number; observacao?: string;
   pacote_cliente_id?: string | null;
   cliente: { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
-  servico: { id: string; nome: string; duracao_minutos: number; categoria: CategoriaServico | null } | null;
+  servico: (AgServicoRef & { duracao_minutos: number }) | null;
   agendamento_servicos: AgServico[];
 };
 
-/** Categorias distintas dos serviços de um agendamento (agendamento_servicos, com fallback pro serviço legado único) */
-function categoriasDoAg(ag: Ag): CategoriaServico[] {
-  const lista = (ag.agendamento_servicos ?? []).length > 0
-    ? ag.agendamento_servicos.map(s => s.servico?.categoria)
-    : [ag.servico?.categoria];
-  return Array.from(new Set(lista.filter((c): c is CategoriaServico => !!c)));
+/** Cor/fundo/label de uma chave de categoria resolvida (built-in ou id de personalizada). */
+function infoCategoria(chave: string, customs: CategoriaCustom[]): { cor: string; bg: string; label: string } {
+  const c = customs.find(x => x.id === chave);
+  if (c) return { cor: c.cor, bg: bgDaCor(c.cor), label: c.nome };
+  const r = resolverCategoriaServico(chave, null, []);
+  return { cor: r.cor, bg: r.bg, label: r.label };
+}
+
+/** Chaves de categoria distintas dos serviços de um agendamento (agendamento_servicos, com fallback pro serviço legado único). Serviços sem categoria não entram. */
+function categoriasDoAg(ag: Ag, customs: CategoriaCustom[]): string[] {
+  const servs = (ag.agendamento_servicos ?? []).length > 0
+    ? ag.agendamento_servicos.map(s => s.servico)
+    : [ag.servico];
+  const chaves = servs
+    .filter((s): s is AgServicoRef => !!s && (s.categoria != null || s.categoria_id != null))
+    .map(s => resolverCategoriaServico(s.categoria, s.categoria_id, customs).chave);
+  return Array.from(new Set(chaves));
 }
 type PacoteClienteOpt = { id: string; nome: string; restantes: number | null; servicos: { servico_id: string }[] };
 type PacoteCatalogoOpt = { id: string; nome: string; preco: number; validade_dias: number | null; servicos: { servico_id: string }[] };
@@ -1082,9 +1097,10 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, loading, empresaId, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio,
+  ags, bloqueios, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; loading: boolean; empresaId: string;
+  categoriasCustom: CategoriaCustom[];
   onStatus: (id: string, s: string) => void;
   dataSel: Date;
   onEditar?: (ag: Ag) => void;
@@ -1136,10 +1152,10 @@ function TimelineView({
 
   // Categorias de serviço presentes no dia (para a legenda de cores)
   const categoriasPresentes = useMemo(() => {
-    const set = new Set<CategoriaServico>();
-    for (const ag of ags) categoriasDoAg(ag).forEach(c => set.add(c));
+    const set = new Set<string>();
+    for (const ag of ags) categoriasDoAg(ag, categoriasCustom).forEach(c => set.add(c));
     return Array.from(set);
-  }, [ags]);
+  }, [ags, categoriasCustom]);
 
   // Linha de "agora"
   const agora       = new Date();
@@ -1168,12 +1184,15 @@ function TimelineView({
       {/* Legenda de cores por tipo de serviço */}
       {categoriasPresentes.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
-          {categoriasPresentes.map(c => (
-            <div key={c} className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: CATEGORIA_COR[c] }}/>
-              <span className="text-[10.5px] font-semibold text-text-3">{CATEGORIA_LABEL[c]}</span>
-            </div>
-          ))}
+          {categoriasPresentes.map(c => {
+            const info = infoCategoria(c, categoriasCustom);
+            return (
+              <div key={c} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: info.cor }}/>
+                <span className="text-[10.5px] font-semibold text-text-3">{info.label}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1305,9 +1324,10 @@ function TimelineView({
                     const pct      = 100 / totalLanes;
                     const top      = tlTop(ag);
                     const h        = tlHeight(ag);
-                    const cats     = categoriasDoAg(ag);
-                    const corCat   = CATEGORIA_COR[cats[0] ?? 'outros'];
-                    const bgCat    = CATEGORIA_BG[cats[0] ?? 'outros'];
+                    const cats     = categoriasDoAg(ag, categoriasCustom);
+                    const infoCat  = infoCategoria(cats[0] ?? 'outros', categoriasCustom);
+                    const corCat   = infoCat.cor;
+                    const bgCat    = infoCat.bg;
                     const inativo  = ag.status === 'faltou' || ag.status === 'cancelado';
                     const selecionado = agSel?.id === ag.id;
 
@@ -1345,7 +1365,7 @@ function TimelineView({
                             {cats.length > 1 && (
                               <div className="flex gap-0.5 flex-shrink-0">
                                 {cats.slice(0, 3).map(c => (
-                                  <span key={c} className="w-1.5 h-1.5 rounded-full" style={{ background: CATEGORIA_COR[c] }}/>
+                                  <span key={c} className="w-1.5 h-1.5 rounded-full" style={{ background: infoCategoria(c, categoriasCustom).cor }}/>
                                 ))}
                               </div>
                             )}
@@ -1563,6 +1583,7 @@ export default function AgendaPage() {
   const [agEditar,   setAgEditar]  = useState<Ag | null>(null);
   const [toastErro,    setToastErro]   = useState('');
   const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string; profissionalId: string | null } | null>(null);
+  const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
 
   function showErro(msg: string) {
     setToastErro(msg);
@@ -1576,6 +1597,11 @@ export default function AgendaPage() {
       const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
+      if (membro?.empresa_id) {
+        const { data: cats } = await supabase.from('categorias_servico').select('*')
+          .eq('empresa_id', membro.empresa_id).order('nome');
+        setCategoriasCustom((cats ?? []) as CategoriaCustom[]);
+      }
     })();
   }, []);
 
@@ -1591,8 +1617,8 @@ export default function AgendaPage() {
         .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,
           cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
           profissional:users!agendamentos_profissional_id_fkey(id,nome),
-          servico:servicos(id,nome,duracao_minutos,categoria),
-          agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria))`)
+          servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
+          agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria,categoria_id))`)
         .eq('empresa_id', empId)
         .gte('data_hora_inicio', iniDia)
         .lte('data_hora_inicio', fimDia)
@@ -1787,6 +1813,7 @@ export default function AgendaPage() {
           bloqueios={bloqueios}
           loading={loading}
           empresaId={empresaId ?? ''}
+          categoriasCustom={categoriasCustom}
           onStatus={mudarStatus}
           dataSel={dataSel}
           onEditar={ag => setAgEditar(ag)}

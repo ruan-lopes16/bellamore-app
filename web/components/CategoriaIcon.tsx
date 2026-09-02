@@ -1,4 +1,5 @@
 import React from 'react';
+import * as LucideIcons from 'lucide-react';
 import {
   type CategoriaServico,
   type SvgElement,
@@ -66,5 +67,14 @@ export function CategoriaIcon({
   categoria, size = 20, color, strokeWidth = 1.8, className, style,
 }: IconProps & { categoria: CategoriaServico }) {
   const Cmp = CATEGORIA_ICONS[categoria] ?? IconOutros;
+  return <Cmp size={size} color={color} strokeWidth={strokeWidth} className={className} style={style} />;
+}
+
+/** Ícone de categoria personalizada, por nome lucide (ver CATEGORIA_ICONES no shared). */
+export function CategoriaIconCustom({
+  name, size = 20, color = 'currentColor', strokeWidth = 1.8, className, style,
+}: IconProps & { name: string }) {
+  const Cmp =
+    (LucideIcons as unknown as Record<string, React.ElementType>)[name] ?? LucideIcons.Tag;
   return <Cmp size={size} color={color} strokeWidth={strokeWidth} className={className} style={style} />;
 }

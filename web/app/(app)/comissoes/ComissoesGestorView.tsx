@@ -9,8 +9,8 @@ import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { ExportButton } from '@/components/ExportButton';
-import { CategoriaIcon, CATEGORIA_COR, CATEGORIA_BG } from '@/components/CategoriaIcon';
-import type { CategoriaServico } from '@/components/CategoriaIcon';
+import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
+import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 import {
   addDays, subDays, addWeeks, subWeeks, addMonths, subMonths, addYears, subYears,
   startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
@@ -109,7 +109,7 @@ type ComissaoRow = {
   created_at: string;
   agendamento: {
     data_hora_inicio: string | null;
-    servico: { nome: string; categoria: string | null } | null;
+    servico: { nome: string; categoria: string | null; categoria_id?: string | null } | null;
   } | null;
 };
 
@@ -156,6 +156,7 @@ export default function ComissoesGestorView() {
     Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
   );
   const [comissoes, setComissoes] = useState<ComissaoRow[]>([]);
+  const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
   const [membros,   setMembros]   = useState<{ user_id: string; percentual_comissao: number; users: { nome: string } | null }[]>([]);
   const [filtro,    setFiltro]    = useState<Filtro>('todas');
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
@@ -181,10 +182,10 @@ export default function ComissoesGestorView() {
   const fetchData = useCallback(async () => {
     if (!empresaId) return;
     setLoading(true);
-    const [rCom, rMem] = await Promise.all([
+    const [rCom, rMem, rCat] = await Promise.all([
       supabase.from('comissoes')
         .select(`id, profissional_id, valor_servico, percentual, valor_comissao, status, created_at,
-          agendamento:agendamentos(data_hora_inicio, servico:servicos(nome, categoria))`)
+          agendamento:agendamentos(data_hora_inicio, servico:servicos(nome, categoria, categoria_id))`)
         .eq('empresa_id', empresaId)
         .gte('created_at', ini.toISOString())
         .lte('created_at', fim.toISOString())
@@ -192,9 +193,12 @@ export default function ComissoesGestorView() {
       supabase.from('empresa_membros')
         .select('user_id, percentual_comissao, users:users!empresa_membros_user_id_fkey(nome)')
         .eq('empresa_id', empresaId).eq('ativo', true),
+      supabase.from('categorias_servico').select('*')
+        .eq('empresa_id', empresaId).order('nome'),
     ]);
     setComissoes((rCom.data ?? []) as unknown as ComissaoRow[]);
     setMembros((rMem.data ?? []) as any[]);
+    setCategoriasCustom((rCat.data ?? []) as CategoriaCustom[]);
     setLoading(false);
   }, [empresaId, ini, fim]);
 
@@ -522,15 +526,17 @@ export default function ComissoesGestorView() {
                         )}
 
                         {group.items.map((c, i) => {
-                          const cat = (c.agendamento?.servico?.categoria ?? 'outros') as CategoriaServico;
-                          const cor = CATEGORIA_COR[cat] ?? '#6B7280';
-                          const bg  = CATEGORIA_BG[cat]  ?? '#F3F4F6';
+                          const r   = resolverCategoriaServico(c.agendamento?.servico?.categoria, c.agendamento?.servico?.categoria_id, categoriasCustom);
+                          const cor = r.cor;
+                          const bg  = r.bg;
                           return (
                             <div key={c.id}
                               className={`flex items-center gap-3 px-4 py-3 ${i < group.items.length - 1 ? 'border-b border-border' : ''}`}>
                               <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                                 style={{ background: bg }}>
-                                <CategoriaIcon categoria={cat} size={15} color={cor}/>
+                                {r.iconeCustom
+                                  ? <CategoriaIconCustom name={r.iconeCustom} size={15} color={cor}/>
+                                  : <CategoriaIcon categoria={r.iconeBuiltin ?? 'outros'} size={15} color={cor}/>}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold truncate" style={{ color: 'var(--color-ink)' }}>

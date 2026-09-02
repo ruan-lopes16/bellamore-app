@@ -249,19 +249,20 @@ function DespesaRow({
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
             {item.descricao}
           </Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text2, marginTop: 1 }}>
             {pago
               ? `Pago ${item.data_pagamento ? format(new Date(item.data_pagamento + 'T12:00:00'), 'dd/MM') : ''}`
               : `Vence ${item.data_vencimento ? format(new Date(item.data_vencimento + 'T12:00:00'), 'dd/MM') : 'sem data'}`
             }
-            {item.recorrente ? ' · Recorrente' : ''}
+            {item.recorrente ? <>{' · '}<Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', color: C.text }}>Recorrente</Text></> : ''}
             {(() => {
-              if (item.total_parcelas) return ` · (${item.parcela_atual ?? 1}/${item.total_parcelas})`;
-              if (item.recorrente && item.periodicidade === 'mensal' && item.recorrencia_ate && item.data_vencimento) {
+              let parcela = '';
+              if (item.total_parcelas) parcela = `(${item.parcela_atual ?? 1}/${item.total_parcelas})`;
+              else if (item.recorrente && item.periodicidade === 'mensal' && item.recorrencia_ate && item.data_vencimento) {
                 const derivada = calcularParcelaDerivada(item.descricao, item.categoria, item.data_vencimento, item.recorrencia_ate, historico);
-                return derivada ? ` · (${derivada.atual}/${derivada.total})` : '';
+                if (derivada) parcela = `(${derivada.atual}/${derivada.total})`;
               }
-              return '';
+              return parcela ? <>{' · '}<Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', color: C.text }}>{parcela}</Text></> : '';
             })()}
             {labelDias ? ` · ${labelDias}` : ''}
           </Text>

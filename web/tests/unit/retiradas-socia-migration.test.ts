@@ -10,7 +10,7 @@ function readAllMigrations(): string {
     .join('\n---\n');
 }
 
-describe('Migration 063: retiradas_socia', () => {
+describe('Migration 064: retiradas_socia', () => {
   const migrations = readAllMigrations();
 
   it('cria o enum retirada_socia_tipo com emprestimo e retirada', () => {
