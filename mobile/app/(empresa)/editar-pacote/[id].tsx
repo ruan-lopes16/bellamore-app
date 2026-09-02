@@ -74,6 +74,9 @@ export default function EditarPacote() {
   const [selecionados, setSelecionados] = useState<Record<string, number>>({});
   const [carregando,   setCarregando]   = useState(true);
   const [salvando,     setSalvando]     = useState(false);
+  /** Pacote com venda registrada: serviços e quantidades travados (as sessões
+   *  vendidas são do pacote como está cadastrado). Nome/preço/validade seguem livres. */
+  const [jaVendido,    setJaVendido]    = useState(false);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -119,6 +122,12 @@ export default function EditarPacote() {
         }
         setCarregando(false);
       });
+    // Já foi vendido a algum cliente? Trava a composição.
+    supabase
+      .from('pacote_clientes')
+      .select('id', { count: 'exact', head: true })
+      .eq('pacote_id', id)
+      .then(({ count }) => setJaVendido((count ?? 0) > 0));
   }, [id]);
 
   if (!fontsLoaded || carregando) return null;
@@ -127,6 +136,7 @@ export default function EditarPacote() {
   const podeSalvar = nome.trim().length > 1 && parseFloat(preco.replace(',', '.')) > 0 && qtdSelecionados > 0;
 
   function toggleServico(sid: string) {
+    if (jaVendido) return;
     setSelecionados((prev) => {
       if (prev[sid] !== undefined) {
         const { [sid]: _, ...rest } = prev;
@@ -137,6 +147,7 @@ export default function EditarPacote() {
   }
 
   function changeQtd(sid: string, delta: number) {
+    if (jaVendido) return;
     setSelecionados((prev) => ({
       ...prev,
       [sid]: Math.max(1, (prev[sid] ?? 1) + delta),
@@ -162,19 +173,21 @@ export default function EditarPacote() {
       return;
     }
 
-    await supabase.from('pacote_servicos').delete().eq('pacote_id', id);
+    // Pacote já vendido: só nome/preço/validade mudam — composição fica intacta.
+    if (!jaVendido) {
+      await supabase.from('pacote_servicos').delete().eq('pacote_id', id);
 
-    const linhas = Object.entries(selecionados).map(([servico_id, quantidade]) => ({
-      pacote_id: id,
-      servico_id,
-      quantidade,
-    }));
+      const linhas = Object.entries(selecionados).map(([servico_id, quantidade]) => ({
+        pacote_id: id,
+        servico_id,
+        quantidade,
+      }));
 
-    const { error: errServicos } = await supabase.from('pacote_servicos').insert(linhas);
+      const { error: errServicos } = await supabase.from('pacote_servicos').insert(linhas);
+      if (errServicos) { setSalvando(false); Alert.alert('Erro', errServicos.message); return; }
+    }
+
     setSalvando(false);
-
-    if (errServicos) { Alert.alert('Erro', errServicos.message); return; }
-
     qc.invalidateQueries({ queryKey: ['pacotes'] });
     router.back();
   }
@@ -289,13 +302,26 @@ export default function EditarPacote() {
               )}
             </View>
 
-            {servicos.map((s) => {
+            {jaVendido && (
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 8,
+                backgroundColor: '#FEF3E2', borderWidth: 1, borderColor: 'rgba(180,83,9,0.2)',
+                borderRadius: 12, padding: 12, marginBottom: 10,
+              }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: '#B45309', flex: 1, lineHeight: 15 }}>
+                  Pacote já vendido — os serviços e as quantidades não podem ser alterados. Nome, preço e validade seguem editáveis (valem para vendas futuras).
+                </Text>
+              </View>
+            )}
+
+            {(jaVendido ? servicos.filter((s) => selecionados[s.id] !== undefined) : servicos).map((s) => {
               const isSel = selecionados[s.id] !== undefined;
               const cat   = resolverCategoria(s.categoria ?? 'outros') as CategoriaServico;
               return (
                 <TouchableOpacity
                   key={s.id}
                   onPress={() => toggleServico(s.id)}
+                  disabled={jaVendido}
                   activeOpacity={0.7}
                   style={{
                     flexDirection: 'row', alignItems: 'center', gap: 10,
@@ -319,12 +345,14 @@ export default function EditarPacote() {
 
                   {isSel && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <TouchableOpacity
-                        onPress={() => changeQtd(s.id, -1)}
-                        style={{ width: 22, height: 22, borderRadius: 6, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary, lineHeight: 16 }}>−</Text>
-                      </TouchableOpacity>
+                      {!jaVendido && (
+                        <TouchableOpacity
+                          onPress={() => changeQtd(s.id, -1)}
+                          style={{ width: 22, height: 22, borderRadius: 6, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary, lineHeight: 16 }}>−</Text>
+                        </TouchableOpacity>
+                      )}
                       <View style={{ alignItems: 'center' }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.primary }}>
                           {selecionados[s.id]}
@@ -333,23 +361,27 @@ export default function EditarPacote() {
                           sessões
                         </Text>
                       </View>
-                      <TouchableOpacity
-                        onPress={() => changeQtd(s.id, 1)}
-                        style={{ width: 22, height: 22, borderRadius: 6, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary, lineHeight: 16 }}>+</Text>
-                      </TouchableOpacity>
+                      {!jaVendido && (
+                        <TouchableOpacity
+                          onPress={() => changeQtd(s.id, 1)}
+                          style={{ width: 22, height: 22, borderRadius: 6, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary, lineHeight: 16 }}>+</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
 
-                  <View style={{
-                    width: 20, height: 20, borderRadius: 6,
-                    backgroundColor: isSel ? C.primary : C.surface,
-                    borderWidth: 1.5, borderColor: isSel ? C.primary : C.border,
-                    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {isSel && <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'PlusJakartaSans_700Bold' }}>✓</Text>}
-                  </View>
+                  {!jaVendido && (
+                    <View style={{
+                      width: 20, height: 20, borderRadius: 6,
+                      backgroundColor: isSel ? C.primary : C.surface,
+                      borderWidth: 1.5, borderColor: isSel ? C.primary : C.border,
+                      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>
+                      {isSel && <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'PlusJakartaSans_700Bold' }}>✓</Text>}
+                    </View>
+                  )}
                 </TouchableOpacity>
               );
             })}
