@@ -7,6 +7,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 import { ExportButton } from '@/components/ExportButton';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
@@ -303,6 +304,7 @@ export default function ComissoesGestorView() {
             Comissões
           </h1>
         </div>
+        <PrivacyToggle />
         <ExportButton<ExRow>
           variant="mobileHeader"
           className="bm-mobile-header-export"
@@ -402,7 +404,7 @@ export default function ComissoesGestorView() {
             style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
             <p className="text-[10px] font-bold uppercase tracking-widest mb-2 truncate" style={{ color: 'var(--color-ink4)' }}>{s.label}</p>
             <p className="text-sm sm:text-lg font-bold leading-tight break-words" style={{ color: s.cor, letterSpacing: '-0.02em' }}>
-              {loading ? '—' : fmtBRL(s.val)}
+              {loading ? '—' : <Secret>{fmtBRL(s.val)}</Secret>}
             </p>
           </div>
         ))}
@@ -485,7 +487,7 @@ export default function ComissoesGestorView() {
                     <div className="text-right flex-shrink-0">
                       <p className="text-base font-bold"
                         style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>
-                        {fmtBRL(prof.total)}
+                        <Secret>{fmtBRL(prof.total)}</Secret>
                       </p>
                       <p className="text-[10px]"
                         style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>
@@ -541,7 +543,7 @@ export default function ComissoesGestorView() {
                                   {c.agendamento?.servico?.nome ?? '—'}
                                 </p>
                                 <p className="text-[10px]" style={{ color: 'var(--color-ink3)' }}>
-                                  {fmtBRL(c.valor_servico)} × {c.percentual}%
+                                  <Secret>{fmtBRL(c.valor_servico)} × {c.percentual}%</Secret>
                                   {c.agendamento?.data_hora_inicio && (
                                     <span className="ml-1.5 opacity-60">
                                       {format(parseISO(c.agendamento.data_hora_inicio), 'HH:mm')}
@@ -551,7 +553,7 @@ export default function ComissoesGestorView() {
                               </div>
                               <div className="text-right flex-shrink-0">
                                 <p className="text-xs font-bold" style={{ color: 'var(--color-ink)' }}>
-                                  {fmtBRL(c.valor_comissao)}
+                                  <Secret>{fmtBRL(c.valor_comissao)}</Secret>
                                 </p>
                                 <span className={`inline-block text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md mt-0.5 ${
                                   c.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
@@ -572,7 +574,7 @@ export default function ComissoesGestorView() {
                           {temPendente ? 'Pendente para repassar' : 'Tudo repassado'}
                         </p>
                         <p className="text-sm font-bold" style={{ color: temPendente ? 'var(--color-amber)' : 'var(--color-green)' }}>
-                          {fmtBRL(temPendente ? prof.pendente : prof.pago)}
+                          <Secret>{fmtBRL(temPendente ? prof.pendente : prof.pago)}</Secret>
                         </p>
                       </div>
                       {!temPendente && (
@@ -615,7 +617,7 @@ export default function ComissoesGestorView() {
               <div className="rounded-xl p-4 text-center mb-6" style={{ background: 'var(--color-amber-soft)' }}>
                 <p className="text-xs font-semibold mb-1" style={{ color: 'var(--color-amber)' }}>Total a repassar</p>
                 <p className="text-3xl font-bold" style={{ color: 'var(--color-amber)', letterSpacing: '-0.02em' }}>
-                  {fmtBRL(prof.pendente)}
+                  <Secret>{fmtBRL(prof.pendente)}</Secret>
                 </p>
               </div>
               <button onClick={() => marcarPago(prof.profissional_id)}

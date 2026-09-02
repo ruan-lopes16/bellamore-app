@@ -43,6 +43,14 @@ import {
   startOfWeek, endOfWeek, isSameDay, addWeeks, addYears, startOfDay, endOfDay, differenceInCalendarDays,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import {
+  type FinanceiroFechamentoRow,
+  getFechamentoForMonth,
+  somarPeriodoComFechamentos,
+} from '@/lib/financeiro/fechamentos-mensais';
+import { retiradasNoPeriodo, somaDevolucoesPorRetirada } from '@shared/retiradas-socia';
+import { Secret, PrivacyToggle } from '@/components/privacy';
+import type { RetiradaSocia, RetiradaSociaDevolucao } from '@/types';
 
 const supabase = createClient();
 
@@ -56,6 +64,7 @@ type Ag = {
   valor: number;
   status: string;
   data_hora_inicio: string;
+  pacote_cliente_id: string | null;
   servico_id:       string | null;
   profissional_id:  string | null;
   cliente_id:       string | null;
@@ -234,9 +243,9 @@ function KpiCard({
         <Icon size={18} style={{ color: cor }} />
       </div>
       <div className="flex-1 min-w-0 w-full">
-        <p className="text-base sm:text-lg font-bold text-text leading-tight truncate">{value}</p>
+        <p className="text-base sm:text-lg font-bold text-text leading-tight truncate"><Secret>{value}</Secret></p>
         <p className="text-[11px] sm:text-xs text-text-3 leading-tight">{label}</p>
-        {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}>{sub}</p>}
+        {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}><Secret>{sub}</Secret></p>}
       </div>
     </div>
   );
@@ -264,8 +273,8 @@ function RankRow({
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-sm font-semibold text-text truncate pr-2">{nome}</span>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-xs text-text-3">{qtd}{qtdSuffix}</span>
-            <span className="text-sm font-bold text-text">{valor}</span>
+            <span className="text-xs text-text-3"><Secret>{qtd}{qtdSuffix}</Secret></span>
+            <span className="text-sm font-bold text-text"><Secret>{valor}</Secret></span>
           </div>
         </div>
         {/* Barra de progresso */}
@@ -274,9 +283,9 @@ function RankRow({
             <div className="h-full rounded-full transition-all duration-500"
               style={{ width: `${Math.min(pct, 100)}%`, background: cor }} />
           </div>
-          <span className="text-xs text-text-3 w-10 text-right flex-shrink-0">{pct.toFixed(1)}%</span>
+          <span className="text-xs text-text-3 w-10 text-right flex-shrink-0"><Secret>{pct.toFixed(1)}%</Secret></span>
         </div>
-        {extra && <p className="text-xs text-text-3 mt-0.5">{extra}</p>}
+        {extra && <p className="text-xs text-text-3 mt-0.5"><Secret>{extra}</Secret></p>}
       </div>
     </div>
   );
@@ -289,7 +298,7 @@ function ChartBar({ label, value, maxValue }: { label: string; value: number; ma
     <div className="flex-1 flex flex-col items-center gap-1 min-w-0">
       {value > 0 && (
         <span className="text-[9px] text-text-3 truncate w-full text-center">
-          {fmtBRL(value)}
+          <Secret>{fmtBRL(value)}</Secret>
         </span>
       )}
       <div className="flex-1 flex flex-col justify-end w-full">
@@ -350,7 +359,14 @@ export default function RelatoriosPage() {
   const [taxas,      setTaxas]      = useState<TaxaPaga[]>([]);
   const [reserva,    setReserva]    = useState<TaxaPaga[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
-  const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null }[]>([]);
+  const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null; created_at: string }[]>([]);
+  // Fechamentos mensais importados (financeiro_ajustes_mensais) — meses históricos
+  // lançados só com o número de faturamento, sem agendamento/venda por trás.
+  const [fechamentos, setFechamentos] = useState<FinanceiroFechamentoRow[]>([]);
+  // Retiradas/empréstimos da dona — só o owner enxerga (RLS + guarda de UI).
+  const [isOwner, setIsOwner] = useState(false);
+  const [retiradasRows,     setRetiradasRows]     = useState<RetiradaSocia[]>([]);
+  const [retiradasDevsRows, setRetiradasDevsRows] = useState<RetiradaSociaDevolucao[]>([]);
 
   // Abas de baixo uso (Estoque/Avaliações) carregam sob demanda — evita buscar
   // dados que a maioria das visitas ao relatório nunca chega a abrir.
@@ -366,7 +382,11 @@ export default function RelatoriosPage() {
       const { data } = await supabase
         .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (data) setEmpresaId(data.empresa_id);
+      if (data) {
+        setEmpresaId(data.empresa_id);
+        const { data: emp } = await supabase.from('empresas').select('owner_id').eq('id', data.empresa_id).single();
+        setIsOwner(!!emp && emp.owner_id === user.id);
+      }
     })();
   }, []);
 
@@ -416,12 +436,14 @@ export default function RelatoriosPage() {
     const isoFim  = fim.toISOString();
     const dateIni = format(inicio, 'yyyy-MM-dd');
     const dateFim = format(fim,    'yyyy-MM-dd');
+    const mesIni  = format(startOfMonth(inicio), 'yyyy-MM-dd');
+    const mesFim  = format(startOfMonth(fim),    'yyyy-MM-dd');
 
-    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas, rReserva] = await Promise.all([
+    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas, rReserva, rFechamentos] = await Promise.all([
       // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
       buscarTodasPaginas<Ag>((from, to) =>
         supabase.from('agendamentos')
-          .select(`id, valor, status, data_hora_inicio, servico_id, profissional_id, cliente_id,
+          .select(`id, valor, status, data_hora_inicio, pacote_cliente_id, servico_id, profissional_id, cliente_id,
             servico:servicos(nome),
             profissional:users!agendamentos_profissional_id_fkey(nome),
             cliente:clientes!agendamentos_cliente_id_fkey(nome)`)
@@ -465,9 +487,9 @@ export default function RelatoriosPage() {
         .gte('created_at', isoIni)
         .lte('created_at', isoFim),
 
-      // 5. Pagamentos do período (para cálculo de taxas de cartão)
+      // 5. Pagamentos do período (para cálculo de taxas de cartão, agrupadas por mês)
       supabase.from('pagamentos')
-        .select('valor, valor_liquido')
+        .select('valor, valor_liquido, created_at')
         .eq('empresa_id', empId)
         .eq('status', 'pago')
         .gte('created_at', isoIni)
@@ -488,15 +510,25 @@ export default function RelatoriosPage() {
         .not('paga_em', 'is', null)
         .gte('paga_em', isoIni)
         .lte('paga_em', isoFim),
+
+      // 8. Fechamentos mensais importados que caem no período (meses históricos
+      // sem agendamento/venda por trás — só o número de faturamento). Sem isso,
+      // qualquer mês coberto só por importação aparece com faturamento zerado
+      // aqui, mesmo estando lançado corretamente no Financeiro.
+      supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
+        .eq('empresa_id', empId)
+        .gte('mes', mesIni).lte('mes', mesFim),
     ]);
 
     setAgs(rAgs as unknown as Ag[]);
     setDespesas((rDesp.data  ?? []) as Despesa[]);
     setComissoes(rCom as unknown as Comissao[]);
     setVendas((rVendas.data ?? []) as Venda[]);
-    setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null }[]);
+    setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null; created_at: string }[]);
     setTaxas((rTaxas.data   ?? []) as TaxaPaga[]);
     setReserva((rReserva.data ?? []) as TaxaPaga[]);
+    setFechamentos((rFechamentos.data ?? []) as FinanceiroFechamentoRow[]);
     setLoading(false);
   }, [supabase]);
 
@@ -510,6 +542,26 @@ export default function RelatoriosPage() {
   useEffect(() => {
     if (empresaId) carregar(empresaId, periodo, periodoOpts);
   }, [empresaId, periodo, periodoOpts, carregar]);
+
+  // Retiradas/empréstimos da dona no período (owner-only).
+  useEffect(() => {
+    if (!empresaId || !isOwner) { setRetiradasRows([]); setRetiradasDevsRows([]); return; }
+    (async () => {
+      const { inicio, fim } = periodoParaDatas(periodo, periodoOpts);
+      const di = format(inicio, 'yyyy-MM-dd');
+      const df = format(fim,    'yyyy-MM-dd');
+      const [rRet, rDev] = await Promise.all([
+        supabase.from('retiradas_socia')
+          .select('id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em')
+          .eq('empresa_id', empresaId)
+          .or(`and(data.gte.${di},data.lte.${df}),and(convertido_em.gte.${di},convertido_em.lte.${df})`),
+        supabase.from('retiradas_socia_devolucoes')
+          .select('id,retirada_id,valor,data,metodo').eq('empresa_id', empresaId),
+      ]);
+      setRetiradasRows((rRet.data ?? []) as RetiradaSocia[]);
+      setRetiradasDevsRows((rDev.data ?? []) as RetiradaSociaDevolucao[]);
+    })();
+  }, [empresaId, isOwner, periodo, periodoOpts]);
 
   // ── Aba Estoque: carrega sob demanda (sai da query principal)
   useEffect(() => {
@@ -561,25 +613,72 @@ export default function RelatoriosPage() {
 
   // ── KPIs principais
   const concluidos = useMemo(() => ags.filter(a => a.status === 'concluido'), [ags]);
+  // Sessão de pacote não entra no faturamento (já paga na venda do pacote);
+  // continua contando em atendimentos/rankings/comparecimento.
+  const concluidosFaturaveis = useMemo(() => concluidos.filter(a => !a.pacote_cliente_id), [concluidos]);
   const faltaram   = useMemo(() => ags.filter(a => a.status === 'faltou'),    [ags]);
   const cancelados = useMemo(() => ags.filter(a => a.status === 'cancelado'), [ags]);
 
-  const brutoServicos   = useMemo(() => concluidos.reduce((s, a) => s + a.valor, 0), [concluidos]);
+  const brutoServicos   = useMemo(() => concluidosFaturaveis.reduce((s, a) => s + a.valor, 0), [concluidosFaturaveis]);
   const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
   const brutoTaxas      = useMemo(() => taxas.reduce((s, t) => s + Number(t.valor), 0), [taxas]);
   const brutoReserva    = useMemo(() => reserva.reduce((s, t) => s + Number(t.valor), 0), [reserva]);
-  const bruto           = brutoServicos + brutoVendas + brutoTaxas + brutoReserva;
-  const comTot          = useMemo(
-    () => comissoes.reduce((s, c) => s + c.valor_comissao, 0),
-    [comissoes],
-  );
+
+  // Faturamento bruto / comissões / taxa de cartão resolvidos MÊS A MÊS contra os
+  // fechamentos históricos importados. Um mês coberto só por importação não tem
+  // agendamento/venda por trás — sem esse merge ele aparece com faturamento
+  // zerado aqui (mesmo aparecendo certo no Financeiro), e as despesas desse mês
+  // ainda contam, distorcendo o "Lucro real" ao escolher um período longo.
+  const { bruto, comTot, taxasCartao } = useMemo(() => {
+    const acumularPorMes = (
+      linhas: { data: string | null | undefined; valor: number }[],
+    ): Record<string, number> => {
+      const mapa: Record<string, number> = {};
+      for (const linha of linhas) {
+        if (!linha.data) continue;
+        const chave = linha.data.slice(0, 7);
+        mapa[chave] = (mapa[chave] ?? 0) + linha.valor;
+      }
+      return mapa;
+    };
+
+    const receitaPorMes = acumularPorMes([
+      ...concluidosFaturaveis.map(a => ({ data: a.data_hora_inicio, valor: a.valor })),
+      ...vendas.map(v => ({ data: v.created_at, valor: Number(v.valor_final) })),
+      ...taxas.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
+      ...reserva.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
+    ]);
+    const comissoesPorMes = acumularPorMes(
+      comissoes.map(c => ({ data: c.created_at, valor: c.valor_comissao })),
+    );
+    const taxasCartaoPorMes = acumularPorMes(
+      pags.map(p => ({
+        data: p.created_at,
+        valor: p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0,
+      })),
+    );
+
+    const mesesChave = eachMonthOfInterval({ start: inicio, end: fim })
+      .map(m => format(m, 'yyyy-MM'));
+
+    return somarPeriodoComFechamentos(
+      { receita: receitaPorMes, comissoes: comissoesPorMes, taxasCartao: taxasCartaoPorMes },
+      fechamentos,
+      mesesChave,
+    );
+  }, [concluidos, vendas, taxas, reserva, comissoes, pags, fechamentos, inicio, fim]);
+
   const despTot         = useMemo(() => despesas.reduce((s, d) => s + d.valor, 0), [despesas]);
-  const taxasCartao     = useMemo(() =>
-    pags.reduce((s, p) => s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0),
-  [pags]);
   const liquido         = bruto - comTot;
   const liquidoAposTaxas = bruto - taxasCartao;
   const lucro           = liquidoAposTaxas - comTot - despTot;
+  // Retiradas da dona no período — linha ADITIVA, não muda o "Lucro real" acima.
+  const retiradasPeriodo = useMemo(() => {
+    if (!isOwner) return 0;
+    const devMap = somaDevolucoesPorRetirada(retiradasDevsRows);
+    return retiradasNoPeriodo(retiradasRows, devMap, format(inicio, 'yyyy-MM-dd'), format(fim, 'yyyy-MM-dd'));
+  }, [isOwner, retiradasRows, retiradasDevsRows, inicio, fim]);
+  const resultadoAposRetiradas = lucro - retiradasPeriodo;
   // Ticket médio baseado apenas em serviços (mais representativo)
   const ticket  = concluidos.length > 0 ? brutoServicos / concluidos.length : 0;
   const taxaBase = concluidos.length + faltaram.length;
@@ -760,7 +859,7 @@ export default function RelatoriosPage() {
     if (duracaoDias <= 10) {
       const dias = eachDayOfInterval({ start: inicio, end: fim });
       return dias.map(dia => {
-        const valor = concluidos
+        const valor = concluidosFaturaveis
           .filter(ag => isSameDay(parseISO(ag.data_hora_inicio), dia))
           .reduce((s, ag) => s + ag.valor, 0);
         return { label: format(dia, 'dd/MM'), valor };
@@ -770,7 +869,7 @@ export default function RelatoriosPage() {
       const semanas = eachWeekOfInterval({ start: inicio, end: fim }, { weekStartsOn: 0 });
       return semanas.map(semIni => {
         const semFim = endOfWeek(semIni, { weekStartsOn: 0 });
-        const valor  = concluidos
+        const valor  = concluidosFaturaveis
           .filter(ag => { const d = parseISO(ag.data_hora_inicio); return d >= semIni && d <= semFim; })
           .reduce((s, ag) => s + ag.valor, 0);
         return { label: format(semIni, 'dd/MM'), valor };
@@ -779,12 +878,15 @@ export default function RelatoriosPage() {
     const meses = eachMonthOfInterval({ start: inicio, end: fim });
     return meses.map(mesIni => {
       const mesFim = endOfMonth(mesIni);
-      const valor  = concluidos
+      // Mês coberto por importação: usa o faturamento importado; senão, soma os
+      // atendimentos concluídos do mês (comportamento original do gráfico).
+      const fechamento = getFechamentoForMonth(fechamentos, format(mesIni, 'yyyy-MM'));
+      const valor  = fechamento?.receitaBruta ?? concluidosFaturaveis
         .filter(ag => { const d = parseISO(ag.data_hora_inicio); return d >= mesIni && d <= mesFim; })
         .reduce((s, ag) => s + ag.valor, 0);
       return { label: format(mesIni, 'MMM', { locale: ptBR }), valor };
     });
-  }, [concluidos, inicio, fim]);
+  }, [concluidos, concluidosFaturaveis, inicio, fim, fechamentos]);
 
   const maxGrafico = useMemo(() => Math.max(...serieGrafico.map(s => s.valor), 1), [serieGrafico]);
 
@@ -812,7 +914,7 @@ export default function RelatoriosPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Análise</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Relatórios</h1>
+          <div className="flex items-center gap-3"><h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Relatórios</h1><PrivacyToggle /></div>
           {!loading && (
             periodo === 'custom' ? (
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
@@ -958,6 +1060,11 @@ export default function RelatoriosPage() {
         )}
         <KpiCard icon={TrendingUp} label="Líquido após taxas"   value={fmtBRL(liquidoAposTaxas)}    cor="#16A34A" loading={loading} />
         <KpiCard icon={Activity}   label="Lucro real"           value={fmtBRL(lucro)}               cor={lucro >= 0 ? '#0D7E5F' : '#DC2626'} loading={loading} />
+        {isOwner && retiradasPeriodo > 0 && (
+          <KpiCard icon={Activity} label="Resultado após retiradas" value={fmtBRL(resultadoAposRetiradas)}
+            sub={`(−) ${fmtBRL(retiradasPeriodo)} da dona`}
+            cor={resultadoAposRetiradas >= 0 ? '#0D7E5F' : '#DC2626'} loading={loading} />
+        )}
         <KpiCard icon={Scissors}   label="Atendimentos"         value={String(concluidos.length)}   sub="concluídos" cor="#D4608A" loading={loading} />
         <KpiCard icon={Target}     label="Ticket médio"         value={fmtBRL(ticket)}              cor="#B45309" loading={loading} />
         <KpiCard icon={Users}      label="Taxa comparecimento"  value={`${taxa.toFixed(1)}%`}       cor="#1D4ED8" loading={loading} />
@@ -1032,7 +1139,7 @@ export default function RelatoriosPage() {
                   {brutoVendas > 0 && (
                     <div className="flex items-center justify-between py-2.5 border-b border-border bg-bg/50 px-1 rounded">
                       <span className="text-sm font-semibold text-text">= Faturamento bruto</span>
-                      <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>{fmtBRL(bruto)}</span>
+                      <span className="text-sm font-bold" style={{ color: '#7C3AED' }}><Secret>{fmtBRL(bruto)}</Secret></span>
                     </div>
                   )}
                   {([
@@ -1042,16 +1149,30 @@ export default function RelatoriosPage() {
                     <div key={label} className="flex items-center justify-between py-2.5 border-b border-border">
                       <span className="text-sm text-text-2">{label}</span>
                       <span className="text-sm font-semibold" style={{ color: cor }}>
-                        {v > 0 ? '− ' : ''}{fmtBRL(v)}
+                        <Secret>{v > 0 ? '− ' : ''}{fmtBRL(v)}</Secret>
                       </span>
                     </div>
                   ))}
                   <div className="flex items-center justify-between pt-3 mt-1">
                     <span className="text-sm font-bold text-text">Lucro real</span>
                     <span className="text-base font-bold" style={{ color: lucro >= 0 ? '#0D7E5F' : '#DC2626' }}>
-                      {fmtBRL(lucro)}
+                      <Secret>{fmtBRL(lucro)}</Secret>
                     </span>
                   </div>
+                  {isOwner && retiradasPeriodo > 0 && (
+                    <>
+                      <div className="flex items-center justify-between py-2.5 border-t border-border mt-1">
+                        <span className="text-sm text-text-2">(−) Retiradas da dona</span>
+                        <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>− <Secret>{fmtBRL(retiradasPeriodo)}</Secret></span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-sm font-bold text-text">Resultado após retiradas</span>
+                        <span className="text-base font-bold" style={{ color: resultadoAposRetiradas >= 0 ? '#0D7E5F' : '#DC2626' }}>
+                          <Secret>{fmtBRL(resultadoAposRetiradas)}</Secret>
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1135,7 +1256,7 @@ export default function RelatoriosPage() {
               ))}
               <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                 <span className="text-xs text-text-3">Total</span>
-                <span className="text-sm font-bold text-text">{fmtBRL(bruto)}</span>
+                <span className="text-sm font-bold text-text"><Secret>{fmtBRL(bruto)}</Secret></span>
               </div>
             </>
           )}
@@ -1200,7 +1321,7 @@ export default function RelatoriosPage() {
               {comTot > 0 && (
                 <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                   <span className="text-xs text-text-3">Total comissões no período</span>
-                  <span className="text-sm font-bold text-pink-500">{fmtBRL(comTot)}</span>
+                  <span className="text-sm font-bold text-pink-500"><Secret>{fmtBRL(comTot)}</Secret></span>
                 </div>
               )}
             </>

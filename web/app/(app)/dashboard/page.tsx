@@ -11,6 +11,15 @@ import {
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import {
+  type FinanceiroFechamentoRow,
+  getFechamentoForMonth,
+  somarPeriodoComFechamentos,
+} from '@/lib/financeiro/fechamentos-mensais';
+import {
+  somaDevolucoesPorRetirada, retiradasNoPeriodo, saldoDevedorTotal,
+} from '@shared/retiradas-socia';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -76,7 +85,7 @@ function StatusChip({ status }: { status: string }) {
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ mes?: string }> }) {
-  const { supabase, empresaId, empresa } = await getAppContext();
+  const { supabase, empresaId, empresa, user } = await getAppContext();
 
   // Brazil is UTC-3 (no DST since 2019). Shift so getUTC* returns Brazil local values.
   const hoje     = new Date(Date.now() - 3 * 60 * 60 * 1000);
@@ -111,26 +120,31 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const metaMensal = Number(empresa.meta_mensal ?? 0);
 
+  // Retiradas/empréstimos da dona só aparecem para a própria dona (owner).
+  const { data: empOwner } = await supabase.from('empresas').select('owner_id').eq('id', empresaId).single();
+  const isOwner = !!empOwner && empOwner.owner_id === user.id;
+
   const [
     [
       agendamentosHoje, agsMes, agsMesAnt, membros,
       despMes, despMesAnt, vendasMes, vendasMesAnt, vendasHoje,
       totalClientes, estoqueBaixo, despPendentes, comissoesPendentes, comissoesMes,
       todasAgsCompletas, clientesComAniversario, taxasPagasMes, taxasReservaPagasMes,
-      taxasPagasMesAnt, taxasReservaPagasMesAnt,
+      taxasPagasMesAnt, taxasReservaPagasMesAnt, fechamentosRows,
+      retiradasRows, retiradasDevsRows,
     ],
     agsStatusList,
   ] = await Promise.all([
     Promise.all([
       supabase.from('agendamentos')
-        .select('id,status,valor,data_hora_inicio,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
+        .select('id,status,valor,data_hora_inicio,pacote_cliente_id,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
         .eq('empresa_id', empresaId).gte('data_hora_inicio', inicioHoje).lte('data_hora_inicio', fimHoje)
         .order('data_hora_inicio'),
       supabase.from('agendamentos').select('profissional_id,valor,data_hora_inicio')
-        .eq('empresa_id', empresaId).eq('status', 'concluido')
+        .eq('empresa_id', empresaId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', inicioMes).lte('data_hora_inicio', fimMes),
       supabase.from('agendamentos').select('valor')
-        .eq('empresa_id', empresaId).eq('status', 'concluido')
+        .eq('empresa_id', empresaId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', inicioMesAnt).lte('data_hora_inicio', fimMesAnt),
       supabase.from('empresa_membros').select('user_id,percentual_comissao')
         .eq('empresa_id', empresaId).eq('ativo', true),
@@ -178,6 +192,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       supabase.from('taxas_reserva').select('valor')
         .eq('empresa_id', empresaId).not('paga_em', 'is', null)
         .gte('paga_em', inicioMesAnt).lte('paga_em', fimMesAnt),
+      // Fechamentos importados do mês exibido e do anterior (comparativo).
+      supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
+        .eq('empresa_id', empresaId)
+        .gte('mes', format(startOfMonth(subMonths(mesRef, 1)), 'yyyy-MM-dd'))
+        .lte('mes', format(startOfMonth(mesRef), 'yyyy-MM-dd')),
+      // Retiradas/empréstimos da dona — só o owner (RLS + guarda de UI).
+      isOwner
+        ? supabase.from('retiradas_socia').select('id,tipo,valor,data,convertido_em').eq('empresa_id', empresaId)
+        : Promise.resolve({ data: [] as { id: string; tipo: 'emprestimo' | 'retirada'; valor: number; data: string; convertido_em: string | null }[] }),
+      isOwner
+        ? supabase.from('retiradas_socia_devolucoes').select('retirada_id,valor').eq('empresa_id', empresaId)
+        : Promise.resolve({ data: [] as { retirada_id: string; valor: number }[] }),
     ]),
     buscarTodasPaginas<{ status: string }>((from, to) =>
       supabase.from('agendamentos').select('status')
@@ -195,28 +222,55 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const brutoVendas    = (vendasMes.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0);
   const brutoTaxas     = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
   const brutoReserva   = (taxasReservaPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-  const bruto          = brutoConcluido + brutoVendas + brutoTaxas + brutoReserva;
-  const comissoes      = (agsMes.data ?? []).reduce(
+  const brutoLive      = brutoConcluido + brutoVendas + brutoTaxas + brutoReserva;
+  const comissoesLive  = (agsMes.data ?? []).reduce(
     (s, a) => s + Number(a.valor) * (comMap[a.profissional_id] ?? 0) / 100, 0,
   );
-  const liquido  = bruto - comissoes;
-  const gastos   = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
-  const lucro    = liquido - gastos;
-  const brutoAnt = (agsMesAnt.data ?? []).reduce((s, a) => s + Number(a.valor), 0)
+  const brutoAntLive = (agsMesAnt.data ?? []).reduce((s, a) => s + Number(a.valor), 0)
                  + (vendasMesAnt.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0)
                  + (taxasPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0)
                  + (taxasReservaPagasMesAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
+
+  // Meses cobertos só por importação (financeiro_ajustes_mensais) não têm
+  // agendamento/venda por trás. O mês exibido — e o anterior, para o comparativo
+  // — são resolvidos contra o fechamento importado, mesma regra do Financeiro.
+  // Sem isso o Dashboard mostra faturamento/comissão/lucro zerados nesses meses.
+  const fechamentos  = (fechamentosRows.data ?? []) as FinanceiroFechamentoRow[];
+  const mesRefKey    = format(mesRef, 'yyyy-MM');
+  const mesRefAntKey = format(subMonths(mesRef, 1), 'yyyy-MM');
+  const { bruto, comTot: comissoes } = somarPeriodoComFechamentos(
+    { receita: { [mesRefKey]: brutoLive }, comissoes: { [mesRefKey]: comissoesLive }, taxasCartao: {} },
+    fechamentos,
+    [mesRefKey],
+  );
+  const { bruto: brutoAnt } = somarPeriodoComFechamentos(
+    { receita: { [mesRefAntKey]: brutoAntLive }, comissoes: {}, taxasCartao: {} },
+    fechamentos,
+    [mesRefAntKey],
+  );
+
+  const liquido  = bruto - comissoes;
+  const gastos   = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
+  const lucro    = liquido - gastos;
   const gastosAnt = (despMesAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
+
+  // Retiradas/empréstimos da dona (owner-only) — linhas ADITIVAS, não mudam o lucro acima.
+  const devMapRet          = somaDevolucoesPorRetirada(retiradasDevsRows.data ?? []);
+  const retiradasMes        = retiradasNoPeriodo(retiradasRows.data ?? [], devMapRet, inicioMes.slice(0, 10), fimMes.slice(0, 10));
+  const emprestimosAbertos  = saldoDevedorTotal(retiradasRows.data ?? [], devMapRet);
+  const lucroAposRetiradas  = lucro - retiradasMes;
 
   const agsHoje       = agendamentosHoje.data ?? [];
   const agsConcluidos = agsHoje.filter(a => a.status === 'concluido');
-  const fatHoje       = agsConcluidos.reduce((s, a) => s + Number(a.valor), 0)
+  const fatHoje       = agsConcluidos.filter((a: any) => !a.pacote_cliente_id).reduce((s, a) => s + Number(a.valor), 0)
                       + (vendasHoje.data ?? []).reduce((s, v) => s + Number(v.valor_final), 0);
 
   const estoqueBaixoItems  = estoqueBaixo.data ?? [];
   const despPendentesItems = despPendentes.data ?? [];
   const totalComPendente   = (comissoesPendentes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
-  const totalComMes        = (comissoesMes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
+  const totalComMesLive    = (comissoesMes.data ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
+  // Mês importado: usa a comissão do fechamento (mesmo número do Financeiro).
+  const totalComMes        = getFechamentoForMonth(fechamentos, mesRefKey)?.comissao ?? totalComMesLive;
   const comPendenteMes     = (comissoesMes.data ?? []).filter(c => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
   const totalAlertas       = estoqueBaixoItems.length + despPendentesItems.length + (totalComPendente > 0 ? 1 : 0);
 
@@ -306,9 +360,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </Link>
           )}
         </div>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
-          Dashboard
-        </h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
+            Dashboard
+          </h1>
+          <PrivacyToggle />
+        </div>
       </div>
 
       {/* ── Hero receita ── */}
@@ -327,17 +384,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </p>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 'clamp(28px, 8vw, 38px)', fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
             <span style={{ fontSize: 16, fontWeight: 500, opacity: 0.6, marginRight: 4 }}>R$</span>
-            <CountUp value={bruto} />
+            <Secret><CountUp value={bruto} /></Secret>
           </p>
           <div className="flex items-center gap-3 mt-3">
             {pctBruto !== null && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: pctBruto >= 0 ? 'rgba(52,201,146,0.20)' : 'rgba(232,114,154,0.20)', borderRadius: 999, padding: '4px 10px', fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 700, color: pctBruto >= 0 ? '#A8F0D4' : '#F4B8CE' }}>
                 {pctBruto >= 0 ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
-                {pctBruto >= 0 ? '+' : '-'}{Math.abs(pctBruto).toFixed(0)}%
+                <Secret>{pctBruto >= 0 ? '+' : '-'}{Math.abs(pctBruto).toFixed(0)}%</Secret>
               </span>
             )}
             <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, color: 'rgba(255,255,255,0.38)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Lucro {fmt(lucro)}
+              Lucro <Secret>{fmt(lucro)}</Secret>
             </span>
           </div>
         </div>
@@ -353,9 +410,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         {[
           { label: 'Fat. Bruto',    value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
           { label: 'Fat. Líquido',  value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
-          { label: 'Lucro do mês',  value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: null, icon: Wallet },
+          { label: 'Lucro do mês',  value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: isOwner && retiradasMes > 0 ? `Após retiradas ${fmt(lucroAposRetiradas)}` : null, icon: Wallet },
           { label: 'Comissões',     value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} de ${fmt(totalComMes)} pendente` : 'Em dia', icon: BadgeDollarSign },
           { label: '% Cancelamento', value: `${pctCancelamento.toFixed(1)}%`, color: 'var(--color-rose)', delta: null, sub: perdidosMes > 0 ? `${perdidosMes} perdido(s)` : null, icon: XCircle },
+          ...(isOwner && emprestimosAbertos > 0 ? [{
+            label: 'A dona deve', value: fmt(emprestimosAbertos), color: 'var(--color-amber)',
+            delta: null as number | null, sub: 'empréstimos em aberto', icon: BadgeDollarSign,
+          }] : []),
         ].map(({ label, value, color, delta, sub, icon: Icon }, i) => (
           <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
@@ -363,15 +424,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p className="whitespace-nowrap tabular-nums" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
+            <p className="whitespace-nowrap tabular-nums" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
             {delta !== null && (
               <span className="flex items-center gap-0.5 mt-1.5" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 600, color: delta >= 0 ? 'var(--color-green)' : 'var(--color-rose)' }}>
                 {delta >= 0 ? <ArrowUp size={9} /> : <ArrowDown size={9} />}
-                {Math.abs(delta).toFixed(0)}%
+                <Secret>{Math.abs(delta).toFixed(0)}%</Secret>
               </span>
             )}
             {sub !== null && (
-              <p className="mt-1.5 leading-tight sm:truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}>{sub}</p>
+              <p className="mt-1.5 leading-tight sm:truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}><Secret>{sub}</Secret></p>
             )}
           </div>
         ))}
@@ -390,8 +451,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p className="whitespace-nowrap tabular-nums" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
-            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'var(--color-ink4)', marginTop: 4 }}>{sub}</p>
+            <p className="whitespace-nowrap tabular-nums" style={{ fontFamily: 'var(--font-sans)', fontSize: 18, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
+            <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'var(--color-ink4)', marginTop: 4 }}><Secret>{sub}</Secret></p>
           </div>
         ))}
       </div>
@@ -409,7 +470,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 Meta do mês
               </p>
               <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 700, color: atingida ? 'var(--color-green)' : 'var(--color-ink2)' }}>
-                {fmt(bruto)} / {fmt(metaMensal)}
+                <Secret>{fmt(bruto)} / {fmt(metaMensal)}</Secret>
               </p>
             </div>
             <div className="relative h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-bg)' }}>
@@ -417,7 +478,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 style={{ width: `${pctMeta}%`, background: atingida ? 'var(--color-green)' : 'linear-gradient(90deg, var(--color-primary), var(--color-accent))' }}/>
             </div>
             <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: atingida ? 'var(--color-green)' : 'var(--color-ink4)', marginTop: 6, fontWeight: atingida ? 700 : 400 }}>
-              {atingida ? `Meta atingida! +${fmt(bruto - metaMensal)} acima` : `${pctMeta.toFixed(0)}% concluído · faltam ${fmt(metaMensal - bruto)}`}
+              <Secret>{atingida ? `Meta atingida! +${fmt(bruto - metaMensal)} acima` : `${pctMeta.toFixed(0)}% concluído · faltam ${fmt(metaMensal - bruto)}`}</Secret>
             </p>
           </div>
         );
@@ -619,7 +680,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <div className="min-w-0">
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-amber)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</p>
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
-                    {p.estoque_atual} un · mín. {p.estoque_minimo}
+                    <Secret>{p.estoque_atual} un · mín. {p.estoque_minimo}</Secret>
                   </p>
                 </div>
               </Link>
@@ -633,7 +694,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <div className="min-w-0">
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-rose)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.descricao}</p>
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
-                    Vence {format(new Date(d.data_vencimento + 'T12:00:00'), 'dd/MM', { locale: ptBR })} · {fmt(Number(d.valor))}
+                    Vence {format(new Date(d.data_vencimento + 'T12:00:00'), 'dd/MM', { locale: ptBR })} · <Secret>{fmt(Number(d.valor))}</Secret>
                   </p>
                 </div>
               </Link>
@@ -646,7 +707,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <Wallet size={13} style={{ color: 'var(--color-primary)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
                 <div>
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-primary)' }}>Comissões a pagar</p>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>{fmt(totalComPendente)} pendentes</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}><Secret>{fmt(totalComPendente)}</Secret> pendentes</p>
                 </div>
               </Link>
             )}

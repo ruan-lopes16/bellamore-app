@@ -36,6 +36,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import {
@@ -525,7 +526,7 @@ function MovModal({ produto, onClose, onSalvo }: {
           {/* Estoque atual */}
           <div className="bg-bg rounded-xl px-4 py-3 flex items-center justify-between">
             <span className="text-sm text-text-3">Estoque atual</span>
-            <span className="font-bold text-text">{produto.estoque_atual} {produto.unidade}</span>
+            <span className="font-bold text-text"><Secret>{produto.estoque_atual}</Secret> {produto.unidade}</span>
           </div>
 
           {/* Quantidade */}
@@ -764,6 +765,7 @@ export default function EstoquePage() {
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Insumos & produtos</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Estoque</h1>
+          <PrivacyToggle />
         </div>
         <div className="flex gap-2 pt-1 bm-mobile-page-actions bm-mobile-stock-actions">
           {aba === 'produtos' && (
@@ -880,7 +882,7 @@ export default function EstoquePage() {
                 <Icon size={16} style={{ color }} strokeWidth={2}/>
               </div>
               <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}>{value}</p>
+                <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
                 <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, fontWeight: 500 }}>{label}</p>
                 <p style={{ fontSize: 10, color: 'var(--color-ink4)', marginTop: 2 }} className="truncate">{sub}</p>
               </div>
@@ -1165,7 +1167,7 @@ export default function EstoquePage() {
                     <Icon size={16} style={{ color }} strokeWidth={2}/>
                   </div>
                   <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}>{value}</p>
+                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
                     <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, fontWeight: 500 }}>{label}</p>
                     <p style={{ fontSize: 10, color: 'var(--color-ink4)', marginTop: 2 }}>{sub}</p>
                   </div>

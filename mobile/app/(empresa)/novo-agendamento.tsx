@@ -84,8 +84,20 @@ function formatBRL(v: number) {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   }).format(v);
 }
+/** Data curta de uma sessão de pacote; nunca lança em data inválida. */
+function fmtSessaoData(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '—' : format(d, 'dd/MM/yy');
+}
 
-type PacoteClienteOpt  = { id: string; nome: string; restantes: number | null; servicoIds: string[] };
+type PacoteSessaoFeita = { id: string; data: string; servico: string | null; viaAg: boolean };
+type PacoteClienteOpt  = {
+  id: string; nome: string;
+  restantes: number | null; total: number | null; usadas: number;
+  servicoIds: string[];
+  sessoes: PacoteSessaoFeita[];
+};
 type PacoteCatalogoOpt = { id: string; nome: string; preco: number; validade_dias: number | null; servicoIds: string[] };
 
 // ── Seção do formulário ───────────────────────────────────────
@@ -193,7 +205,7 @@ export default function NovoAgendamento() {
   useEffect(() => {
     if (!clienteSelecionado || !empresaAtiva?.id) { setPacotesCliente([]); return; }
     supabase.from('pacote_clientes')
-      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id)')
+      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id, created_at, agendamento_id, servico:servicos(nome))')
       .eq('empresa_id', empresaAtiva.id)
       .eq('cliente_id', clienteSelecionado.id)
       .eq('status', 'ativo')
@@ -205,8 +217,13 @@ export default function NovoAgendamento() {
             const servicosPac = (pc.pacote?.servicos ?? []) as { servico_id: string; quantidade: number | null }[];
             const ilimitado = servicosPac.some(s => s.quantidade == null);
             const total = ilimitado ? null : servicosPac.reduce((s, x) => s + (x.quantidade ?? 0), 0);
-            const restantes = total != null ? total - (pc.uso ?? []).length : null;
-            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes, servicoIds: servicosPac.map(s => s.servico_id) };
+            const usoRows = (pc.uso ?? []) as any[];
+            const usadas = usoRows.length;
+            const restantes = total != null ? total - usadas : null;
+            const sessoes: PacoteSessaoFeita[] = usoRows
+              .map((u: any) => ({ id: u.id, data: u.created_at as string, servico: u.servico?.nome ?? null, viaAg: !!u.agendamento_id }))
+              .sort((a: PacoteSessaoFeita, b: PacoteSessaoFeita) => (b.data ?? '').localeCompare(a.data ?? ''));
+            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes, total, usadas, servicoIds: servicosPac.map(s => s.servico_id), sessoes };
           })
           .filter(p => p.restantes === null || p.restantes > 0);
         setPacotesCliente(opts);
@@ -345,6 +362,15 @@ export default function NovoAgendamento() {
           return;
         }
         pacoteClienteIdFinal = novaVenda.id;
+
+        // Registra a venda do pacote como faturamento (uma vez, no ato).
+        await supabase.from('vendas').insert({
+          empresa_id:  empresaAtiva.id,
+          cliente_id:  clienteSelecionado!.id,
+          valor_total: pacote.preco,
+          desconto:    0,
+          observacao:  `Venda de pacote: ${pacote.nome}`,
+        });
       }
     }
 
@@ -557,6 +583,49 @@ export default function NovoAgendamento() {
                     );
                   })}
                 </View>
+
+                {/* Histórico de sessões do pacote selecionado — feitas + pendentes */}
+                {(() => {
+                  const p = pacotesCliente.find(x => x.id === pacoteClienteId);
+                  if (!p) return null;
+                  return (
+                    <View style={{ marginTop: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 10 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text2 }}>
+                          {p.usadas}{p.total != null ? ` de ${p.total}` : ''} {p.usadas === 1 ? 'sessão feita' : 'sessões feitas'}
+                        </Text>
+                        {p.restantes != null && (
+                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>
+                            {p.restantes} pendente{p.restantes !== 1 ? 's' : ''}
+                          </Text>
+                        )}
+                      </View>
+                      {p.sessoes.length === 0 ? (
+                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text4 }}>
+                          Nenhuma sessão feita ainda.
+                        </Text>
+                      ) : (
+                        <View style={{ gap: 4 }}>
+                          {p.sessoes.slice(0, 8).map(s => (
+                            <View key={s.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                              <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3 }}>
+                                {s.servico ?? 'Sessão'}
+                              </Text>
+                              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text4 }}>
+                                {fmtSessaoData(s.data)} · {s.viaAg ? 'agendada' : 'avulsa'}
+                              </Text>
+                            </View>
+                          ))}
+                          {p.sessoes.length > 8 && (
+                            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 9, color: C.text4, marginTop: 2 }}>
+                              +{p.sessoes.length - 8} mais
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
               </View>
             )}
 

@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import {
@@ -693,6 +694,19 @@ export default function ComandaPage() {
       if (novasVendas.length > 0) {
         const { error: errPac } = await supabase.from('pacote_clientes').insert(novasVendas);
         if (errPac) { setErro(errPac.message); setFechando(false); return; }
+
+        // Registra a venda do pacote como faturamento (uma vez, no ato).
+        // As sessões consumidas depois NÃO contam como receita.
+        const totalPacotes = novasVendas.reduce((s, v) => s + Number(v.valor_pago ?? 0), 0);
+        if (totalPacotes > 0) {
+          await supabase.from('vendas').insert({
+            empresa_id:  empresaId,
+            cliente_id:  clienteSel.id,
+            valor_total: totalPacotes,
+            desconto:    0,
+            observacao:  `Pacote(s) via comanda`,
+          });
+        }
       }
     }
 
@@ -793,13 +807,13 @@ export default function ComandaPage() {
               <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em' }} className="capitalize">
                 {format(dataComanda, 'MMMM yyyy', { locale: ptBR })}
               </p>
-              <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Comanda</h1>
+              <div className="flex items-center gap-3"><h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Comanda</h1><PrivacyToggle /></div>
               <p style={{
                 fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, marginTop: 2, minHeight: 16,
                 color: totalDia > 0 ? 'var(--color-green)' : 'var(--color-ink4)',
                 visibility: loading ? 'hidden' : 'visible',
               }}>
-                Total do dia: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalDia)}
+                Total do dia: <Secret>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalDia)}</Secret>
               </p>
             </div>
             <div className="bm-comanda-view-toggle ml-auto flex-shrink-0">
@@ -1238,23 +1252,23 @@ export default function ComandaPage() {
                 <section className="bg-bg rounded-xl border border-border overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                     <span className="text-sm text-text-2">Subtotal</span>
-                    <span className="text-sm font-semibold text-text">{fmtBRL(subtotal)}</span>
+                    <span className="text-sm font-semibold text-text"><Secret>{fmtBRL(subtotal)}</Secret></span>
                   </div>
                   {descontoReservaAplicado > 0 && (
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                       <span className="text-sm text-text-2">Taxa de reserva paga</span>
-                      <span className="text-sm font-semibold text-red">− {fmtBRL(descontoReservaAplicado)}</span>
+                      <span className="text-sm font-semibold text-red">− <Secret>{fmtBRL(descontoReservaAplicado)}</Secret></span>
                     </div>
                   )}
                   {descontoN > 0 && (
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                       <span className="text-sm text-text-2">(−) Desconto <span className="text-xs text-text-4">{descontoPctN}%</span></span>
-                      <span className="text-sm font-semibold text-red">− {fmtBRL(descontoN)}</span>
+                      <span className="text-sm font-semibold text-red">− <Secret>{fmtBRL(descontoN)}</Secret></span>
                     </div>
                   )}
                   <div className="flex items-center justify-between px-4 py-4">
                     <span className="text-base font-bold text-text">Total</span>
-                    <span className="text-2xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{fmtBRL(total)}</span>
+                    <span className="text-2xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}><Secret>{fmtBRL(total)}</Secret></span>
                   </div>
                 </section>
 
@@ -1359,18 +1373,18 @@ export default function ComandaPage() {
                     }`}>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-text-2">Recebido</span>
-                        <span className="text-sm font-bold text-text">{fmtBRL(recebido)}</span>
+                        <span className="text-sm font-bold text-text"><Secret>{fmtBRL(recebido)}</Secret></span>
                       </div>
                       {restante > 0.01 && (
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-sm font-semibold text-amber">Falta</span>
-                          <span className="text-sm font-bold text-amber">{fmtBRL(restante)}</span>
+                          <span className="text-sm font-bold text-amber"><Secret>{fmtBRL(restante)}</Secret></span>
                         </div>
                       )}
                       {restante < -0.01 && (
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-sm font-semibold text-primary">Troco</span>
-                          <span className="text-sm font-bold text-primary">{fmtBRL(-restante)}</span>
+                          <span className="text-sm font-bold text-primary"><Secret>{fmtBRL(-restante)}</Secret></span>
                         </div>
                       )}
                       {Math.abs(restante) < 0.01 && (

@@ -27,6 +27,7 @@ import {
 } from '@/hooks/useComissoesGestor';
 import { CategoriaIcon, CATEGORIA_COR, CATEGORIA_BG } from '@/components/CategoriaIcon';
 import type { CategoriaServico } from '@/components/CategoriaIcon';
+import { SecretText, PrivacyToggle } from '@/components/Secret';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -148,13 +149,13 @@ function ProfCard({
                 {c.servico_nome}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
-                {formatBRL(c.valor_servico)} × {c.percentual}% = {formatBRL(c.valor_comissao)}
+                <SecretText>{formatBRL(c.valor_servico)} × {c.percentual}% = {formatBRL(c.valor_comissao)}</SecretText>
               </Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
                 {formatBRL(c.valor_comissao)}
-              </Text>
+              </SecretText>
               <View style={{
                 marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
                 backgroundColor: c.status === 'pago' ? C.greenSoft : C.amberSoft,
@@ -174,9 +175,9 @@ function ProfCard({
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3 }}>
             {temPendente ? 'Pendente para repassar' : 'Tudo repassado'}
           </Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: temPendente ? C.amber : C.green }}>
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: temPendente ? C.amber : C.green }}>
             {formatBRL(temPendente ? item.totalPendente : item.totalPago)}
-          </Text>
+          </SecretText>
         </View>
       </View>
     </MotiView>
@@ -213,9 +214,9 @@ function ModalPagamento({
             </Text>
             <View style={{ backgroundColor: C.amberSoft, borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 24 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber, marginBottom: 4 }}>Total a repassar</Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 32, color: C.amber, letterSpacing: -1 }}>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 32, color: C.amber, letterSpacing: -1 }}>
                 {formatBRL(profissional?.totalPendente ?? 0)}
-              </Text>
+              </SecretText>
             </View>
             <TouchableOpacity onPress={confirmar} disabled={salvando} style={{ backgroundColor: C.green, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', opacity: salvando ? 0.7 : 1 }}>
               {salvando
@@ -269,7 +270,7 @@ export default function Comissoes() {
           style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 16 }}
         >
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>Equipe</Text>
-          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>Comissões</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>Comissões</Text><PrivacyToggle color={C.text2} bg={C.surface} borderColor={C.border} size={34} /></View>
         </MotiView>
 
         {/* Seletor de mês */}
@@ -302,9 +303,9 @@ export default function Comissoes() {
           ].map((s) => (
             <View key={s.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14, shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{s.label}</Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20 }}>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20 }}>
                 {formatBRL(s.val)}
-              </Text>
+              </SecretText>
             </View>
           ))}
         </MotiView>

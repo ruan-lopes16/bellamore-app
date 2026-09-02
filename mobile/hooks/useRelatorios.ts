@@ -4,10 +4,14 @@ import {
   startOfQuarter, endOfQuarter, startOfYear, endOfYear,
   subWeeks, subMonths, subQuarters, subYears,
   differenceInDays, differenceInCalendarDays,
-  startOfDay, endOfDay, subDays,
+  startOfDay, endOfDay, subDays, eachMonthOfInterval, format,
 } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import {
+  type FinanceiroFechamentoRow,
+  somarPeriodoComFechamentos,
+} from '@shared/fechamentos-mensais';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -144,15 +148,15 @@ export function useRelatorios(
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const [pagAtual, pagAnt, agAtual, agAnt, agStatusAtual, taxasAtual, taxasAnt] = await Promise.all([
-        buscarTodasPaginas<{ valor: number }>((from, to) =>
-          supabase.from('pagamentos').select('valor')
+      const [pagAtual, pagAnt, agAtual, agAnt, agStatusAtual, taxasAtual, taxasAnt, fechamentosRes] = await Promise.all([
+        buscarTodasPaginas<{ valor: number; created_at: string }>((from, to) =>
+          supabase.from('pagamentos').select('valor, created_at')
             .eq('empresa_id', empresaId!).eq('status', 'pago')
             .gte('created_at', iniISO).lte('created_at', fimISO)
             .range(from, to)
         ),
-        buscarTodasPaginas<{ valor: number }>((from, to) =>
-          supabase.from('pagamentos').select('valor')
+        buscarTodasPaginas<{ valor: number; created_at: string }>((from, to) =>
+          supabase.from('pagamentos').select('valor, created_at')
             .eq('empresa_id', empresaId!).eq('status', 'pago')
             .gte('created_at', iniAntISO).lte('created_at', fimAntISO)
             .range(from, to)
@@ -175,28 +179,58 @@ export function useRelatorios(
             .gte('data_hora_inicio', iniISO).lte('data_hora_inicio', fimISO)
             .range(from, to)
         ),
-        supabase.from('taxas_cancelamento').select('valor')
+        supabase.from('taxas_cancelamento').select('valor, paga_em')
           .eq('empresa_id', empresaId!).eq('status', 'pago')
           .gte('paga_em', iniISO).lte('paga_em', fimISO)
-          .then(({ data }) => data ?? []),
-        supabase.from('taxas_cancelamento').select('valor')
+          .then(({ data }) => (data ?? []) as { valor: number; paga_em: string }[]),
+        supabase.from('taxas_cancelamento').select('valor, paga_em')
           .eq('empresa_id', empresaId!).eq('status', 'pago')
           .gte('paga_em', iniAntISO).lte('paga_em', fimAntISO)
-          .then(({ data }) => data ?? []),
+          .then(({ data }) => (data ?? []) as { valor: number; paga_em: string }[]),
+        // Fechamentos importados (financeiro_ajustes_mensais) que cobrem qualquer
+        // mês do período atual ou do anterior — meses históricos sem pagamento
+        // por trás. Sem isso, um período longo ("1 ano", "Personalizado") mostra
+        // faturamento subestimado nesses meses, mesmo estando certo no Financeiro.
+        supabase.from('financeiro_ajustes_mensais').select('mes, receita_bruta, comissao_paga')
+          .eq('empresa_id', empresaId!)
+          .gte('mes', format(startOfMonth(iniAnt), 'yyyy-MM-dd'))
+          .lte('mes', format(startOfMonth(fim), 'yyyy-MM-dd'))
+          .then(({ data }) => (data ?? []) as FinanceiroFechamentoRow[]),
       ]);
+
+      // Faturamento resolvido mês a mês contra os fechamentos importados.
+      const somarPorMes = (linhas: { data: string; valor: number }[]): Record<string, number> => {
+        const mapa: Record<string, number> = {};
+        for (const l of linhas) mapa[l.data.slice(0, 7)] = (mapa[l.data.slice(0, 7)] ?? 0) + l.valor;
+        return mapa;
+      };
+      const receitaAtualPorMes = somarPorMes([
+        ...pagAtual.map(p => ({ data: p.created_at, valor: Number(p.valor) })),
+        ...taxasAtual.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
+      ]);
+      const receitaAntPorMes = somarPorMes([
+        ...pagAnt.map(p => ({ data: p.created_at, valor: Number(p.valor) })),
+        ...taxasAnt.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
+      ]);
+      const chavesAtual = eachMonthOfInterval({ start: ini, end: fim }).map(m => format(m, 'yyyy-MM'));
+      const chavesAnt   = eachMonthOfInterval({ start: iniAnt, end: fimAnt }).map(m => format(m, 'yyyy-MM'));
 
       const fatServicos    = pagAtual.reduce((s, p) => s + Number(p.valor), 0);
       const fatServicosAnt = pagAnt.reduce((s, p) => s + Number(p.valor), 0);
-      const fatTaxas       = taxasAtual.reduce((s, t) => s + Number(t.valor), 0);
-      const fatTaxasAnt    = taxasAnt.reduce((s, t) => s + Number(t.valor), 0);
+      const faturamento = somarPeriodoComFechamentos(
+        { receita: receitaAtualPorMes, comissoes: {}, taxasCartao: {} }, fechamentosRes, chavesAtual,
+      ).bruto;
+      const faturamentoAnterior = somarPeriodoComFechamentos(
+        { receita: receitaAntPorMes, comissoes: {}, taxasCartao: {} }, fechamentosRes, chavesAnt,
+      ).bruto;
       const atend    = agAtual.length;
       const atendAnt = agAnt.length;
       const totalAgendamentos = agStatusAtual.length;
       const perdidos = agStatusAtual.filter(a => a.status === 'cancelado' || a.status === 'faltou').length;
 
       return {
-        faturamento:        fatServicos + fatTaxas,
-        faturamentoAnterior: fatServicosAnt + fatTaxasAnt,
+        faturamento,
+        faturamentoAnterior,
         atendimentos:        atend,
         atendimentosAnterior: atendAnt,
         ticketMedio:        atend  > 0 ? fatServicos    / atend    : 0,

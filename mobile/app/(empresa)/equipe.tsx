@@ -24,6 +24,7 @@ import {
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 import { useAuthStore } from '@/stores/authStore';
+import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { supabase } from '@/lib/supabase';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -266,9 +267,9 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
             <View key={s.label} style={{
               flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10, alignItems: 'center',
             }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.3, marginBottom: 2 }}>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.3, marginBottom: 2 }}>
                 {s.value}
-              </Text>
+              </SecretText>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, textAlign: 'center' }}>
                 {s.label}
               </Text>
@@ -435,6 +436,7 @@ export default function Equipe() {
                 Equipe
               </Text>
             </View>
+            <PrivacyToggle />
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/convidar-profissional' as any)}
               style={{

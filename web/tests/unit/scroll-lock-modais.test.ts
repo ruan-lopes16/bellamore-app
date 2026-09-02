@@ -23,7 +23,7 @@ const modaisAutonomos: [string, string[]][] = [
   ['app/(app)/equipe/page.tsx',        ['NovoProfModal', 'EditInfoModal']],
   ['app/(app)/estoque/page.tsx',       ['ProdutoModal', 'MovModal']],
   ['app/(app)/financeiro/page.tsx',    ['NovaDespesaModal', 'MarcarPagoModal', 'EditarDespesaModal', 'ConfirmarPagamentoTaxaModal']],
-  ['app/(app)/pacotes/page.tsx',       ['PacoteModal', 'VenderModal', 'SessaoModal']],
+  ['app/(app)/pacotes/page.tsx',       ['PacoteModal', 'VenderModal', 'SessoesModal']],
   ['app/(app)/servicos/page.tsx',      ['ServicoModal']],
 ];
 
@@ -68,7 +68,7 @@ describe('trava de scroll nos modais embutidos', () => {
       'app/(app)/comissoes/ComissoesGestorView.tsx': 1,
       'app/(app)/equipe/page.tsx':                   2,
       'app/(app)/estoque/page.tsx':                  2,
-      'app/(app)/financeiro/page.tsx':               4,
+      'app/(app)/financeiro/page.tsx':               8,
       'app/(app)/pacotes/page.tsx':                  3,
       'app/(app)/servicos/page.tsx':                 1,
       'components/ConfirmDialog.tsx':                1,

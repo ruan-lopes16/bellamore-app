@@ -48,14 +48,22 @@ import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
 import {
   type FinanceiroFechamentoRow,
   getFechamentoForMonth,
   resolveFinanceiroKpis,
 } from '@/lib/financeiro/fechamentos-mensais';
 import { getMonthQueryBounds } from '@/lib/financeiro/periodo-mensal';
-import type { TaxaCancelamento, TaxaReserva } from '@/types';
+import {
+  somaDevolucoesPorRetirada, saldoEmprestimo, saldoDevedorTotal,
+  retiradasNoPeriodo, statusParcela, montarRetiradaSociaInsert, montarDevolucaoInsert,
+} from '@shared/retiradas-socia';
+import type {
+  TaxaCancelamento, TaxaReserva, RetiradaSocia, RetiradaSociaDevolucao,
+  RetiradaSociaTipo, MetodoPagamentoRetirada,
+} from '@/types';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 
 const supabase = createClient();
 
@@ -318,6 +326,332 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Registrar / Editar retirada da dona ────────────────
+
+const METODOS_RETIRADA: MetodoPagamentoRetirada[] = ['dinheiro', 'pix', 'credito', 'debito', 'cortesia'];
+
+function RetiradaModal({ empresaId, editando, onClose, onSalvo }: {
+  empresaId: string;
+  editando: RetiradaSocia | null;
+  onClose: () => void;
+  onSalvo: () => void;
+}) {
+  useScrollLock();
+  const hoje = format(new Date(), 'yyyy-MM-dd');
+  const [tipo, setTipo] = useState<RetiradaSociaTipo>(editando?.tipo ?? 'emprestimo');
+  const [valor, setValor] = useState(editando ? formatValorMonetarioInput(Number(editando.valor)) : '');
+  const [data, setData] = useState(editando?.data ?? hoje);
+  const [descricao, setDescricao] = useState(editando?.descricao ?? '');
+  const [metodo, setMetodo] = useState<string>(editando?.metodo ?? '');
+  const [parcelado, setParcelado] = useState(editando?.parcelado ?? false);
+  const [totalParcelas, setTotalParcelas] = useState(editando?.total_parcelas ? String(editando.total_parcelas) : '');
+  const [valorParcela, setValorParcela] = useState(editando?.valor_parcela ? formatValorMonetarioInput(Number(editando.valor_parcela)) : '');
+  const [primeiraParcela, setPrimeiraParcela] = useState(editando?.primeira_parcela_em ?? '');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  const valorNum = parseValorMonetario(valor);
+  const nParc = parseInt(totalParcelas, 10) || 0;
+  const sugestaoParcela = (valorNum && nParc >= 2)
+    ? formatValorMonetarioInput(dividirValorCompra(valorNum, nParc).valorBase) : '';
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro('');
+    const criadoPor = (await supabase.auth.getUser()).data.user?.id ?? null;
+    const built = montarRetiradaSociaInsert({
+      empresaId, tipo, valorInput: valor, data, descricao,
+      metodo: (metodo || null) as MetodoPagamentoRetirada | null,
+      parcelado: tipo === 'emprestimo' && parcelado,
+      totalParcelasInput: totalParcelas,
+      valorParcelaInput: valorParcela || sugestaoParcela,
+      primeiraParcelaEm: primeiraParcela,
+    }, criadoPor);
+    if (!built.ok) { setErro(built.erro); return; }
+
+    setSalvando(true);
+    const p = built.payload;
+    if (editando) {
+      const { error } = await supabase.from('retiradas_socia').update({
+        valor: p.valor, data: p.data, descricao: p.descricao, metodo: p.metodo,
+        parcelado: p.parcelado, total_parcelas: p.total_parcelas,
+        valor_parcela: p.valor_parcela, primeira_parcela_em: p.primeira_parcela_em,
+      }).eq('id', editando.id).select('id');
+      if (error) { setErro('Não foi possível salvar. Verifique se você é a dona da conta.'); setSalvando(false); return; }
+    } else {
+      const { error } = await supabase.from('retiradas_socia').insert(p).select('id');
+      if (error) { setErro('Não foi possível salvar. Verifique se você é a dona da conta.'); setSalvando(false); return; }
+    }
+    setSalvando(false);
+    onSalvo();
+  }
+
+  const chipBase = 'flex-1 px-3 py-2 rounded-xl text-xs font-bold border transition';
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
+          <h2 className="font-serif text-xl text-text">{editando ? 'Editar lançamento' : 'Registrar retirada'}</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
+        </div>
+        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+          <div>
+            <label className={labelClass}>Tipo</label>
+            <div className="flex gap-2">
+              <button type="button" disabled={!!editando} onClick={() => setTipo('emprestimo')}
+                className={`${chipBase} ${tipo === 'emprestimo' ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3'} disabled:opacity-60`}>
+                Empréstimo<span className="block font-normal opacity-80">ela devolve</span>
+              </button>
+              <button type="button" disabled={!!editando} onClick={() => setTipo('retirada')}
+                className={`${chipBase} ${tipo === 'retirada' ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3'} disabled:opacity-60`}>
+                Retirada<span className="block font-normal opacity-80">não devolve</span>
+              </button>
+            </div>
+            {editando && <p className="text-[10px] text-text-4 mt-1">O tipo não pode ser alterado. Para mudar, exclua e recrie.</p>}
+          </div>
+
+          <div>
+            <label className={labelClass}>Valor *</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <input value={valor} onChange={e => setValor(e.target.value)} inputMode="decimal" placeholder="0,00" required
+                className={`${inputClass} pl-9`}/>
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Data *</label>
+            <input value={data} onChange={e => setData(e.target.value)} type="date" required className={inputClass}/>
+          </div>
+
+          <div>
+            <label className={labelClass}>Descrição</label>
+            <input value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex: uso pessoal" className={inputClass}/>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-2">De onde saiu <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
+            <div className="flex flex-wrap gap-1.5">
+              {METODOS_RETIRADA.map(k => (
+                <button key={k} type="button" onClick={() => setMetodo(prev => prev === k ? '' : k)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                    metodo === k ? 'text-white border-transparent' : 'bg-bg text-text-2 border-border hover:border-primary/40'
+                  }`}
+                  style={metodo === k ? { backgroundColor: METODO_CFG[k]?.cor } : undefined}>
+                  {METODO_CFG[k]?.label ?? k}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {tipo === 'emprestimo' && (
+            <div className="border-t border-border pt-4 flex flex-col gap-3">
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setParcelado(false)}
+                  className={`${chipBase} ${!parcelado ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3'}`}>
+                  Devolução avulsa
+                </button>
+                <button type="button" onClick={() => setParcelado(true)}
+                  className={`${chipBase} ${parcelado ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3'}`}>
+                  Em parcelas
+                </button>
+              </div>
+              {parcelado && (
+                <>
+                  <div>
+                    <label className={labelClass}>Nº de parcelas *</label>
+                    <input value={totalParcelas} onChange={e => setTotalParcelas(e.target.value.replace(/\D/g, ''))}
+                      inputMode="numeric" placeholder="Ex: 3" className={inputClass}/>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Valor da parcela</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+                      <input value={valorParcela} onChange={e => setValorParcela(e.target.value)} inputMode="decimal"
+                        placeholder={sugestaoParcela || '0,00'} className={`${inputClass} pl-9`}/>
+                    </div>
+                    <p className="text-[10px] text-text-4 mt-1">Em branco = divide o valor pelas parcelas.</p>
+                  </div>
+                  <div>
+                    <label className={labelClass}>1ª parcela em *</label>
+                    <input value={primeiraParcela} onChange={e => setPrimeiraParcela(e.target.value)} type="date" className={inputClass}/>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {erro && <p className="text-red text-sm">{erro}</p>}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+              Cancelar
+            </button>
+            <button type="submit" disabled={salvando}
+              className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+              {salvando ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Registrar devolução de empréstimo ──────────────────
+
+function DevolucaoModal({ retirada, saldo, empresaId, onClose, onSalvo }: {
+  retirada: RetiradaSocia; saldo: number; empresaId: string;
+  onClose: () => void; onSalvo: () => void;
+}) {
+  useScrollLock();
+  const sugestao = retirada.valor_parcela && saldo > 0
+    ? Math.min(Number(retirada.valor_parcela), saldo)
+    : saldo;
+  const [valor, setValor] = useState(formatValorMonetarioInput(sugestao));
+  const [data, setData] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [metodo, setMetodo] = useState<string>('');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  const valorNum = parseValorMonetario(valor);
+  const sobra = valorNum && valorNum > saldo ? valorNum - saldo : 0;
+
+  async function confirmar() {
+    setErro('');
+    const built = montarDevolucaoInsert(retirada.id, empresaId, valor, data, (metodo || null) as MetodoPagamentoRetirada | null);
+    if (!built.ok) { setErro(built.erro); return; }
+    setSalvando(true);
+    const { error } = await supabase.from('retiradas_socia_devolucoes').insert(built.payload).select('id');
+    setSalvando(false);
+    if (error) { setErro('Não foi possível salvar. Verifique se você é a dona da conta.'); return; }
+    onSalvo();
+  }
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
+        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Registrar devolução</p>
+        <p className="font-serif text-xl text-text mb-1">Saldo devedor {fmtBRL(saldo)}</p>
+        <div className="mt-4 mb-4">
+          <label className={labelClass}>Valor devolvido</label>
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+            <input value={valor} onChange={e => setValor(e.target.value)} inputMode="decimal" className={`${inputClass} pl-9`}/>
+          </div>
+          {sobra > 0 && <p className="text-[11px] text-amber mt-1">Isso quita o empréstimo e sobra {fmtBRL(sobra)}.</p>}
+        </div>
+        <div className="mb-4">
+          <label className={labelClass}>Data</label>
+          <input value={data} onChange={e => setData(e.target.value)} type="date" className={inputClass}/>
+        </div>
+        <div className="mb-5">
+          <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-2">Forma de pagamento <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
+          <div className="flex flex-wrap gap-1.5">
+            {METODOS_RETIRADA.map(k => (
+              <button key={k} type="button" onClick={() => setMetodo(prev => prev === k ? '' : k)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                  metodo === k ? 'text-white border-transparent' : 'bg-bg text-text-2 border-border hover:border-primary/40'
+                }`}
+                style={metodo === k ? { backgroundColor: METODO_CFG[k]?.cor } : undefined}>
+                {METODO_CFG[k]?.label ?? k}
+              </button>
+            ))}
+          </div>
+        </div>
+        {erro && <p className="text-red text-sm mb-2">{erro}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
+          <button onClick={confirmar} disabled={salvando} className="flex-1 h-10 rounded-xl bg-green text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+            {salvando ? 'Salvando...' : 'Confirmar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Converter empréstimo em retirada ───────────────────
+
+function ConverterModal({ retirada, saldo, onClose, onSalvo }: {
+  retirada: RetiradaSocia; saldo: number; onClose: () => void; onSalvo: () => void;
+}) {
+  useScrollLock();
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function confirmar() {
+    setErro(''); setSalvando(true);
+    const { error } = await supabase.from('retiradas_socia')
+      .update({ convertido_em: format(new Date(), 'yyyy-MM-dd') })
+      .eq('id', retirada.id).select('id');
+    setSalvando(false);
+    if (error) { setErro('Não foi possível converter. Verifique se você é a dona da conta.'); return; }
+    onSalvo();
+  }
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
+        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Converter em retirada</p>
+        <p className="font-serif text-xl text-text mb-3">{fmtBRL(saldo)} não serão devolvidos</p>
+        <p className="text-sm text-text-3 mb-5">
+          O saldo em aberto vira uma retirada definitiva na data de hoje. Sai do
+          &quot;a dona deve&quot; e passa a contar em &quot;Retiradas da dona&quot; no mês atual.
+        </p>
+        {erro && <p className="text-red text-sm mb-2">{erro}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
+          <button onClick={confirmar} disabled={salvando} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+            {salvando ? 'Convertendo...' : 'Converter'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal Excluir retirada / empréstimo ──────────────────────
+
+function ExcluirRetiradaModal({ retirada, onClose, onSalvo }: {
+  retirada: RetiradaSocia; onClose: () => void; onSalvo: () => void;
+}) {
+  useScrollLock();
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function confirmar() {
+    setErro(''); setSalvando(true);
+    const { error } = await supabase.from('retiradas_socia').delete().eq('id', retirada.id).select('id');
+    setSalvando(false);
+    if (error) { setErro('Não foi possível excluir. Verifique se você é a dona da conta.'); return; }
+    onSalvo();
+  }
+
+  return (
+    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-xs p-6 max-h-[90dvh] overflow-y-auto">
+        <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-1">Excluir lançamento</p>
+        <p className="font-serif text-xl text-text mb-3">
+          {retirada.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'} de {fmtBRL(Number(retirada.valor))}
+        </p>
+        <p className="text-sm text-text-3 mb-5">Isso apaga o lançamento e todas as devoluções ligadas a ele. Não dá pra desfazer.</p>
+        {erro && <p className="text-red text-sm mb-2">{erro}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
+          <button onClick={confirmar} disabled={salvando} className="flex-1 h-10 rounded-xl bg-red text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-60">
+            {salvando ? 'Excluindo...' : 'Excluir'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -687,6 +1021,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 export default function FinanceiroPage() {
   const [mesRef,   setMesRef]   = useState(new Date());
   const [empresaId,setEmpresaId]= useState<string | null>(null);
+  const [isOwner,  setIsOwner]  = useState(false);
   const [loading,  setLoading]  = useState(true);
 
   // Dados
@@ -705,9 +1040,16 @@ export default function FinanceiroPage() {
   const [taxasReserva,      setTaxasReserva]      = useState<TaxaReserva[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState(0);
   const [evolucao,      setEvolucao]      = useState<{ mes: string; receita: number; comissoes: number; gastos: number }[]>([]);
+  const [retiradas,     setRetiradas]     = useState<RetiradaSocia[]>([]);
+  const [retiradasDevs, setRetiradasDevs] = useState<RetiradaSociaDevolucao[]>([]);
 
   // Modais
   const [modalDespesa, setModalDespesa] = useState(false);
+  const [modalRetirada,       setModalRetirada]       = useState(false);
+  const [editarRetirada,      setEditarRetirada]      = useState<RetiradaSocia | null>(null);
+  const [devolucaoDe,         setDevolucaoDe]         = useState<RetiradaSocia | null>(null);
+  const [converterEmRetirada, setConverterEmRetirada] = useState<RetiradaSocia | null>(null);
+  const [excluirRetirada,     setExcluirRetirada]     = useState<RetiradaSocia | null>(null);
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const [marcarPago,            setMarcarPago]            = useState<Despesa | null>(null);
   const [confirmarTaxaCanc,     setConfirmarTaxaCanc]     = useState<TaxaCancelamento | null>(null);
@@ -725,14 +1067,19 @@ export default function FinanceiroPage() {
       if (!user) return;
       const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (membro) { setEmpresaId(membro.empresa_id); }
+      if (membro) {
+        setEmpresaId(membro.empresa_id);
+        const { data: emp } = await supabase.from('empresas')
+          .select('owner_id').eq('id', membro.empresa_id).single();
+        setIsOwner(!!emp && emp.owner_id === user.id);
+      }
     })();
   }, []);
 
   useEffect(() => {
     if (!empresaId) return;
     carregar(empresaId, mesRef);
-  }, [empresaId, mesRef]);
+  }, [empresaId, mesRef, isOwner]);
 
   async function carregar(empId: string, mes: Date) {
     setLoading(true);
@@ -746,17 +1093,19 @@ export default function FinanceiroPage() {
     const ini6 = periodo6.startIso;
 
     const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes, reservaPagasAnt] = await Promise.all([
-      // Agendamentos concluídos do mês (com profissional e serviço)
+      // Agendamentos concluídos do mês (com profissional e serviço).
+      // .is('pacote_cliente_id', null): sessão de pacote já foi paga na venda do
+      // pacote — não entra como faturamento nem comissão de novo.
       supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
-        .eq('empresa_id', empId).eq('status', 'concluido')
+        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', ini).lte('data_hora_inicio', fim),
       // Agendamentos mês anterior
       supabase.from('agendamentos').select('profissional_id, valor')
-        .eq('empresa_id', empId).eq('status', 'concluido')
+        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', iniA).lte('data_hora_inicio', fimA),
       // Agendamentos 6 meses (evolução)
       supabase.from('agendamentos').select('profissional_id, valor, data_hora_inicio')
-        .eq('empresa_id', empId).eq('status', 'concluido')
+        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
         .gte('data_hora_inicio', ini6).lte('data_hora_inicio', fim),
       // Membros ativos → percentual de comissão (inclui owner/gestor que também atendem)
       supabase.from('empresa_membros').select('user_id, percentual_comissao')
@@ -973,6 +1322,26 @@ export default function FinanceiroPage() {
     );
     setHistoricoMensal(todasMensais);
 
+    // Retiradas/empréstimos da dona — só o owner enxerga (RLS + guarda de UI).
+    if (isOwner) {
+      const [rRet, rDev] = await Promise.all([
+        supabase.from('retiradas_socia')
+          .select('id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at')
+          .eq('empresa_id', empId)
+          .or(`and(data.gte.${periodo.startDate},data.lte.${periodo.endDate}),and(convertido_em.gte.${periodo.startDate},convertido_em.lte.${periodo.endDate})`)
+          .order('data', { ascending: false }),
+        // devoluções de TODOS os empréstimos — o saldo devedor é histórico, não do mês
+        supabase.from('retiradas_socia_devolucoes')
+          .select('id,retirada_id,valor,data,metodo')
+          .eq('empresa_id', empId),
+      ]);
+      setRetiradas((rRet.data ?? []) as RetiradaSocia[]);
+      setRetiradasDevs((rDev.data ?? []) as RetiradaSociaDevolucao[]);
+    } else {
+      setRetiradas([]);
+      setRetiradasDevs([]);
+    }
+
     setLoading(false);
   }
 
@@ -1061,13 +1430,22 @@ export default function FinanceiroPage() {
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const maxEvolucao = Math.max(...evolucao.flatMap(e => [e.receita, e.gastos, e.comissoes ?? 0]), 1);
 
+  // Retiradas/empréstimos da dona (derivados — nada disso muda o Lucro Real acima)
+  const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
+  const aDonaDeve      = saldoDevedorTotal(retiradas, devPorRetirada);
+  const retiradaBounds = getMonthQueryBounds(mesRef);
+  const retiradasMes   = retiradasNoPeriodo(retiradas, devPorRetirada, retiradaBounds.startDate, retiradaBounds.endDate);
+
   return (
     <div className="bm-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 bm-mobile-page-header">
-        <div>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Visão Geral</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Financeiro</h1>
+        <div className="flex items-center gap-3">
+          <div>
+            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Visão Geral</p>
+            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Financeiro</h1>
+          </div>
+          <PrivacyToggle />
         </div>
         <ExportButton
           variant="mobileHeader"
@@ -1120,7 +1498,7 @@ export default function FinanceiroPage() {
             ].map(({ label, value, d, cor, invertDelta }) => (
               <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
                 <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 whitespace-nowrap tabular-nums ${cor}`}>{fmtBRL(value)}</p>
+                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 whitespace-nowrap tabular-nums ${cor}`}><Secret>{fmtBRL(value)}</Secret></p>
                 {d !== null && (
                   <div className="flex items-center gap-1 min-w-0">
                     {(invertDelta ? d < 0 : d >= 0)
@@ -1128,7 +1506,7 @@ export default function FinanceiroPage() {
                       : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
                     }
                     <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      {d >= 0 ? '+' : ''}{d}% vs mês anterior
+                      <Secret>{d >= 0 ? '+' : ''}{d}%</Secret> vs mês anterior
                     </span>
                   </div>
                 )}
@@ -1150,7 +1528,7 @@ export default function FinanceiroPage() {
             ].map(({ label, value, d, cor, invertDelta }) => (
               <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
                 <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 whitespace-nowrap tabular-nums ${cor}`}>{fmtBRL(value)}</p>
+                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 whitespace-nowrap tabular-nums ${cor}`}><Secret>{fmtBRL(value)}</Secret></p>
                 {d !== null && (
                   <div className="flex items-center gap-1 min-w-0">
                     {(invertDelta ? d < 0 : d >= 0)
@@ -1158,7 +1536,7 @@ export default function FinanceiroPage() {
                       : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
                     }
                     <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      {d >= 0 ? '+' : ''}{d}% vs mês anterior
+                      <Secret>{d >= 0 ? '+' : ''}{d}%</Secret> vs mês anterior
                     </span>
                   </div>
                 )}
@@ -1272,7 +1650,7 @@ export default function FinanceiroPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <p className="text-xs font-semibold text-text truncate">{s.nome}</p>
-                      <p className="text-xs font-bold text-text-2 flex-shrink-0">{fmtBRL(s.receita)}</p>
+                      <p className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(s.receita)}</Secret></p>
                     </div>
                     <div className="h-1.5 bg-border rounded-full overflow-hidden">
                       <div className="h-full bg-accent rounded-full transition-all"
@@ -1305,7 +1683,7 @@ export default function FinanceiroPage() {
                     <p className="text-[10px] text-text-4">{m.quantidade} {m.quantidade === 1 ? 'transação' : 'transações'}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-text">{fmtBRL(m.valor)}</p>
+                    <p className="text-sm font-bold text-text"><Secret>{fmtBRL(m.valor)}</Secret></p>
                     <p className="text-[10px] text-text-4">{m.percentual}%</p>
                   </div>
                 </div>
@@ -1327,7 +1705,7 @@ export default function FinanceiroPage() {
               <p className="font-serif text-lg text-text">Despesas</p>
               {despesasPendentes.length > 0 && (
                 <p className="text-[10px] text-text-4 mt-0.5">
-                  {fmtBRL(totalPendente)} pendente · {despesasPendentes.length} despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                  <Secret>{fmtBRL(totalPendente)}</Secret> pendente · <Secret>{despesasPendentes.length}</Secret> despesa{despesasPendentes.length !== 1 ? 's' : ''}
                 </p>
               )}
             </div>
@@ -1410,7 +1788,7 @@ export default function FinanceiroPage() {
                       </p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-bold text-red">{fmtBRL(d.valor)}</p>
+                      <p className="text-sm font-bold text-red"><Secret>{fmtBRL(d.valor)}</Secret></p>
                       <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
                         d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
                       }`}>
@@ -1464,7 +1842,7 @@ export default function FinanceiroPage() {
                     </p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-red">{fmtBRL(t.valor)}</p>
+                    <p className="text-sm font-bold text-red"><Secret>{fmtBRL(t.valor)}</Secret></p>
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
                       t.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
                     }`}>
@@ -1510,7 +1888,7 @@ export default function FinanceiroPage() {
                     </p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-red">{fmtBRL(t.valor)}</p>
+                    <p className="text-sm font-bold text-red"><Secret>{fmtBRL(t.valor)}</Secret></p>
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
                       t.status === 'pago' ? 'bg-green-soft text-green' : t.status === 'retida' ? 'bg-border text-text-3' : 'bg-amber-soft text-amber'
                     }`}>
@@ -1520,6 +1898,97 @@ export default function FinanceiroPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Retiradas e empréstimos da dona — só o owner */}
+        {isOwner && (
+          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border gap-3">
+              <div className="min-w-0">
+                <p className="font-serif text-lg text-text">Retiradas da dona</p>
+                <p className="text-[11px] text-text-4 mt-0.5">
+                  {aDonaDeve > 0 ? <>A dona deve ao estúdio: <Secret>{fmtBRL(aDonaDeve)}</Secret></> : 'Nenhum empréstimo em aberto'}
+                  {retiradasMes > 0 && <> · Retiradas no mês: <Secret>{fmtBRL(retiradasMes)}</Secret></>}
+                </p>
+              </div>
+              <button
+                onClick={() => setModalRetirada(true)}
+                className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold flex-shrink-0"
+                style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
+                <Plus size={12}/> Registrar
+              </button>
+            </div>
+
+            {retiradas.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-text-4">Nenhuma retirada ou empréstimo neste mês.</p>
+            ) : retiradas.map((r, i) => {
+              const devolvido = devPorRetirada[r.id] ?? 0;
+              const saldo = saldoEmprestimo(r.valor, devolvido);
+              const parc = (r.tipo === 'emprestimo' && r.parcelado && r.valor_parcela && r.primeira_parcela_em)
+                ? statusParcela(r.valor_parcela, r.primeira_parcela_em, r.total_parcelas ?? 0, devolvido, hojeIso)
+                : null;
+              const quitado = r.tipo === 'emprestimo' && (!!r.convertido_em || saldo <= 0);
+              const podeAgir = r.tipo === 'emprestimo' && !quitado;
+              const parcelaLabel = parc
+                ? Math.min(parc.parcelasQuitadas + (parc.proximaParcelaEm ? 1 : 0), r.total_parcelas ?? 0)
+                : 0;
+              return (
+                <div key={r.id}
+                  className={`flex items-start gap-2 px-4 py-3 ${i < retiradas.length - 1 ? 'border-b border-border' : ''}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                        r.tipo === 'emprestimo' ? 'bg-amber-soft text-amber' : 'bg-green-soft text-green'
+                      }`}>
+                        {r.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'}
+                      </span>
+                      <span className="text-sm font-bold text-text"><Secret>{fmtBRL(r.valor)}</Secret></span>
+                      <span className="text-[10px] text-text-4">
+                        {format(new Date(r.data + 'T12:00'), 'dd/MM/yyyy')}
+                        {r.metodo && ` · ${METODO_CFG[r.metodo]?.label ?? r.metodo}`}
+                      </span>
+                    </div>
+                    {r.descricao && <p className="text-xs text-text-3 truncate mt-0.5">{r.descricao}</p>}
+                    {r.tipo === 'emprestimo' && !r.convertido_em && (
+                      <p className="text-[11px] text-text-4 mt-0.5">
+                        Devolvido <Secret>{fmtBRL(devolvido)}</Secret> de <Secret>{fmtBRL(r.valor)}</Secret> · saldo <Secret>{fmtBRL(saldo)}</Secret>
+                        {parc && <> · Parcela <Secret>{parcelaLabel}/{r.total_parcelas}</Secret></>}
+                        {parc?.atrasada && <span className="text-red font-bold"> · atrasada</span>}
+                        {quitado && <span className="text-green font-bold"> · quitado</span>}
+                      </p>
+                    )}
+                    {r.convertido_em && (
+                      <p className="text-[11px] text-text-4 mt-0.5">
+                        Convertido em retirada em {format(new Date(r.convertido_em + 'T12:00'), 'dd/MM/yyyy')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    {podeAgir && (
+                      <>
+                        <button onClick={() => setDevolucaoDe(r)} title="Registrar devolução"
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition">
+                          <RefreshCw size={12} strokeWidth={2}/>
+                        </button>
+                        <button onClick={() => setConverterEmRetirada(r)} title="Converter saldo em retirada"
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition">
+                          <Ban size={12} strokeWidth={2}/>
+                        </button>
+                      </>
+                    )}
+                    <button onClick={() => setEditarRetirada(r)} title="Editar"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition">
+                      <Pencil size={12} strokeWidth={2}/>
+                    </button>
+                    <button onClick={() => setExcluirRetirada(r)} title="Excluir"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-red transition">
+                      <Trash2 size={12} strokeWidth={2}/>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -1533,6 +2002,37 @@ export default function FinanceiroPage() {
       )}
       {editarDespesa && (
         <EditarDespesaModal despesa={editarDespesa} onClose={() => setEditarDespesa(null)} onSalvo={() => { setEditarDespesa(null); recarregar(); }}/>
+      )}
+      {(modalRetirada || editarRetirada) && empresaId && (
+        <RetiradaModal
+          empresaId={empresaId}
+          editando={editarRetirada}
+          onClose={() => { setModalRetirada(false); setEditarRetirada(null); }}
+          onSalvo={() => { setModalRetirada(false); setEditarRetirada(null); recarregar(); }}
+        />
+      )}
+      {devolucaoDe && empresaId && (
+        <DevolucaoModal
+          retirada={devolucaoDe} empresaId={empresaId}
+          saldo={saldoEmprestimo(Number(devolucaoDe.valor), devPorRetirada[devolucaoDe.id] ?? 0)}
+          onClose={() => setDevolucaoDe(null)}
+          onSalvo={() => { setDevolucaoDe(null); recarregar(); }}
+        />
+      )}
+      {converterEmRetirada && (
+        <ConverterModal
+          retirada={converterEmRetirada}
+          saldo={saldoEmprestimo(Number(converterEmRetirada.valor), devPorRetirada[converterEmRetirada.id] ?? 0)}
+          onClose={() => setConverterEmRetirada(null)}
+          onSalvo={() => { setConverterEmRetirada(null); recarregar(); }}
+        />
+      )}
+      {excluirRetirada && (
+        <ExcluirRetiradaModal
+          retirada={excluirRetirada}
+          onClose={() => setExcluirRetirada(null)}
+          onSalvo={() => { setExcluirRetirada(null); recarregar(); }}
+        />
       )}
       {confirmarTaxaCanc && (
         <ConfirmarPagamentoTaxaModal

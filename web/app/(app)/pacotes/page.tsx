@@ -97,14 +97,19 @@ const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wid
 // ── Modal: criar/editar pacote ────────────────────────────────
 
 function PacoteModal({
-  pacote, servicos, empresaId, onClose, onSalvo,
+  pacote, jaVendido = false, servicos, empresaId, onClose, onSalvo,
 }: {
   pacote:    Pacote | null;
+  jaVendido?: boolean;
   servicos:  Servico[];
   empresaId: string;
   onClose:   () => void;
   onSalvo:   () => void;
 }) {
+  // Pacote com venda registrada: composição (serviços/quantidades/modo) travada —
+  // as sessões vendidas são do pacote como está cadastrado. Nome/preço/validade
+  // seguem editáveis (valem para vendas futuras).
+  const servicosTravados = !!pacote && jaVendido;
   useScrollLock();
   const [nome,          setNome]          = useState(pacote?.nome ?? '');
   const [preco,         setPreco]         = useState(pacote?.preco.toFixed(2).replace('.', ',') ?? '');
@@ -142,12 +147,16 @@ function PacoteModal({
     let pacoteId: string;
 
     if (pacote) {
-      // Atualizar dados do pacote
-      const { error: e1 } = await supabase.from('pacotes').update({
-        nome: nome.trim(), preco: precoN, validade_dias: validadeN, controla_sessoes: controlaSessoes,
-      }).eq('id', pacote.id).eq('empresa_id', empresaId);
+      // Atualizar dados do pacote. Se já foi vendido, não mexe em modo/serviços.
+      const { error: e1 } = await supabase.from('pacotes').update(
+        servicosTravados
+          ? { nome: nome.trim(), preco: precoN, validade_dias: validadeN }
+          : { nome: nome.trim(), preco: precoN, validade_dias: validadeN, controla_sessoes: controlaSessoes },
+      ).eq('id', pacote.id).eq('empresa_id', empresaId);
       if (e1) { setErro(e1.message); setSalvando(false); return; }
       pacoteId = pacote.id;
+
+      if (servicosTravados) { setSalvando(false); onSalvo(); return; }
     } else {
       // Criar novo pacote
       const { data: novo, error: e1 } = await supabase.from('pacotes').insert({
@@ -200,15 +209,22 @@ function PacoteModal({
             <input value={nome} onChange={e => setNome(e.target.value)} required placeholder="Ex: Pacote Escova Mensal" className={inputCls}/>
           </div>
 
+          {servicosTravados && (
+            <div className="flex items-center gap-2 bg-amber-soft rounded-xl px-3 py-2 border border-amber/20">
+              <AlertCircle size={14} className="text-amber flex-shrink-0"/>
+              <p className="text-xs text-amber">Pacote já vendido — o tipo, os serviços e as quantidades não podem ser alterados.</p>
+            </div>
+          )}
+
           <div>
             <label className={labelCls}>Tipo de pacote</label>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setControlaSessoes(true)}
-                className={`h-10 rounded-xl text-xs font-semibold border transition ${controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
+              <button type="button" disabled={servicosTravados} onClick={() => setControlaSessoes(true)}
+                className={`h-10 rounded-xl text-xs font-semibold border transition disabled:opacity-50 disabled:cursor-not-allowed ${controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
                 Com sessões
               </button>
-              <button type="button" onClick={() => setControlaSessoes(false)}
-                className={`h-10 rounded-xl text-xs font-semibold border transition ${!controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
+              <button type="button" disabled={servicosTravados} onClick={() => setControlaSessoes(false)}
+                className={`h-10 rounded-xl text-xs font-semibold border transition disabled:opacity-50 disabled:cursor-not-allowed ${!controlaSessoes ? 'bg-primary text-white border-primary' : 'bg-bg border-border text-text-3 hover:border-accent'}`}>
                 Combo
               </button>
             </div>
@@ -244,6 +260,8 @@ function PacoteModal({
                   <div className="flex items-center gap-2 flex-wrap justify-end sm:flex-shrink-0">
                     {controlaSessoes && item.quantidade == null ? (
                       <span className="text-xs font-semibold text-primary">Ilimitado</span>
+                    ) : servicosTravados ? (
+                      <span className="text-sm font-semibold text-text">{item.quantidade ?? 1} <span className="text-xs font-normal text-text-4">{controlaSessoes ? 'sessões' : '×'}</span></span>
                     ) : (
                       <>
                         <div className="flex items-center gap-1">
@@ -256,30 +274,34 @@ function PacoteModal({
                         <span className="text-xs text-text-4">{controlaSessoes ? 'sessões' : '×'}</span>
                       </>
                     )}
-                    {controlaSessoes && (
+                    {controlaSessoes && !servicosTravados && (
                       <button type="button" onClick={() => toggleIlimitado(item.servico_id)}
                         title={item.quantidade == null ? 'Definir quantidade' : 'Tornar ilimitado'}
                         className={`w-7 h-7 rounded-lg flex items-center justify-center transition ${item.quantidade == null ? 'text-primary bg-primary-soft' : 'text-text-4 hover:text-primary hover:bg-primary-soft'}`}>
                         ∞
                       </button>
                     )}
-                    <button type="button" onClick={() => removerItem(item.servico_id)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
-                      <Trash2 size={12}/>
-                    </button>
+                    {!servicosTravados && (
+                      <button type="button" onClick={() => removerItem(item.servico_id)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                        <Trash2 size={12}/>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
-            <SearchSelect
-              options={servicos
-                .filter(s => !itensList.find(i => i.servico_id === s.id))
-                .map(s => ({ value: s.id, label: s.nome, sub: fmtBRL(s.preco) }))}
-              value={addServId}
-              onChange={id => { setAddServId(id); adicionarServico(id); }}
-              onOpenChange={setAddindoServico}
-              placeholder="+ Adicionar serviço..."
-            />
+            {!servicosTravados && (
+              <SearchSelect
+                options={servicos
+                  .filter(s => !itensList.find(i => i.servico_id === s.id))
+                  .map(s => ({ value: s.id, label: s.nome, sub: fmtBRL(s.preco) }))}
+                value={addServId}
+                onChange={id => { setAddServId(id); adicionarServico(id); }}
+                onOpenChange={setAddindoServico}
+                placeholder="+ Adicionar serviço..."
+              />
+            )}
           </div>
 
           {erro && (
@@ -458,87 +480,248 @@ function VenderModal({
   );
 }
 
-// ── Modal: registrar uso de sessão ────────────────────────────
+// ── Modal: gerenciar sessões de um pacote vendido ────────────
 
-function SessaoModal({
-  pc, servicos, pacotes, empresaId, onClose, onSalvo,
+type PacoteUsoRow = {
+  id: string;
+  servico_id: string | null;
+  agendamento_id: string | null;
+  observacao: string | null;
+  created_at: string;
+  servico?: { nome: string } | null;
+};
+type AgConcluido = {
+  id: string; data_hora_inicio: string; servico_id: string | null;
+  servico?: { nome: string } | null;
+};
+
+function SessoesModal({
+  pc, empresaId, onChanged, onClose,
 }: {
   pc:        PacoteCliente;
-  servicos:  Servico[];
-  pacotes:   Pacote[];
   empresaId: string;
+  onChanged: () => void;   // recarrega a página; NÃO fecha o modal
   onClose:   () => void;
-  onSalvo:   () => void;
 }) {
   useScrollLock();
-  const [servId,  setServId]  = useState('');
-  const [obs,     setObs]     = useState('');
-  const [salvando,setSalvando]= useState(false);
-  const [erro,    setErro]    = useState('');
+  const servicosPac = pc.pacote.servicos;
+  const servUnicoId = servicosPac.length === 1 ? servicosPac[0].servico_id : '';
+  const opcServico = servicosPac.map(s => ({ value: s.servico_id, label: s.nome }));
 
-  // Apenas os serviços incluídos neste pacote
-  const opcoesServico = useMemo(() => {
-    const pacote = pacotes.find(p => p.id === pc.pacote.id);
-    if (!pacote || pacote.servicos.length === 0) return servicos;
-    const ids = new Set(pacote.servicos.map(s => s.servico_id));
-    return servicos.filter(s => ids.has(s.id));
-  }, [servicos, pacotes, pc.pacote.id]);
+  const [sessoes,   setSessoes]   = useState<PacoteUsoRow[]>([]);
+  const [candidatos, setCandidatos] = useState<AgConcluido[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [erro,      setErro]      = useState('');
+  const [busy,      setBusy]      = useState(false);
 
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault(); setSalvando(true); setErro('');
-    const { error } = await supabase.from('pacote_uso').insert({
-      empresa_id:       empresaId,
-      pacote_cliente_id: pc.id,
-      servico_id:       servId || null,
-      observacao:       obs.trim() || null,
-    });
-    setSalvando(false);
-    if (error) { setErro(error.message); return; }
-    onSalvo();
+  // adicionar avulsa
+  const [addOpen,  setAddOpen]  = useState(false);
+  const [novoServ, setNovoServ] = useState(servUnicoId);
+  const [novaData, setNovaData] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [novaObs,  setNovaObs]  = useState('');
+
+  // vincular atendimento
+  const [vincOpen, setVincOpen] = useState(false);
+  const [vincAg,   setVincAg]   = useState('');
+
+  // edição de sessão
+  const [editId,  setEditId]  = useState<string | null>(null);
+  const [edServ,  setEdServ]  = useState('');
+  const [edData,  setEdData]  = useState('');
+  const [edObs,   setEdObs]   = useState('');
+
+  async function carregar() {
+    setLoading(true); setErro('');
+    const [rUso, rAg, rLink] = await Promise.all([
+      supabase.from('pacote_uso')
+        .select('id, servico_id, agendamento_id, observacao, created_at, servico:servicos(nome)')
+        .eq('pacote_cliente_id', pc.id).order('created_at', { ascending: false }),
+      supabase.from('agendamentos')
+        .select('id, data_hora_inicio, servico_id, servico:servicos(nome)')
+        .eq('empresa_id', empresaId).eq('cliente_id', pc.cliente.id).eq('status', 'concluido')
+        .order('data_hora_inicio', { ascending: false }).limit(100),
+      supabase.from('pacote_uso').select('agendamento_id')
+        .eq('empresa_id', empresaId).not('agendamento_id', 'is', null),
+    ]);
+    setSessoes((rUso.data ?? []) as unknown as PacoteUsoRow[]);
+    const linkados = new Set(((rLink.data ?? []) as { agendamento_id: string }[]).map(x => x.agendamento_id));
+    setCandidatos(((rAg.data ?? []) as unknown as AgConcluido[]).filter(a => !linkados.has(a.id)));
+    setLoading(false);
   }
+  useEffect(() => { carregar(); /* eslint-disable-next-line */ }, []);
+
+  const refresh = async () => { await carregar(); onChanged(); };
+
+  async function addAvulsa() {
+    if (opcServico.length > 1 && !novoServ) { setErro('Escolha o serviço da sessão.'); return; }
+    setBusy(true); setErro('');
+    const { error } = await supabase.from('pacote_uso').insert({
+      empresa_id:        empresaId,
+      pacote_cliente_id: pc.id,
+      servico_id:        novoServ || servUnicoId || null,
+      observacao:        novaObs.trim() || null,
+      created_at:        `${novaData}T12:00:00`,
+    });
+    setBusy(false);
+    if (error) { setErro(error.message); return; }
+    setAddOpen(false); setNovaObs(''); setNovoServ(servUnicoId); setNovaData(format(new Date(), 'yyyy-MM-dd'));
+    refresh();
+  }
+
+  async function vincularAtendimento() {
+    if (!vincAg) { setErro('Escolha o atendimento.'); return; }
+    const ag = candidatos.find(a => a.id === vincAg);
+    if (!ag) return;
+    setBusy(true); setErro('');
+    const { error: e1 } = await supabase.from('pacote_uso').insert({
+      empresa_id:        empresaId,
+      pacote_cliente_id: pc.id,
+      servico_id:        ag.servico_id,
+      agendamento_id:    ag.id,
+      created_at:        ag.data_hora_inicio,
+    });
+    if (e1) { setBusy(false); setErro(e1.message); return; }
+    // Vincula o agendamento ao pacote (para de contar como faturamento, igual às automáticas)
+    await supabase.from('agendamentos').update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId);
+    setBusy(false); setVincOpen(false); setVincAg('');
+    refresh();
+  }
+
+  function abrirEdicao(s: PacoteUsoRow) {
+    setEditId(s.id);
+    setEdServ(s.servico_id ?? '');
+    setEdData(format(parseISO(s.created_at), 'yyyy-MM-dd'));
+    setEdObs(s.observacao ?? '');
+  }
+  async function salvarEdicao() {
+    if (!editId) return;
+    setBusy(true); setErro('');
+    const { error } = await supabase.from('pacote_uso').update({
+      servico_id: edServ || null,
+      observacao: edObs.trim() || null,
+      created_at: `${edData}T12:00:00`,
+    }).eq('id', editId);
+    setBusy(false);
+    if (error) { setErro(error.message); return; }
+    setEditId(null);
+    refresh();
+  }
+  async function excluirSessao(id: string) {
+    setBusy(true); setErro('');
+    const { error } = await supabase.from('pacote_uso').delete().eq('id', id);
+    setBusy(false);
+    if (error) { setErro(error.message); return; }
+    refresh();
+  }
+
+  const total    = pc.total_sessoes;
+  const usadas   = sessoes.length;
+  const esgotado = total != null && usadas >= total;
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-border">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
           <div>
-            <h2 className="font-serif text-xl text-text">Registrar sessão</h2>
+            <h2 className="font-serif text-xl text-text">Sessões</h2>
             <p className="text-xs text-text-3 mt-0.5">{pc.cliente.nome} · {pc.pacote.nome}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
 
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
+        <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
           <div className="bg-bg rounded-xl p-3 flex items-center justify-between border border-border">
-            <span className="text-sm text-text-2">Sessões restantes</span>
-            <span className="text-lg font-bold text-text">{pc.total_sessoes != null ? pc.total_sessoes - pc.usadas : 'Ilimitado'}</span>
+            <span className="text-sm text-text-2">Usadas</span>
+            <span className="text-lg font-bold text-text">{usadas}{total != null ? ` / ${total}` : ' (ilimitado)'}</span>
           </div>
 
-          <div>
-            <label className={labelCls}>Serviço realizado</label>
-            <SearchSelect
-              options={servicos.map(s => ({ value: s.id, label: s.nome }))}
-              value={servId} onChange={setServId}
-              placeholder="Selecionar serviço (opcional)"
-            />
-          </div>
-
-          <div>
-            <label className={labelCls}>Observação</label>
-            <input value={obs} onChange={e => setObs(e.target.value)} placeholder="Ex: 30min extra" className={inputCls}/>
-          </div>
+          {loading ? (
+            <div className="flex flex-col gap-2">{[1,2,3].map(i => <Sk key={i} className="h-12 rounded-xl"/>)}</div>
+          ) : sessoes.length === 0 ? (
+            <p className="text-sm text-text-4 text-center py-2">Nenhuma sessão registrada.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {sessoes.map(s => editId === s.id ? (
+                <div key={s.id} className="bg-bg rounded-xl p-3 flex flex-col gap-2 border border-primary/30">
+                  {opcServico.length > 1 && (
+                    <SearchSelect options={opcServico} value={edServ} onChange={setEdServ} placeholder="Serviço" />
+                  )}
+                  <input type="date" value={edData} onChange={e => setEdData(e.target.value)} className={inputCls}/>
+                  <input value={edObs} onChange={e => setEdObs(e.target.value)} placeholder="Observação" className={inputCls}/>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditId(null)} className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold hover:bg-surface transition">Cancelar</button>
+                    <button onClick={salvarEdicao} disabled={busy} className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50">Salvar</button>
+                  </div>
+                </div>
+              ) : (
+                <div key={s.id} className="bg-bg rounded-xl p-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text truncate">{s.servico?.nome ?? 'Sem serviço'}</p>
+                    <p className="text-[11px] text-text-4">
+                      {format(parseISO(s.created_at), 'dd/MM/yyyy')}
+                      {' · '}{s.agendamento_id ? 'via agendamento' : 'avulsa'}
+                      {s.observacao ? ` · ${s.observacao}` : ''}
+                    </p>
+                  </div>
+                  <button onClick={() => abrirEdicao(s)} className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-primary hover:bg-primary-soft transition"><Edit3 size={13}/></button>
+                  <button onClick={() => excluirSessao(s.id)} disabled={busy} className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition"><Trash2 size={13}/></button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {erro && <p className="text-sm text-red">{erro}</p>}
 
-          <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
-            <button type="submit" disabled={salvando || (pc.total_sessoes !== null && pc.usadas >= pc.total_sessoes)}
-              className="flex-1 h-10 rounded-xl bg-green text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50">
-              {salvando ? 'Salvando...' : '+ Marcar sessão'}
+          {/* Adicionar avulsa */}
+          {addOpen ? (
+            <div className="bg-bg rounded-xl p-3 flex flex-col gap-2 border border-border">
+              <p className="text-xs font-semibold text-text-2">Nova sessão avulsa</p>
+              {opcServico.length > 1 && (
+                <SearchSelect options={opcServico} value={novoServ} onChange={setNovoServ} placeholder="Serviço" />
+              )}
+              <input type="date" value={novaData} onChange={e => setNovaData(e.target.value)} className={inputCls}/>
+              <input value={novaObs} onChange={e => setNovaObs(e.target.value)} placeholder="Observação (opcional)" className={inputCls}/>
+              <div className="flex gap-2">
+                <button onClick={() => setAddOpen(false)} className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold hover:bg-surface transition">Cancelar</button>
+                <button onClick={addAvulsa} disabled={busy} className="flex-1 h-8 rounded-lg bg-green text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50">Adicionar</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => { setErro(''); setAddOpen(true); setVincOpen(false); }}
+              className="w-full h-9 rounded-xl border border-border text-text-3 text-xs font-semibold hover:bg-bg transition">
+              + Sessão avulsa {esgotado ? '(pacote já esgotado)' : ''}
             </button>
-          </div>
-        </form>
+          )}
+
+          {/* Vincular atendimento já realizado */}
+          {vincOpen ? (
+            <div className="bg-bg rounded-xl p-3 flex flex-col gap-2 border border-border">
+              <p className="text-xs font-semibold text-text-2">Vincular atendimento concluído</p>
+              {candidatos.length === 0 ? (
+                <p className="text-xs text-text-4">Nenhum atendimento concluído do cliente sem vínculo.</p>
+              ) : (
+                <SearchSelect
+                  options={candidatos.map(a => ({
+                    value: a.id,
+                    label: `${format(parseISO(a.data_hora_inicio), 'dd/MM/yyyy')} · ${a.servico?.nome ?? 'Serviço'}`,
+                  }))}
+                  value={vincAg} onChange={setVincAg}
+                  placeholder="Escolher atendimento"
+                />
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => setVincOpen(false)} className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold hover:bg-surface transition">Cancelar</button>
+                <button onClick={vincularAtendimento} disabled={busy || candidatos.length === 0} className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50">Vincular</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => { setErro(''); setVincOpen(true); setAddOpen(false); }}
+              className="w-full h-9 rounded-xl border border-border text-text-3 text-xs font-semibold hover:bg-bg transition">
+              Vincular atendimento já realizado
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -566,6 +749,7 @@ export default function PacotesPage() {
   const [modalVender,  setModalVender]  = useState<Pacote | null>(null);
   const [modalSessao,  setModalSessao]  = useState<PacoteCliente | null>(null);
   const [confirmExcluir, setConfirmExcluir] = useState<Pacote | null>(null);
+  const [confirmExcluirVenda, setConfirmExcluirVenda] = useState<PacoteCliente | null>(null);
   const [excluindo,      setExcluindo]      = useState(false);
 
   // Toast de feedback
@@ -733,6 +917,23 @@ export default function PacotesPage() {
     setConfirmExcluir(null);
     if (error) { showToast(`Erro ao excluir: ${error.message}`, 'rose'); return; }
     showToast('Pacote excluído.');
+    carregar(empresaId);
+  }
+
+  // ── Excluir venda (pacote_clientes) — apaga de vez, junto com as sessões
+  async function excluirVenda() {
+    if (!empresaId || !confirmExcluirVenda) return;
+    const pcId = confirmExcluirVenda.id;
+    setExcluindo(true);
+    // Desvincula agendamentos que apontam para esta venda (FK sem ON DELETE)
+    await supabase.from('agendamentos').update({ pacote_cliente_id: null })
+      .eq('pacote_cliente_id', pcId).eq('empresa_id', empresaId);
+    const { error } = await supabase.from('pacote_clientes')
+      .delete().eq('id', pcId).eq('empresa_id', empresaId);
+    setExcluindo(false);
+    setConfirmExcluirVenda(null);
+    if (error) { showToast(`Erro ao excluir: ${error.message}`, 'rose'); return; }
+    showToast('Venda excluída.');
     carregar(empresaId);
   }
 
@@ -995,9 +1196,16 @@ export default function PacotesPage() {
                         <p className="font-semibold text-text truncate">{v.cliente.nome}</p>
                         <p className="text-xs text-text-3 mt-0.5 truncate">{v.pacote.nome}</p>
                       </div>
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${statusCfg.cls}`}>
-                        {statusCfg.label}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${statusCfg.cls}`}>
+                          {statusCfg.label}
+                        </span>
+                        <button onClick={() => setConfirmExcluirVenda(v)}
+                          title="Excluir venda"
+                          className="w-7 h-7 rounded-lg border border-border hover:bg-red-soft hover:border-red/30 flex items-center justify-center text-text-3 hover:text-red transition">
+                          <Trash2 size={12}/>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Combo: lista de serviços inclusos (sem progresso de sessão) */}
@@ -1069,14 +1277,14 @@ export default function PacotesPage() {
                         Marcar como utilizado
                       </button>
                     )}
-                    {v.status === 'ativo' && v.pacote.controla_sessoes && (ilimitado || (restantes !== null && restantes > 0)) && (
+                    {v.pacote.controla_sessoes && (
                       <div className="flex flex-col gap-1.5">
                         <p className="text-[10px] text-text-4 text-center">
                           Sessões são registradas automaticamente ao concluir agendamentos.
                         </p>
                         <button onClick={() => setModalSessao(v)}
                           className="w-full h-8 rounded-xl border border-border text-text-3 text-xs font-semibold hover:bg-bg transition">
-                          + Registrar avulsa (sem agendamento)
+                          Gerenciar sessões
                         </button>
                       </div>
                     )}
@@ -1182,6 +1390,8 @@ export default function PacotesPage() {
       {modalPacoteAberto && (
         <PacoteModal
           pacote={modalPacote === 'novo' ? null : modalPacote}
+          jaVendido={modalPacote !== 'novo' && modalPacote !== null
+            && vendidos.some(v => v.pacote.id === modalPacote.id)}
           servicos={servicos}
           empresaId={empresaId!}
           onClose={() => setModalPacote(null)}
@@ -1200,13 +1410,11 @@ export default function PacotesPage() {
       )}
 
       {modalSessao && (
-        <SessaoModal
+        <SessoesModal
           pc={modalSessao}
-          servicos={servicos}
-          pacotes={pacotes}
           empresaId={empresaId!}
+          onChanged={() => { if (empresaId) carregar(empresaId); }}
           onClose={() => setModalSessao(null)}
-          onSalvo={() => { setModalSessao(null); if (empresaId) carregar(empresaId); }}
         />
       )}
 
@@ -1219,6 +1427,17 @@ export default function PacotesPage() {
         loading={excluindo}
         onConfirm={excluirPacote}
         onCancel={() => setConfirmExcluir(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmExcluirVenda !== null}
+        title="Excluir venda?"
+        message={`A venda de "${confirmExcluirVenda?.pacote.nome}" para ${confirmExcluirVenda?.cliente.nome} será apagada, junto com as sessões registradas. Agendamentos vinculados serão desvinculados. Sem volta.`}
+        confirmLabel="Excluir venda"
+        variant="danger"
+        loading={excluindo}
+        onConfirm={excluirVenda}
+        onCancel={() => setConfirmExcluirVenda(null)}
       />
     </div>
   );

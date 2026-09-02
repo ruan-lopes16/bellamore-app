@@ -6,6 +6,15 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
 import type { OcorrenciaHistorico } from '@shared/despesas';
+import {
+  type FinanceiroFechamentoRow,
+  getFechamentoForMonth,
+  somarPeriodoComFechamentos,
+} from '@shared/fechamentos-mensais';
+import {
+  somaDevolucoesPorRetirada, retiradasNoPeriodo, saldoDevedorTotal,
+  type RetiradaSociaRow, type RetiradaSociaDevolucaoRow,
+} from '@shared/retiradas-socia';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -58,7 +67,7 @@ export interface EvolucaoMes {
 // ── Hook principal ───────────────────────────────────────────
 
 export function useFinanceiro(mesRef: Date) {
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, isOwner } = useAuthStore();
   const empresaId = empresaAtiva?.id;
 
   const inicio = startOfMonth(mesRef).toISOString();
@@ -75,7 +84,7 @@ export function useFinanceiro(mesRef: Date) {
     queryFn: async () => {
       const [
         pagMes, pagAnt, despMes, despAnt, taxasPagasMes, taxasPagasAnt,
-        reservasPagasMes, reservasPagasAnt,
+        reservasPagasMes, reservasPagasAnt, fechamentosRes,
       ] = await Promise.all([
         supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', inicio).lte('created_at', fim),
         supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', inicioAnterior).lte('created_at', fimAnterior),
@@ -85,16 +94,36 @@ export function useFinanceiro(mesRef: Date) {
         supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
         supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).not('paga_em', 'is', null).gte('paga_em', inicio).lte('paga_em', fim),
         supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).not('paga_em', 'is', null).gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
+        // Fechamentos importados do mês exibido e do anterior (financeiro_ajustes_mensais):
+        // meses históricos lançados só com o número de faturamento, sem pagamento por trás.
+        supabase.from('financeiro_ajustes_mensais').select('mes, receita_bruta, comissao_paga')
+          .eq('empresa_id', empresaId!)
+          .gte('mes', format(startOfMonth(subMonths(mesRef, 1)), 'yyyy-MM-dd'))
+          .lte('mes', format(startOfMonth(mesRef), 'yyyy-MM-dd')),
       ]);
 
       const brutoTaxasMes    = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
       const brutoTaxasAnt    = (taxasPagasAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
       const brutoReservasMes = (reservasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
       const brutoReservasAnt = (reservasPagasAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-      const receita          = (pagMes.data  ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasMes + brutoReservasMes;
-      const receitaAnterior  = (pagAnt.data  ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasAnt + brutoReservasAnt;
+      const receitaLive         = (pagMes.data ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasMes + brutoReservasMes;
+      const receitaAnteriorLive = (pagAnt.data ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasAnt + brutoReservasAnt;
       const gastos           = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
       const gastosAnterior   = (despAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
+
+      // Mês coberto por importação: a receita_bruta do fechamento substitui o
+      // cálculo ao vivo daquele mês (mesma regra do Financeiro web). Sem isso o
+      // resumo mostra receita zerada / lucro muito negativo nesses meses.
+      const fechamentos = (fechamentosRes.data ?? []) as FinanceiroFechamentoRow[];
+      const chaveAnterior = format(subMonths(mesRef, 1), 'yyyy-MM');
+      const receita = somarPeriodoComFechamentos(
+        { receita: { [chave]: receitaLive }, comissoes: {}, taxasCartao: {} },
+        fechamentos, [chave],
+      ).bruto;
+      const receitaAnterior = somarPeriodoComFechamentos(
+        { receita: { [chaveAnterior]: receitaAnteriorLive }, comissoes: {}, taxasCartao: {} },
+        fechamentos, [chaveAnterior],
+      ).bruto;
 
       return { receita, gastos, lucro: receita - gastos, receitaAnterior, gastosAnterior };
     },
@@ -248,6 +277,14 @@ export function useFinanceiro(mesRef: Date) {
     queryFn: async () => {
       const meses = Array.from({ length: 6 }, (_, i) => subMonths(mesRef, 5 - i));
 
+      // Fechamentos importados que caiam nos 6 meses do gráfico.
+      const fechRes = await supabase.from('financeiro_ajustes_mensais')
+        .select('mes, receita_bruta, comissao_paga')
+        .eq('empresa_id', empresaId!)
+        .gte('mes', format(startOfMonth(meses[0]), 'yyyy-MM-dd'))
+        .lte('mes', format(startOfMonth(meses[5]), 'yyyy-MM-dd'));
+      const fechamentos = (fechRes.data ?? []) as FinanceiroFechamentoRow[];
+
       const resultados = await Promise.all(
         meses.map(async (m) => {
           const ini = startOfMonth(m).toISOString();
@@ -256,9 +293,11 @@ export function useFinanceiro(mesRef: Date) {
             supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', ini).lte('created_at', fim),
             supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', ini.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
           ]);
+          const receitaLive = (pag.data ?? []).reduce((s, p) => s + Number(p.valor), 0);
+          const fechamento = getFechamentoForMonth(fechamentos, format(m, 'yyyy-MM'));
           return {
             mes: format(m, 'MMM', { locale: { code: 'pt-BR' } as any }),
-            receita: (pag.data ?? []).reduce((s, p) => s + Number(p.valor), 0),
+            receita: fechamento?.receitaBruta ?? receitaLive,
             gastos:  (desp.data ?? []).reduce((s, d) => s + Number(d.valor), 0),
           };
         })
@@ -267,6 +306,35 @@ export function useFinanceiro(mesRef: Date) {
       return resultados;
     },
   });
+
+  // ── Retiradas/empréstimos da dona (owner-only, isOwner vem do authStore) ──
+  const retiradasQ = useQuery<{ rows: RetiradaSociaRow[]; devs: RetiradaSociaDevolucaoRow[] }>({
+    queryKey: ['fin-retiradas', empresaId, chave],
+    enabled: !!empresaId && isOwner,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const di = inicio.slice(0, 10);
+      const df = fim.slice(0, 10);
+      const [rRet, rDev] = await Promise.all([
+        supabase.from('retiradas_socia')
+          .select('id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at')
+          .eq('empresa_id', empresaId!)
+          .or(`and(data.gte.${di},data.lte.${df}),and(convertido_em.gte.${di},convertido_em.lte.${df})`)
+          .order('data', { ascending: false }),
+        supabase.from('retiradas_socia_devolucoes')
+          .select('id,retirada_id,valor,data,metodo').eq('empresa_id', empresaId!),
+      ]);
+      return {
+        rows: (rRet.data ?? []) as RetiradaSociaRow[],
+        devs: (rDev.data ?? []) as RetiradaSociaDevolucaoRow[],
+      };
+    },
+  });
+  const retiradas     = retiradasQ.data?.rows ?? [];
+  const retiradasDevs  = retiradasQ.data?.devs ?? [];
+  const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
+  const aDonaDeve       = saldoDevedorTotal(retiradas, devPorRetirada);
+  const retiradasPeriodo = retiradasNoPeriodo(retiradas, devPorRetirada, inicio.slice(0, 10), fim.slice(0, 10));
 
   const isLoading = resumo.isLoading || metodos.isLoading || topServicos.isLoading;
 
@@ -279,6 +347,11 @@ export function useFinanceiro(mesRef: Date) {
     taxasCancelamento: taxasCancelamento.data ?? [],
     taxasReserva:      taxasReserva.data ?? [],
     evolucao:          evolucao.data ?? [],
+    isOwner,
+    retiradas,
+    retiradasDevs,
+    aDonaDeve,
+    retiradasPeriodo,
     isLoading,
     refetch: () => {
       resumo.refetch();
@@ -289,6 +362,7 @@ export function useFinanceiro(mesRef: Date) {
       taxasCancelamento.refetch();
       taxasReserva.refetch();
       evolucao.refetch();
+      retiradasQ.refetch();
     },
   };
 }

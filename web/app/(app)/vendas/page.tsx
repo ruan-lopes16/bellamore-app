@@ -30,6 +30,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { createClient } from '@/lib/supabase/client';
 import type { Cliente as ClienteBase } from '@/types';
 import { Sk } from '@/components/Skeleton';
+import { Secret, PrivacyToggle } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, parseISO } from 'date-fns';
@@ -341,6 +342,7 @@ export default function VendasPage() {
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Ponto de Venda</p>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Vendas</h1>
+          <PrivacyToggle />
         </div>
       </div>
 
@@ -589,16 +591,16 @@ export default function VendasPage() {
                 {descontoN > 0 && (
                   <>
                     <div className="flex items-center justify-between text-xs text-text-3">
-                      <span>Subtotal</span><span>{fmtBRL(subtotal)}</span>
+                      <span>Subtotal</span><span><Secret>{fmtBRL(subtotal)}</Secret></span>
                     </div>
                     <div className="flex items-center justify-between text-xs text-green font-semibold">
-                      <span>Desconto ({descontoPctN}%)</span><span>− {fmtBRL(descontoN)}</span>
+                      <span>Desconto (<Secret>{descontoPctN}%</Secret>)</span><span>− <Secret>{fmtBRL(descontoN)}</Secret></span>
                     </div>
                   </>
                 )}
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-text">Total</span>
-                  <span className="font-bold text-2xl text-text">{fmtBRL(total)}</span>
+                  <span className="font-bold text-2xl text-text"><Secret>{fmtBRL(total)}</Secret></span>
                 </div>
                 {splits.length > 0 && Math.abs(restante) > 0.01 && (
                   <div className={`flex items-center justify-between text-sm font-bold ${restante > 0 ? 'text-red' : 'text-green'}`}>
@@ -700,9 +702,9 @@ export default function VendasPage() {
                   {/* Valor */}
                   <div className="text-right flex-shrink-0">
                     {v.desconto > 0 && (
-                      <p className="text-xs text-text-4 line-through">{fmtBRL(v.valor_total)}</p>
+                      <p className="text-xs text-text-4 line-through"><Secret>{fmtBRL(v.valor_total)}</Secret></p>
                     )}
-                    <p className="text-xl font-bold text-text">{fmtBRL(v.valor_final)}</p>
+                    <p className="text-xl font-bold text-text"><Secret>{fmtBRL(v.valor_final)}</Secret></p>
                   </div>
                 </div>
               ))}
