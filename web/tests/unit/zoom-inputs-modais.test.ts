@@ -57,7 +57,9 @@ describe('modais ancorados no viewport dinamico', () => {
   it('preserva as alturas originais, agora em dvh', () => {
     const agenda = read('app/(app)/agenda/page.tsx');
     expect(agenda).toContain('max-h-[90dvh]');
-    expect(agenda).toContain('max-h-[85dvh]');
+    // O modal mobile de Detalhes subiu de 85dvh para 88dvh (mais respiro para a
+    // lista de status inline) — continua em dvh, que é o que este teste protege.
+    expect(agenda).toContain('max-h-[88dvh]');
     expect(agenda).toContain("maxHeight: '62dvh'");
 
     expect(read('app/(app)/financeiro/page.tsx')).toContain('max-h-[90dvh]');
