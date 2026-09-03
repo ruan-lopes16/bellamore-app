@@ -556,6 +556,7 @@ export default function Agenda() {
       </ScrollView>
 
       <BloqueioModal
+        key={diaSelecionado.toISOString()}
         visible={modalBloqueio}
         role={meuRole}
         meuUserId={user?.id ?? ''}

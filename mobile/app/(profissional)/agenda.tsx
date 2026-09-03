@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react-native';
+import { Ban, ChevronLeft, ChevronRight, Plus } from 'lucide-react-native';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -27,8 +27,11 @@ import { ptBR } from 'date-fns/locale';
 import { useAuthStore } from '@/stores/authStore';
 import {
   useAgendaProfissional, useKpisDiaProfissional, useDiasProfissional,
+  useBloqueiosProfissionalDia, useCriarBloqueioProfissional,
 } from '@/hooks/useProfissional';
 import { CATEGORIA_CONFIG, type AgendamentoCompleto } from '@/hooks/useAgenda';
+import { BloqueioModal } from '@/components/BloqueioModal';
+import { motivoBloqueioLabel } from '@shared/bloqueios';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -187,6 +190,9 @@ export default function AgendaProfissional() {
   const { data: agendamentos = [], isLoading, refetch } = useAgendaProfissional(diaSelecionado);
   const { data: kpis } = useKpisDiaProfissional(diaSelecionado);
   const { data: diasComAg } = useDiasProfissional(mesRef);
+  const { data: bloqueios = [] } = useBloqueiosProfissionalDia(diaSelecionado);
+  const criarBloqueio = useCriarBloqueioProfissional();
+  const [modalBloqueio, setModalBloqueio] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -207,6 +213,13 @@ export default function AgendaProfissional() {
     const h = new Date(ag.data_hora_inicio).getHours();
     if (!agPorHora[h]) agPorHora[h] = [];
     agPorHora[h].push(ag);
+  });
+
+  const bloqueiosPorHora: Record<number, typeof bloqueios> = {};
+  bloqueios.forEach((b) => {
+    const h = new Date(b.data_inicio).getHours();
+    if (!bloqueiosPorHora[h]) bloqueiosPorHora[h] = [];
+    bloqueiosPorHora[h].push(b);
   });
 
   const [c1, c2] = avatarColors(user?.nome ?? '');
@@ -341,6 +354,23 @@ export default function AgendaProfissional() {
           </View>
         </View>
 
+        {/* ── Pedir bloqueio ── */}
+        <View style={{ marginHorizontal: 24, marginTop: 4, marginBottom: 12 }}>
+          <TouchableOpacity
+            onPress={() => setModalBloqueio(true)}
+            style={{
+              height: 42, borderRadius: 12, borderWidth: 1, borderColor: C.border,
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+              gap: 8, backgroundColor: C.surface,
+            }}
+          >
+            <Ban size={14} color="#C9527F" strokeWidth={2} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: '#C9527F' }}>
+              Bloquear horário
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* ── Timeline ── */}
         <View style={{ paddingHorizontal: 24 }}>
           <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
@@ -362,12 +392,46 @@ export default function AgendaProfissional() {
                     ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} percentual={percentual} index={i} />)
                     : <SlotVazio hora={hora} dia={diaSelecionado} />
                   }
+                  {(bloqueiosPorHora[hora] ?? []).map((b) => (
+                    <View
+                      key={b.id}
+                      style={{
+                        borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
+                        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+                        padding: 10, marginBottom: 6,
+                        opacity: b.situacao === 'pendente' ? 0.6 : 1,
+                      }}
+                    >
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
+                        {b.titulo || motivoBloqueioLabel(b.motivo)}
+                      </Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
+                        {format(new Date(b.data_inicio), 'HH:mm')}–{format(new Date(b.data_fim), 'HH:mm')}
+                        {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               </View>
             );
           })}
         </View>
       </ScrollView>
+
+      <BloqueioModal
+        key={diaSelecionado.toISOString()}
+        visible={modalBloqueio}
+        role="profissional"
+        meuUserId={user?.id ?? ''}
+        meuNome={user?.nome ?? 'Você'}
+        membros={[]}
+        dataInicial={diaSelecionado}
+        onClose={() => setModalBloqueio(false)}
+        onSubmit={async (input) => {
+          const r = await criarBloqueio.mutateAsync(input);
+          return { situacao: r.situacao };
+        }}
+      />
     </View>
   );
 }
