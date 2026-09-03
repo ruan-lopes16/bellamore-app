@@ -81,10 +81,13 @@ describe('B2 — grid único de KPIs no Financeiro', () => {
   });
 });
 
-describe('B1/B2 mobile — KPIs de Financeiro', () => {
+describe('B1/B2 mobile — KPIs de Financeiro (no-op: layout já correto)', () => {
+  // O mobile usa uma fileira única de 3 KPIs (flex:1 cada), não um grid de 2
+  // colunas — logo não há célula órfã. E não existe skeleton para desalinhar.
   const src = read('../mobile/app/(empresa)/financeiro.tsx');
-  it('último KPI ocupa a linha inteira quando a contagem é ímpar', () => {
-    expect(src).toContain('kpisFin.length % 2 === 1 && i === kpisFin.length - 1');
+  it('a fileira de Resumo continua sendo 3 KPIs em flex-row', () => {
+    expect(src).toMatch(/label: 'Receita'[\s\S]{0,400}label: 'Gastos'[\s\S]{0,400}label: 'Lucro'/);
+    expect(src).toContain("flexDirection: 'row', gap: 8");
   });
 });
 
@@ -110,13 +113,17 @@ describe('C2/C3 — comissão neutra + sem Funil', () => {
   });
 });
 
-describe('C2/C3 mobile — Relatórios', () => {
+describe('C1/C2/C3 mobile — Relatórios (no-op: padrões inexistentes no Expo)', () => {
+  // O relatorios.tsx do Expo é um design mais simples: ProfissionalRow não
+  // mostra comissão (logo não há cor de alerta a trocar), não existe card
+  // "Funil de atendimentos", e não há gráfico de barras verticais de evolução
+  // (ServicoRow usa barra horizontal por %, que funciona). Nada a mudar.
   const src = read('../mobile/app/(empresa)/relatorios.tsx');
-  it('sem card Funil de atendimentos', () => {
+  it('não tem card Funil de atendimentos', () => {
     expect(src).not.toContain('Funil de atendimentos');
   });
-  it('comissão da equipe em cor neutra', () => {
-    expect(src).toContain('// comissão em cor neutra');
+  it('ProfissionalRow não renderiza linha de comissão', () => {
+    expect(src).not.toMatch(/Comiss[ãa]o:\s*\{/);
   });
 });
 

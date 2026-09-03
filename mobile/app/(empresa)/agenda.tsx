@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   RefreshControl, StatusBar, Pressable,
@@ -32,6 +32,7 @@ import {
   type AgendamentoCompleto, type ProfissionalAgenda,
 } from '@/hooks/useAgenda';
 import { useAuthStore } from '@/stores/authStore';
+import { agendarLembretesLocais } from '@/lib/notifications';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -77,6 +78,14 @@ function formatBRL(v: number) {
 function horaStr(iso: string) {
   return format(new Date(iso), 'HH:mm');
 }
+/** Nomes de todos os serviços do agendamento, unidos por " + " (fallback: serviço único). */
+function nomesServicos(ag: AgendamentoCompleto): string {
+  const multi = ag.agendamento_servicos ?? [];
+  if (multi.length > 0) {
+    return [...multi].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ') || '—';
+  }
+  return ag.servico?.nome ?? '—';
+}
 
 // ── Card de agendamento ──────────────────────────────────────
 
@@ -121,9 +130,9 @@ function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number
           </View>
         </View>
 
-        {/* Linha 2: serviço */}
+        {/* Linha 2: serviço(s) */}
         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginBottom: 8 }} numberOfLines={1}>
-          {ag.servico?.nome}
+          {nomesServicos(ag)}
         </Text>
 
         {/* Linha 3: profissional + valor + status */}
@@ -224,6 +233,19 @@ export default function Agenda() {
   });
 
   const onRefresh = useCallback(() => refetch(), [refetch]);
+
+  // Reprograma os lembretes locais (véspera + 30 min) sempre que a lista muda.
+  useEffect(() => {
+    const futuros = agendamentos
+      .filter((a) => new Date(a.data_hora_inicio) > new Date() && (a.status === 'agendado' || a.status === 'confirmado'))
+      .map((a) => ({
+        id: a.id,
+        dataHoraInicio: a.data_hora_inicio,
+        clienteNome: a.cliente?.nome ?? null,
+        servicoNome: nomesServicos(a),
+      }));
+    agendarLembretesLocais(futuros).catch(() => {});
+  }, [agendamentos]);
 
   if (!fontsLoaded) return null;
 

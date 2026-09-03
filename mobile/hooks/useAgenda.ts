@@ -21,6 +21,8 @@ export interface AgendamentoCompleto extends Agendamento {
   cliente:      { id: string; nome: string; telefone?: string; foto_url?: string };
   profissional: { id: string; nome: string; foto_url?: string };
   servico:      { id: string; nome: string; duracao_minutos: number; categoria?: string; categoria_id?: string | null };
+  /** Serviços do agendamento multi-serviço (criado no web); vazio para agendamento de 1 serviço. */
+  agendamento_servicos?: { ordem: number; servico: { nome: string } | null }[];
   categoria:    CategoriaServico;
   /** Aparência resolvida da categoria (built-in ou personalizada). */
   categoriaResolvida?: { label: string; cor: string; bg: string; iconeCustom?: string; iconeBuiltin?: CategoriaServico };
@@ -87,7 +89,8 @@ export function useAgendamentoDia(dia: Date, profissionalFiltro?: string) {
           *,
           cliente:users!agendamentos_cliente_id_fkey(id, nome, telefone, foto_url),
           profissional:users!agendamentos_profissional_id_fkey(id, nome, foto_url),
-          servico:servicos(id, nome, duracao_minutos, categoria, categoria_id)
+          servico:servicos(id, nome, duracao_minutos, categoria, categoria_id),
+          agendamento_servicos(ordem, servico:servicos(nome))
         `)
         .eq('empresa_id', empresaId!)
         .gte('data_hora_inicio', startOfDay(dia).toISOString())

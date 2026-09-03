@@ -44,6 +44,55 @@ export async function registrarPushToken(userId: string): Promise<void> {
     .eq('id', userId);
 }
 
+/**
+ * Agenda lembretes LOCAIS (sem servidor) para os atendimentos futuros do
+ * usuário: 1 disparo às 18:00 da véspera + 1 disparo 30 min antes.
+ * Recria tudo a cada chamada — chamar quando a agenda recarrega.
+ */
+export async function agendarLembretesLocais(
+  ags: { id: string; dataHoraInicio: string; clienteNome: string | null; servicoNome: string | null }[],
+): Promise<void> {
+  if (!Device.isDevice) return;
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== 'granted') return;
+
+  // Limpa os agendados e reprograma do zero (evita duplicar / manter obsoletos).
+  await Notifications.cancelAllScheduledNotificationsAsync();
+
+  const agora = Date.now();
+
+  for (const ag of ags) {
+    const inicio = new Date(ag.dataHoraInicio).getTime();
+    if (Number.isNaN(inicio) || inicio <= agora) continue;
+
+    const cli = ag.clienteNome ?? 'Cliente';
+    const serv = ag.servicoNome ?? 'Atendimento';
+    const hhmm = new Date(ag.dataHoraInicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    // 30 min antes
+    const t30 = new Date(inicio - 30 * 60_000);
+    if (t30.getTime() > agora) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `ag-${ag.id}-30`,
+        content: { title: 'Lembrete de atendimento', body: `Em 30 min: ${cli} — ${serv} · ${hhmm}` },
+        trigger: { date: t30 },
+      });
+    }
+
+    // Véspera às 18:00
+    const vespera = new Date(inicio);
+    vespera.setDate(vespera.getDate() - 1);
+    vespera.setHours(18, 0, 0, 0);
+    if (vespera.getTime() > agora) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `ag-${ag.id}-vespera`,
+        content: { title: 'Atendimento amanhã', body: `Amanhã às ${hhmm}: ${cli} — ${serv}` },
+        trigger: { date: vespera },
+      });
+    }
+  }
+}
+
 // Mapa de tipo de notificação → rota de destino ao tocar
 export function rotaParaNotificacao(
   tipo?: string,
