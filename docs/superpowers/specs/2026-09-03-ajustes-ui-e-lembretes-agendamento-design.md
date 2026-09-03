@@ -243,6 +243,13 @@ atendimento.
 
 ### E1. Migration — rastreio de lembrete
 
+> **O que já existe e é reaproveitado (não recriar):** `005_push_token.sql`
+> (`users.push_token`) e `019_web_push_subscriptions.sql` (tabela
+> `web_push_subscriptions`) — a infra de push, presumivelmente já aplicada em
+> produção. As 3 migrations abaixo (066–068) são **novas**: a última no repo é a
+> `065`. Nenhuma ocorrência de `lembrete`, `pg_cron`, `cron.schedule` ou
+> `pg_net` existe hoje em `supabase/migrations/`.
+
 Nova migration `supabase/migrations/066_agendamento_lembretes.sql`:
 - `alter table public.agendamentos add column lembrete_vespera_em timestamptz;`
 - `alter table public.agendamentos add column lembrete_30min_em  timestamptz;`
@@ -375,6 +382,8 @@ iOS nativo.
 - Testes unitários novos: função de resolução de destinatários e a lógica de
   janela dos lembretes (E2) como funções puras testáveis, no padrão de
   `shared/`.
-- `pg_cron`/`pg_net` e as migrations 066–068 são **entregues mas não aplicadas** —
-  dependem do usuário rodar `supabase db push` e substituir os placeholders de
-  `APP_URL`/`CRON_SECRET` (mesma pendência das migrations 062/063 anteriores).
+- `pg_cron`/`pg_net` e as migrations **066–068 (novas)** são **entregues mas não
+  aplicadas** — dependem do usuário rodar `supabase db push` e substituir os
+  placeholders de `APP_URL`/`CRON_SECRET` (mesma pendência das migrations 062/063
+  anteriores). As migrations de push que o usuário já rodou são a `005` e a `019`
+  — o plano só as consome, não mexe nelas.
