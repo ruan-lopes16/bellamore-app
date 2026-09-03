@@ -1361,7 +1361,7 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio,
+  ags, bloqueios, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio, meuRole, meuUserId,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; loading: boolean; empresaId: string;
   categoriasCustom: CategoriaCustom[];
@@ -1370,6 +1370,7 @@ function TimelineView({
   onEditar?: (ag: Ag) => void;
   onNovo: (params: { hora: string; profId: string }) => void;
   onDeletarBloqueio: (id: string) => void;
+  meuRole: string; meuUserId: string;
 }) {
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
   // O painel Detalhes so vira modal no mobile (md:hidden). No desktop ele e um
@@ -1555,29 +1556,48 @@ function TimelineView({
                   {/* Bloqueios de horário */}
                   {bloqueios
                     .filter(b => b.profissional_id === null || b.profissional_id === prof.id)
+                    .filter(b =>
+                      // aprovados: todos veem. Pendentes: só a gestão ou quem criou.
+                      // A RLS já filtra isso no servidor; este filtro é defesa em profundidade visual.
+                      b.situacao === 'aprovado'
+                      || meuRole === 'owner' || meuRole === 'gestor'
+                      || b.criado_por === meuUserId,
+                    )
                     .map(bl => {
                       const topBl = tlTopISO(bl.data_inicio);
                       const hBl   = tlHeightISO(bl.data_inicio, bl.data_fim);
+                      const pendente    = bl.situacao === 'pendente';
+                      const podeRemover = meuRole === 'owner' || meuRole === 'gestor'
+                        || (pendente && bl.criado_por === meuUserId);
                       return (
                         <div key={bl.id}
                           className="absolute overflow-hidden z-5 flex flex-col"
                           style={{
                             top: topBl, height: hBl, left: 2, right: 2,
                             borderRadius: 5,
-                            background: 'repeating-linear-gradient(-45deg, rgba(220,38,38,0.07), rgba(220,38,38,0.07) 5px, rgba(220,38,38,0.03) 5px, rgba(220,38,38,0.03) 10px)',
+                            background: pendente
+                              ? 'repeating-linear-gradient(45deg, rgba(201,82,127,0.10) 0 6px, rgba(201,82,127,0.02) 6px 12px)'
+                              : 'var(--color-rose-soft)',
                             border: '1px solid rgba(220,38,38,0.22)',
                           }}>
                           <div className="flex items-center justify-between px-1.5 py-0.5 gap-1">
                             <span className="text-[9px] font-semibold truncate" style={{ color: 'var(--color-rose)' }}>
                               {bl.titulo || 'Bloqueio'}
                             </span>
-                            <button
-                              onClick={e => { e.stopPropagation(); onDeletarBloqueio(bl.id); }}
-                              className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-rose-soft transition"
-                              title="Remover bloqueio">
-                              <X size={9} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
-                            </button>
+                            {podeRemover && (
+                              <button
+                                onClick={e => { e.stopPropagation(); onDeletarBloqueio(bl.id); }}
+                                className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-rose-soft transition"
+                                title="Remover bloqueio">
+                                <X size={9} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
+                              </button>
+                            )}
                           </div>
+                          {pendente && (
+                            <span className="px-1.5 text-[9px] font-semibold leading-none truncate" style={{ color: 'var(--color-amber)' }}>
+                              aguardando aprovação
+                            </span>
+                          )}
                         </div>
                       );
                     })}
@@ -2017,13 +2037,18 @@ export default function AgendaPage() {
     }
   }
 
+  /** Remove um bloqueio. `.select('id')` + guarda de zero linhas transforma um bloqueio de RLS em mensagem visível, restaurando a lista otimista. */
   async function deletarBloqueio(id: string) {
+    const anterior = bloqueios;
     setBloqueios(prev => prev.filter(b => b.id !== id));
-    const { error } = await supabase.from('agenda_bloqueios').delete().eq('id', id);
-    if (error) {
-      if (empresaId) fetchDia(dataSel, empresaId);
-      showErro(`Erro ao remover bloqueio: ${error.message}`);
+    const { data: rows, error } = await supabase
+      .from('agenda_bloqueios').delete().eq('id', id).select('id');
+    if (error || !rows || rows.length === 0) {
+      setBloqueios(anterior);
+      showErro(error?.message ?? 'Sem permissão para remover este bloqueio.');
+      return;
     }
+    setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
   }
 
   /** Aprova um pedido de bloqueio pendente. `.select('id')` + guarda de zero linhas para não engolir bloqueio de RLS. */
@@ -2172,6 +2197,8 @@ export default function AgendaPage() {
           onEditar={ag => setAgEditar(ag)}
           onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
           onDeletarBloqueio={deletarBloqueio}
+          meuRole={meuRole}
+          meuUserId={meuUserId}
         />
       ) : (
         <>

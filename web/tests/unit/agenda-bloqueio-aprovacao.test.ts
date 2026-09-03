@@ -76,3 +76,32 @@ describe('agenda: pílula + modal de bloqueios pendentes (aprovar/recusar)', () 
     expect(src).toContain('confirmarRecusa');
   });
 });
+
+describe('agenda: TimelineView desenha bloqueio pendente + trava do remover', () => {
+  it('TimelineView recebe meuRole e meuUserId (destructure + type + call site)', () => {
+    expect(src).toMatch(/function TimelineView\(\{[\s\S]*?meuRole, meuUserId,[\s\S]*?\}: \{/);
+    expect(src).toMatch(/onDeletarBloqueio: \(id: string\) => void;\s*meuRole: string; meuUserId: string;/);
+    expect(src).toMatch(/<TimelineView[\s\S]*?meuRole=\{meuRole\}[\s\S]*?meuUserId=\{meuUserId\}[\s\S]*?\/>/);
+  });
+
+  it('filtro visual esconde pendente de quem não é gestão nem criador', () => {
+    expect(src).toMatch(/\.filter\(b =>[\s\S]*?b\.situacao === 'aprovado'[\s\S]*?meuRole === 'owner' \|\| meuRole === 'gestor'[\s\S]*?b\.criado_por === meuUserId,\s*\)/);
+  });
+
+  it('podeRemover libera o "X" para gestão ou para o criador do bloco ainda pendente', () => {
+    expect(src).toMatch(/const podeRemover = meuRole === 'owner' \|\| meuRole === 'gestor'\s*\|\| \(pendente && bl\.criado_por === meuUserId\)/);
+    expect(src).toMatch(/\{podeRemover && \([\s\S]*?onDeletarBloqueio\(bl\.id\)/);
+  });
+
+  it('bloco pendente ganha hachura + pílula "aguardando aprovação"; aprovado fica sólido', () => {
+    expect(src).toMatch(/const pendente\s+= bl\.situacao === 'pendente'/);
+    expect(src).toMatch(/background: pendente\s*\?\s*'repeating-linear-gradient\(45deg[\s\S]*?:\s*'var\(--color-rose-soft\)'/);
+    expect(src).toMatch(/\{pendente && \([\s\S]*?aguardando aprovação/);
+  });
+
+  it('deletarBloqueio: guarda estado anterior, .select(\'id\'), restaura em zero linhas e limpa pendentes no sucesso', () => {
+    expect(src).toMatch(/async function deletarBloqueio\(id: string\) \{\s*const anterior = bloqueios;/);
+    expect(src).toMatch(/\.from\('agenda_bloqueios'\)\.delete\(\)\.eq\('id', id\)\.select\('id'\);/);
+    expect(src).toMatch(/if \(error \|\| !rows \|\| rows\.length === 0\) \{\s*setBloqueios\(anterior\);[\s\S]*?return;\s*\}\s*setBloqueiosPendentes\(prev => prev\.filter\(b => b\.id !== id\)\);/);
+  });
+});
