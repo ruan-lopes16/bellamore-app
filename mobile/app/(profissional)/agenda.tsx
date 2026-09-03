@@ -215,11 +215,25 @@ export default function AgendaProfissional() {
     agPorHora[h].push(ag);
   });
 
+  // Um bloqueio ocupa TODAS as horas que cruza (08:00–12:00 => 8,9,10,11).
+  // Fim exatamente na hora cheia não conta aquela hora. Limita ao dia visível
+  // porque um bloqueio pode cruzar vários dias.
   const bloqueiosPorHora: Record<number, typeof bloqueios> = {};
   bloqueios.forEach((b) => {
-    const h = new Date(b.data_inicio).getHours();
-    if (!bloqueiosPorHora[h]) bloqueiosPorHora[h] = [];
-    bloqueiosPorHora[h].push(b);
+    const diaIni = new Date(diaSelecionado); diaIni.setHours(0, 0, 0, 0);
+    const diaFim = new Date(diaSelecionado); diaFim.setHours(23, 59, 59, 999);
+    const ini = new Date(b.data_inicio);
+    const fim = new Date(b.data_fim);
+    const eIni = ini < diaIni ? diaIni : ini;
+    const eFim = fim > diaFim ? diaFim : fim;
+    const hIni = eIni.getHours();
+    let hFim = eFim.getHours();
+    if (eFim.getMinutes() === 0 && eFim.getSeconds() === 0 && hFim > hIni) hFim -= 1;
+    for (let h = hIni; h <= hFim; h++) {
+      if (!HORAS.includes(h)) continue;
+      if (!bloqueiosPorHora[h]) bloqueiosPorHora[h] = [];
+      bloqueiosPorHora[h].push(b);
+    }
   });
 
   const [c1, c2] = avatarColors(user?.nome ?? '');
@@ -390,7 +404,7 @@ export default function AgendaProfissional() {
                   <View style={{ height: 1, backgroundColor: '#D8D0C8', marginBottom: 6 }} />
                   {ags.length > 0
                     ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} percentual={percentual} index={i} />)
-                    : <SlotVazio hora={hora} dia={diaSelecionado} />
+                    : (bloqueiosPorHora[hora]?.length ? null : <SlotVazio hora={hora} dia={diaSelecionado} />)
                   }
                   {(bloqueiosPorHora[hora] ?? []).map((b) => (
                     <View

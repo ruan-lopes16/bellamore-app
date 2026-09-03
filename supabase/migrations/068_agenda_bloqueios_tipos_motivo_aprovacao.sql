@@ -49,11 +49,29 @@ alter table public.agenda_bloqueios
 -- Backfill: bloqueios gerais antigos tinham profissional_id NULL
 update public.agenda_bloqueios set escopo = 'geral' where profissional_id is null;
 
+-- XOR escopo/profissional_id: 'geral' <=> profissional_id IS NULL.
+-- Roda DEPOIS do backfill, entao as linhas existentes ja satisfazem.
+-- `alter table add constraint` nao tem `if not exists` p/ CHECK em PG
+-- antigo -> guarda em DO block p/ o re-run nao dar 42710.
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'agenda_bloqueios_escopo_prof_xor'
+  ) then
+    alter table public.agenda_bloqueios
+      add constraint agenda_bloqueios_escopo_prof_xor
+      check ((escopo = 'geral') = (profissional_id is null));
+  end if;
+end $$;
+
 -- ── RLS reescrita (empresa_id IN (SELECT minha_empresas())) ──
 drop policy if exists "bloqueios_select" on public.agenda_bloqueios;
 drop policy if exists "bloqueios_insert" on public.agenda_bloqueios;
 drop policy if exists "bloqueios_update" on public.agenda_bloqueios;
 drop policy if exists "bloqueios_delete" on public.agenda_bloqueios;
+drop policy if exists "bloqueios: ver"     on public.agenda_bloqueios;
+drop policy if exists "bloqueios: criar"   on public.agenda_bloqueios;
+drop policy if exists "bloqueios: aprovar" on public.agenda_bloqueios;
+drop policy if exists "bloqueios: excluir" on public.agenda_bloqueios;
 
 create policy "bloqueios: ver" on public.agenda_bloqueios
   for select using (

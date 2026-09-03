@@ -239,24 +239,28 @@ const BLOQUEIO_PROF_COLS =
   'id, profissional_id, titulo, motivo, escopo, situacao, criado_por, data_inicio, data_fim';
 
 /**
- * Bloqueios que tocam o dia selecionado na agenda da profissional. A RLS
- * já limita o que a profissional enxerga (bloqueios aprovados da empresa
- * + os que ela mesma pediu, ainda pendentes), então não precisa de
- * filtro extra de `profissional_id`/`criado_por` aqui — basta o recorte
- * de empresa e a interseção com o dia.
+ * Bloqueios que tocam o dia selecionado na agenda da profissional.
+ * A RLS de SELECT (`"bloqueios: ver"`, migration 068) recorta por
+ * empresa + situação (`aprovado`, ou criado por mim, ou gestão) —
+ * NUNCA por profissional. Sem o `.or(profissional_id / escopo geral)`
+ * abaixo, a profissional veria na própria timeline todo bloqueio
+ * `aprovado` das colegas. O filtro deixa passar só os dela e os de
+ * escopo `geral` (que valem para a agenda inteira).
  */
 export function useBloqueiosProfissionalDia(dia: Date) {
-  const { empresaAtiva } = useAuthStore();
+  const { user, empresaAtiva } = useAuthStore();
+  const userId = user?.id;
   const empresaId = empresaAtiva?.id;
   return useQuery({
-    queryKey: ['bloqueios-prof-dia', empresaId, format(dia, 'yyyy-MM-dd')],
-    enabled: !!empresaId,
+    queryKey: ['bloqueios-prof-dia', empresaId, userId, format(dia, 'yyyy-MM-dd')],
+    enabled: !!empresaId && !!userId,
     staleTime: 1000 * 30,
     queryFn: async (): Promise<BloqueioAgenda[]> => {
       const { data, error } = await supabase
         .from('agenda_bloqueios')
         .select(BLOQUEIO_PROF_COLS)
         .eq('empresa_id', empresaId)
+        .or(`profissional_id.eq.${user!.id},escopo.eq.geral`)
         .lte('data_inicio', endOfDay(dia).toISOString())
         .gte('data_fim', startOfDay(dia).toISOString());
       if (error) throw error;

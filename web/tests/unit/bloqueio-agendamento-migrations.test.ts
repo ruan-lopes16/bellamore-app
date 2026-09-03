@@ -14,8 +14,8 @@ describe('Migrations 066–069: bloqueio + excluir agendamento', () => {
   const sql = readAllMigrations();
 
   // ── 066 ──
-  it('066: cria policy de DELETE de agendamentos restrita a gestor/owner', () => {
-    expect(sql).toMatch(/create policy "agendamentos: gestor ou owner exclui"\s+on public\.agendamentos\s+for delete\s+using \(is_gestor_ou_owner\(empresa_id\)\)/);
+  it('066: cria policy de DELETE de agendamentos restrita a gestor/owner e barra concluido', () => {
+    expect(sql).toMatch(/create policy "agendamentos: gestor ou owner exclui"\s+on public\.agendamentos\s+for delete\s+using \(is_gestor_ou_owner\(empresa_id\) and status <> 'concluido'\)/);
   });
 
   // ── 067 ──
@@ -52,6 +52,33 @@ describe('Migrations 066–069: bloqueio + excluir agendamento', () => {
     expect(m068).toMatch(/for insert with check \([\s\S]*?escopo\s*=\s*'profissional'[\s\S]*?profissional_id\s*=\s*auth\.uid\(\)[\s\S]*?criado_por\s*=\s*auth\.uid\(\)[\s\S]*?situacao\s*=\s*'pendente'[\s\S]*?motivo is not null/);
   });
 
+  it('068: dropa as 4 policies novas (nome atual) antes de recriar — idempotente', () => {
+    const m068 = readFileSync(
+      join(process.cwd(), '..', 'supabase', 'migrations', '068_agenda_bloqueios_tipos_motivo_aprovacao.sql'),
+      'utf8',
+    ).toLowerCase();
+    for (const nome of ['bloqueios: ver', 'bloqueios: criar', 'bloqueios: aprovar', 'bloqueios: excluir']) {
+      const drop = m068.indexOf(`drop policy if exists "${nome}"`);
+      const create = m068.indexOf(`create policy "${nome}" on public.agenda_bloqueios`);
+      expect(drop).toBeGreaterThanOrEqual(0);
+      expect(create).toBeGreaterThan(drop);
+      expect(m068).toMatch(new RegExp(`drop policy if exists "${nome}"\\s+on public\\.agenda_bloqueios`));
+    }
+    // os drops antigos (nomes da 033) continuam presentes
+    for (const antigo of ['bloqueios_select', 'bloqueios_insert', 'bloqueios_update', 'bloqueios_delete']) {
+      expect(m068).toContain(`drop policy if exists "${antigo}" on public.agenda_bloqueios`);
+    }
+  });
+
+  it('068: check XOR escopo/profissional_id, guardado contra re-run (42710)', () => {
+    const m068 = readFileSync(
+      join(process.cwd(), '..', 'supabase', 'migrations', '068_agenda_bloqueios_tipos_motivo_aprovacao.sql'),
+      'utf8',
+    ).toLowerCase();
+    expect(m068).toMatch(/if not exists \(\s*select 1 from pg_constraint where conname = 'agenda_bloqueios_escopo_prof_xor'/);
+    expect(m068).toMatch(/add constraint agenda_bloqueios_escopo_prof_xor\s+check \(\(escopo = 'geral'\) = \(profissional_id is null\)\)/);
+  });
+
   it('068: index de pendentes', () => {
     expect(sql).toMatch(/create index if not exists idx_bloqueios_pendentes\s+on public\.agenda_bloqueios \(empresa_id, situacao, data_inicio\)/);
   });
@@ -78,5 +105,9 @@ describe('Migrations 066–069: bloqueio + excluir agendamento', () => {
 
   it('069: formata data no fuso America/Sao_Paulo', () => {
     expect(sql).toContain("at time zone 'america/sao_paulo'");
+  });
+
+  it('069: traduz o motivo para rotulo pt-BR na mensagem de bloqueio_pendente', () => {
+    expect(sql).toMatch(/case new\.motivo[\s\S]*?when 'folga'\s+then 'folga'[\s\S]*?when 'almoco'\s+then 'almoço'[\s\S]*?when 'manutencao'\s+then 'manutenção'[\s\S]*?else coalesce\(new\.motivo, 'sem motivo'\)[\s\S]*?end/);
   });
 });

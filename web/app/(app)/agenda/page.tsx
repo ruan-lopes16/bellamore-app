@@ -1959,12 +1959,17 @@ export default function AgendaPage() {
   // Bloqueios pendentes de aprovação (só a gestão enxerga / faz polling)
   const recarregarPendentes = useCallback(async () => {
     if (!empresaId) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('agenda_bloqueios')
       .select('id, profissional_id, criado_por, titulo, motivo, data_inicio, data_fim, autor:users!agenda_bloqueios_criado_por_fkey(nome)')
       .eq('empresa_id', empresaId)
       .eq('situacao', 'pendente')
       .order('data_inicio');
+    if (error) {
+      // Não zera a lista atual — só avisa que a atualização falhou.
+      showErro('Erro ao carregar bloqueios pendentes.');
+      return;
+    }
     setBloqueiosPendentes(
       ((data ?? []) as any[]).map((b) => ({
         id: b.id,

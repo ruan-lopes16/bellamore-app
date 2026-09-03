@@ -197,7 +197,9 @@ function SlotVazio({ hora, dia }: { hora: number; dia: Date }) {
 export default function Agenda() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user, roleAtivo, isOwner } = useAuthStore();
-  const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'gestor');
+  // `(empresa)` já barra o acesso por rota; o `?? 'profissional'` só alinha
+  // o branch (inalcançável) de null com o do hook useAgenda.ts.
+  const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
 
   const [diaSelecionado, setDiaSelecionado] = useState(new Date());
   const [mesRef, setMesRef] = useState(new Date());
@@ -213,7 +215,7 @@ export default function Agenda() {
   const { data: profissionais = [] } = useProfissionais();
   const { data: diasComAg } = useDiasComAgendamento(mesRef);
   const { data: bloqueios = [] } = useBloqueiosDia(diaSelecionado);
-  const { data: pendentes = [] } = useBloqueiosPendentes();
+  const { data: pendentes = [], isError: pendentesErro } = useBloqueiosPendentes();
   const criarBloqueio = useCriarBloqueio();
   const aprovar = useAprovarBloqueio();
   const recusar = useRecusarBloqueio();
@@ -248,12 +250,25 @@ export default function Agenda() {
     agPorHora[hora].push(ag);
   });
 
-  // Agrupa bloqueios do dia pela hora de início (só p/ desenhar na timeline)
+  // Agrupa bloqueios do dia por hora: um bloqueio ocupa TODAS as horas que
+  // cruza (08:00–12:00 => 8,9,10,11). Fim exatamente na hora cheia não conta
+  // aquela hora. Limita ao dia visível (bloqueio pode cruzar vários dias).
   const bloqueiosPorHora: Record<number, typeof bloqueios> = {};
   bloqueios.forEach((b) => {
-    const hora = new Date(b.data_inicio).getHours();
-    if (!bloqueiosPorHora[hora]) bloqueiosPorHora[hora] = [];
-    bloqueiosPorHora[hora].push(b);
+    const diaIni = new Date(diaSelecionado); diaIni.setHours(0, 0, 0, 0);
+    const diaFim = new Date(diaSelecionado); diaFim.setHours(23, 59, 59, 999);
+    const ini = new Date(b.data_inicio);
+    const fim = new Date(b.data_fim);
+    const eIni = ini < diaIni ? diaIni : ini;
+    const eFim = fim > diaFim ? diaFim : fim;
+    const hIni = eIni.getHours();
+    let hFim = eFim.getHours();
+    if (eFim.getMinutes() === 0 && eFim.getSeconds() === 0 && hFim > hIni) hFim -= 1;
+    for (let h = hIni; h <= hFim; h++) {
+      if (!HORAS.includes(h)) continue;
+      if (!bloqueiosPorHora[h]) bloqueiosPorHora[h] = [];
+      bloqueiosPorHora[h].push(b);
+    }
   });
 
   return (
@@ -325,6 +340,11 @@ export default function Agenda() {
                 style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: '#FEF3E2', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#B45309' }}>Pendentes ({pendentes.length})</Text>
               </TouchableOpacity>
+            )}
+            {pendentesErro && (
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: '#C0392B' }}>
+                Erro ao carregar pendentes
+              </Text>
             )}
           </View>
 
@@ -530,7 +550,7 @@ export default function Agenda() {
                   <View style={{ height: 1, backgroundColor: '#D8D0C8', marginBottom: 6 }} />
                   {ags.length > 0 ? (
                     ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
-                  ) : (
+                  ) : bloqueiosPorHora[hora]?.length ? null : (
                     <SlotVazio hora={hora} dia={new Date(diaSelecionado)} />
                   )}
                   {(bloqueiosPorHora[hora] ?? []).map((b) => (

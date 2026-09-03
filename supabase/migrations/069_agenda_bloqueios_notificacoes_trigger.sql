@@ -36,7 +36,15 @@ begin
   -- 1. Pedido novo -> avisa a gestao
   if tg_op = 'INSERT' and NEW.situacao = 'pendente' and NEW.criado_por is not null then
     select nome into v_autor_nome from public.users where id = NEW.criado_por;
-    v_motivo := coalesce(nullif(NEW.motivo, ''), 'sem motivo');
+    v_motivo := case NEW.motivo
+      when 'folga'      then 'Folga'
+      when 'feriado'    then 'Feriado'
+      when 'almoco'     then 'Almoço'
+      when 'reuniao'    then 'Reunião'
+      when 'manutencao' then 'Manutenção'
+      when 'outro'      then 'Outro'
+      else coalesce(NEW.motivo, 'sem motivo')
+    end;
 
     insert into public.notificacoes (user_id, empresa_id, tipo, titulo, mensagem)
     select u.uid, NEW.empresa_id, 'bloqueio_pendente',

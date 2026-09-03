@@ -11,6 +11,14 @@
 -- gestor/owner (is_gestor_ou_owner, da 003). Só ABRE a ação nova
 -- (Tasks 6 e 7); não altera nenhum fluxo existente.
 --
+-- O USING também exclui linhas `concluido`: defesa em profundidade
+-- atrás do guard de cliente `podeExcluirAgendamento`. O backstop de
+-- FK é só CONDICIONAL — um profissional owner/CLT a 0% de comissão
+-- não gera linha em `comissoes`, então um `concluido` criado direto
+-- pela agenda, sem comanda/estoque/pacote, poderia ser apagado
+-- limpo e levar em cascata as `taxas_reserva` já pagas. O predicado
+-- `status <> 'concluido'` fecha esse buraco no próprio banco.
+--
 -- ⚠️ Conferir no painel do Supabase se sobrou alguma policy de DELETE
 --    em public.agendamentos com outro nome (policies permissivas se
 --    somam com OR — não quebraria nada, só afrouxaria a trava).
@@ -26,4 +34,4 @@ drop policy if exists "agendamentos: gestor ou owner exclui" on public.agendamen
 create policy "agendamentos: gestor ou owner exclui"
   on public.agendamentos
   for delete
-  using (is_gestor_ou_owner(empresa_id));
+  using (is_gestor_ou_owner(empresa_id) and status <> 'concluido');
