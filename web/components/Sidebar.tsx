@@ -38,19 +38,19 @@ const BOTTOM_NAV_DESKTOP: { href: string; label: string; icon: React.ElementType
   { href: '/configuracoes', label: 'Configurações', icon: Settings, permissao: 'configurar_empresa' },
 ];
 
-// 5 abas do bottom nav mobile (design Bellamore) — sem permissão condicionada:
-// Financeiro some do bottom nav quando restrito (ver filtragem no componente)
+// 5 abas do bottom nav mobile (design Bellamore) — sem permissão condicionada.
+// Comanda no bottom nav; Financeiro vive em "Mais" e some de lá quando restrito.
 const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/dashboard',  label: 'Início',     icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
-  { href: '/agenda',     label: 'Agenda',     icon: CalendarDays    },
-  { href: '/clientes',   label: 'Clientes',   icon: Users           },
-  { href: '/financeiro', label: 'Financeiro', icon: DollarSign,      permissao: 'ver_resumo_financeiro' },
-  { href: '/mais',       label: 'Mais',       icon: MoreHorizontal  },
+  { href: '/dashboard',  label: 'Início',   icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
+  { href: '/agenda',     label: 'Agenda',   icon: CalendarDays    },
+  { href: '/clientes',   label: 'Clientes', icon: Users           },
+  { href: '/comanda',    label: 'Comanda',  icon: Receipt         },
+  { href: '/mais',       label: 'Mais',     icon: MoreHorizontal  },
 ];
 
 // Itens do drawer "Mais" (mobile)
 const MAIS_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/comanda',      label: 'Comanda',      icon: Receipt      },
+  { href: '/financeiro',   label: 'Financeiro',    icon: DollarSign,   permissao: 'ver_resumo_financeiro'  },
   { href: '/vendas',       label: 'Vendas',        icon: ShoppingCart, permissao: 'gerenciar_vendas'        },
   { href: '/servicos',     label: 'Serviços',      icon: Scissors,     permissao: 'gerenciar_servicos'     },
   { href: '/pacotes',      label: 'Pacotes',       icon: Gift         },

@@ -127,6 +127,15 @@ function fmtSessaoData(iso: string | null): string {
   return isNaN(d.getTime()) ? '—' : format(d, 'dd/MM/yy');
 }
 
+/** Nomes de todos os serviços de um agendamento, unidos por " + " (fallback: serviço legado). */
+function nomesServicosDoAg(ag: { agendamento_servicos?: { ordem: number; servico?: { nome?: string | null } | null }[]; servico?: { nome?: string | null } | null }): string {
+  const multi = ag.agendamento_servicos ?? [];
+  if (multi.length > 0) {
+    return [...multi].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ') || '—';
+  }
+  return ag.servico?.nome ?? '—';
+}
+
 // ── Card de agendamento ───────────────────────────────────────
 
 const STATUS_OPCOES = [
@@ -137,11 +146,13 @@ const STATUS_OPCOES = [
   { key: 'faltou',     label: 'Faltou',     cor: 'text-red'     },
 ];
 
-function AgCard({ ag, empresaId, onStatus, onEditar }: {
+function AgCard({ ag, empresaId, onStatus, onEditar, statusInline = false }: {
   ag: Ag;
   empresaId: string;
   onStatus: (id: string, s: string) => void;
   onEditar?: (ag: Ag) => void;
+  /** No modal mobile de Detalhes: mostra o status como lista embutida em vez de dropdown flutuante (que era cortado). */
+  statusInline?: boolean;
 }) {
   const [menuAberto, setMenuAberto] = useState(false);
   const inicio = format(parseISO(ag.data_hora_inicio), 'HH:mm');
@@ -179,36 +190,40 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
                   <Pencil size={11} strokeWidth={2.5}/>
                 </button>
               )}
-              {/* Badge de status clicável */}
-              <div className="relative">
-              <button
-                onClick={() => setMenuAberto(v => !v)}
-                className={`text-xs font-semibold px-2 py-0.5 rounded-lg transition hover:opacity-80 ${st.bg} ${st.text}`}>
-                {st.label} ▾
-              </button>
-              {menuAberto && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuAberto(false)}/>
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-surface border border-border rounded-xl shadow-lg py-1 min-w-[130px]">
-                    {STATUS_OPCOES.map(({ key, label, cor }) => (
-                      <button key={key} onClick={() => selecionarStatus(key)}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold hover:bg-bg transition flex items-center gap-2 ${
-                          ag.status === key ? 'opacity-40 cursor-default' : cor
-                        }`}>
-                        {ag.status === key && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0"/>}
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </>
+              {/* Badge de status — dropdown no desktop, estático no modo inline */}
+              {statusInline ? (
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${st.bg} ${st.text}`}>
+                  {st.label}
+                </span>
+              ) : (
+                <div className="relative">
+                  <button
+                    onClick={() => setMenuAberto(v => !v)}
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-lg transition hover:opacity-80 ${st.bg} ${st.text}`}>
+                    {st.label} ▾
+                  </button>
+                  {menuAberto && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setMenuAberto(false)}/>
+                      <div className="absolute right-0 top-full mt-1 z-20 bg-surface border border-border rounded-xl shadow-lg py-1 min-w-[130px]">
+                        {STATUS_OPCOES.map(({ key, label, cor }) => (
+                          <button key={key} onClick={() => selecionarStatus(key)}
+                            className={`w-full text-left px-3 py-2 text-xs font-semibold hover:bg-bg transition flex items-center gap-2 ${
+                              ag.status === key ? 'opacity-40 cursor-default' : cor
+                            }`}>
+                            {ag.status === key && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0"/>}
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
-              </div>{/* /relative (status) */}
             </div>{/* /flex gap-1 */}
           </div>{/* /justify-between */}
           <p className="text-text-3 text-xs mb-1.5 truncate">
-            {(ag.agendamento_servicos ?? []).length > 0
-              ? [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
-              : ag.servico?.nome ?? '—'}
+            {nomesServicosDoAg(ag)}
           </p>
           {ag.observacao && (
             <p className="text-xs text-text-4 italic mb-1.5 truncate">{ag.observacao}</p>
@@ -218,6 +233,25 @@ function AgCard({ ag, empresaId, onStatus, onEditar }: {
             {ag.profissional && <span className="flex items-center gap-1"><User size={10} strokeWidth={2}/>{ag.profissional.nome.split(' ')[0]}</span>}
             <span className="ml-auto font-semibold text-text-2">{fmtBRL(ag.valor)}</span>
           </div>
+          {statusInline && (
+            <div className="mt-3 pt-3 border-t border-border">
+              <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1.5">Mudar status</p>
+              <div className="flex flex-col gap-1.5">
+                {STATUS_OPCOES.map(({ key, label, cor }) => (
+                  <button key={key} type="button" onClick={() => selecionarStatus(key)}
+                    disabled={ag.status === key}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-2 ${
+                      ag.status === key
+                        ? 'border-accent bg-accent/10 text-text opacity-60 cursor-default'
+                        : `border-border bg-surface hover:bg-bg ${cor}`
+                    }`}>
+                    {ag.status === key && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0"/>}
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -583,7 +617,7 @@ function NovoAgModal({
     await executarSalvar(inicio, fim);
   }
 
-  const inputClass = "w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
+  const inputClass = "w-full min-w-0 max-w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
   const clienteOpts = clientes.map(c => ({ value: c.id, label: c.nome, sub: c.telefone }));
   const profOpts    = profissionais.map(p => ({ value: p.id, label: p.nome }));
   const servicoOpts = servicos.map(s => ({ value: s.id, label: s.nome }));
@@ -721,7 +755,7 @@ function NovoAgModal({
           {clienteId && pacotesCliente.length > 0 && (
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">
-                Pacote do cliente <span className="text-text-4 normal-case font-normal">(opcional — consome 1 sessão ao concluir)</span>
+                Pacote do cliente
               </label>
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
@@ -778,7 +812,7 @@ function NovoAgModal({
           {clienteId && !pacoteClienteId && pacotesCatalogo.length > 0 && (
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">
-                Vender pacote agora <span className="text-text-4 normal-case font-normal">(opcional — preenche os serviços e vende na hora)</span>
+                Pacote
               </label>
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
@@ -823,14 +857,14 @@ function NovoAgModal({
                     )}
                   </div>
                   {l.servico_id && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
+                    <div className="grid grid-cols-2 gap-2 min-w-0">
+                      <div className="min-w-0">
                         <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1">Duração (min)</p>
                         <input type="number" value={l.duracao} min={5} step={5}
                           onChange={e => setLinhas(prev => prev.map(x => x.uid === l.uid ? { ...x, duracao: Number(e.target.value) } : x))}
                           className={inputClass} />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1">Valor (R$)</p>
                         <input type="number" value={l.valor} min={0} step={0.01} placeholder="0,00"
                           onChange={e => setLinhas(prev => prev.map(x => x.uid === l.uid ? { ...x, valor: Number(e.target.value) } : x))}
@@ -1403,8 +1437,11 @@ function TimelineView({
                         className={`absolute overflow-hidden text-left transition-all
                           ${selecionado ? 'ring-2 ring-accent shadow-lg z-10' : 'hover:shadow-sm hover:brightness-95 z-0'}`}
                       >
-                        <div className="px-1.5 py-1 h-full flex flex-col justify-start">
+                        <div className="px-1.5 py-1 h-full flex flex-col justify-start gap-0.5 min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
+                            <span className={`text-[10px] font-bold leading-none flex-shrink-0 ${inativo ? 'text-text-4' : 'text-text-3'}`}>
+                              {format(parseISO(ag.data_hora_inicio), 'HH:mm')}
+                            </span>
                             <p className={`text-[11px] font-bold leading-tight truncate flex-1 ${inativo ? 'text-text-3 line-through' : 'text-text'}`}>
                               {ag.cliente?.nome ?? '—'}
                             </p>
@@ -1419,14 +1456,9 @@ function TimelineView({
                               </div>
                             )}
                           </div>
-                          {h >= 38 && (
-                            <p className="text-[10px] text-text-3 leading-tight truncate mt-0.5">
-                              {ag.servico?.nome ?? '—'}
-                            </p>
-                          )}
-                          {h >= 54 && (
-                            <p className="text-[10px] text-text-4 leading-tight mt-0.5">
-                              {format(parseISO(ag.data_hora_inicio), 'HH:mm')}–{format(parseISO(ag.data_hora_fim), 'HH:mm')}
+                          {h >= 34 && (
+                            <p className="text-[10px] text-text-3 leading-tight truncate">
+                              {nomesServicosDoAg(ag)}
                             </p>
                           )}
                         </div>
@@ -1447,16 +1479,16 @@ function TimelineView({
           {/* Mobile: modal centralizado — mesmo padrão dos modais de despesa */}
           <div className="md:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAgSel(null)} />
-            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[85dvh] flex flex-col">
-              <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
+            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[88dvh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
                 <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
                 <button onClick={() => setAgSel(null)}
                   className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
                   <X size={14} />
                 </button>
               </div>
-              <div className="p-3 overflow-y-auto flex-1">
-                <AgCard ag={agSel} empresaId={empresaId}
+              <div className="p-4 overflow-y-auto flex-1">
+                <AgCard ag={agSel} empresaId={empresaId} statusInline
                   onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                   onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
               </div>

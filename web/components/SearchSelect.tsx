@@ -107,8 +107,9 @@ export function SearchSelect({
     onOpenChange?.(false);
   }
 
-  // Classes base do campo visível
-  const base = "w-full h-10 rounded-xl border border-border bg-bg text-sm transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20";
+  // Classes base do campo visível — min-h (não h fixo) para crescer quando o
+  // valor selecionado é empilhado em 2 linhas (label + sub).
+  const base = "w-full min-h-10 rounded-xl border border-border bg-bg text-sm transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20";
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
@@ -136,18 +137,21 @@ export function SearchSelect({
               onClick={e => e.stopPropagation()} // evita re-abrir ao clicar no input
             />
           </>
+        ) : selecionado && selecionado.sub ? (
+          // Exibição com sub (ex.: cliente + telefone): empilha em 2 linhas para
+          // não truncar nem o nome nem o telefone.
+          <>
+            <span data-testid="select-valor-empilhado" className="flex-1 min-w-0 flex flex-col justify-center py-1.5 leading-tight">
+              <span className="truncate text-text text-sm">{selecionado.label}</span>
+              <span className="truncate text-text-4 text-xs">{selecionado.sub}</span>
+            </span>
+            <ChevronDown size={14} className="text-text-4 flex-shrink-0" strokeWidth={2}/>
+          </>
         ) : (
-          // Modo exibição: mostra opção selecionada ou placeholder
+          // Exibição simples (1 linha): opção sem sub, ou placeholder.
           <>
             <span className={`flex-1 truncate ${selecionado ? 'text-text' : 'text-text-4'}`}>
-              {selecionado ? (
-                <>
-                  {selecionado.label}
-                  {selecionado.sub && (
-                    <span className="text-text-4 ml-1.5 text-xs">{selecionado.sub}</span>
-                  )}
-                </>
-              ) : placeholder}
+              {selecionado ? selecionado.label : placeholder}
             </span>
             <ChevronDown size={14} className="text-text-4 flex-shrink-0" strokeWidth={2}/>
           </>

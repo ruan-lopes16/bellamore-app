@@ -72,6 +72,8 @@ export default function NotificacoesPage() {
 
   const [loading,       setLoading]       = useState(true);
   const [alertas,       setAlertas]       = useState<Alerta[]>([]);
+  const [alertasAg,     setAlertasAg]     = useState<Alerta[]>([]);
+  const [agsExpandido,  setAgsExpandido]  = useState(false);
   const [notificacoes,  setNotificacoes]  = useState<Notificacao[]>([]);
   const [marcando,      setMarcando]      = useState(false);
   const [empresaId,     setEmpresaId]     = useState('');
@@ -140,13 +142,16 @@ export default function NotificacoesPage() {
 
       // ── Construir alertas
       const lista: Alerta[] = [];
+      // Alertas de agendamento ficam num grupo à parte — a tela os colapsa numa
+      // linha-resumo expansível em vez do "paredão" de N linhas.
+      const listaAg: Alerta[] = [];
 
       // Agendamentos do dia
       const agsHoje = rAgs.data ?? [];
       if (agsHoje.length > 0) {
         agsHoje.forEach((ag: any) => {
           const hora = format(parseISO(ag.data_hora_inicio), 'HH:mm');
-          lista.push({
+          listaAg.push({
             id:       `ag-${ag.id}`,
             icone:    CalendarDays,
             corIcone: '#7C3AED',
@@ -251,6 +256,7 @@ export default function NotificacoesPage() {
       });
 
       setAlertas(lista);
+      setAlertasAg(listaAg);
       setNotificacoes((rNotifs.data ?? []) as Notificacao[]);
       setLoading(false);
     })();
@@ -315,14 +321,14 @@ export default function NotificacoesPage() {
       <div className="mb-8">
         <div className="flex items-baseline justify-between pb-3 mb-2">
           <span style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Alertas ativos</span>
-          {alertas.length > 0 && (
+          {(alertas.length + alertasAg.length) > 0 && (
             <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 999, background: urgentes > 0 ? 'var(--color-rose)' : 'var(--color-amber-soft)', color: urgentes > 0 ? '#fff' : 'var(--color-amber)' }}>
-              {alertas.length}
+              {alertas.length + alertasAg.length}
             </span>
           )}
         </div>
 
-        {alertas.length === 0 ? (
+        {(alertas.length + alertasAg.length) === 0 ? (
           <div className="rounded-2xl p-8 text-center" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
             <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: 'var(--color-green-soft)' }}>
               <Check size={22} style={{ color: 'var(--color-green)' }}/>
@@ -332,6 +338,41 @@ export default function NotificacoesPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
+            {/* Grupo de agendamentos do dia — 1 linha-resumo expansível */}
+            {alertasAg.length > 0 && (
+              <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                <button type="button" onClick={() => setAgsExpandido(v => !v)}
+                  className="press w-full flex items-center gap-4 p-4 text-left">
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: '#F3EFFE' }}>
+                    <CalendarDays size={18} style={{ color: '#7C3AED' }}/>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700, color: 'var(--color-ink)' }}>
+                      {alertasAg.length} {alertasAg.length === 1 ? 'atendimento' : 'atendimentos'} hoje
+                    </p>
+                    <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--color-ink3)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      próximo {alertasAg[0].titulo}
+                    </p>
+                  </div>
+                  <ChevronRight size={14} style={{ color: 'var(--color-ink4)', flexShrink: 0, transform: agsExpandido ? 'rotate(90deg)' : 'none', transition: 'transform 150ms ease' }}/>
+                </button>
+                {agsExpandido && (
+                  <div style={{ borderTop: '1px solid var(--color-border)' }} className="flex flex-col">
+                    {alertasAg.map(a => (
+                      <Link key={a.id} href={a.link}
+                        className="press flex items-center gap-3 px-4 py-3"
+                        style={{ borderBottom: '1px solid var(--color-border)' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 600, color: 'var(--color-ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.titulo}</p>
+                          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--color-ink3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.descricao}</p>
+                        </div>
+                        <ChevronRight size={14} style={{ color: 'var(--color-ink4)', flexShrink: 0 }}/>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {alertas.map((alerta, i) => {
               const Icon = alerta.icone;
               return (
