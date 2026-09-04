@@ -4,7 +4,7 @@ import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 import { Providers } from './providers';
-import { SwRegister } from '@/components/SwRegister';
+import { SwRegister, BotaoAtivarNotificacoes } from '@/components/SwRegister';
 import { ClickSpark } from '@/components/ClickSpark';
 
 const fraunces = Fraunces({
@@ -138,6 +138,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>{children}</Providers>
         <ClickSpark />
         <SwRegister />
+        <BotaoAtivarNotificacoes />
         <Analytics />
         <SpeedInsights />
       </body>
