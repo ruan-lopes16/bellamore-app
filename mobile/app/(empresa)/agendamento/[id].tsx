@@ -11,7 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronLeft, Phone, MessageCircle, User,
   Clock, DollarSign, FileText, Check, X, AlertTriangle,
-  Calendar, Scissors,
+  Calendar, Scissors, Trash2,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -34,6 +34,7 @@ import {
   descreverServicos, montarDetalheAtendimento,
   type DetalheAtendimento,
 } from '@shared/atendimento-detalhe';
+import { podeExcluirAgendamento } from '@shared/agendamentos';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -347,7 +348,7 @@ export default function AgendamentoDetalhe() {
   const modoComanda = tipo === 'comanda';
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, roleAtivo, isOwner } = useAuthStore();
 
   const [atualizando, setAtualizando] = useState(false);
 
@@ -437,6 +438,38 @@ export default function AgendamentoDetalhe() {
   const podeCancelar   = ag.status !== 'cancelado' && ag.status !== 'concluido';
   const estaConcluido  = ag.status === 'concluido';
   const estaCancelado  = ag.status === 'cancelado';
+
+  const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const podeExcluir = podeExcluirAgendamento(ag.status, meuRole);
+
+  async function excluirAgendamento() {
+    setAtualizando(true);
+    const { data: apagados, error } = await supabase
+      .from('agendamentos')
+      .delete()
+      .eq('id', id)
+      .select('id');
+    setAtualizando(false);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    if (!apagados || apagados.length === 0) {
+      Alert.alert('Sem permissão', 'Você não tem permissão para excluir agendamentos.');
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    qc.invalidateQueries({ queryKey: ['cliente-detalhe'] });
+    router.back();
+  }
+
+  function confirmarExclusao() {
+    Alert.alert(
+      'Excluir agendamento',
+      `Excluir o agendamento de ${ag.cliente?.nome ?? 'cliente'}? Esta ação não pode ser desfeita. Taxas de reserva/cancelamento vinculadas também serão removidas.`,
+      [
+        { text: 'Voltar', style: 'cancel' },
+        { text: 'Excluir', style: 'destructive', onPress: excluirAgendamento },
+      ],
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -700,6 +733,25 @@ export default function AgendamentoDetalhe() {
               </View>
             </View>
           </MotiView>
+        )}
+
+        {podeExcluir && (
+          <View style={{ marginHorizontal: 24, marginBottom: 28 }}>
+            <TouchableOpacity
+              onPress={confirmarExclusao}
+              disabled={atualizando}
+              style={{
+                borderWidth: 1, borderColor: 'rgba(192,57,43,0.3)',
+                borderRadius: 14, padding: 14, flexDirection: 'row',
+                alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              <Trash2 size={15} color={C.red} strokeWidth={2} />
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+                Excluir agendamento
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
 
       </ScrollView>

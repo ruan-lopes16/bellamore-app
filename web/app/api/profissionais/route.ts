@@ -121,7 +121,8 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, nome, telefone, email, membroId, percentual_comissao } = await req.json();
+    const { userId, nome, telefone, email, membroId, percentual_comissao, tipo_contrato } = await req.json();
+    const tc = tipo_contrato === 'pj' || tipo_contrato === 'clt' ? tipo_contrato : null;
 
     if (!userId || !nome?.trim()) {
       return NextResponse.json({ error: 'userId e nome são obrigatórios.' }, { status: 400 });
@@ -166,13 +167,15 @@ export async function PATCH(req: NextRequest) {
       user_metadata: { nome: nome.trim() },
     });
 
-    // Atualiza percentual de comissão se fornecido
-    if (membroId != null && percentual_comissao != null) {
-      const { error: errComissao } = await adminClient
+    // Atualiza dados do vínculo (tipo de contrato sempre; comissão só se fornecida)
+    if (membroId != null) {
+      const patch: Record<string, unknown> = { tipo_contrato: tc };
+      if (percentual_comissao != null) patch.percentual_comissao = percentual_comissao;
+      const { error: errMembro } = await adminClient
         .from('empresa_membros')
-        .update({ percentual_comissao })
+        .update(patch)
         .eq('id', membroId);
-      if (errComissao) return NextResponse.json({ error: errComissao.message }, { status: 400 });
+      if (errMembro) return NextResponse.json({ error: errMembro.message }, { status: 400 });
     }
 
     return NextResponse.json({ ok: true });

@@ -6,7 +6,7 @@ import { ptBR } from 'date-fns/locale';
 
 // ── Tipos ────────────────────────────────────────────────────
 
-export type NotifTipo = 'agendamento' | 'comissao' | 'pagamento' | 'estoque_baixo' | 'cliente_sumido';
+export type NotifTipo = 'agendamento' | 'comissao' | 'pagamento' | 'estoque_baixo' | 'cliente_sumido' | 'bloqueio_pendente' | 'bloqueio_aprovado' | 'bloqueio_recusado';
 
 export interface Notificacao {
   id: string;

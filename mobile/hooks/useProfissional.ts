@@ -1,8 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, format, differenceInDays } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import { resolverCategoria, type AgendamentoCompleto } from '@/hooks/useAgenda';
+import { resolverCategoria, type AgendamentoCompleto, type BloqueioAgenda } from '@/hooks/useAgenda';
+import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bloqueios';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -228,5 +229,75 @@ export function useDiasProfissional(mes: Date) {
 
       return new Set((data ?? []).map((a) => format(new Date(a.data_hora_inicio), 'yyyy-MM-dd')));
     },
+  });
+}
+
+// ── Bloqueios da própria agenda (profissional) ──────────────
+
+/** Colunas de `agenda_bloqueios` que a timeline da profissional precisa. */
+const BLOQUEIO_PROF_COLS =
+  'id, profissional_id, titulo, motivo, escopo, situacao, criado_por, data_inicio, data_fim';
+
+/**
+ * Bloqueios que tocam o dia selecionado na agenda da profissional.
+ * A RLS de SELECT (`"bloqueios: ver"`, migration 068) recorta por
+ * empresa + situação (`aprovado`, ou criado por mim, ou gestão) —
+ * NUNCA por profissional. Sem o `.or(profissional_id / escopo geral)`
+ * abaixo, a profissional veria na própria timeline todo bloqueio
+ * `aprovado` das colegas. O filtro deixa passar só os dela e os de
+ * escopo `geral` (que valem para a agenda inteira).
+ */
+export function useBloqueiosProfissionalDia(dia: Date) {
+  const { user, empresaAtiva } = useAuthStore();
+  const userId = user?.id;
+  const empresaId = empresaAtiva?.id;
+  return useQuery({
+    queryKey: ['bloqueios-prof-dia', empresaId, userId, format(dia, 'yyyy-MM-dd')],
+    enabled: !!empresaId && !!userId,
+    staleTime: 1000 * 30,
+    queryFn: async (): Promise<BloqueioAgenda[]> => {
+      const { data, error } = await supabase
+        .from('agenda_bloqueios')
+        .select(BLOQUEIO_PROF_COLS)
+        .eq('empresa_id', empresaId)
+        .or(`profissional_id.eq.${user!.id},escopo.eq.geral`)
+        .lte('data_inicio', endOfDay(dia).toISOString())
+        .gte('data_fim', startOfDay(dia).toISOString());
+      if (error) throw error;
+      return (data ?? []) as BloqueioAgenda[];
+    },
+  });
+}
+
+/**
+ * Pede um bloqueio para a própria agenda. O papel é sempre forçado a
+ * `'profissional'` (via `montarInsertBloqueio`), então nasce `pendente`
+ * e no próprio escopo, independentemente do que a tela mandar. Lança em
+ * erro e quando o insert não devolve linha (RLS barrou) para a tela
+ * avisar em vez de fingir sucesso.
+ */
+export function useCriarBloqueioProfissional() {
+  const { empresaAtiva, user } = useAuthStore();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: Omit<MontarInsertBloqueioInput, 'role' | 'meuUserId' | 'empresaId'>,
+    ) => {
+      const insert = montarInsertBloqueio({
+        ...input,
+        role: 'profissional',
+        meuUserId: user!.id,
+        empresaId: empresaAtiva!.id,
+      });
+      const { data, error } = await supabase
+        .from('agenda_bloqueios')
+        .insert(insert)
+        .select('id, situacao')
+        .single();
+      if (error) throw error;
+      if (!data) throw new Error('Não foi possível pedir o bloqueio.');
+      return data as { id: string; situacao: 'aprovado' | 'pendente' };
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bloqueios-prof-dia'] }),
   });
 }

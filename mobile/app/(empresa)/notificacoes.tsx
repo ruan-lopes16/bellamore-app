@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import {
   ChevronLeft, CalendarCheck2, Percent, CircleCheck,
-  TriangleAlert, CalendarX, UserRoundX, Bell,
+  TriangleAlert, CalendarX, UserRoundX, Bell, Ban,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -61,6 +61,20 @@ const TIPO_CONFIG: Record<NotifTipo, {
   cliente_sumido: {
     icon: <UserRoundX size={15} color={C.indigo} strokeWidth={1.8} />,
     bg: C.indigoSoft,
+  },
+  // Fluxo de aprovação de bloqueio (trigger da migration 069) — mesma
+  // convenção de cor da tela web: âmbar / verde / vermelho.
+  bloqueio_pendente: {
+    icon: <Ban size={15} color={C.amber} strokeWidth={1.8} />,
+    bg: C.amberSoft,
+  },
+  bloqueio_aprovado: {
+    icon: <CircleCheck size={15} color={C.green} strokeWidth={1.8} />,
+    bg: C.greenSoft,
+  },
+  bloqueio_recusado: {
+    icon: <CalendarX size={15} color={C.red} strokeWidth={1.8} />,
+    bg: C.redSoft,
   },
 };
 

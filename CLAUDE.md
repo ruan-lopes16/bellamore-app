@@ -408,6 +408,56 @@ bruto (Dashboard, Financeiro e Relatórios somam `taxas_reserva` com `paga_em` p
 
 ---
 
+### Sessão 2026-09-02/03 — Bloqueio de agenda (tipos + motivo + aprovação) + excluir agendamento
+
+*Escopo: migrations `066`–`069`; helpers puros `shared/bloqueios.ts` + `shared/agendamentos.ts` (TDD).*
+*Web — agenda: 2 tipos de bloqueio (de um profissional | geral), motivo obrigatório, tipo "geral"*
+*só para dona/gestora, lista de pendentes com aprovar/recusar, Timeline desenha bloqueio pendente*
+*tracejado, excluir agendamento para dona/gestora exceto status `concluído`; Equipe: `tipo_contrato`*
+*(PJ/Comissionada | CLT) por profissional; notificações: 3 tipos novos com rótulo*
+*(`bloqueio_pendente`/`bloqueio_aprovado`/`bloqueio_recusado`). Mobile nativo — hooks de bloqueio*
+*em `useAgenda`/`useProfissional` (dia, pendentes, criar, aprovar, recusar), `BloqueioModal` +*
+*`PendentesBloqueioSheet`, wiring nas agendas `(empresa)` e `(profissional)`, excluir agendamento*
+*em `(empresa)/agendamento/[id]`. Executado via superpowers:subagent-driven-development —*
+*17 tasks, implementer + reviewer dedicados por task; spec e plano em `docs/superpowers/`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `cd web && npx tsc --noEmit` zerado; `cd web && npm test` 344/344; mobile mantém exatamente os 10 erros pré-existentes (baseline capturada antes da Task 1), zero novos, nenhum nos arquivos tocados |
+| UX / Padrões    | 9.0  | `BloqueioModal`/`PendentesBloqueioSheet` reaproveitam a estrutura de modal/sheet já usada no app; motivo como chips no mesmo formato pílula das categorias; guarda de duplo-tap no sheet de pendentes é 100% aditiva (botão dim + `disabled` enquanto a mutação roda) |
+| Segurança       | 9.0  | Migrations aditivas (`ADD COLUMN` nullable + CHECK, `on delete set null`); RLS de `agenda_bloqueios` reescrita trocando `= ANY(minha_empresas())` (forma bugada da 033) por `IN (SELECT minha_empresas())`, e ganhou regra de papel/situação (profissional só cria `pendente` da própria agenda, só apaga o próprio pendente; UPDATE/aprovação só gestor/owner); policy de DELETE de `agendamentos` versionada pela 1ª vez (066), restrita a `is_gestor_ou_owner`; notificações via trigger `SECURITY DEFINER` (padrão da 028), defensivo — `criado_por` NULL nunca aborta a operação |
+| Documentação    | 9.0  | Spec + plano completos em `docs/superpowers/specs/` e `docs/superpowers/plans/` (`2026-09-02-bloqueio-tipos-aprovacao-e-excluir-agendamento`); cabeçalho de cada migration `066`–`069` explica impacto no consumidor e não-quebra; JSDoc pt-BR nos helpers novos dos 2 arquivos `shared/` |
+| Arquitetura     | 9.5  | `montarInsertBloqueio` é a única montagem de `insert` de bloqueio em web e mobile (regras de papel concentradas na função pura, espelhando o que a RLS exige); `podeExcluirAgendamento(status, role)` / `motivoExclusaoBloqueada(status)` compartilhados; notificações 100% no banco (trigger cobre web e nativo igual, sem duplicar regra em 2 clientes) |
+| Performance     | 9.0  | Lista de pendentes recarrega a cada 30s + no foco (`useQuery` padrão do projeto), sem Realtime; índice `idx_bloqueios_pendentes (empresa_id, situacao, data_inicio)` para a consulta de pendentes; sem query nova cara — bloqueios já vêm na carga do dia |
+| Visual (UI)     | —    | Sem conta de teste para login local — verificação visual não executada, como nas sessões anteriores. Aviso: blocos de bloqueio **aprovados** no web trocaram de hachura-vermelha para `var(--color-rose-soft)` sólido |
+| **Completude**  | 9.0  | Migration + 2 shared + agenda web (modal, pendentes, timeline, excluir) + Equipe + notificações + mobile (hooks, 2 componentes, 2 agendas, excluir); guarda de duplo-tap no sheet de pendentes adicionada na verificação final; 4 bugs de costura encontrados em revisão e corrigidos antes do merge |
+| **Proatividade**| 9.0  | A verificação final (Task 17) encontrou por conta própria que os botões Aprovar/Recusar do sheet nativo não tinham trava de duplo-tap — segundo toque dispara 2ª mutação que acerta 0 linhas e mostra "Sem permissão" enganoso; corrigido inline sem ampliar escopo. Achados fora de escopo registrados abaixo, não corrigidos |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Decisões de projeto:**
+- **Sem Supabase Realtime.** A lista de pendentes recarrega a cada 30s e ao focar a tela; a notificação no sino é imediata (trigger). Decisão do usuário — não vale a complexidade de canal Realtime para um evento raro.
+- **Excluir agendamento NUNCA cobre `concluído`.** `comissoes`, `estoque_movimentos` e `pacote_uso` têm FK sem `ON DELETE CASCADE` e mexeriam em faturamento — apagar daria erro de FK. Os demais status (agendado/confirmado/cancelado/faltou) podem ser apagados; taxas de reserva/cancelamento vinculadas somem por cascata.
+- **`tipo_contrato` registrado mas NÃO ramifica o fluxo.** PJ/Comissionada e CLT caem os dois em aprovação de bloqueio hoje — a coluna é registro de cadastro para diferenciação futura.
+- **Recusar = apagar a linha.** Não há estado "recusado" persistido; o trigger detecta `DELETE` de um `pendente` por terceiro e notifica o autor.
+- **Notificações via trigger `SECURITY DEFINER`.** `notificacoes` não tem policy de INSERT — inserção só pelo trigger, que serve web e nativo igual.
+- **RLS de `agenda_bloqueios` reescrita** trocando `= ANY(minha_empresas())` (padrão incorreto herdado da 033) por `IN (SELECT minha_empresas())`.
+
+**Bugs de costura encontrados em revisão e corrigidos antes do merge:**
+- Guarda de duplo-tap ausente nos botões Aprovar/Recusar do `PendentesBloqueioSheet` nativo (encontrado na Task 17): um segundo toque disparava uma 2ª mutação que, com a linha já removida/aprovada, acertava zero linhas via RLS e mostrava um `Alert` "Sem permissão" enganoso. Corrigido com `busyId` local + `disabled`/`opacity` na linha em voo, limpo quando `pendentes` muda de identidade (com fallback de 4s).
+- Demais achados de costura (papel nunca renderiza "Toda a agenda"/"Pendentes (N)"/"Excluir" para `profissional`; `.delete()`/`.update()` em `agenda_bloqueios`/`agendamentos` sempre com `.select()` + verificação de linhas afetadas; Timeline diferencia `pendente`) verificados limpos no checklist manual da Task 17.
+
+**Pendências para produção:**
+- Aplicar as migrations `066`–`069` (`supabase db push`) — pré-requisito do código; as telas de agenda quebram ao carregar sem as colunas novas. Somam-se às migrations `062` e `063` que já seguiam pendentes de aplicação.
+- **Bloqueio ainda é só visual** — não impede criar um agendamento em cima de um horário bloqueado (aprovado ou pendente).
+- **Push notification (Expo) fora de escopo** — o aviso de bloqueio pendente só aparece no sino do app, não como notificação do sistema.
+- Visões **"Semana"/"Mês" do web não desenham bloqueio** (só "Timeline"/dia).
+- `SlotVazio` do mobile ainda aparece numa hora vazia coberta por bloqueio aprovado.
+- `POST /api/profissionais` não retorna `tipo_contrato` no corpo da resposta (benigno — só o fluxo de edição seta o campo, e ele relê da lista).
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
