@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -10,7 +10,14 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   return arr.buffer.slice(0) as ArrayBuffer;
 }
 
-async function registrarEInscrever(): Promise<void> {
+/**
+ * Registra o Service Worker (se preciso) e garante uma inscrição de push
+ * sincronizada com o servidor. Usada tanto pelo auto-registro silencioso
+ * (`SwRegister`, quando a permissão já foi concedida) quanto pelo controle
+ * em Configurações (`web/app/(app)/configuracoes/page.tsx`), que chama
+ * `Notification.requestPermission()` primeiro, no clique do usuário.
+ */
+export async function registrarEInscrever(): Promise<void> {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
   const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
@@ -45,7 +52,8 @@ async function registrarEInscrever(): Promise<void> {
  * negado silenciosamente: nenhum popup do sistema aparece, o app nem chega
  * a ser listado em Ajustes > Notificações, e `Notification.permission` vira
  * "denied" sem o usuário nunca ter visto nada. O pedido de permissão em si
- * só acontece no clique do botão em `BotaoAtivarNotificacoes`, abaixo.
+ * só acontece no clique do controle em Configurações (ver
+ * `web/app/(app)/configuracoes/page.tsx`).
  */
 export function SwRegister() {
   useEffect(() => {
@@ -54,53 +62,4 @@ export function SwRegister() {
   }, []);
 
   return null;
-}
-
-/**
- * Botão flutuante "Ativar notificações" — só aparece quando a permissão
- * ainda não foi decidida (`default`). Chama `Notification.requestPermission()`
- * como a primeira coisa dentro do handler de clique, preservando o gesto do
- * usuário exigido pelo Safari/iOS para o popup do sistema aparecer de verdade.
- */
-export function BotaoAtivarNotificacoes() {
-  const [visivel,  setVisivel]  = useState(false);
-  const [ativando, setAtivando] = useState(false);
-
-  useEffect(() => {
-    const apto = 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined';
-    setVisivel(apto && Notification.permission === 'default');
-  }, []);
-
-  async function ativar() {
-    setAtivando(true);
-    try {
-      const permissao = await Notification.requestPermission();
-      if (permissao !== 'granted') { setVisivel(false); return; }
-      await registrarEInscrever();
-      setVisivel(false);
-    } catch {
-      // Falha silenciosa: o botão continua visível para nova tentativa.
-    } finally {
-      setAtivando(false);
-    }
-  }
-
-  if (!visivel) return null;
-
-  return (
-    <button
-      onClick={ativar}
-      disabled={ativando}
-      style={{
-        position: 'fixed', left: 16, right: 16, bottom: 'calc(84px + env(safe-area-inset-bottom))',
-        zIndex: 9998, height: 48, borderRadius: 16,
-        background: 'var(--color-primary, #2C1654)', color: '#fff',
-        fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700,
-        border: 'none', boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
-        opacity: ativando ? 0.7 : 1,
-      }}
-    >
-      {ativando ? 'Ativando…' : '🔔 Ativar notificações de atendimento'}
-    </button>
-  );
 }
