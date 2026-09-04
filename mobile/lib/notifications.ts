@@ -68,26 +68,25 @@ export async function agendarLembretesLocais(
     const cli = ag.clienteNome ?? 'Cliente';
     const serv = ag.servicoNome ?? 'Atendimento';
     const hhmm = new Date(ag.dataHoraInicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const body = `${cli} · ${serv} · ${hhmm}`;
 
-    // 30 min antes
-    const t30 = new Date(inicio - 30 * 60_000);
-    if (t30.getTime() > agora) {
+    // 1 h antes
+    const t1h = new Date(inicio - 60 * 60_000);
+    if (t1h.getTime() > agora) {
       await Notifications.scheduleNotificationAsync({
-        identifier: `ag-${ag.id}-30`,
-        content: { title: 'Lembrete de atendimento', body: `Em 30 min: ${cli} — ${serv} · ${hhmm}` },
-        trigger: { date: t30 },
+        identifier: `ag-${ag.id}-1h`,
+        content: { title: 'Atendimento em 1 hora', body },
+        trigger: { date: t1h },
       });
     }
 
-    // Véspera às 18:00
-    const vespera = new Date(inicio);
-    vespera.setDate(vespera.getDate() - 1);
-    vespera.setHours(18, 0, 0, 0);
-    if (vespera.getTime() > agora) {
+    // 15 min antes
+    const t15 = new Date(inicio - 15 * 60_000);
+    if (t15.getTime() > agora) {
       await Notifications.scheduleNotificationAsync({
-        identifier: `ag-${ag.id}-vespera`,
-        content: { title: 'Atendimento amanhã', body: `Amanhã às ${hhmm}: ${cli} — ${serv}` },
-        trigger: { date: vespera },
+        identifier: `ag-${ag.id}-15`,
+        content: { title: 'Atendimento em 15 minutos', body },
+        trigger: { date: t15 },
       });
     }
   }

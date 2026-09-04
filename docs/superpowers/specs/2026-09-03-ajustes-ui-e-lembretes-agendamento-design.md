@@ -236,98 +236,88 @@ fora do escopo deste lote.
   `web_push_subscriptions` (com `user_id` e `empresa_id`), `web-push` no
   `package.json`.
 
-### Cadência aprovada
+### Cadência aprovada (revisada 2026-09-04)
 
-**Véspera** (resumo do dia seguinte, à noite) **+ 30 minutos antes** de cada
-atendimento.
+> A cadência inicial (véspera + 30 min, com push também gravando no Histórico
+> sem idempotência) causou spam em produção — o cron re-disparava a cada 5 min
+> porque a `066` não tinha sido aplicada e o marcador nunca gravava. O usuário
+> reespecificou:
 
-### E1. Migration — rastreio de lembrete
+- **Tipo 1 — por atendimento:** **1 h antes** + **15 min antes**. Sem véspera,
+  sem 30 min. Conteúdo: `cliente · serviço (ou nome do pacote) · HH:mm`. Não
+  dispara se o horário já passou, ou status `concluido` (= comanda fechada), ou
+  `cancelado`. Cada janela dispara **uma vez** (colunas de marca-tempo).
+- **Tipo 2 — resumo diário:** **1×/dia às 07:00 BRT** — nº de atendimentos do
+  dia, despesas que vencem hoje, produtos com estoque baixo.
+- **Tipo 3 — limpeza:** **1×/dia às 01:00 BRT** apaga **todas** as
+  `notificacoes` de dias anteriores (qualquer `tipo`).
 
-> **O que já existe e é reaproveitado (não recriar):** `005_push_token.sql`
-> (`users.push_token`) e `019_web_push_subscriptions.sql` (tabela
-> `web_push_subscriptions`) — a infra de push, presumivelmente já aplicada em
-> produção. As 3 migrations abaixo (066–068) são **novas**: a última no repo é a
-> `065`. Nenhuma ocorrência de `lembrete`, `pg_cron`, `cron.schedule` ou
-> `pg_net` existe hoje em `supabase/migrations/`.
+### E1. Migration 066 — colunas de rastreio
 
-Nova migration `supabase/migrations/066_agendamento_lembretes.sql`:
-- `alter table public.agendamentos add column lembrete_vespera_em timestamptz;`
-- `alter table public.agendamentos add column lembrete_30min_em  timestamptz;`
+> **O que já existe e é reaproveitado (não recriar):** `005_push_token.sql` e
+> `019_web_push_subscriptions.sql` — a infra de push, já em produção.
 
-Nulas por padrão. Sem policy nova (a cobertura de RLS de `agendamentos` já
-inclui colunas novas; o cron usa `service_role` e ignora RLS). Cabeçalho da
-migration documenta o propósito (idempotência do cron a cada 5 min) e o SQL de
-rollback.
+`supabase/migrations/066_agendamento_lembretes.sql`:
+```sql
+alter table public.agendamentos
+  drop column if exists lembrete_vespera_em,
+  drop column if exists lembrete_30min_em,
+  add  column if not exists lembrete_1h_em    timestamptz,
+  add  column if not exists lembrete_15min_em timestamptz;
+```
+O `drop … if exists` torna a migration segura mesmo em bancos onde a versão
+antiga chegou a rodar. Nulas por padrão, sem policy nova (RLS de `agendamentos`
+cobre colunas novas; o cron usa `service_role`).
 
-### E2. `/api/cron/lembretes` reescrito — motor por atendimento
+### E2. `/api/cron/lembretes` — motor por atendimento (1 h + 15 min)
 
-Mantém a auth `Authorization: Bearer ${CRON_SECRET}`. Passa a fazer, por empresa
-ativa:
+Auth `Authorization: Bearer ${CRON_SECRET}`. Por empresa ativa, em **uma** query,
+busca agendamentos com `status in ('agendado','confirmado')` e
+`data_hora_inicio` entre `now()` e `now() + 90 min`. Resolve `descricao_servico`
+= `Pacote <nome>` quando há `pacote_cliente_id`, senão os nomes de
+`agendamento_servicos` unidos por ` + ` (fallback: `servico.nome`).
 
-**Véspera (a partir das 18:00 em `America/Sao_Paulo`):**
-- buscar agendamentos de **amanhã**, status em (`agendado`, `confirmado`),
-  `lembrete_vespera_em is null`;
-- se houver, para cada **profissional** com atendimento amanhã, enviar **1 push
-  de resumo** (“Amanhã: 3 atendimentos · 1º às 09:00 — Fulana”) às assinaturas
-  daquele profissional + owners/gestores da empresa;
-- `update agendamentos set lembrete_vespera_em = now()` para todos os
-  agendamentos incluídos.
+Para cada janela `['1h','15min']`, `selecionarLembrete()` (função pura em
+`shared/lembretes.ts`) filtra:
+- janela **1h**: início entre `now+45min` e `now+75min`, `lembrete_1h_em is null`;
+- janela **15min**: início entre `now` e `now+20min` (nunca depois do início),
+  `lembrete_15min_em is null`.
 
-**30 minutos antes (qualquer horário do cron):**
-- buscar agendamentos de **hoje**, status em (`agendado`, `confirmado`),
-  `data_hora_inicio` entre `now()` e `now() + interval '35 minutes'`,
-  `lembrete_30min_em is null`;
-- para cada um, enviar **push individual** (“Em 30 min: Fulana — Design com
-  tintura · 17:30”, `url: '/agenda'`) às assinaturas do `profissional_id` do
-  atendimento + owners/gestores;
-- `update … set lembrete_30min_em = now()`.
+Para cada selecionado: push individual (`titulo` = "Atendimento em 1 hora" /
+"Atendimento em 15 minutos", `body` = `corpoLembrete(ag)`) aos destinatários
+(`profissional_id` do ag ∪ owners/gestores), **1 linha** em `notificacoes`
+(`tipo='agendamento'`, `user_id` do profissional), e `update agendamentos set
+lembrete_Xh_em = now()`. Assinatura com erro 404/410 é apagada.
 
-**Registro em `notificacoes`:** cada envio (véspera e 30 min) grava uma linha
-`notificacoes` (`tipo = 'agendamento'`, `user_id` do destinatário,
-`empresa_id`, `titulo`/`mensagem` iguais ao push) para aparecer no Histórico da
-página de Notificações.
+### E2b. `/api/cron/resumo-diario` — resumo diário (novo arquivo)
 
-**Destinatários:** resolver via `empresa_membros` (role in `owner`,`gestor`)
-∪ `{ profissional_id do agendamento }`, cruzar com `web_push_subscriptions.user_id`.
-Assinatura que retornar erro 404/410 do serviço de push continua sendo apagada
-(comportamento atual, ~L88-91).
+Mesma auth. Por empresa: conta agendamentos de hoje (`agendado`/`confirmado`,
+fuso `America/Sao_Paulo`), despesas `pendente` com `data_vencimento = hoje`, e
+linhas de `v_produtos_estoque_baixo`. `corpoResumoDiario()` monta o texto (só
+linhas > 0; tudo zero → não envia). 1 push a **todas** as assinaturas da empresa
++ 1 linha `notificacoes` (`tipo='resumo'`) por membro ativo.
 
-**Janela de 35 min:** cobre o intervalo de 5 min do cron com folga; o
-`lembrete_30min_em` garante no-duplicado mesmo se dois ciclos pegarem o mesmo
-agendamento.
+### E3. Migration 067 — agendadores `pg_cron` + `pg_net`
 
-### E3. Agendador — Supabase `pg_cron` + `pg_net`
+`supabase/migrations/067_cron_lembretes_pg_cron.sql` — extensões + dois jobs:
+- `lembretes-atendimento` `*/5 * * * *` → `<APP_URL>/api/cron/lembretes`
+- `resumo-diario` `0 10 * * *` (07:00 BRT) → `<APP_URL>/api/cron/resumo-diario`
 
-Migration `supabase/migrations/067_cron_lembretes_pg_cron.sql`:
-- `create extension if not exists pg_cron;`
-- `create extension if not exists pg_net;`
-- `select cron.schedule('lembretes-atendimento', '*/5 * * * *', $$
-     select net.http_get(
-       url := '<APP_URL>/api/cron/lembretes',
-       headers := jsonb_build_object('Authorization', 'Bearer <CRON_SECRET>')
-     ); $$);`
+`<APP_URL>` e `<CRON_SECRET>` são **placeholders documentados** no cabeçalho.
+`cron.schedule` por nome é upsert (rodar de novo substitui). Remove nomes de
+versões anteriores (`prune-notificacoes-agendamento`). `web/vercel.json` fica
+`{}` (o cron diário sai; o `pg_cron` assume).
 
-`<APP_URL>` e `<CRON_SECRET>` ficam como **placeholders documentados** no
-cabeçalho (o usuário substitui ao aplicar — mesmo padrão das migrations que
-dependem de config externa). Cabeçalho lista os pré-requisitos: extensões
-habilitadas no projeto Supabase, `CRON_SECRET` já existente no env da Vercel.
+### E4. Migration 068 — limpeza diária de `notificacoes`
 
-**Remover** o bloco `crons` de `web/vercel.json` (o `pg_cron` assume; a rota fica
-idempotente de qualquer forma).
-
-### E4. Limpeza de alertas de agendamento passados (recados do usuário)
-
-> “depois que passou o dia, essas notificações de alerta podem ser excluídas” /
-> “apenas para as notificações de agendamento”
-
-Migration `supabase/migrations/068_prune_notificacoes_agendamento.sql`:
-- `select cron.schedule('prune-notificacoes-agendamento', '0 5 * * *', $$
-     delete from public.notificacoes
-     where tipo = 'agendamento' and created_at < date_trunc('day', now()); $$);`
-
-Só `tipo = 'agendamento'`. Notificações de estoque, despesas, comissões e
-aniversário **não** são tocadas. Cabeçalho documenta a regra e o rollback
-(`cron.unschedule`).
+`supabase/migrations/068_prune_notificacoes_agendamento.sql` — job
+`limpeza-notificacoes` `0 4 * * *` (01:00 BRT):
+```sql
+delete from public.notificacoes
+where created_at < date_trunc('day', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo';
+```
+**Todos os tipos**, não só agendamento. O que precisa reaparecer (estoque,
+despesas, agendamentos do dia) é recalculado ao vivo na tela de Notificações.
 
 ### E5. Página Notificações — colapsar o “paredão”
 
@@ -345,8 +335,8 @@ linha. Nada muda no cálculo — só a apresentação do grupo `ag-*`.
 `mobile/lib/notifications.ts` — nova função
 `agendarLembretesLocais(agendamentos)`:
 - usa `expo-notifications` `scheduleNotificationAsync` com `trigger` de data;
-- por atendimento futuro do usuário: 1 disparo às **18:00 da véspera** + 1
-  disparo **30 min antes**;
+- por atendimento futuro do usuário: 1 disparo **1 h antes** + 1 disparo
+  **15 min antes**;
 - cancela/reprograma (`cancelAllScheduledNotificationsAsync` + reschedule, ou
   por `identifier`) quando a agenda recarrega / um agendamento muda de horário
   ou é cancelado.
@@ -362,7 +352,7 @@ iOS nativo.
 
 - Swap de menu inferior no Expo (depende de criar tela de lista de Comanda —
   follow-up separado).
-- Tornar a cadência de lembrete (véspera/30 min) configurável pela empresa.
+- Tornar a cadência de lembrete (1 h / 15 min) configurável pela empresa.
 - Lembrete por SMS/WhatsApp/e-mail.
 - Reformular a seção “Histórico” da página de Notificações além do prune E4.
 - Multi-serviço no formulário de agendamento do Expo (continua 1 por

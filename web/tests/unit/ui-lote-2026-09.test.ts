@@ -145,18 +145,30 @@ describe('D — menu inferior troca Financeiro por Comanda', () => {
 
 // ── E. Lembretes / Notificações ──────────────────────────────
 
-describe('E2 — rota de lembretes usa as funções puras', () => {
+describe('E2 — rota de lembretes por atendimento (1h + 15min)', () => {
   const src = read('app/api/cron/lembretes/route.ts');
-  it('importa de @shared/lembretes', () => {
+  it('importa de @shared/lembretes e itera as duas janelas', () => {
     expect(src).toContain("from '@shared/lembretes'");
+    expect(src).toContain("['1h', '15min'] as JanelaLembrete[]");
   });
-  it('marca as colunas de rastreio após enviar', () => {
-    expect(src).toContain('lembrete_30min_em');
-    expect(src).toContain('lembrete_vespera_em');
+  it('marca as colunas novas após enviar', () => {
+    expect(src).toContain('lembrete_1h_em');
+    expect(src).toContain('lembrete_15min_em');
+    expect(src).not.toContain('lembrete_vespera_em');
+    expect(src).not.toContain('lembrete_30min_em');
   });
-  it('grava linha em notificacoes tipo agendamento', () => {
-    expect(src).toContain("from('notificacoes')");
-    expect(src).toContain("tipo: 'agendamento'");
+  it('só considera atendimento não concluído/cancelado com horário à frente', () => {
+    expect(src).toContain("in('status', ['agendado', 'confirmado'])");
+    expect(src).toContain("gte('data_hora_inicio', agora.toISOString())");
+  });
+});
+
+describe('E2b — rota de resumo diário', () => {
+  const src = read('app/api/cron/resumo-diario/route.ts');
+  it('usa corpoResumoDiario e as 3 contagens', () => {
+    expect(src).toContain('corpoResumoDiario');
+    expect(src).toContain('v_produtos_estoque_baixo');
+    expect(src).toContain("eq('data_vencimento', hojeStr)");
   });
 });
 

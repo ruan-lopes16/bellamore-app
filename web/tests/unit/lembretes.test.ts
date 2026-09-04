@@ -1,65 +1,69 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ehHoraDaVespera, selecionar30min, selecionarVespera,
-  corpo30min, resumosVespera, destinatarios, type AgLembrete,
+  selecionarLembrete, corpoLembrete, tituloLembrete, destinatarios,
+  corpoResumoDiario, type AgLembrete,
 } from '@shared/lembretes';
 
 const base: AgLembrete = {
   id: 'a1', profissional_id: 'p1', data_hora_inicio: '2026-09-04T17:30:00-03:00',
-  cliente_nome: 'Lazara', servico_nome: 'Design com tintura',
-  lembrete_vespera_em: null, lembrete_30min_em: null,
+  cliente_nome: 'Lazara', descricao_servico: 'Design com tintura',
+  lembrete_1h_em: null, lembrete_15min_em: null,
 };
 
-describe('ehHoraDaVespera (America/Sao_Paulo, corte 18:00)', () => {
-  it('true às 18:30 de SP', () => {
-    expect(ehHoraDaVespera(new Date('2026-09-03T21:30:00Z'))).toBe(true); // 18:30 -03
+describe('selecionarLembrete — janela de 1h', () => {
+  it('inclui quem começa em 60 min e ainda não avisado', () => {
+    const agora = new Date('2026-09-04T16:30:00-03:00');
+    expect(selecionarLembrete([base], agora, '1h').map(a => a.id)).toEqual(['a1']);
   });
-  it('false às 17:30 de SP', () => {
-    expect(ehHoraDaVespera(new Date('2026-09-03T20:30:00Z'))).toBe(false); // 17:30 -03
+  it('inclui quem começa em 48 min (dentro da folga)', () => {
+    const agora = new Date('2026-09-04T16:42:00-03:00');
+    expect(selecionarLembrete([base], agora, '1h').map(a => a.id)).toEqual(['a1']);
   });
-});
-
-describe('selecionar30min', () => {
-  const agora = new Date('2026-09-04T17:05:00-03:00');
-  it('inclui atendimento que começa em 25 min e ainda não avisado', () => {
-    expect(selecionar30min([base], agora).map(a => a.id)).toEqual(['a1']);
+  it('exclui quem começa em 90 min (fora da folga)', () => {
+    const agora = new Date('2026-09-04T16:00:00-03:00');
+    expect(selecionarLembrete([base], agora, '1h')).toEqual([]);
   });
-  it('exclui quem já tem lembrete_30min_em', () => {
-    expect(selecionar30min([{ ...base, lembrete_30min_em: '2026-09-04T16:00:00-03:00' }], agora)).toEqual([]);
-  });
-  it('exclui quem começa daqui a 2 h', () => {
-    expect(selecionar30min([{ ...base, data_hora_inicio: '2026-09-04T19:05:00-03:00' }], agora)).toEqual([]);
-  });
-  it('exclui quem já começou', () => {
-    expect(selecionar30min([{ ...base, data_hora_inicio: '2026-09-04T16:50:00-03:00' }], agora)).toEqual([]);
+  it('exclui quem já tem lembrete_1h_em', () => {
+    const agora = new Date('2026-09-04T16:30:00-03:00');
+    expect(selecionarLembrete([{ ...base, lembrete_1h_em: '2026-09-04T16:29:00-03:00' }], agora, '1h')).toEqual([]);
   });
 });
 
-describe('selecionarVespera', () => {
-  it('filtra os que já têm véspera enviada', () => {
-    const b2 = { ...base, id: 'a2', lembrete_vespera_em: '2026-09-03T18:00:00-03:00' };
-    expect(selecionarVespera([base, b2]).map(a => a.id)).toEqual(['a1']);
+describe('selecionarLembrete — janela de 15 min', () => {
+  it('inclui quem começa em 12 min e ainda não avisado', () => {
+    const agora = new Date('2026-09-04T17:18:00-03:00');
+    expect(selecionarLembrete([base], agora, '15min').map(a => a.id)).toEqual(['a1']);
+  });
+  it('exclui quem já começou (horário passou)', () => {
+    const agora = new Date('2026-09-04T17:31:00-03:00');
+    expect(selecionarLembrete([base], agora, '15min')).toEqual([]);
+  });
+  it('exclui quem começa em 40 min', () => {
+    const agora = new Date('2026-09-04T16:50:00-03:00');
+    expect(selecionarLembrete([base], agora, '15min')).toEqual([]);
+  });
+  it('usa a coluna certa (não confunde com a de 1h)', () => {
+    const agora = new Date('2026-09-04T17:18:00-03:00');
+    expect(selecionarLembrete([{ ...base, lembrete_1h_em: 'x', lembrete_15min_em: null }], agora, '15min').map(a => a.id)).toEqual(['a1']);
+    expect(selecionarLembrete([{ ...base, lembrete_15min_em: 'x' }], agora, '15min')).toEqual([]);
   });
 });
 
-describe('corpo30min', () => {
-  it('formata "Em 30 min: <cliente> — <serviço> · HH:mm"', () => {
-    expect(corpo30min(base)).toBe('Em 30 min: Lazara — Design com tintura · 17:30');
+describe('corpoLembrete / tituloLembrete', () => {
+  it('corpo = "cliente · serviço · HH:mm"', () => {
+    expect(corpoLembrete(base)).toBe('Lazara · Design com tintura · 17:30');
   });
-});
-
-describe('resumosVespera', () => {
-  it('1 resumo por profissional, com contagem e 1º horário', () => {
-    const ags: AgLembrete[] = [
-      { ...base, id: 'x1', profissional_id: 'p1', data_hora_inicio: '2026-09-04T09:00:00-03:00', cliente_nome: 'Ana' },
-      { ...base, id: 'x2', profissional_id: 'p1', data_hora_inicio: '2026-09-04T14:00:00-03:00', cliente_nome: 'Bia' },
-      { ...base, id: 'x3', profissional_id: 'p2', data_hora_inicio: '2026-09-04T10:00:00-03:00', cliente_nome: 'Cida' },
-    ];
-    const r = resumosVespera(ags);
-    expect(r).toEqual([
-      { profissionalId: 'p1', corpo: 'Amanhã: 2 atendimentos · 1º às 09:00 — Ana' },
-      { profissionalId: 'p2', corpo: 'Amanhã: 1 atendimento · 1º às 10:00 — Cida' },
-    ]);
+  it('usa o pacote quando descricao_servico já vem com o nome do pacote', () => {
+    expect(corpoLembrete({ ...base, descricao_servico: 'Pacote Cílios (5 sessões)' }))
+      .toBe('Lazara · Pacote Cílios (5 sessões) · 17:30');
+  });
+  it('fallbacks quando falta dado', () => {
+    expect(corpoLembrete({ ...base, cliente_nome: null, descricao_servico: null }))
+      .toBe('Cliente · Atendimento · 17:30');
+  });
+  it('título por janela', () => {
+    expect(tituloLembrete('1h')).toBe('Atendimento em 1 hora');
+    expect(tituloLembrete('15min')).toBe('Atendimento em 15 minutos');
   });
 });
 
@@ -72,5 +76,19 @@ describe('destinatarios', () => {
       { user_id: 'p2', role: 'profissional' },
     ];
     expect(destinatarios('p1', membros).sort()).toEqual(['g1', 'owner1', 'p1'].sort());
+  });
+});
+
+describe('corpoResumoDiario', () => {
+  it('junta só as linhas com contagem > 0', () => {
+    expect(corpoResumoDiario({ agendamentos: 3, despesasVencendo: 0, estoqueBaixo: 2 }))
+      .toBe('📅 3 atendimentos hoje\n📦 2 produtos com estoque baixo');
+  });
+  it('singular', () => {
+    expect(corpoResumoDiario({ agendamentos: 1, despesasVencendo: 1, estoqueBaixo: 1 }))
+      .toBe('📅 1 atendimento hoje\n💰 1 despesa vencendo hoje\n📦 1 produto com estoque baixo');
+  });
+  it('tudo zero → string vazia', () => {
+    expect(corpoResumoDiario({ agendamentos: 0, despesasVencendo: 0, estoqueBaixo: 0 })).toBe('');
   });
 });
