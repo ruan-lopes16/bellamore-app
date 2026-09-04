@@ -47,10 +47,42 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 };
 
+// DIAGNÓSTICO TEMPORÁRIO — banner fixo escrito direto no DOM via <script>,
+// sem depender de React/hidratação nem de alert(). O diagnóstico anterior
+// (alert() dentro do SwRegister) nunca apareceu quando o app era aberto pelo
+// ícone da tela de início do iOS, mesmo depois de corrigido o crash do
+// Server Component — isso sugere que a hidratação do React (ou o próprio
+// alert()) pode não estar completando nesse contexto específico. Este script
+// roda de forma síncrona assim que o body existe, antes de qualquer
+// JS de framework, e escreve um banner que fica preso na tela (sem precisar
+// de toque para aparecer, ao contrário do alert()). Remover depois.
+const BANNER_DIAGNOSTICO = `
+(function () {
+  function le() {
+    var d = {
+      serviceWorker: 'serviceWorker' in navigator,
+      pushManager: 'PushManager' in window,
+      notification: typeof Notification !== 'undefined',
+      permissao: typeof Notification !== 'undefined' ? Notification.permission : 'sem-api',
+      standalone: (navigator.standalone === true) ? true : (navigator.standalone === false ? false : 'indefinido'),
+      displayModeStandalone: (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || false,
+      ua: navigator.userAgent.slice(0, 60),
+    };
+    var el = document.createElement('div');
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#111;color:#0f0;font:11px monospace;padding:10px;white-space:pre-wrap;max-height:60vh;overflow:auto;';
+    el.textContent = 'DIAG PUSH (banner):\\n' + JSON.stringify(d, null, 1);
+    el.onclick = function () { el.remove(); };
+    document.body.appendChild(el);
+  }
+  if (document.body) { le(); } else { document.addEventListener('DOMContentLoaded', le); }
+})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" className={`${fraunces.variable} ${jakarta.variable} h-full`}>
       <body className="min-h-full">
+        <script dangerouslySetInnerHTML={{ __html: BANNER_DIAGNOSTICO }} />
         <Providers>{children}</Providers>
         <ClickSpark />
         <SwRegister />
