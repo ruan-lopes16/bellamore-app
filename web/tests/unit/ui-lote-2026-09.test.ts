@@ -44,6 +44,23 @@ describe('A4 — modal Detalhes com status inline', () => {
   });
 });
 
+describe('A6 — timeline sempre visível + bloqueios em dia sem agendamento', () => {
+  const src = read('app/(app)/agenda/page.tsx');
+  it('as colunas vêm dos profissionais da empresa, não só dos agendamentos', () => {
+    expect(src).toContain('profissionaisEmpresa');
+    expect(src).toContain("for (const p of profissionaisEmpresa) map.set(p.id, p.nome)");
+  });
+  it('carrega os profissionais da empresa de empresa_membros', () => {
+    expect(src).toContain("setProfissionaisEmpresa");
+    expect(src).toMatch(/from\('empresa_membros'\)[\s\S]{0,200}in\('role', \['owner', 'gestor', 'profissional'\]\)/);
+  });
+  it('a mensagem de vazio da timeline fala de profissional (a de ListaDia continua)', () => {
+    expect(src).toContain('Nenhum profissional cadastrado ainda.');
+    // Só ListaDia ainda usa a frase antiga — 1 ocorrência, não 2.
+    expect((src.match(/Nenhum agendamento para este dia\./g) ?? []).length).toBe(1);
+  });
+});
+
 describe('A5 web — timeline mostra horário e todos os serviços', () => {
   const src = read('app/(app)/agenda/page.tsx');
   it('bloco da timeline concatena agendamento_servicos via helper', () => {

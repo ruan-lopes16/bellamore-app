@@ -1180,9 +1180,10 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio,
+  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio,
 }: {
-  ags: Ag[]; bloqueios: Bloqueio[]; loading: boolean; empresaId: string;
+  ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
+  loading: boolean; empresaId: string;
   categoriasCustom: CategoriaCustom[];
   onStatus: (id: string, s: string) => void;
   dataSel: Date;
@@ -1213,14 +1214,17 @@ function TimelineView({
     if (atualizado) setAgSel(atualizado);
   }, [ags]);
 
-  // Profissionais únicos do dia, mantendo ordem de aparição
+  // Colunas da timeline: profissionais da empresa (sempre, mesmo sem
+  // agendamento) + qualquer profissional que apareça só nos agendamentos do dia
+  // e não esteja na lista (defensivo — ex.: profissional desativado depois).
   const profissionais = useMemo(() => {
     const map = new Map<string, string>();
+    for (const p of profissionaisEmpresa) map.set(p.id, p.nome);
     for (const ag of ags) {
-      if (ag.profissional) map.set(ag.profissional.id, ag.profissional.nome);
+      if (ag.profissional && !map.has(ag.profissional.id)) map.set(ag.profissional.id, ag.profissional.nome);
     }
     return Array.from(map.entries()).map(([id, nome]) => ({ id, nome }));
-  }, [ags]);
+  }, [ags, profissionaisEmpresa]);
 
   // Agendamentos agrupados por profissional
   const agsByProf = useMemo(() => {
@@ -1257,7 +1261,7 @@ function TimelineView({
   if (profissionais.length === 0) {
     return (
       <div className="flex items-center gap-3 py-4 px-1 text-text-3 text-sm">
-        <span>Nenhum agendamento para este dia.</span>
+        <span>Nenhum profissional cadastrado ainda.</span>
       </div>
     );
   }
@@ -1665,6 +1669,10 @@ export default function AgendaPage() {
   const [toastErro,    setToastErro]   = useState('');
   const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string; profissionalId: string | null } | null>(null);
   const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
+  // Profissionais da empresa — base das colunas da timeline (independe de haver
+  // agendamento no dia; sem isso a timeline e os bloqueios só apareciam em dias
+  // com atendimento).
+  const [profissionaisEmpresa, setProfissionaisEmpresa] = useState<{ id: string; nome: string }[]>([]);
 
   function showErro(msg: string) {
     setToastErro(msg);
@@ -1679,9 +1687,20 @@ export default function AgendaPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
       if (membro?.empresa_id) {
-        const { data: cats } = await supabase.from('categorias_servico').select('*')
-          .eq('empresa_id', membro.empresa_id).order('nome');
+        const [{ data: cats }, { data: profs }] = await Promise.all([
+          supabase.from('categorias_servico').select('*')
+            .eq('empresa_id', membro.empresa_id).order('nome'),
+          supabase.from('empresa_membros').select('user:users(id, nome)')
+            .eq('empresa_id', membro.empresa_id)
+            .in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true),
+        ]);
         setCategoriasCustom((cats ?? []) as CategoriaCustom[]);
+        setProfissionaisEmpresa(
+          (profs ?? [])
+            .map((m: any) => ({ id: m.user?.id, nome: m.user?.nome }))
+            .filter((p: { id?: string; nome?: string }) => p.id && p.nome)
+            .sort((a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome)),
+        );
       }
     })();
   }, []);
@@ -1892,6 +1911,7 @@ export default function AgendaPage() {
         <TimelineView
           ags={ags}
           bloqueios={bloqueios}
+          profissionaisEmpresa={profissionaisEmpresa}
           loading={loading}
           empresaId={empresaId ?? ''}
           categoriasCustom={categoriasCustom}
@@ -1945,9 +1965,10 @@ export default function AgendaPage() {
 
       {/* Modal de bloqueio */}
       {modalBloq && empresaId && (() => {
+        const profsDosAgs = ags.filter(a => a.profissional).map(a => [a.profissional!.id, a.profissional!] as const);
         const profsUnicos = Array.from(
-          new Map(ags.filter(a => a.profissional).map(a => [a.profissional!.id, a.profissional!])).entries()
-        ).map(([, p]) => p);
+          new Map([...profissionaisEmpresa.map(p => [p.id, p] as const), ...profsDosAgs]).values()
+        );
         return (
           <NovoBloqueioModal
             data={dataSel}
