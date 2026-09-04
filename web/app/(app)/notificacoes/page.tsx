@@ -27,10 +27,71 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
+import { registrarEInscrever } from '@/components/SwRegister';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const supabase = createClient();
+
+type PermissaoPush = 'default' | 'granted' | 'denied' | 'sem-suporte';
+
+/**
+ * Card de status/ativação do push no aparelho atual. O pedido de permissão
+ * só acontece no clique — no Safari/iOS, chamar Notification.requestPermission()
+ * fora de um gesto direto do usuário é negado silenciosamente, sem popup
+ * nenhum (é por isso que não roda automático em lugar nenhum do app).
+ */
+function CardPushDispositivo() {
+  const [permissao, setPermissao] = useState<PermissaoPush>('sem-suporte');
+  const [ativando,  setAtivando]  = useState(false);
+
+  useEffect(() => {
+    const apto = 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined';
+    setPermissao(apto ? (Notification.permission as PermissaoPush) : 'sem-suporte');
+  }, []);
+
+  async function ativar() {
+    setAtivando(true);
+    try {
+      const resultado = await Notification.requestPermission();
+      setPermissao(resultado as PermissaoPush);
+      if (resultado === 'granted') await registrarEInscrever();
+    } catch {
+      // Falha silenciosa: o card continua mostrando o estado atual.
+    } finally {
+      setAtivando(false);
+    }
+  }
+
+  if (permissao === 'sem-suporte') return null;
+
+  return (
+    <div className="mb-8 rounded-2xl p-4 flex items-center gap-4" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+      <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: permissao === 'granted' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)' }}>
+        <Bell size={18} style={{ color: permissao === 'granted' ? 'var(--color-green)' : 'var(--color-primary)' }}/>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700, color: 'var(--color-ink)' }}>
+          {permissao === 'granted' ? 'Notificações ativadas neste aparelho'
+            : permissao === 'denied' ? 'Notificações bloqueadas neste aparelho'
+            : 'Ativar lembretes de atendimento'}
+        </p>
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--color-ink3)', marginTop: 2 }}>
+          {permissao === 'granted' ? 'Você recebe avisos 1h e 15min antes de cada atendimento, e o resumo do dia.'
+            : permissao === 'denied' ? 'Ative em Ajustes do aparelho > Notificações > Bellamore (não dá para pedir de novo por aqui).'
+            : 'Receba um aviso na tela do celular 1h e 15min antes de cada atendimento.'}
+        </p>
+      </div>
+      {permissao === 'default' && (
+        <button type="button" onClick={ativar} disabled={ativando}
+          className="press flex-shrink-0 h-9 px-4 rounded-xl text-white text-xs font-bold transition disabled:opacity-60"
+          style={{ background: 'var(--color-primary)' }}>
+          {ativando ? 'Ativando…' : 'Ativar'}
+        </button>
+      )}
+    </div>
+  );
+}
 
 // ── Tipos ─────────────────────────────────────────────────────
 
@@ -327,6 +388,8 @@ export default function NotificacoesPage() {
           </button>
         )}
       </div>
+
+      <CardPushDispositivo />
 
       {/* ── Alertas computados ── */}
       <div className="mb-8">

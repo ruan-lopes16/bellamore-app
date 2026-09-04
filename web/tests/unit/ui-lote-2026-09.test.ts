@@ -202,6 +202,18 @@ describe('E5 — alertas de agendamento colapsados', () => {
   });
 });
 
+describe('E-push — ativação do push vive em Notificações, não flutuante', () => {
+  it('notificacoes/page.tsx tem o card de ativação', () => {
+    expect(read('app/(app)/notificacoes/page.tsx')).toContain('function CardPushDispositivo');
+  });
+  it('SwRegister não exporta mais um botão flutuante', () => {
+    expect(read('components/SwRegister.tsx')).not.toContain('BotaoAtivarNotificacoes');
+  });
+  it('o layout autenticado não monta mais um botão flutuante', () => {
+    expect(read('app/(app)/layout.tsx')).not.toContain('BotaoAtivarNotificacoes');
+  });
+});
+
 describe('E-push — SwRegister re-sincroniza a inscrição sempre', () => {
   const src = read('components/SwRegister.tsx');
   it('não aborta mais quando já existe inscrição local', () => {
