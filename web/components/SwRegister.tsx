@@ -10,21 +10,14 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   return arr.buffer.slice(0) as ArrayBuffer;
 }
 
-// DIAGNÓSTICO TEMPORÁRIO — remover assim que a inscrição de push for
-// confirmada funcionando ponta a ponta num dispositivo novo.
-function diagnosticoPush(dados: Record<string, unknown>) {
-  alert('Diagnóstico push (' + (typeof navigator !== 'undefined' && (navigator as any).standalone ? 'standalone' : 'aba') + '):\n' + JSON.stringify(dados, null, 2));
-}
+async function registrarEInscrever(): Promise<void> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
-async function registrarEInscrever(): Promise<{ ok: boolean; motivo?: string; status?: number }> {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    return { ok: false, motivo: 'sem serviceWorker/PushManager' };
-  }
   const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
   await navigator.serviceWorker.ready;
 
   const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  if (!vapidKey) return { ok: false, motivo: 'sem VAPID key' };
+  if (!vapidKey) return;
 
   // Reaproveita a inscrição do dispositivo ou cria uma nova, e SEMPRE
   // re-sincroniza com o servidor. O upsert em /api/push/subscribe é barato e
@@ -37,12 +30,11 @@ async function registrarEInscrever(): Promise<{ ok: boolean; motivo?: string; st
       applicationServerKey: urlBase64ToUint8Array(vapidKey),
     }));
 
-  const resp = await fetch('/api/push/subscribe', {
+  await fetch('/api/push/subscribe', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(subscription),
   });
-  return { ok: resp.ok, status: resp.status };
 }
 
 /**
@@ -52,9 +44,8 @@ async function registrarEInscrever(): Promise<{ ok: boolean; motivo?: string; st
  * direto do usuário (ex.: dentro de um useEffect, ao carregar a página) é
  * negado silenciosamente: nenhum popup do sistema aparece, o app nem chega
  * a ser listado em Ajustes > Notificações, e `Notification.permission` vira
- * "denied" sem o usuário nunca ter visto nada — foi exatamente isso que
- * impedia qualquer inscrição nova de funcionar. O pedido de permissão em si
- * agora só acontece no clique do botão em `BotaoAtivarNotificacoes`, abaixo.
+ * "denied" sem o usuário nunca ter visto nada. O pedido de permissão em si
+ * só acontece no clique do botão em `BotaoAtivarNotificacoes`, abaixo.
  */
 export function SwRegister() {
   useEffect(() => {
@@ -84,16 +75,11 @@ export function BotaoAtivarNotificacoes() {
     setAtivando(true);
     try {
       const permissao = await Notification.requestPermission();
-      if (permissao !== 'granted') {
-        diagnosticoPush({ etapa: 'botão: permissão não concedida', resultadoPrompt: permissao });
-        setVisivel(false);
-        return;
-      }
-      const resultado = await registrarEInscrever();
-      diagnosticoPush({ etapa: 'botão: fluxo concluído', ...resultado });
+      if (permissao !== 'granted') { setVisivel(false); return; }
+      await registrarEInscrever();
       setVisivel(false);
-    } catch (err) {
-      diagnosticoPush({ etapa: 'botão: exceção', erro: String(err) });
+    } catch {
+      // Falha silenciosa: o botão continua visível para nova tentativa.
     } finally {
       setAtivando(false);
     }
