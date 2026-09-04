@@ -1,8 +1,14 @@
-const CACHE = 'bellamore-v2';
+const CACHE = 'bellamore-v3';
 
+// /icon (sem extensão) dá 404 — a rota gerada pelo Next é /icon.png. Uma
+// única URL 404 aqui faz cache.addAll() rejeitar tudo (é atômico), o que
+// falha a instalação inteira do SW pra qualquer dispositivo novo — sem erro
+// visível, só navigator.serviceWorker.ready nunca resolvendo. Bump de versão
+// do cache pra forçar dispositivos com uma instalação já travada a tentarem
+// de novo.
 const PRECACHE = [
   '/offline',
-  '/icon',
+  '/icon.png',
 ];
 
 self.addEventListener('install', e => {
