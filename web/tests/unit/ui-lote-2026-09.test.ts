@@ -185,6 +185,17 @@ describe('E5 — alertas de agendamento colapsados', () => {
   });
 });
 
+describe('E-push — SwRegister re-sincroniza a inscrição sempre', () => {
+  const src = read('components/SwRegister.tsx');
+  it('não aborta mais quando já existe inscrição local', () => {
+    expect(src).not.toContain('if (existing) return');
+  });
+  it('faz POST em /api/push/subscribe com a inscrição (nova ou existente)', () => {
+    expect(src).toContain("getSubscription()) ??");
+    expect(src).toContain("fetch('/api/push/subscribe'");
+  });
+});
+
 describe('E6 mobile — lembrete local', () => {
   const src = read('../mobile/lib/notifications.ts');
   it('exporta agendarLembretesLocais e usa scheduleNotificationAsync', () => {

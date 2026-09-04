@@ -29,16 +29,21 @@ export function SwRegister() {
           : await Notification.requestPermission();
         if (permission !== 'granted') return;
 
-        const existing = await registration.pushManager.getSubscription();
-        if (existing) return; // já inscrito
-
         const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
         if (!vapidKey) return;
 
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly:      true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
-        });
+        // Reaproveita a inscrição do dispositivo ou cria uma nova, e SEMPRE
+        // re-sincroniza com o servidor. O upsert em /api/push/subscribe é
+        // barato e idempotente; sem esta re-sincronização, um dispositivo que
+        // chegou a se inscrever mas falhou ao salvar no banco (rede, etc.)
+        // ficava invisível para o envio de push para sempre, porque a versão
+        // anterior abortava assim que encontrava uma inscrição local.
+        const subscription =
+          (await registration.pushManager.getSubscription()) ??
+          (await registration.pushManager.subscribe({
+            userVisibleOnly:      true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          }));
 
         await fetch('/api/push/subscribe', {
           method:  'POST',
