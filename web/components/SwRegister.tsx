@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -10,85 +10,111 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   return arr.buffer.slice(0) as ArrayBuffer;
 }
 
-// DIAGNÓSTICO TEMPORÁRIO — remover assim que o problema de push no iOS for
-// identificado. Mostra 1x por navegador (localStorage) as flags de suporte
-// e o resultado real do fluxo, porque o iOS instalado não estava nem
-// exibindo o prompt de permissão e não há devtools remoto disponível.
+// DIAGNÓSTICO TEMPORÁRIO — remover assim que a inscrição de push for
+// confirmada funcionando ponta a ponta num dispositivo novo.
 function diagnosticoPush(dados: Record<string, unknown>) {
-  // Sem trava de "1x só": Safari (aba) e o app instalado na tela de início
-  // compartilham o mesmo localStorage (mesma origem), então uma trava global
-  // impedia ver o diagnóstico do segundo contexto depois de já ter visto o
-  // primeiro. Sempre mostra enquanto este código de debug estiver no ar.
   alert('Diagnóstico push (' + (typeof navigator !== 'undefined' && (navigator as any).standalone ? 'standalone' : 'aba') + '):\n' + JSON.stringify(dados, null, 2));
 }
 
+async function registrarEInscrever(): Promise<{ ok: boolean; motivo?: string; status?: number }> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return { ok: false, motivo: 'sem serviceWorker/PushManager' };
+  }
+  const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  await navigator.serviceWorker.ready;
+
+  const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  if (!vapidKey) return { ok: false, motivo: 'sem VAPID key' };
+
+  // Reaproveita a inscrição do dispositivo ou cria uma nova, e SEMPRE
+  // re-sincroniza com o servidor. O upsert em /api/push/subscribe é barato e
+  // idempotente; sem isso, um dispositivo que se inscreveu mas falhou ao
+  // salvar no banco ficava invisível para o envio de push para sempre.
+  const subscription =
+    (await registration.pushManager.getSubscription()) ??
+    (await registration.pushManager.subscribe({
+      userVisibleOnly:      true,
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+    }));
+
+  const resp = await fetch('/api/push/subscribe', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(subscription),
+  });
+  return { ok: resp.ok, status: resp.status };
+}
+
+/**
+ * Registra o Service Worker e (re)sincroniza a inscrição de push
+ * automaticamente — mas SÓ quando a permissão já foi concedida antes. No
+ * Safari/iOS, chamar `Notification.requestPermission()` fora de um gesto
+ * direto do usuário (ex.: dentro de um useEffect, ao carregar a página) é
+ * negado silenciosamente: nenhum popup do sistema aparece, o app nem chega
+ * a ser listado em Ajustes > Notificações, e `Notification.permission` vira
+ * "denied" sem o usuário nunca ter visto nada — foi exatamente isso que
+ * impedia qualquer inscrição nova de funcionar. O pedido de permissão em si
+ * agora só acontece no clique do botão em `BotaoAtivarNotificacoes`, abaixo.
+ */
 export function SwRegister() {
   useEffect(() => {
-    const caps = {
-      serviceWorker: 'serviceWorker' in navigator,
-      pushManager:   'PushManager' in window,
-      notification:  typeof Notification !== 'undefined',
-      permissao:     typeof Notification !== 'undefined' ? Notification.permission : 'sem-api',
-      standalone:    (navigator as any).standalone ?? 'indefinido',
-      vapidPresente: !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
-    };
-
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      diagnosticoPush({ ...caps, etapa: 'saiu antes de registrar o SW (falta serviceWorker ou PushManager)' });
-      return;
-    }
-
-    navigator.serviceWorker
-      .register('/sw.js', { scope: '/' })
-      .then(async registration => {
-        // Aguarda o SW estar ativo antes de subscrever
-        await navigator.serviceWorker.ready;
-
-        // Só pede permissão quando o usuário ainda não decidiu — repetir o
-        // pedido após um "denied" não reabre o prompt, só gera o aviso do
-        // Chrome de permissão bloqueada por dispensa repetida.
-        if (Notification.permission === 'denied') {
-          diagnosticoPush({ ...caps, etapa: 'permissão já negada antes' });
-          return;
-        }
-        const permission = Notification.permission === 'granted'
-          ? 'granted'
-          : await Notification.requestPermission();
-        if (permission !== 'granted') {
-          diagnosticoPush({ ...caps, etapa: 'permissão não concedida', resultadoPrompt: permission });
-          return;
-        }
-
-        const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidKey) {
-          diagnosticoPush({ ...caps, etapa: 'sem NEXT_PUBLIC_VAPID_PUBLIC_KEY no build' });
-          return;
-        }
-
-        // Reaproveita a inscrição do dispositivo ou cria uma nova, e SEMPRE
-        // re-sincroniza com o servidor. O upsert em /api/push/subscribe é
-        // barato e idempotente; sem esta re-sincronização, um dispositivo que
-        // chegou a se inscrever mas falhou ao salvar no banco (rede, etc.)
-        // ficava invisível para o envio de push para sempre, porque a versão
-        // anterior abortava assim que encontrava uma inscrição local.
-        const subscription =
-          (await registration.pushManager.getSubscription()) ??
-          (await registration.pushManager.subscribe({
-            userVisibleOnly:      true,
-            applicationServerKey: urlBase64ToUint8Array(vapidKey),
-          }));
-
-        const resp = await fetch('/api/push/subscribe', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(subscription),
-        });
-        diagnosticoPush({ ...caps, etapa: 'inscrição enviada ao servidor', statusResposta: resp.status });
-      })
-      .catch(err => {
-        diagnosticoPush({ ...caps, etapa: 'erro na cadeia de registro/inscrição', erro: String(err) });
-      });
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    registrarEInscrever().catch(() => {});
   }, []);
 
   return null;
+}
+
+/**
+ * Botão flutuante "Ativar notificações" — só aparece quando a permissão
+ * ainda não foi decidida (`default`). Chama `Notification.requestPermission()`
+ * como a primeira coisa dentro do handler de clique, preservando o gesto do
+ * usuário exigido pelo Safari/iOS para o popup do sistema aparecer de verdade.
+ */
+export function BotaoAtivarNotificacoes() {
+  const [visivel,  setVisivel]  = useState(false);
+  const [ativando, setAtivando] = useState(false);
+
+  useEffect(() => {
+    const apto = 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined';
+    setVisivel(apto && Notification.permission === 'default');
+  }, []);
+
+  async function ativar() {
+    setAtivando(true);
+    try {
+      const permissao = await Notification.requestPermission();
+      if (permissao !== 'granted') {
+        diagnosticoPush({ etapa: 'botão: permissão não concedida', resultadoPrompt: permissao });
+        setVisivel(false);
+        return;
+      }
+      const resultado = await registrarEInscrever();
+      diagnosticoPush({ etapa: 'botão: fluxo concluído', ...resultado });
+      setVisivel(false);
+    } catch (err) {
+      diagnosticoPush({ etapa: 'botão: exceção', erro: String(err) });
+    } finally {
+      setAtivando(false);
+    }
+  }
+
+  if (!visivel) return null;
+
+  return (
+    <button
+      onClick={ativar}
+      disabled={ativando}
+      style={{
+        position: 'fixed', left: 16, right: 16, bottom: 'calc(84px + env(safe-area-inset-bottom))',
+        zIndex: 9998, height: 48, borderRadius: 16,
+        background: 'var(--color-primary, #2C1654)', color: '#fff',
+        fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700,
+        border: 'none', boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+        opacity: ativando ? 0.7 : 1,
+      }}
+    >
+      {ativando ? 'Ativando…' : '🔔 Ativar notificações de atendimento'}
+    </button>
+  );
 }
