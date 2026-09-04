@@ -10,9 +10,35 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   return arr.buffer.slice(0) as ArrayBuffer;
 }
 
+// DIAGNÓSTICO TEMPORÁRIO — remover assim que o problema de push no iOS for
+// identificado. Mostra 1x por navegador (localStorage) as flags de suporte
+// e o resultado real do fluxo, porque o iOS instalado não estava nem
+// exibindo o prompt de permissão e não há devtools remoto disponível.
+function diagnosticoPush(dados: Record<string, unknown>) {
+  try {
+    if (localStorage.getItem('bm-push-diag-mostrado')) return;
+    localStorage.setItem('bm-push-diag-mostrado', '1');
+    alert('Diagnóstico push:\n' + JSON.stringify(dados, null, 2));
+  } catch {
+    // localStorage indisponível — não bloqueia o fluxo normal
+  }
+}
+
 export function SwRegister() {
   useEffect(() => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const caps = {
+      serviceWorker: 'serviceWorker' in navigator,
+      pushManager:   'PushManager' in window,
+      notification:  typeof Notification !== 'undefined',
+      permissao:     typeof Notification !== 'undefined' ? Notification.permission : 'sem-api',
+      standalone:    (navigator as any).standalone ?? 'indefinido',
+      vapidPresente: !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    };
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      diagnosticoPush({ ...caps, etapa: 'saiu antes de registrar o SW (falta serviceWorker ou PushManager)' });
+      return;
+    }
 
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })
@@ -23,30 +49,47 @@ export function SwRegister() {
         // Só pede permissão quando o usuário ainda não decidiu — repetir o
         // pedido após um "denied" não reabre o prompt, só gera o aviso do
         // Chrome de permissão bloqueada por dispensa repetida.
-        if (Notification.permission === 'denied') return;
+        if (Notification.permission === 'denied') {
+          diagnosticoPush({ ...caps, etapa: 'permissão já negada antes' });
+          return;
+        }
         const permission = Notification.permission === 'granted'
           ? 'granted'
           : await Notification.requestPermission();
-        if (permission !== 'granted') return;
-
-        const existing = await registration.pushManager.getSubscription();
-        if (existing) return; // já inscrito
+        if (permission !== 'granted') {
+          diagnosticoPush({ ...caps, etapa: 'permissão não concedida', resultadoPrompt: permission });
+          return;
+        }
 
         const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-        if (!vapidKey) return;
+        if (!vapidKey) {
+          diagnosticoPush({ ...caps, etapa: 'sem NEXT_PUBLIC_VAPID_PUBLIC_KEY no build' });
+          return;
+        }
 
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly:      true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
-        });
+        // Reaproveita a inscrição do dispositivo ou cria uma nova, e SEMPRE
+        // re-sincroniza com o servidor. O upsert em /api/push/subscribe é
+        // barato e idempotente; sem esta re-sincronização, um dispositivo que
+        // chegou a se inscrever mas falhou ao salvar no banco (rede, etc.)
+        // ficava invisível para o envio de push para sempre, porque a versão
+        // anterior abortava assim que encontrava uma inscrição local.
+        const subscription =
+          (await registration.pushManager.getSubscription()) ??
+          (await registration.pushManager.subscribe({
+            userVisibleOnly:      true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          }));
 
-        await fetch('/api/push/subscribe', {
+        const resp = await fetch('/api/push/subscribe', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify(subscription),
         });
+        diagnosticoPush({ ...caps, etapa: 'inscrição enviada ao servidor', statusResposta: resp.status });
       })
-      .catch(() => {});
+      .catch(err => {
+        diagnosticoPush({ ...caps, etapa: 'erro na cadeia de registro/inscrição', erro: String(err) });
+      });
   }, []);
 
   return null;

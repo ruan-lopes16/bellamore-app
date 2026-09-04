@@ -1487,64 +1487,48 @@ export default function FinanceiroPage() {
             </div>
           ))}
         </div>
-      ) : (
-        <div className="flex flex-col gap-3 mb-6">
-          {/* Linha 1: Bruto → Taxas Cartão → Líquido após Taxas */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {[
-              { label: 'Faturamento Bruto',   value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
-              { label: 'Taxas de Cartão',     value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
-              { label: 'Líquido após Taxas',  value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
-            ].map(({ label, value, d, cor, invertDelta }) => (
-              <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-                <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 whitespace-nowrap tabular-nums ${cor}`}><Secret>{fmtBRL(value)}</Secret></p>
-                {d !== null && (
-                  <div className="flex items-center gap-1 min-w-0">
-                    {(invertDelta ? d < 0 : d >= 0)
-                      ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
-                      : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
-                    }
-                    <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      <Secret>{d >= 0 ? '+' : ''}{d}%</Secret> vs mês anterior
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          {/* Linha 2: Comissões | Gastos | Lucro Real */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {[
-              { label: 'Comissões',           value: comissoes, d: dComissoes, cor: 'text-amber',                                    invertDelta: true  },
-              { label: 'Gastos Operacionais', value: gastos,    d: dGastos,   cor: 'text-rose',                                     invertDelta: true  },
-              { label: 'Lucro Real',          value: lucro,     d: null,      cor: lucro >= 0 ? 'text-primary' : 'text-red',        invertDelta: false },
-              ...(taxasCancelamentoPagas > 0
-                ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
-                : []),
-              ...(taxasReservaPagas > 0
-                ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
-                : []),
-            ].map(({ label, value, d, cor, invertDelta }) => (
-              <div key={label} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-                <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
-                <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 whitespace-nowrap tabular-nums ${cor}`}><Secret>{fmtBRL(value)}</Secret></p>
-                {d !== null && (
-                  <div className="flex items-center gap-1 min-w-0">
-                    {(invertDelta ? d < 0 : d >= 0)
-                      ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
-                      : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
-                    }
-                    <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
-                      <Secret>{d >= 0 ? '+' : ''}{d}%</Secret> vs mês anterior
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+      ) : (() => {
+        // Grade única de KPIs — evita a 4ª célula órfã que sobrava quando a
+        // primeira linha tinha 3 itens num grid de 2 colunas (anexo 7).
+        const kpisFinanceiro = [
+          { label: 'Faturamento Bruto',   value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
+          { label: 'Taxas de Cartão',     value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
+          { label: 'Líquido após Taxas',  value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
+          { label: 'Comissões',           value: comissoes,        d: dComissoes, cor: 'text-amber',   invertDelta: true  },
+          { label: 'Gastos Operacionais', value: gastos,           d: dGastos,    cor: 'text-rose',    invertDelta: true  },
+          { label: 'Lucro Real',          value: lucro,            d: null,       cor: lucro >= 0 ? 'text-primary' : 'text-red', invertDelta: false },
+          ...(taxasCancelamentoPagas > 0
+            ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
+            : []),
+          ...(taxasReservaPagas > 0
+            ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
+            : []),
+        ];
+        return (
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
+          {kpisFinanceiro.map(({ label, value, d, cor, invertDelta }, i, arr) => (
+            <div key={label}
+              className={`bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 ${
+                i === arr.length - 1 && arr.length % 2 === 1 ? 'col-span-2 lg:col-span-1' : ''
+              }`}>
+              <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
+              <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 whitespace-nowrap tabular-nums ${cor}`}><Secret>{fmtBRL(value)}</Secret></p>
+              {d !== null && (
+                <div className="flex items-center gap-1 min-w-0">
+                  {(invertDelta ? d < 0 : d >= 0)
+                    ? <TrendingUp  size={11} className="text-green flex-shrink-0" strokeWidth={2.5}/>
+                    : <TrendingDown size={11} className="text-red flex-shrink-0"  strokeWidth={2.5}/>
+                  }
+                  <span className={`text-[10px] sm:text-xs font-bold truncate ${(invertDelta ? d < 0 : d >= 0) ? 'text-green' : 'text-red'}`}>
+                    <Secret>{d >= 0 ? '+' : ''}{d}%</Secret> vs mês anterior
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-      )}
+        );
+      })()}
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

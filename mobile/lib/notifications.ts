@@ -44,6 +44,54 @@ export async function registrarPushToken(userId: string): Promise<void> {
     .eq('id', userId);
 }
 
+/**
+ * Agenda lembretes LOCAIS (sem servidor) para os atendimentos futuros do
+ * usuário: 1 disparo às 18:00 da véspera + 1 disparo 30 min antes.
+ * Recria tudo a cada chamada — chamar quando a agenda recarrega.
+ */
+export async function agendarLembretesLocais(
+  ags: { id: string; dataHoraInicio: string; clienteNome: string | null; servicoNome: string | null }[],
+): Promise<void> {
+  if (!Device.isDevice) return;
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== 'granted') return;
+
+  // Limpa os agendados e reprograma do zero (evita duplicar / manter obsoletos).
+  await Notifications.cancelAllScheduledNotificationsAsync();
+
+  const agora = Date.now();
+
+  for (const ag of ags) {
+    const inicio = new Date(ag.dataHoraInicio).getTime();
+    if (Number.isNaN(inicio) || inicio <= agora) continue;
+
+    const cli = ag.clienteNome ?? 'Cliente';
+    const serv = ag.servicoNome ?? 'Atendimento';
+    const hhmm = new Date(ag.dataHoraInicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const body = `${cli} · ${serv} · ${hhmm}`;
+
+    // 1 h antes
+    const t1h = new Date(inicio - 60 * 60_000);
+    if (t1h.getTime() > agora) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `ag-${ag.id}-1h`,
+        content: { title: 'Atendimento em 1 hora', body },
+        trigger: { date: t1h },
+      });
+    }
+
+    // 15 min antes
+    const t15 = new Date(inicio - 15 * 60_000);
+    if (t15.getTime() > agora) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `ag-${ag.id}-15`,
+        content: { title: 'Atendimento em 15 minutos', body },
+        trigger: { date: t15 },
+      });
+    }
+  }
+}
+
 // Mapa de tipo de notificação → rota de destino ao tocar
 export function rotaParaNotificacao(
   tipo?: string,

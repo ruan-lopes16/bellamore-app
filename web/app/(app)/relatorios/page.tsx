@@ -294,14 +294,16 @@ function RankRow({
 /** Barra vertical para o gráfico de evolução de faturamento */
 function ChartBar({ label, value, maxValue }: { label: string; value: number; maxValue: number }) {
   const heightPct = maxValue > 0 ? (value / maxValue) * 100 : 0;
+  // self-stretch + min-h-0 na cadeia: sem isso o `height: %` da barra resolvia
+  // contra um pai sem altura definida e todas colapsavam para o minHeight.
   return (
-    <div className="flex-1 flex flex-col items-center gap-1 min-w-0">
+    <div className="flex-1 self-stretch flex flex-col items-center gap-1 min-w-0">
       {value > 0 && (
         <span className="text-[9px] text-text-3 truncate w-full text-center">
           <Secret>{fmtBRL(value)}</Secret>
         </span>
       )}
-      <div className="flex-1 flex flex-col justify-end w-full">
+      <div className="flex-1 min-h-0 flex flex-col justify-end w-full">
         <div className="w-full rounded-t-md transition-all duration-500"
           style={{
             height: `${heightPct}%`,
@@ -1108,7 +1110,7 @@ export default function RelatoriosPage() {
             ) : serieGrafico.every(s => s.valor === 0) ? (
               <p className="text-sm text-text-3 text-center py-8">Sem faturamento no período</p>
             ) : (
-              <div className="flex items-end gap-2" style={{ height: 140 }}>
+              <div className="flex items-stretch gap-2" style={{ height: 140 }}>
                 {serieGrafico.map((s, i) => (
                   <ChartBar key={i} label={s.label} value={s.valor} maxValue={maxGrafico} />
                 ))}
@@ -1201,30 +1203,6 @@ export default function RelatoriosPage() {
             </div>
           )}
 
-          {/* Funil de atendimentos */}
-          {!loading && (
-            <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-              <h2 className="font-semibold text-text mb-4">Funil de atendimentos</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {([
-                  { label: 'Total marcados', v: ags.length,          cor: '#6B7280', bg: '#F9FAFB' },
-                  { label: 'Concluídos',     v: concluidos.length,   cor: '#16A34A', bg: '#F0FDF4' },
-                  { label: 'Cancelados',     v: cancelados.length,   cor: '#DC2626', bg: '#FEF2F2' },
-                  { label: 'Faltaram',       v: faltaram.length,     cor: '#D97706', bg: '#FFFBEB' },
-                ] as const).map(({ label, v, cor, bg }) => (
-                  <div key={label} className="rounded-xl p-4 text-center" style={{ background: bg }}>
-                    <p className="text-2xl font-bold" style={{ color: cor }}>{v}</p>
-                    <p className="text-xs text-text-3 mt-1">{label}</p>
-                    {ags.length > 0 && (
-                      <p className="text-xs font-semibold mt-1" style={{ color: cor }}>
-                        {((v / ags.length) * 100).toFixed(1)}%
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -1309,7 +1287,7 @@ export default function RelatoriosPage() {
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-text-3">{prof.qtd} atend.</span>
                       {prof.comissao > 0 && (
-                        <span className="text-xs font-semibold text-pink-500">
+                        <span className="text-xs font-semibold text-text-2">
                           Comissão: {fmtBRL(prof.comissao)}
                         </span>
                       )}
@@ -1321,7 +1299,7 @@ export default function RelatoriosPage() {
               {comTot > 0 && (
                 <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                   <span className="text-xs text-text-3">Total comissões no período</span>
-                  <span className="text-sm font-bold text-pink-500"><Secret>{fmtBRL(comTot)}</Secret></span>
+                  <span className="text-sm font-bold text-text"><Secret>{fmtBRL(comTot)}</Secret></span>
                 </div>
               )}
             </>

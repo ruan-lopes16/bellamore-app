@@ -1,8 +1,10 @@
 import { Sk } from '@/components/Skeleton';
 
 /**
- * Skeleton da tela de Financeiro — corresponde ao layout real:
- * header + seletor mês + 5 KPIs (3+2) + grid 2 colunas (evolução / top serviços / despesas)
+ * Skeleton da tela de Financeiro — espelha o layout real de `page.tsx`:
+ * header + seletor de mês + grade única de KPIs (grid-cols-2 lg:grid-cols-3,
+ * último ocupando a linha inteira no mobile) + grid de 2 colunas
+ * (evolução / top serviços) + lista de despesas.
  */
 export default function FinanceiroLoading() {
   return (
@@ -28,52 +30,33 @@ export default function FinanceiroLoading() {
         </div>
       </div>
 
-      {/* KPIs — linha 1 (3 cards: Bruto / Comissões / Líquido) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-3 sm:mb-4">
-        {[1,2,3].map(i => (
-          <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-            <Sk className="h-3 w-1/2 mb-2 max-w-[140px]" />
-            <Sk className="h-7 w-2/3 mb-2 max-w-[140px]" />
-            <Sk className="h-3 w-3/4 max-w-[160px]" />
-          </div>
-        ))}
-      </div>
-      {/* KPIs — linha 2 (2 cards: Gastos / Lucro) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-6">
-        {[1,2].map(i => (
-          <div key={i} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-            <Sk className="h-3 w-1/2 mb-2 max-w-[140px]" />
-            <Sk className="h-7 w-2/3 mb-2 max-w-[140px]" />
-            <Sk className="h-3 w-3/4 max-w-[160px]" />
+      {/* KPIs — grade única, 7 cards (o último ocupa a linha no mobile) */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
+        {[1,2,3,4,5,6,7].map((i, idx, arr) => (
+          <div key={i}
+            className={`bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 ${
+              idx === arr.length - 1 && arr.length % 2 === 1 ? 'col-span-2 lg:col-span-1' : ''
+            }`}>
+            <Sk className="h-3 w-1/3 mb-3 max-w-[100px]" />
+            <Sk className="h-7 w-2/3 mb-3 max-w-[140px]" />
+            <Sk className="h-3 w-1/2 max-w-[120px]" />
           </div>
         ))}
       </div>
 
       {/* Grid de 2 colunas: Evolução + Top Serviços */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        {/* Evolução mensal (gráfico de barras 3-séries) */}
         <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4 gap-2">
-            <Sk className="h-5 w-1/3 max-w-[150px]" />
-            <div className="flex flex-wrap items-center gap-2">
-              {[1,2,3].map(i => <Sk key={i} className="h-3 w-12" />)}
-            </div>
-          </div>
-          <div className="flex items-end gap-3 h-32">
+          <Sk className="h-5 w-36 mb-5" />
+          <div className="flex items-end gap-3 h-24">
             {[60,80,45,90,70,100].map((h, i) => (
               <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                <div className="w-full flex items-end gap-0.5 h-24">
-                  <Sk className="flex-1 rounded-t-sm" style={{ height: `${h}%` }} />
-                  <Sk className="flex-1 rounded-t-sm" style={{ height: `${h * 0.5}%` }} />
-                  <Sk className="flex-1 rounded-t-sm" style={{ height: `${h * 0.3}%` }} />
-                </div>
+                <Sk className="w-full rounded-t-sm" style={{ height: `${h}%` }} />
                 <Sk className="h-2.5 w-6" />
               </div>
             ))}
           </div>
         </div>
-
-        {/* Top serviços */}
         <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
           <Sk className="h-5 w-1/3 max-w-[140px] mb-4" />
           <div className="flex flex-col gap-3">
