@@ -23,7 +23,7 @@ import Link from 'next/link';
 import {
   Bell, CalendarDays, AlertTriangle, DollarSign,
   Gift, Wallet, Check, CheckCheck, ChevronRight,
-  Package, Clock,
+  Package, Clock, Ban, X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
@@ -52,6 +52,17 @@ type Notificacao = {
   mensagem:   string | null;
   lida:       boolean;
   created_at: string;
+};
+
+// ── Ícone + cor por tipo de notificação salva ─────────────────
+// Cobre o fluxo de aprovação de bloqueio (trigger da migration 069).
+// O título/mensagem em pt-BR já vêm do trigger; aqui só o visual do tipo.
+// Tipos sem entrada aqui caem no render genérico (dot + título + mensagem).
+
+const TIPO_NOTIF: Record<string, { icon: React.ElementType; cor: string; bg: string }> = {
+  bloqueio_pendente: { icon: Ban,   cor: 'var(--color-amber)', bg: 'var(--color-amber-soft)' },
+  bloqueio_aprovado: { icon: Check, cor: 'var(--color-green)', bg: 'var(--color-green-soft)' },
+  bloqueio_recusado: { icon: X,     cor: 'var(--color-red)',   bg: 'var(--color-red-soft)'   },
 };
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -417,8 +428,19 @@ export default function NotificacoesPage() {
             {notificacoes.map((n, i) => (
               <div key={n.id} className="bm-stagger"
                 style={{ '--bm-i': i % 8, '--bm-step': '50ms', background: n.lida ? 'var(--color-surface)' : 'var(--color-primary-soft)', border: `1px solid ${n.lida ? 'var(--color-border)' : 'rgba(44,23,80,0.15)'}`, borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 12, opacity: n.lida ? 0.7 : 1 } as React.CSSProperties}>
-                {/* Dot lida/não-lida */}
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: n.lida ? 'var(--color-border)' : 'var(--color-accent)', flexShrink: 0, marginTop: 6 }}/>
+                {/* Ícone do tipo (fluxo de bloqueio) ou dot lida/não-lida */}
+                {(() => {
+                  const cfg = TIPO_NOTIF[n.tipo];
+                  if (!cfg) return (
+                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: n.lida ? 'var(--color-border)' : 'var(--color-accent)', flexShrink: 0, marginTop: 6 }}/>
+                  );
+                  const Icon = cfg.icon;
+                  return (
+                    <div className="flex items-center justify-center flex-shrink-0" style={{ width: 32, height: 32, borderRadius: 10, background: cfg.bg, marginTop: 1 }}>
+                      <Icon size={16} style={{ color: cfg.cor }}/>
+                    </div>
+                  );
+                })()}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="flex items-start justify-between gap-2">
                     <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700, color: n.lida ? 'var(--color-ink2)' : 'var(--color-ink)' }}>{n.titulo}</p>

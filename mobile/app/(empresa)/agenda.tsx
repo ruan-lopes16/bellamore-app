@@ -1,14 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, StatusBar, Pressable,
+  RefreshControl, StatusBar, Pressable, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
-  ChevronLeft, ChevronRight, Plus, Search,
+  ChevronLeft, ChevronRight, Plus, Search, Ban,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -29,10 +29,15 @@ import { ptBR } from 'date-fns/locale';
 import {
   useAgendamentoDia, useProfissionais, useDiasComAgendamento,
   useResumoDia, CATEGORIA_CONFIG,
+  useBloqueiosDia, useBloqueiosPendentes, useCriarBloqueio,
+  useAprovarBloqueio, useRecusarBloqueio,
   type AgendamentoCompleto, type ProfissionalAgenda,
 } from '@/hooks/useAgenda';
 import { useAuthStore } from '@/stores/authStore';
 import { agendarLembretesLocais } from '@/lib/notifications';
+import { motivoBloqueioLabel } from '@shared/bloqueios';
+import { BloqueioModal } from '@/components/BloqueioModal';
+import { PendentesBloqueioSheet } from '@/components/PendentesBloqueioSheet';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -200,11 +205,16 @@ function SlotVazio({ hora, dia }: { hora: number; dia: Date }) {
 
 export default function Agenda() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, user, roleAtivo, isOwner } = useAuthStore();
+  // `(empresa)` já barra o acesso por rota; o `?? 'profissional'` só alinha
+  // o branch (inalcançável) de null com o do hook useAgenda.ts.
+  const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
 
   const [diaSelecionado, setDiaSelecionado] = useState(new Date());
   const [mesRef, setMesRef] = useState(new Date());
   const [profFiltro, setProfFiltro] = useState<string | undefined>(undefined);
+  const [modalBloqueio, setModalBloqueio] = useState(false);
+  const [sheetPendentes, setSheetPendentes] = useState(false);
 
   const semana = Array.from({ length: 7 }, (_, i) =>
     addDays(startOfWeek(diaSelecionado, { weekStartsOn: 1 }), i)
@@ -213,6 +223,11 @@ export default function Agenda() {
   const { data: agendamentos = [], isLoading, refetch } = useAgendamentoDia(diaSelecionado, profFiltro);
   const { data: profissionais = [] } = useProfissionais();
   const { data: diasComAg } = useDiasComAgendamento(mesRef);
+  const { data: bloqueios = [] } = useBloqueiosDia(diaSelecionado);
+  const { data: pendentes = [], isError: pendentesErro } = useBloqueiosPendentes();
+  const criarBloqueio = useCriarBloqueio();
+  const aprovar = useAprovarBloqueio();
+  const recusar = useRecusarBloqueio();
   const resumo = useResumoDia(agendamentos);
 
   // Categorias personalizadas presentes no dia (para a legenda, além das 8 fixas)
@@ -255,6 +270,27 @@ export default function Agenda() {
     const hora = new Date(ag.data_hora_inicio).getHours();
     if (!agPorHora[hora]) agPorHora[hora] = [];
     agPorHora[hora].push(ag);
+  });
+
+  // Agrupa bloqueios do dia por hora: um bloqueio ocupa TODAS as horas que
+  // cruza (08:00–12:00 => 8,9,10,11). Fim exatamente na hora cheia não conta
+  // aquela hora. Limita ao dia visível (bloqueio pode cruzar vários dias).
+  const bloqueiosPorHora: Record<number, typeof bloqueios> = {};
+  bloqueios.forEach((b) => {
+    const diaIni = new Date(diaSelecionado); diaIni.setHours(0, 0, 0, 0);
+    const diaFim = new Date(diaSelecionado); diaFim.setHours(23, 59, 59, 999);
+    const ini = new Date(b.data_inicio);
+    const fim = new Date(b.data_fim);
+    const eIni = ini < diaIni ? diaIni : ini;
+    const eFim = fim > diaFim ? diaFim : fim;
+    const hIni = eIni.getHours();
+    let hFim = eFim.getHours();
+    if (eFim.getMinutes() === 0 && eFim.getSeconds() === 0 && hFim > hIni) hFim -= 1;
+    for (let h = hIni; h <= hFim; h++) {
+      if (!HORAS.includes(h)) continue;
+      if (!bloqueiosPorHora[h]) bloqueiosPorHora[h] = [];
+      bloqueiosPorHora[h].push(b);
+    }
   });
 
   return (
@@ -313,6 +349,26 @@ export default function Agenda() {
               </TouchableOpacity>
             </View>
           </MotiView>
+
+          {/* Ações de bloqueio */}
+          <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 24, marginBottom: 12, alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => setModalBloqueio(true)}
+              style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: '#E8E2DC', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ban size={14} color="#C9527F" strokeWidth={2} />
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>Bloquear</Text>
+            </TouchableOpacity>
+            {pendentes.length > 0 && (
+              <TouchableOpacity onPress={() => setSheetPendentes(true)}
+                style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: '#FEF3E2', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#B45309' }}>Pendentes ({pendentes.length})</Text>
+              </TouchableOpacity>
+            )}
+            {pendentesErro && (
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: '#C0392B' }}>
+                Erro ao carregar pendentes
+              </Text>
+            )}
+          </View>
 
           {/* Nav de mês */}
           <View style={{
@@ -516,15 +572,56 @@ export default function Agenda() {
                   <View style={{ height: 1, backgroundColor: '#D8D0C8', marginBottom: 6 }} />
                   {ags.length > 0 ? (
                     ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
-                  ) : (
+                  ) : bloqueiosPorHora[hora]?.length ? null : (
                     <SlotVazio hora={hora} dia={new Date(diaSelecionado)} />
                   )}
+                  {(bloqueiosPorHora[hora] ?? []).map((b) => (
+                    <View key={b.id} style={{
+                      borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
+                      backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+                      padding: 10, marginBottom: 6,
+                    }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
+                        {b.titulo || motivoBloqueioLabel(b.motivo)}
+                      </Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: '#8878A6' }}>
+                        {format(new Date(b.data_inicio), 'HH:mm')}–{format(new Date(b.data_fim), 'HH:mm')}
+                        {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
               </View>
             );
           })}
         </View>
       </ScrollView>
+
+      <BloqueioModal
+        key={diaSelecionado.toISOString()}
+        visible={modalBloqueio}
+        role={meuRole}
+        meuUserId={user?.id ?? ''}
+        meuNome={user?.nome ?? 'Você'}
+        membros={profissionais.map((p) => ({ id: p.id, nome: p.nome }))}
+        dataInicial={diaSelecionado}
+        onClose={() => setModalBloqueio(false)}
+        onSubmit={async (input) => {
+          const r = await criarBloqueio.mutateAsync(input);
+          return { situacao: r.situacao };
+        }}
+      />
+      <PendentesBloqueioSheet
+        visible={sheetPendentes}
+        pendentes={pendentes}
+        onClose={() => setSheetPendentes(false)}
+        onAprovar={(id) =>
+          aprovar.mutate(id, { onError: (e: any) => Alert.alert('Erro', e?.message ?? 'Não foi possível aprovar.') })
+        }
+        onRecusar={(id) =>
+          recusar.mutate(id, { onError: (e: any) => Alert.alert('Erro', e?.message ?? 'Não foi possível recusar.') })
+        }
+      />
     </View>
   );
 }

@@ -3,11 +3,11 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const sql = readFileSync(
-  join(process.cwd(), '..', 'supabase', 'migrations', '069_comandas_insert_rls_fix.sql'),
+  join(process.cwd(), '..', 'supabase', 'migrations', '073_comandas_insert_rls_fix.sql'),
   'utf8',
 ).toLowerCase();
 
-describe('Migration 069 — RLS de comandas garantida (INSERT falhava em produção)', () => {
+describe('Migration 073 — RLS de comandas garantida (INSERT falhava em produção)', () => {
   it('recria a policy de INSERT liberando qualquer membro da empresa', () => {
     expect(sql).toMatch(/create policy "comandas: membro insere"\s+on public\.comandas for insert/);
     expect(sql).toContain('with check (empresa_id in (select minha_empresas()))');

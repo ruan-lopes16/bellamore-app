@@ -1,5 +1,5 @@
 -- ============================================================
--- 069 — Garante a RLS correta de comandas (fecho de comanda falhava)
+-- 073 — Garante a RLS correta de comandas (fecho de comanda falhava)
 -- ============================================================
 -- Sintoma em produção: "new row violates row-level security policy for
 -- table comandas" ao clicar em "Fechar comanda" (INSERT em public.comandas).

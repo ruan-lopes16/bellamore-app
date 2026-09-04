@@ -25,6 +25,7 @@ type Profissional = {
   user_id: string;
   role: 'owner' | 'gestor' | 'profissional';
   percentual_comissao: number;
+  tipo_contrato: 'pj' | 'clt' | null;
   ativo: boolean;
   created_at: string;
   user: { id: string; nome: string; telefone?: string; email?: string };
@@ -203,13 +204,14 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
 function EditInfoModal({ prof, onClose, onSalvo }: {
   prof: Profissional;
   onClose: () => void;
-  onSalvo: (dados: { nome: string; telefone: string; email: string; comissao: number }) => void;
+  onSalvo: (dados: { nome: string; telefone: string; email: string; comissao: number; tipoContrato: 'pj' | 'clt' | null }) => void;
 }) {
   useScrollLock();
   const [nome,     setNome]     = useState(prof.user.nome);
   const [telefone, setTelefone] = useState(prof.user.telefone ?? '');
   const [email,    setEmail]    = useState(prof.user.email ?? '');
   const [comissao, setComissao] = useState(String(prof.percentual_comissao));
+  const [tipoContrato, setTipoContrato] = useState<'pj' | 'clt' | ''>(prof.tipo_contrato ?? '');
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
 
@@ -229,13 +231,14 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
         email:                email.trim() || null,
         membroId:             prof.id,
         percentual_comissao:  pct,
+        tipo_contrato:        tipoContrato || null,
       }),
     });
     const json = await res.json();
     setSalvando(false);
     if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
 
-    onSalvo({ nome: nome.trim(), telefone: telefone.trim(), email: email.trim(), comissao: pct });
+    onSalvo({ nome: nome.trim(), telefone: telefone.trim(), email: email.trim(), comissao: pct, tipoContrato: tipoContrato || null });
   }
 
   return (
@@ -272,6 +275,15 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
                 className={`${inputClass} pr-8`}/>
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
             </div>
+          </div>
+          <div>
+            <label className={labelClass}>Tipo de contrato</label>
+            <select value={tipoContrato} onChange={e => setTipoContrato(e.target.value as 'pj' | 'clt' | '')}
+              className={inputClass}>
+              <option value="">—</option>
+              <option value="pj">PJ / Comissionada</option>
+              <option value="clt">CLT</option>
+            </select>
           </div>
           {erro && <p className="text-red text-sm">{erro}</p>}
           <div className="flex gap-3 mt-1">
@@ -389,6 +401,15 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             </div>
           )}
 
+          {/* Tipo de contrato */}
+          {prof.tipo_contrato && (
+            <div style={{ marginBottom: 12 }}>
+              <span className="text-[11px] text-text-4 font-medium">
+                {prof.tipo_contrato === 'pj' ? 'PJ / Comissionada' : 'CLT'}
+              </span>
+            </div>
+          )}
+
           {/* Pagar comissão */}
           {prof.ativo && temPendente && (
             <button onClick={handlePagar} disabled={pagando}
@@ -464,7 +485,7 @@ export default function EquipePage() {
 
     const { data: membros } = await supabase
       .from('empresa_membros')
-      .select('id, user_id, role, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
+      .select('id, user_id, role, percentual_comissao, tipo_contrato, ativo, created_at, user:users(id, nome, telefone, email)')
       .eq('empresa_id', empId)
       .in('role', ['owner', 'gestor', 'profissional'])
       .order('ativo', { ascending: false })
@@ -532,11 +553,12 @@ export default function EquipePage() {
     setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, role: novoRole } : p));
   }
 
-function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number }) {
+function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number; tipoContrato: 'pj' | 'clt' | null }) {
     setProfs(prev => prev.map(p =>
       p.id === prof.id ? {
         ...p,
         percentual_comissao: dados.comissao,
+        tipo_contrato: dados.tipoContrato,
         user: { ...p.user, nome: dados.nome, telefone: dados.telefone || undefined, email: dados.email || undefined },
       } : p
     ));

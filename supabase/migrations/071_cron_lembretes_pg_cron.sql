@@ -1,5 +1,5 @@
 -- ============================================================
--- 067 — Agendadores de notificação (pg_cron + pg_net)
+-- 071 — Agendadores de notificação (pg_cron + pg_net)
 -- ============================================================
 -- Substitua os DOIS placeholders antes de aplicar (aparecem 2x):
 --   <APP_URL>      → origem pública do app, ex.: https://bellamore-app.vercel.app

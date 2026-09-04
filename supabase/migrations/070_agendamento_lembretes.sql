@@ -1,5 +1,5 @@
 -- ============================================================
--- 066 — Rastreio de lembretes de atendimento
+-- 070 — Rastreio de lembretes de atendimento
 -- ============================================================
 -- Duas colunas de marca-tempo em agendamentos. O cron de lembretes
 -- (/api/cron/lembretes) roda a cada 5 min e usa estas colunas como

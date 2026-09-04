@@ -1,5 +1,5 @@
 -- ============================================================
--- 068 — Limpeza diária de notificações
+-- 072 — Limpeza diária de notificações
 -- ============================================================
 -- "todos os tipos de notificação, depois de mandadas e virado o dia, são
 --  excluídos para não armazenar coisas à toa no banco" (pedido do usuário).
@@ -10,7 +10,7 @@
 -- recalculado ao vivo na tela de Notificações — nada disso depende de
 -- linhas guardadas.
 --
--- Pré-requisito: pg_cron (criado na migration 067).
+-- Pré-requisito: pg_cron (criado na migration 071).
 --
 -- Rollback:
 --   select cron.unschedule('limpeza-notificacoes');

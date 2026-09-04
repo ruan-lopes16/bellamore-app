@@ -42,6 +42,12 @@ import {
   resolverCategoriaServico, bgDaCor,
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { podeExcluirAgendamento, motivoExclusaoBloqueada } from '@shared/agendamentos';
+import {
+  MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
+  montarInsertBloqueio, type EscopoBloqueio,
+} from '@shared/bloqueios';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 const supabase = createClient();
 
@@ -91,6 +97,21 @@ type Bloqueio   = {
   id: string;
   profissional_id: string | null;
   titulo: string;
+  data_inicio: string;
+  data_fim: string;
+  escopo: 'profissional' | 'geral';
+  motivo: string | null;
+  situacao: 'aprovado' | 'pendente';
+  criado_por: string | null;
+};
+
+type BloqueioPendente = {
+  id: string;
+  profissional_id: string | null;
+  criado_por: string | null;
+  autorNome: string;
+  titulo: string;
+  motivo: string | null;
   data_inicio: string;
   data_fim: string;
 };
@@ -265,13 +286,15 @@ type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: n
 type ConflitoDet  = { inicio: string; fim: string; cliente: string; servico: string };
 
 function NovoAgModal({
-  data, empresaId, onClose, onSalvo, agEditar, horaInicial, profIdInicial,
+  data, empresaId, onClose, onSalvo, agEditar, horaInicial, profIdInicial, meuRole, onExcluido,
 }: {
   data: Date; empresaId: string;
   onClose: () => void; onSalvo: () => void;
   agEditar?: Ag;
   horaInicial?: string;
   profIdInicial?: string;
+  meuRole: string;
+  onExcluido: () => void;
 }) {
   useScrollLock();
   const [clientes,      setClientes]      = useState<ClienteOpt[]>([]);
@@ -285,6 +308,50 @@ function NovoAgModal({
   const [obs,       setObs]       = useState(() => agEditar?.observacao ?? '');
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
+  const [confirmarExcluir, setConfirmarExcluir] = useState(false);
+  const [excluindo,        setExcluindo]        = useState(false);
+  const [avisoTaxaExcluir, setAvisoTaxaExcluir] = useState('');
+
+  const podeExcluir = !!agEditar && podeExcluirAgendamento(agEditar.status, meuRole);
+  const motivoBloqueioExcluir = agEditar ? motivoExclusaoBloqueada(agEditar.status) : null;
+
+  async function abrirConfirmExcluir() {
+    setAvisoTaxaExcluir('');
+    if (!agEditar) return;
+    // Avisa se há taxa paga que sairá do faturamento junto
+    const [{ data: tr }, { data: tc }] = await Promise.all([
+      supabase.from('taxas_reserva').select('valor, status, paga_em').eq('agendamento_id', agEditar.id),
+      supabase.from('taxas_cancelamento').select('valor, status, paga_em').eq('agendamento_id', agEditar.id),
+    ]);
+    const pagas = [...(tr ?? []), ...(tc ?? [])].filter(
+      (t: any) => t.paga_em != null || t.status === 'pago' || t.status === 'paga',
+    );
+    const totalPago = pagas.reduce((s: number, t: any) => s + Number(t.valor || 0), 0);
+    if (totalPago > 0) {
+      setAvisoTaxaExcluir(
+        ` A taxa de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPago)} (paga) também será removida e sai do faturamento daquele período.`,
+      );
+    }
+    setConfirmarExcluir(true);
+  }
+
+  async function excluirAgendamento() {
+    if (!agEditar) return;
+    setExcluindo(true);
+    const { data: apagados, error } = await supabase
+      .from('agendamentos')
+      .delete()
+      .eq('id', agEditar.id)
+      .select('id');
+    setExcluindo(false);
+    setConfirmarExcluir(false);
+    if (error) { setErro(`Erro ao excluir: ${error.message}`); return; }
+    if (!apagados || apagados.length === 0) {
+      setErro('Você não tem permissão para excluir agendamentos.');
+      return;
+    }
+    onExcluido();
+  }
   const [sucesso,   setSucesso]   = useState<{ clienteNome: string; profNome: string; servicosNomes: string[]; inicio: Date; fim: Date } | null>(null);
   const [avisoTaxaReserva, setAvisoTaxaReserva] = useState('');
 
@@ -961,7 +1028,16 @@ function NovoAgModal({
 
           {erro && <p className="text-red text-sm text-center">{erro}</p>}
 
-          <div className="flex gap-3 mt-1">
+          <div className="flex items-center gap-3 mt-1">
+            {agEditar && podeExcluir && (
+              <button type="button" onClick={abrirConfirmExcluir}
+                className="h-10 px-3 rounded-xl text-sm font-semibold text-red hover:bg-red-soft transition flex items-center gap-1.5">
+                <Trash2 size={14} strokeWidth={2}/> Excluir
+              </button>
+            )}
+            {agEditar && !podeExcluir && motivoBloqueioExcluir && meuRole !== 'profissional' && (
+              <span className="text-xs text-text-4" title={motivoBloqueioExcluir}>Não pode excluir</span>
+            )}
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
             <button type="submit" disabled={salvando} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
               {salvando ? 'Salvando...' : agEditar ? 'Salvar alterações' : 'Agendar'}
@@ -969,6 +1045,19 @@ function NovoAgModal({
           </div>
         </form>
       </div>
+
+      {confirmarExcluir && agEditar && (
+        <ConfirmDialog
+          open
+          variant="danger"
+          title="Excluir agendamento"
+          message={`Excluir o agendamento de ${agEditar.cliente?.nome ?? 'cliente'}? Esta ação não pode ser desfeita.${avisoTaxaExcluir}`}
+          confirmLabel="Excluir"
+          loading={excluindo}
+          onConfirm={excluirAgendamento}
+          onCancel={() => setConfirmarExcluir(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1046,16 +1135,23 @@ function computeLanes(colAgs: Ag[]): Map<string, { lane: number; totalLanes: num
 
 // ── Modal de bloqueio ─────────────────────────────────────────
 
-function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }: {
+function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membros, onClose, onSalvo }: {
   data: Date;
   empresaId: string;
-  profissionais: { id: string; nome: string }[];
+  meuRole: string;
+  meuUserId: string;
+  meuNome: string;
+  membros: { id: string; nome: string }[];
   onClose: () => void;
   onSalvo: (b: Bloqueio) => void;
 }) {
   useScrollLock();
-  const [titulo,   setTitulo]   = useState('');
+  const ehGestao = podeSelecionarEscopoGeral(meuRole);
+
+  const [escopo,   setEscopo]   = useState<EscopoBloqueio>('profissional');
   const [profId,   setProfId]   = useState('');
+  const [motivo,   setMotivo]   = useState<string>('folga');
+  const [titulo,   setTitulo]   = useState('');
   const [horaIni,  setHoraIni]  = useState('08:00');
   const [horaFim,  setHoraFim]  = useState('09:00');
   const [dataBl,   setDataBl]   = useState(format(data, 'yyyy-MM-dd'));
@@ -1071,17 +1167,26 @@ function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }:
     if (dataFim <= dataInicio) {
       setErro('O horário de fim deve ser após o início.'); setSalvando(false); return;
     }
+    if (ehGestao && escopo === 'profissional' && !profId) {
+      setErro('Escolha o profissional.'); setSalvando(false); return;
+    }
+
+    const insert = montarInsertBloqueio({
+      role: meuRole,
+      meuUserId,
+      empresaId,
+      escopo,
+      profissionalId: profId || null,
+      motivo: motivo as any,
+      titulo,
+      dataInicio: dataInicio.toISOString(),
+      dataFim: dataFim.toISOString(),
+    });
 
     const { data: row, error } = await supabase
       .from('agenda_bloqueios')
-      .insert({
-        empresa_id:      empresaId,
-        profissional_id: profId || null,
-        titulo:          titulo.trim() || 'Bloqueio',
-        data_inicio:     dataInicio.toISOString(),
-        data_fim:        dataFim.toISOString(),
-      })
-      .select('id, profissional_id, titulo, data_inicio, data_fim')
+      .insert(insert)
+      .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
       .single();
 
     setSalvando(false);
@@ -1109,20 +1214,49 @@ function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }:
         </div>
 
         <form onSubmit={salvar} className="p-5 flex flex-col gap-3">
+          {ehGestao ? (
+            <>
+              <div>
+                <label className={labelCls}>Tipo de bloqueio</label>
+                <div className="flex rounded-xl border border-border overflow-hidden">
+                  <button type="button" onClick={() => setEscopo('profissional')}
+                    className={`flex-1 h-10 text-sm font-semibold transition ${escopo === 'profissional' ? 'bg-primary text-white' : 'text-text-2 hover:bg-bg'}`}>
+                    Um profissional
+                  </button>
+                  <button type="button" onClick={() => setEscopo('geral')}
+                    className={`flex-1 h-10 text-sm font-semibold transition ${escopo === 'geral' ? 'bg-primary text-white' : 'text-text-2 hover:bg-bg'}`}>
+                    Toda a agenda
+                  </button>
+                </div>
+              </div>
+              {escopo === 'profissional' && (
+                <div>
+                  <label className={labelCls}>Profissional</label>
+                  <select value={profId} onChange={e => setProfId(e.target.value)} className={inputCls}>
+                    <option value="">Selecione...</option>
+                    {membros.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                  </select>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-xl bg-bg border border-border px-3 py-2.5 text-sm text-text-2">
+              Bloqueio para: <span className="font-semibold text-text">{meuNome}</span>
+              <p className="text-xs text-text-4 mt-1">Vai para aprovação da dona ou gestora.</p>
+            </div>
+          )}
+
           <div>
-            <label className={labelCls}>Título (opcional)</label>
-            <input value={titulo} onChange={e => setTitulo(e.target.value)}
-              placeholder="Ex: Folga, Reunião, Almoço..." className={inputCls}/>
+            <label className={labelCls}>Motivo</label>
+            <select value={motivo} onChange={e => setMotivo(e.target.value)} className={inputCls} required>
+              {MOTIVOS_BLOQUEIO.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
           </div>
 
           <div>
-            <label className={labelCls}>Profissional</label>
-            <select value={profId} onChange={e => setProfId(e.target.value)} className={inputCls}>
-              <option value="">Todos os profissionais</option>
-              {profissionais.map(p => (
-                <option key={p.id} value={p.id}>{p.nome}</option>
-              ))}
-            </select>
+            <label className={labelCls}>Detalhe <span className="normal-case font-normal text-text-4">(opcional)</span></label>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)}
+              placeholder="Ex: Dentista, Viagem..." className={inputCls}/>
           </div>
 
           <div>
@@ -1151,12 +1285,93 @@ function NovoBloqueioModal({ data, empresaId, profissionais, onClose, onSalvo }:
             <button type="submit" disabled={salvando}
               className="flex-1 h-10 rounded-xl text-white text-sm font-bold transition disabled:opacity-60"
               style={{ background: 'var(--color-rose)' }}>
-              {salvando ? 'Salvando...' : 'Bloquear'}
+              {salvando ? 'Salvando...' : ehGestao ? 'Bloquear' : 'Pedir bloqueio'}
             </button>
           </div>
         </form>
       </div>
     </div>
+  );
+}
+
+/**
+ * PendentesBloqueioBtn — pílula "Pendentes (N)" + modal de aprovação.
+ *
+ * Só aparece quando há pedidos de bloqueio aguardando (some com lista vazia).
+ * Cada item mostra autor, janela de horário e motivo; "Aprovar" (verde) age
+ * direto, "Recusar" abre um passo de confirmação inline antes de apagar.
+ */
+function PendentesBloqueioBtn({ pendentes, onAprovar, onRecusar }: {
+  pendentes: BloqueioPendente[];
+  onAprovar: (id: string) => void;
+  onRecusar: (id: string) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [confirmarRecusa, setConfirmarRecusa] = useState<string | null>(null);
+  if (pendentes.length === 0) return null;
+
+  return (
+    <>
+      <button onClick={() => setAberto(true)}
+        className="press flex items-center gap-2 px-3 h-10 rounded-2xl text-sm font-bold border transition"
+        style={{ borderColor: 'var(--color-amber)', color: 'var(--color-amber)', background: 'var(--color-amber-soft)' }}
+        title="Bloqueios aguardando aprovação">
+        <AlertTriangle size={14} strokeWidth={2}/><span>Pendentes ({pendentes.length})</span>
+      </button>
+
+      {aberto && (
+        <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAberto(false)}/>
+          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-md max-h-[85dvh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 18, fontWeight: 600, color: 'var(--color-ink)' }}>
+                Bloqueios pendentes
+              </h2>
+              <button onClick={() => setAberto(false)} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
+                <X size={16}/>
+              </button>
+            </div>
+            <div className="p-4 flex flex-col gap-3">
+              {pendentes.map(b => (
+                <div key={b.id} className="rounded-xl border border-border p-3">
+                  <p className="font-semibold text-text text-sm">{b.autorNome}</p>
+                  <p className="text-xs text-text-3 mt-0.5">
+                    {format(parseISO(b.data_inicio), "dd/MM 'às' HH:mm")}–{format(parseISO(b.data_fim), 'HH:mm')}
+                    {' · '}{motivoBloqueioLabel(b.motivo)}
+                  </p>
+                  {b.titulo && b.titulo !== motivoBloqueioLabel(b.motivo) && (
+                    <p className="text-xs text-text-4 italic mt-0.5">{b.titulo}</p>
+                  )}
+                  {confirmarRecusa === b.id ? (
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => { onRecusar(b.id); setConfirmarRecusa(null); }}
+                        className="flex-1 h-8 rounded-lg text-white text-xs font-bold" style={{ background: 'var(--color-rose)' }}>
+                        Confirmar recusa
+                      </button>
+                      <button onClick={() => setConfirmarRecusa(null)}
+                        className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold">
+                        Voltar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => onAprovar(b.id)}
+                        className="flex-1 h-8 rounded-lg text-white text-xs font-bold" style={{ background: 'var(--color-green)' }}>
+                        Aprovar
+                      </button>
+                      <button onClick={() => setConfirmarRecusa(b.id)}
+                        className="flex-1 h-8 rounded-lg border border-border text-text-2 text-xs font-semibold hover:bg-bg">
+                        Recusar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1180,7 +1395,7 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio,
+  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio, meuRole, meuUserId,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
   loading: boolean; empresaId: string;
@@ -1190,6 +1405,7 @@ function TimelineView({
   onEditar?: (ag: Ag) => void;
   onNovo: (params: { hora: string; profId: string }) => void;
   onDeletarBloqueio: (id: string) => void;
+  meuRole: string; meuUserId: string;
 }) {
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
   // O painel Detalhes so vira modal no mobile (md:hidden). No desktop ele e um
@@ -1378,29 +1594,48 @@ function TimelineView({
                   {/* Bloqueios de horário */}
                   {bloqueios
                     .filter(b => b.profissional_id === null || b.profissional_id === prof.id)
+                    .filter(b =>
+                      // aprovados: todos veem. Pendentes: só a gestão ou quem criou.
+                      // A RLS já filtra isso no servidor; este filtro é defesa em profundidade visual.
+                      b.situacao === 'aprovado'
+                      || meuRole === 'owner' || meuRole === 'gestor'
+                      || b.criado_por === meuUserId,
+                    )
                     .map(bl => {
                       const topBl = tlTopISO(bl.data_inicio);
                       const hBl   = tlHeightISO(bl.data_inicio, bl.data_fim);
+                      const pendente    = bl.situacao === 'pendente';
+                      const podeRemover = meuRole === 'owner' || meuRole === 'gestor'
+                        || (pendente && bl.criado_por === meuUserId);
                       return (
                         <div key={bl.id}
                           className="absolute overflow-hidden z-5 flex flex-col"
                           style={{
                             top: topBl, height: hBl, left: 2, right: 2,
                             borderRadius: 5,
-                            background: 'repeating-linear-gradient(-45deg, rgba(220,38,38,0.07), rgba(220,38,38,0.07) 5px, rgba(220,38,38,0.03) 5px, rgba(220,38,38,0.03) 10px)',
+                            background: pendente
+                              ? 'repeating-linear-gradient(45deg, rgba(201,82,127,0.10) 0 6px, rgba(201,82,127,0.02) 6px 12px)'
+                              : 'var(--color-rose-soft)',
                             border: '1px solid rgba(220,38,38,0.22)',
                           }}>
                           <div className="flex items-center justify-between px-1.5 py-0.5 gap-1">
                             <span className="text-[9px] font-semibold truncate" style={{ color: 'var(--color-rose)' }}>
                               {bl.titulo || 'Bloqueio'}
                             </span>
-                            <button
-                              onClick={e => { e.stopPropagation(); onDeletarBloqueio(bl.id); }}
-                              className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-rose-soft transition"
-                              title="Remover bloqueio">
-                              <X size={9} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
-                            </button>
+                            {podeRemover && (
+                              <button
+                                onClick={e => { e.stopPropagation(); onDeletarBloqueio(bl.id); }}
+                                className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-rose-soft transition"
+                                title="Remover bloqueio">
+                                <X size={9} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
+                              </button>
+                            )}
                           </div>
+                          {pendente && (
+                            <span className="px-1.5 text-[9px] font-semibold leading-none truncate" style={{ color: 'var(--color-amber)' }}>
+                              aguardando aprovação
+                            </span>
+                          )}
                         </div>
                       );
                     })}
@@ -1662,6 +1897,8 @@ export default function AgendaPage() {
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
+  const [meuRole,   setMeuRole]   = useState<string>('profissional');
+  const [meuUserId, setMeuUserId] = useState<string>('');
   const [modal,       setModal]      = useState(false);
   const [modalBloq,   setModalBloq]  = useState(false);
   const [modalParams, setModalParams] = useState<{ hora?: string; profId?: string }>({});
@@ -1671,8 +1908,12 @@ export default function AgendaPage() {
   const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
   // Profissionais da empresa — base das colunas da timeline (independe de haver
   // agendamento no dia; sem isso a timeline e os bloqueios só apareciam em dias
-  // com atendimento).
+  // com atendimento). Mesma fonte de dados que membrosAtivos, só que ordenada.
   const [profissionaisEmpresa, setProfissionaisEmpresa] = useState<{ id: string; nome: string }[]>([]);
+  const [membrosAtivos,      setMembrosAtivos]      = useState<{ id: string; nome: string }[]>([]);
+  const [bloqueiosPendentes, setBloqueiosPendentes] = useState<BloqueioPendente[]>([]);
+
+  const ehGestao = meuRole === 'owner' || meuRole === 'gestor';
 
   function showErro(msg: string) {
     setToastErro(msg);
@@ -1683,23 +1924,26 @@ export default function AgendaPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
+      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id, role')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
+      setMeuUserId(user.id);
+      setMeuRole((membro?.role as string) ?? 'profissional');
       if (membro?.empresa_id) {
         const [{ data: cats }, { data: profs }] = await Promise.all([
           supabase.from('categorias_servico').select('*')
             .eq('empresa_id', membro.empresa_id).order('nome'),
-          supabase.from('empresa_membros').select('user:users(id, nome)')
+          supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
             .eq('empresa_id', membro.empresa_id)
             .in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true),
         ]);
         setCategoriasCustom((cats ?? []) as CategoriaCustom[]);
+        const membrosMapeados = ((profs ?? []) as any[])
+          .map((m) => ({ id: m.user?.id, nome: m.user?.nome }))
+          .filter((m: { id?: string; nome?: string }) => m.id && m.nome);
+        setMembrosAtivos(membrosMapeados);
         setProfissionaisEmpresa(
-          (profs ?? [])
-            .map((m: any) => ({ id: m.user?.id, nome: m.user?.nome }))
-            .filter((p: { id?: string; nome?: string }) => p.id && p.nome)
-            .sort((a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome)),
+          [...membrosMapeados].sort((a, b) => a.nome.localeCompare(b.nome)),
         );
       }
     })();
@@ -1725,7 +1969,7 @@ export default function AgendaPage() {
         .order('data_hora_inicio'),
       supabase
         .from('agenda_bloqueios')
-        .select('id, profissional_id, titulo, data_inicio, data_fim')
+        .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
         .eq('empresa_id', empId)
         .lte('data_inicio', fimDia)
         .gte('data_fim',    iniDia),
@@ -1751,6 +1995,43 @@ export default function AgendaPage() {
     });
     setAgsMes(map);
   }, []);
+
+  // Bloqueios pendentes de aprovação (só a gestão enxerga / faz polling)
+  const recarregarPendentes = useCallback(async () => {
+    if (!empresaId) return;
+    const { data, error } = await supabase
+      .from('agenda_bloqueios')
+      .select('id, profissional_id, criado_por, titulo, motivo, data_inicio, data_fim, autor:users!agenda_bloqueios_criado_por_fkey(nome)')
+      .eq('empresa_id', empresaId)
+      .eq('situacao', 'pendente')
+      .order('data_inicio');
+    if (error) {
+      // Não zera a lista atual — só avisa que a atualização falhou.
+      showErro('Erro ao carregar bloqueios pendentes.');
+      return;
+    }
+    setBloqueiosPendentes(
+      ((data ?? []) as any[]).map((b) => ({
+        id: b.id,
+        profissional_id: b.profissional_id,
+        criado_por: b.criado_por,
+        autorNome: b.autor?.nome ?? 'Profissional',
+        titulo: b.titulo,
+        motivo: b.motivo,
+        data_inicio: b.data_inicio,
+        data_fim: b.data_fim,
+      })),
+    );
+  }, [empresaId]);
+
+  useEffect(() => {
+    if (!empresaId || !ehGestao) return;
+    recarregarPendentes();
+    const tick = () => { if (document.visibilityState === 'visible') recarregarPendentes(); };
+    const iv = setInterval(tick, 30_000);
+    window.addEventListener('focus', tick);
+    return () => { clearInterval(iv); window.removeEventListener('focus', tick); };
+  }, [empresaId, ehGestao, recarregarPendentes]);
 
   useEffect(() => {
     if (!empresaId) return;
@@ -1801,13 +2082,48 @@ export default function AgendaPage() {
     }
   }
 
+  /** Remove um bloqueio. `.select('id')` + guarda de zero linhas transforma um bloqueio de RLS em mensagem visível, restaurando a lista otimista. */
   async function deletarBloqueio(id: string) {
+    const anterior = bloqueios;
     setBloqueios(prev => prev.filter(b => b.id !== id));
-    const { error } = await supabase.from('agenda_bloqueios').delete().eq('id', id);
-    if (error) {
-      if (empresaId) fetchDia(dataSel, empresaId);
-      showErro(`Erro ao remover bloqueio: ${error.message}`);
+    const { data: rows, error } = await supabase
+      .from('agenda_bloqueios').delete().eq('id', id).select('id');
+    if (error || !rows || rows.length === 0) {
+      setBloqueios(anterior);
+      showErro(error?.message ?? 'Sem permissão para remover este bloqueio.');
+      return;
     }
+    setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
+  }
+
+  /** Aprova um pedido de bloqueio pendente. `.select('id')` + guarda de zero linhas para não engolir bloqueio de RLS. */
+  async function aprovarBloqueio(id: string) {
+    const { data: rows, error } = await supabase
+      .from('agenda_bloqueios')
+      .update({ situacao: 'aprovado', revisado_por: meuUserId, revisado_em: new Date().toISOString() })
+      .eq('id', id)
+      .select('id');
+    if (error || !rows || rows.length === 0) {
+      showErro(error?.message ?? 'Sem permissão para aprovar.');
+      return;
+    }
+    setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
+    if (empresaId) fetchDia(dataSel, empresaId);
+  }
+
+  /** Recusa um pedido de bloqueio pendente apagando a linha. Mesma guarda de zero linhas do aprovar. */
+  async function recusarBloqueio(id: string) {
+    const { data: rows, error } = await supabase
+      .from('agenda_bloqueios')
+      .delete()
+      .eq('id', id)
+      .select('id');
+    if (error || !rows || rows.length === 0) {
+      showErro(error?.message ?? 'Sem permissão para recusar.');
+      return;
+    }
+    setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
+    if (empresaId) fetchDia(dataSel, empresaId);
   }
 
   return (
@@ -1863,6 +2179,13 @@ export default function AgendaPage() {
             title="Bloquear horário">
             <Ban size={14} strokeWidth={2}/><span>Bloquear</span>
           </button>
+          {ehGestao && (
+            <PendentesBloqueioBtn
+              pendentes={bloqueiosPendentes}
+              onAprovar={aprovarBloqueio}
+              onRecusar={recusarBloqueio}
+            />
+          )}
           <button onClick={() => { setModalParams({}); setModal(true); }} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
             style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
             <Plus size={15} strokeWidth={2.5}/>Novo
@@ -1920,6 +2243,8 @@ export default function AgendaPage() {
           onEditar={ag => setAgEditar(ag)}
           onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
           onDeletarBloqueio={deletarBloqueio}
+          meuRole={meuRole}
+          meuUserId={meuUserId}
         />
       ) : (
         <>
@@ -1951,8 +2276,16 @@ export default function AgendaPage() {
           empresaId={empresaId}
           horaInicial={modalParams.hora}
           profIdInicial={modalParams.profId}
+          meuRole={meuRole}
           onClose={() => { setModal(false); setAgEditar(null); setModalParams({}); }}
           onSalvo={() => {
+            setModal(false);
+            setAgEditar(null);
+            setModalParams({});
+            fetchDia(dataSel, empresaId);
+            if (view === 'mes') fetchMes(dataSel, empresaId);
+          }}
+          onExcluido={() => {
             setModal(false);
             setAgEditar(null);
             setModalParams({});
@@ -1964,24 +2297,22 @@ export default function AgendaPage() {
       )}
 
       {/* Modal de bloqueio */}
-      {modalBloq && empresaId && (() => {
-        const profsDosAgs = ags.filter(a => a.profissional).map(a => [a.profissional!.id, a.profissional!] as const);
-        const profsUnicos = Array.from(
-          new Map([...profissionaisEmpresa.map(p => [p.id, p] as const), ...profsDosAgs]).values()
-        );
-        return (
-          <NovoBloqueioModal
-            data={dataSel}
-            empresaId={empresaId}
-            profissionais={profsUnicos}
-            onClose={() => setModalBloq(false)}
-            onSalvo={b => {
-              setBloqueios(prev => [...prev, b]);
-              setModalBloq(false);
-            }}
-          />
-        );
-      })()}
+      {modalBloq && empresaId && (
+        <NovoBloqueioModal
+          data={dataSel}
+          empresaId={empresaId}
+          meuRole={meuRole}
+          meuUserId={meuUserId}
+          meuNome={membrosAtivos.find(m => m.id === meuUserId)?.nome ?? 'Você'}
+          membros={membrosAtivos}
+          onClose={() => setModalBloq(false)}
+          onSalvo={b => {
+            setBloqueios(prev => [...prev, b]);
+            setModalBloq(false);
+            if (b.situacao === 'pendente') showErro('Pedido de bloqueio enviado para aprovação.');
+          }}
+        />
+      )}
 
       {/* Modal de avaliação pós-atendimento */}
       {avaliacaoAg && empresaId && (
