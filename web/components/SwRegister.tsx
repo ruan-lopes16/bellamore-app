@@ -15,13 +15,11 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
 // e o resultado real do fluxo, porque o iOS instalado não estava nem
 // exibindo o prompt de permissão e não há devtools remoto disponível.
 function diagnosticoPush(dados: Record<string, unknown>) {
-  try {
-    if (localStorage.getItem('bm-push-diag-mostrado')) return;
-    localStorage.setItem('bm-push-diag-mostrado', '1');
-    alert('Diagnóstico push:\n' + JSON.stringify(dados, null, 2));
-  } catch {
-    // localStorage indisponível — não bloqueia o fluxo normal
-  }
+  // Sem trava de "1x só": Safari (aba) e o app instalado na tela de início
+  // compartilham o mesmo localStorage (mesma origem), então uma trava global
+  // impedia ver o diagnóstico do segundo contexto depois de já ter visto o
+  // primeiro. Sempre mostra enquanto este código de debug estiver no ar.
+  alert('Diagnóstico push (' + (typeof navigator !== 'undefined' && (navigator as any).standalone ? 'standalone' : 'aba') + '):\n' + JSON.stringify(dados, null, 2));
 }
 
 export function SwRegister() {
