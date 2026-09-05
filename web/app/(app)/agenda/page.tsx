@@ -395,6 +395,8 @@ function NovoAgModal({
 
   // Conflito de horário detectado
   const [conflitos,  setConflitos]  = useState<ConflitoDet[]>([]);
+  // Bloqueios de agenda do dia selecionado — para impedir agendar em cima.
+  const [bloqueiosDia, setBloqueiosDia] = useState<Bloqueio[]>([]);
   const [pendInicio, setPendInicio] = useState<Date | null>(null);
   const [pendFim,    setPendFim]    = useState<Date | null>(null);
 
@@ -422,6 +424,21 @@ function NovoAgModal({
       })));
     });
   }, [empresaId]);
+
+  // Recarrega ao trocar a data dentro do modal (o campo de data é editável).
+  useEffect(() => {
+    const d0 = new Date(dataSel); d0.setHours(0, 0, 0, 0);
+    const d1 = new Date(dataSel); d1.setHours(23, 59, 59, 999);
+    supabase
+      .from('agenda_bloqueios')
+      .select('id, escopo, profissional_id, situacao, motivo, titulo, data_inicio, data_fim')
+      .eq('empresa_id', empresaId)
+      .lt('data_inicio', d1.toISOString())
+      .gt('data_fim', d0.toISOString())
+      .then(({ data }: { data: any[] | null }) => {
+        setBloqueiosDia((data ?? []) as Bloqueio[]);
+      });
+  }, [empresaId, dataSel]);
 
   // Configuração de taxa de reserva da empresa
   useEffect(() => {
@@ -657,6 +674,10 @@ function NovoAgModal({
     e.preventDefault();
     setErro('');
     setConflitos([]);
+    if (bloqueioConflitante) {
+      setErro(`Horário bloqueado (${motivoBloqueioLabel(bloqueioConflitante.motivo)}). Remova o bloqueio para agendar nesse horário.`);
+      return;
+    }
     const filled = linhas.filter(l => l.servico_id);
     if (!clienteId || filled.length === 0 || !profId) {
       setErro('Preencha cliente, pelo menos um serviço e profissional.');
@@ -692,6 +713,16 @@ function NovoAgModal({
     }
     await executarSalvar(inicio, fim);
   }
+
+  // Bloqueio que colide com o intervalo que o formulário representa agora.
+  const bloqueioConflitante = (() => {
+    if (!profId || !hora) return null;
+    const [bh, bm] = hora.split(':').map(Number);
+    if (Number.isNaN(bh) || Number.isNaN(bm)) return null;
+    const ini = new Date(dataSel); ini.setHours(bh, bm, 0, 0);
+    const fim = addMinutes(ini, totalDuracao || 60);
+    return bloqueioEmConflito(bloqueiosDia, profId, ini.toISOString(), fim.toISOString());
+  })();
 
   const inputClass = "w-full min-w-0 max-w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
   const clienteOpts = clientes.map(c => ({ value: c.id, label: c.nome, sub: c.telefone }));
@@ -751,6 +782,21 @@ function NovoAgModal({
 
         {/* Área rolável (só o conteúdo rola; cabeçalho fica fixo) */}
         <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+
+        {/* Aviso de horário bloqueado — trava dura, sem opção de forçar */}
+        {bloqueioConflitante && (
+          <div className="mx-5 mt-5 rounded-2xl overflow-hidden border" style={{ borderColor: 'var(--color-rose)', background: 'var(--color-rose-soft)' }}>
+            <div className="flex items-center gap-2 px-4 pt-4 pb-1">
+              <AlertTriangle size={15} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
+              <p className="text-sm font-bold" style={{ color: 'var(--color-rose)' }}>Horário bloqueado</p>
+            </div>
+            <p className="text-xs text-text-2 px-4 pb-4">
+              {motivoBloqueioLabel(bloqueioConflitante.motivo)} ·{' '}
+              {format(parseISO(bloqueioConflitante.data_inicio), 'HH:mm')}–{format(parseISO(bloqueioConflitante.data_fim), 'HH:mm')}.
+              {' '}Remova o bloqueio na agenda para poder agendar nesse horário.
+            </p>
+          </div>
+        )}
 
         {/* Aviso de conflito de horário */}
         {conflitos.length > 0 && (
@@ -1069,7 +1115,7 @@ function NovoAgModal({
               <span className="text-xs text-text-4" title={motivoBloqueioExcluir}>Não pode excluir</span>
             )}
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
-            <button type="submit" disabled={salvando} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
+            <button type="submit" disabled={salvando || !!bloqueioConflitante} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
               {salvando ? 'Salvando...' : agEditar ? 'Salvar alterações' : 'Agendar'}
             </button>
           </div>
