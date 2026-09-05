@@ -1265,11 +1265,11 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div className="min-w-0">
               <label className={labelCls}>Início</label>
               <input type="time" value={horaIni} onChange={e => setHoraIni(e.target.value)} className={inputCls}/>
             </div>
-            <div>
+            <div className="min-w-0">
               <label className={labelCls}>Fim</label>
               <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)} className={inputCls}/>
             </div>
