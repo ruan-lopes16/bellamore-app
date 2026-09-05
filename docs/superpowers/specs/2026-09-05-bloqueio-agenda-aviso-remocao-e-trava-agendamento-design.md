@@ -57,6 +57,11 @@ bloqueio de 2026-09-02 (`docs/superpowers/specs/2026-09-02-bloqueio-tipos-aprova
   centralizado de confirmação.
 - **Mobile — impedir agendar sobre bloqueio:** reforço no `SlotVazio` +
   tratamento amigável do erro do trigger em `novo-agendamento.tsx`.
+- **Ajuste de UI (web):** o modal "Bloquear horário" (`NovoBloqueioModal`)
+  estoura a borda direita no PWA iOS (falta `min-w-0`/`max-w-full`, ao
+  contrário do `NovoAgModal`) e os campos Início/Fim ocupam 50% cada sem
+  necessidade. Corrigido no mesmo PR (bug reportado durante o planejamento).
+- **Navegação por teclado (web) — Parte C.** Ver §12.
 
 ### Não entra
 
@@ -71,6 +76,14 @@ bloqueio de 2026-09-02 (`docs/superpowers/specs/2026-09-02-bloqueio-tipos-aprova
   desenha). Sem mudança.
 - **Push (Expo) de bloqueio.** Fora, como na entrega anterior.
 - **Recorrência de bloqueio.**
+- **Navegação por teclado no app nativo (mobile).** React Native não tem
+  Tab; o equivalente (`returnKeyType="next"` + refs encadeadas em cada
+  `TextInput`) é bem mais invasivo e vira trabalho próprio. A Parte C é
+  **só web**.
+- **Formulários de página inteira** (`configuracoes` — dados da empresa e
+  perfil) e **telas de autenticação** (`login`, `cadastro`, `criar-empresa`,
+  `convite/aceitar`). Nesses, Enter-envia é o comportamento esperado. A
+  Parte C toca só os `<form>` dentro de `.bm-modal`.
 
 ---
 
@@ -414,9 +427,86 @@ Hoje o slot vazio já é escondido quando a hora tem qualquer item em
 | `shared/bloqueios.ts` | `bloqueioEmConflito`, `bloqueioNoInstante`, `BlocoParaChecagem` |
 | `web/tests/unit/bloqueios.test.ts` | casos das 2 funções novas |
 | `supabase/migrations/074_agendamentos_recusa_bloqueio.sql` | trigger novo |
-| `web/app/(app)/agenda/page.tsx` | clique bloqueado na Timeline, faixa/guarda no `NovoAgModal`, `ConfirmarRemoverBloqueioModal` + ligação do `X` |
+| `web/app/(app)/agenda/page.tsx` | alinhamento + Início/Fim do `NovoBloqueioModal`; clique bloqueado na Timeline; faixa/guarda no `NovoAgModal`; confirmação de remoção via `ConfirmDialog`; `onKeyDown` da Parte C nos 2 modais |
+| `web/lib/formNav.ts` + `web/tests/unit/form-nav.test.tsx` | helper `avancarComEnter` + teste jsdom (Parte C) |
+| `web/app/(app)/clientes/page.tsx`, `clientes/[id]/page.tsx`, `equipe/page.tsx`, `financeiro/page.tsx`, `pacotes/page.tsx` | `onKeyDown={avancarComEnter}` nos `<form>` de modal (Parte C) |
 | `mobile/hooks/useAgenda.ts` | `useRemoverBloqueio` |
 | `mobile/components/ConfirmarRemoverBloqueio.tsx` | modal novo |
 | `mobile/app/(empresa)/agenda.tsx` | `X` no bloco + modal + `SlotVazio` reforçado |
 | `mobile/app/(profissional)/agenda.tsx` | `X` no bloco (só próprio pendente) + modal + `SlotVazio` reforçado |
 | `mobile/app/(empresa)/novo-agendamento.tsx` | trata mensagem do trigger |
+
+---
+
+## 12. Parte C — navegação por teclado nos modais (web)
+
+**Pedido:** no modal, **Enter** avança para o próximo campo da cadeia (em vez
+de enviar o formulário) e **Tab** percorre os campos limpo. Vale para **todos
+os `<form>` dentro de `.bm-modal`** do app web.
+
+### 12.1 Helper `web/lib/formNav.ts`
+
+```ts
+import type React from 'react';
+
+/**
+ * Handler de `onKeyDown` para <form> de modal: Enter move o foco para o
+ * próximo campo focável (input/select/textarea visível e habilitado) em
+ * vez de enviar. No último campo, foca o botão `type="submit"` — não
+ * envia; exige um Enter/clique explícito nele. Tab continua nativo.
+ * Enter em <textarea> e em <button> mantém o comportamento padrão
+ * (quebra de linha / clique).
+ */
+export function avancarComEnter(e: React.KeyboardEvent<HTMLFormElement>): void {
+  if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+  const alvo = e.target as HTMLElement;
+  if (alvo.tagName === 'TEXTAREA' || alvo.tagName === 'BUTTON') return;
+  e.preventDefault();
+  const campos = Array.from(
+    e.currentTarget.querySelectorAll<HTMLElement>('input, select, textarea'),
+  ).filter(
+    (el) =>
+      !el.hasAttribute('disabled') &&
+      el.tabIndex >= 0 &&
+      !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+  );
+  const prox = campos[campos.indexOf(alvo) + 1];
+  if (prox) {
+    prox.focus();
+    (prox as HTMLInputElement).select?.();
+  } else {
+    e.currentTarget.querySelector<HTMLElement>('button[type="submit"]')?.focus();
+  }
+}
+```
+
+- **Tab:** nada a fazer — a ordem nativa já segue o DOM. Sem focus-trap
+  (não foi pedido).
+- **`<select>`:** Enter avança (não abre); o usuário escolhe com as setas ou
+  o clique nativo. Aceitável.
+
+### 12.2 Aplicação
+
+Acrescentar `onKeyDown={avancarComEnter}` ao `<form>` de cada modal:
+
+| Arquivo | `<form>` (aprox.) |
+|---|---|
+| `web/app/(app)/agenda/page.tsx` | `NovoAgModal` (~782), `NovoBloqueioModal` (~1246) |
+| `web/app/(app)/clientes/page.tsx` | ~97 |
+| `web/app/(app)/clientes/[id]/page.tsx` | ~223 |
+| `web/app/(app)/equipe/page.tsx` | ~124, ~254 |
+| `web/app/(app)/financeiro/page.tsx` | ~204, ~403, ~871 |
+| `web/app/(app)/pacotes/page.tsx` | ~206, ~418 |
+
+**Fora:** `configuracoes` (formulários de página inteira) e telas de
+autenticação — ver §2 "Não entra".
+
+### 12.3 Teste (`web/tests/unit/form-nav.test.tsx`, jsdom)
+
+- Monta um `<form>` com 3 inputs + `<button type="submit">`; foca o 1º;
+  dispara `keydown` Enter → foco vai para o 2º, `preventDefault` chamado.
+- Enter no último input → foco vai para o `button[type="submit"]`; o form
+  **não** dispara `submit`.
+- Enter com `shiftKey` → ignorado (não faz `preventDefault`).
+- Campo `disabled` no meio é pulado.
+- Enter em `<textarea>` → não faz `preventDefault` (quebra de linha normal).

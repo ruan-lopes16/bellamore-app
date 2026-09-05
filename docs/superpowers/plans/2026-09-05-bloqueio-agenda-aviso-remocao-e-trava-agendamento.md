@@ -28,6 +28,8 @@
 | Arquivo | Responsabilidade | Task |
 |---|---|---|
 | `web/app/(app)/agenda/page.tsx` — `NovoBloqueioModal` | corrige alinhamento (campos estourando a borda no PWA iOS) e reduz a largura de Início/Fim | 0 |
+| `web/lib/formNav.ts` + `web/tests/unit/form-nav.test.tsx` | helper `avancarComEnter` (Enter avança campo, no fim foca o submit) + teste jsdom | 0b |
+| `web/app/(app)/{agenda,clientes,clientes/[id],equipe,financeiro,pacotes}/page.tsx` | `onKeyDown={avancarComEnter}` nos 11 `<form>` de modal | 0c |
 | `shared/bloqueios.ts` | + `BlocoParaChecagem`, `bloqueioEmConflito`, `bloqueioNoInstante` (funções puras) | 1 |
 | `web/tests/unit/bloqueios.test.ts` | + casos das 2 funções novas | 1 |
 | `supabase/migrations/074_agendamentos_recusa_bloqueio.sql` | trigger `BEFORE INSERT/UPDATE` em `agendamentos` que recusa horário coberto por bloqueio | 2 |
@@ -117,6 +119,278 @@ NovoBloqueioModal ganha min-w-0/max-w-full no input, min-w-0 no form e
 overflow-hidden no card (espelha o NovoAgModal, fix 4deffa5) — campos de
 data/hora deixam de estourar a borda no PWA iOS. Início/Fim passam de
 grid-cols-2 (50% cada) para largura fixa w-28 alinhados à esquerda.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+```
+
+---
+
+## Task 0b: Web — helper `avancarComEnter` (navegação por Enter nos modais)
+
+**Contexto:** pedido do usuário — nos modais, **Enter** deve avançar para o
+próximo campo (não enviar) e, no último campo, focar o botão de ação (sem
+enviar). **Tab** continua nativo. Vale para todos os `<form>` dentro de
+`.bm-modal` do web (Task 0c aplica). Mobile nativo fica de fora (RN não tem
+Tab; ver spec §2 "Não entra").
+
+**Files:**
+- Create: `web/lib/formNav.ts`
+- Test: `web/tests/unit/form-nav.test.tsx`
+
+**Interfaces:**
+- Consumes: `React` (só o tipo `React.KeyboardEvent`).
+- Produces: `export function avancarComEnter(e: React.KeyboardEvent<HTMLFormElement>): void` — usar como `<form onKeyDown={avancarComEnter}>`.
+
+- [ ] **Step 1: Escrever o teste que falha**
+
+Criar `web/tests/unit/form-nav.test.tsx`:
+
+```tsx
+import { describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { render } from '@testing-library/react';
+import { avancarComEnter } from '@/lib/formNav';
+
+/** Monta um <form> React e devolve o nó + os inputs por id. */
+function montar(extra?: (f: HTMLFormElement) => void) {
+  const { container } = render(
+    createElement(
+      'form',
+      { onKeyDown: avancarComEnter },
+      createElement('input', { id: 'a', type: 'text', defaultValue: '' }),
+      createElement('input', { id: 'b', type: 'text', defaultValue: '', disabled: extra ? true : false }),
+      createElement('input', { id: 'c', type: 'text', defaultValue: '' }),
+      createElement('textarea', { id: 't', defaultValue: '' }),
+      createElement('button', { type: 'submit' }, 'Salvar'),
+    ),
+  );
+  const form = container.querySelector('form') as HTMLFormElement;
+  return { form };
+}
+
+function enter(el: HTMLElement, opts: Partial<KeyboardEventInit> = {}) {
+  const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...opts });
+  el.dispatchEvent(ev);
+  return ev;
+}
+
+describe('avancarComEnter', () => {
+  it('Enter num input move o foco para o próximo input', () => {
+    const { form } = montar();
+    const a = form.querySelector('#a') as HTMLInputElement;
+    const c = form.querySelector('#c') as HTMLInputElement;
+    a.focus();
+    const ev = enter(a);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(c); // #b está disabled → pulado
+  });
+
+  it('Enter no último input foca o button[type=submit] e NÃO envia', () => {
+    const { form } = montar();
+    const c = form.querySelector('#c') as HTMLInputElement;
+    const submit = form.querySelector('button[type=submit]') as HTMLButtonElement;
+    const onSubmit = vi.fn((e: Event) => e.preventDefault());
+    form.addEventListener('submit', onSubmit);
+    c.focus();
+    enter(c);
+    expect(document.activeElement).toBe(submit);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('Shift+Enter é ignorado (sem preventDefault)', () => {
+    const { form } = montar();
+    const a = form.querySelector('#a') as HTMLInputElement;
+    a.focus();
+    const ev = enter(a, { shiftKey: true });
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it('Enter em <textarea> não faz preventDefault (quebra de linha normal)', () => {
+    const { form } = montar();
+    const t = form.querySelector('#t') as HTMLTextAreaElement;
+    t.focus();
+    const ev = enter(t);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+});
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `cd web && npx vitest run tests/unit/form-nav.test.tsx`
+Expected: FAIL — `Cannot find module '@/lib/formNav'`.
+
+- [ ] **Step 3: Implementar o helper**
+
+Criar `web/lib/formNav.ts` exatamente assim (o filtro de visibilidade usa
+`hidden`/`[hidden]` — **não** `offsetWidth`, que é sempre 0 no jsdom e
+quebraria o teste):
+
+```ts
+import type React from 'react';
+
+/**
+ * Handler de `onKeyDown` para <form> de modal: Enter move o foco para o
+ * próximo campo focável (input/select/textarea habilitado e não escondido
+ * via `hidden`) em vez de enviar o formulário. No último campo, foca o
+ * botão `type="submit"` — não envia; exige um Enter/clique explícito nele.
+ * Tab continua nativo. Enter em <textarea> e em <button> mantém o
+ * comportamento padrão (quebra de linha / clique).
+ *
+ * Uso: <form onKeyDown={avancarComEnter}>
+ */
+export function avancarComEnter(e: React.KeyboardEvent<HTMLFormElement>): void {
+  if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+  const alvo = e.target as HTMLElement;
+  if (alvo.tagName === 'TEXTAREA' || alvo.tagName === 'BUTTON') return;
+  e.preventDefault();
+
+  const campos = Array.from(
+    e.currentTarget.querySelectorAll<HTMLElement>('input, select, textarea'),
+  ).filter((el) => {
+    if (el.hasAttribute('disabled') || el.tabIndex < 0) return false;
+    if ((el as HTMLElement).hidden || el.closest('[hidden]')) return false;
+    return true;
+  });
+
+  const prox = campos[campos.indexOf(alvo) + 1];
+  if (prox) {
+    prox.focus();
+    (prox as HTMLInputElement).select?.();
+  } else {
+    e.currentTarget.querySelector<HTMLElement>('button[type="submit"]')?.focus();
+  }
+}
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `cd web && npx vitest run tests/unit/form-nav.test.tsx`
+Expected: PASS nos 4 casos.
+
+- [ ] **Step 5: tsc + suíte cheia**
+
+Run: `cd web && npx tsc --noEmit && npm test`
+Expected: zero erros; tudo verde.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/lib/formNav.ts web/tests/unit/form-nav.test.tsx
+git commit -m "feat(ui): helper avancarComEnter — Enter navega os campos do modal (web)
+
+Enter move o foco pro próximo campo; no último, foca o button[type=submit]
+sem enviar. Tab segue nativo. Textarea/button mantêm o Enter padrão. TDD (jsdom).
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+```
+
+---
+
+## Task 0c: Web — aplicar `avancarComEnter` nos 11 `<form>` de modal
+
+**Files:**
+- Modify: `web/app/(app)/agenda/page.tsx` (`<form>` do `NovoAgModal` ~782 e do `NovoBloqueioModal` ~1246)
+- Modify: `web/app/(app)/clientes/page.tsx` (~97)
+- Modify: `web/app/(app)/clientes/[id]/page.tsx` (~223)
+- Modify: `web/app/(app)/equipe/page.tsx` (~124, ~254)
+- Modify: `web/app/(app)/financeiro/page.tsx` (~204, ~403, ~871)
+- Modify: `web/app/(app)/pacotes/page.tsx` (~206, ~418)
+
+**Interfaces:**
+- Consumes: `avancarComEnter` de `@/lib/formNav` (Task 0b).
+- Produces: nada.
+
+Regra mecânica para **cada** `<form onSubmit={...} className="...">`:
+1. Garantir o import no topo do arquivo: `import { avancarComEnter } from '@/lib/formNav';`
+2. Acrescentar a prop: `<form onSubmit={...} onKeyDown={avancarComEnter} className="...">`
+3. Não mexer em mais nada no form.
+
+- [ ] **Step 1: `agenda/page.tsx` — 2 forms**
+
+Import no topo (junto dos outros de `@/`):
+
+```tsx
+import { avancarComEnter } from '@/lib/formNav';
+```
+
+`NovoAgModal` (linha ~782):
+
+```tsx
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4 min-w-0">
+```
+
+`NovoBloqueioModal` (linha ~1246):
+
+```tsx
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-3 min-w-0">
+```
+
+(o `min-w-0` no `NovoBloqueioModal` já foi adicionado na Task 0.)
+
+- [ ] **Step 2: `clientes/page.tsx` (~97) e `clientes/[id]/page.tsx` (~223)**
+
+Import `import { avancarComEnter } from '@/lib/formNav';` em cada arquivo, e:
+
+```tsx
+// clientes/page.tsx ~97
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-3">
+```
+```tsx
+// clientes/[id]/page.tsx ~223
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4">
+```
+
+- [ ] **Step 3: `equipe/page.tsx` (~124 e ~254)**
+
+Import uma vez no topo; nas duas linhas:
+
+```tsx
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4">
+```
+
+- [ ] **Step 4: `financeiro/page.tsx` (~204, ~403, ~871)**
+
+Import uma vez no topo; nas três linhas:
+
+```tsx
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+```
+
+- [ ] **Step 5: `pacotes/page.tsx` (~206 e ~418)**
+
+Import uma vez no topo; nas duas linhas (as classes diferem — preservar cada uma, só somar a prop):
+
+```tsx
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+```
+```tsx
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4">
+```
+
+- [ ] **Step 6: tsc + testes**
+
+Run: `cd web && npx tsc --noEmit && npm test`
+Expected: zero erros; suíte verde.
+
+- [ ] **Step 7: Verificação (por leitura + `grep`)**
+
+Run: `cd web && grep -rn "onKeyDown={avancarComEnter}" app | wc -l`
+Expected: **11**.
+Run: `cd web && grep -rLn "from '@/lib/formNav'" $(grep -rl "avancarComEnter" app)`
+Expected: nenhum arquivo listado (todo arquivo que usa também importa).
+
+Conferir mentalmente: nenhum desses 11 forms é de autenticação nem de página
+inteira; todos vivem dentro de `.bm-modal`.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add web/app
+git commit -m "feat(ui): Enter navega os campos em todos os modais de cadastro (web)
+
+onKeyDown={avancarComEnter} nos 11 <form> de modal (agenda, clientes, equipe,
+financeiro, pacotes). Fora: configurações (página inteira) e autenticação.
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
@@ -1350,6 +1624,7 @@ Expected: a substring casa exatamente (mesmo acento) entre o `raise` e o `includ
 - Mobile: `X` só aparece conforme papel (`(empresa)`: gestão sempre; `(profissional)`: só o próprio pendente); modal centralizado; `remover.mutate` com `onError` em `Alert`; guarda de duplo-toque via `removendo`/`isPending`.
 - Mobile `novo-agendamento`: ramo `Horário bloqueado`.
 - Trigger 074: `security definer` + `search_path`; meia-aberto; ignora `cancelado/faltou`; guarda de `UPDATE` sem mudança de horário.
+- Parte C: `grep -rn "onKeyDown={avancarComEnter}" web/app | wc -l` = **11**; nenhum form de `configuracoes` nem de autenticação tocado; `web/lib/formNav.ts` e `web/tests/unit/form-nav.test.tsx` presentes e verdes.
 
 - [ ] **Step 5: Atualizar a spec se algo divergiu**
 
@@ -1392,8 +1667,9 @@ Decisões tomadas no plano (dentro do que a spec deixou aberto):
 - Web: reusar `ConfirmDialog` em vez de criar `ConfirmarRemoverBloqueioModal` novo — DRY, é o padrão já usado no "Excluir agendamento". (A spec previa componente novo; a reutilização é estritamente melhor e não muda o comportamento.)
 - Mobile `novo-agendamento.tsx`: **sem** pré-check reativo (a spec marcou como opcional). Trigger + `Alert` amigável, igual ao tratamento de `Conflito` que já existe.
 
-Fora da spec original (bug reportado durante o planejamento, aceito na mesma branch):
+Fora da spec original (pedidos feitos durante o planejamento, aceitos na mesma branch):
 - **Task 0** — alinhamento do `NovoBloqueioModal` no PWA iOS + Início/Fim compactos. Não tem relação com a lógica de bloqueio; entra por ser o mesmo arquivo/feature e roda primeiro.
+- **Tasks 0b/0c** — Parte C da spec (§12): helper `avancarComEnter` + aplicação nos 11 `<form>` de modal do web. Enter avança campo, no último foca o submit sem enviar. Fora: `configuracoes` (página inteira) e autenticação; e o app nativo (RN não tem Tab).
 
 **2. Placeholders:** nenhum "TBD"/"etc." — todo passo tem código ou comando completo.
 
