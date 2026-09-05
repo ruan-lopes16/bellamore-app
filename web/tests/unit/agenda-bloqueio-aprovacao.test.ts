@@ -80,8 +80,16 @@ describe('agenda: pílula + modal de bloqueios pendentes (aprovar/recusar)', () 
 describe('agenda: TimelineView desenha bloqueio pendente + trava do remover', () => {
   it('TimelineView recebe meuRole e meuUserId (destructure + type + call site)', () => {
     expect(src).toMatch(/function TimelineView\(\{[\s\S]*?meuRole, meuUserId,[\s\S]*?\}: \{/);
-    expect(src).toMatch(/onDeletarBloqueio: \(id: string\) => void;\s*(?:onAvisoBloqueio: \(msg: string\) => void;\s*)?meuRole: string; meuUserId: string;/);
+    expect(src).toMatch(/onDeletarBloqueio: \(id: string\) => void;\s*onAvisoBloqueio: \(msg: string\) => void;\s*meuRole: string; meuUserId: string;/);
     expect(src).toMatch(/<TimelineView[\s\S]*?meuRole=\{meuRole\}[\s\S]*?meuUserId=\{meuUserId\}[\s\S]*?\/>/);
+  });
+
+  it('clique em horário bloqueado avisa e não abre o modal (guarda bloqueioNoInstante)', () => {
+    // A coluna do profissional checa o instante clicado contra os bloqueios
+    // antes de chamar onNovo; batendo, chama onAvisoBloqueio e retorna.
+    expect(src).toMatch(/const bl = bloqueioNoInstante\(bloqueios, prof\.id, instante\.toISOString\(\)\);\s*if \(bl\) \{\s*onAvisoBloqueio\([\s\S]*?\);\s*return;\s*\}/);
+    // O corpo do bloco não borbulha o clique para a coluna.
+    expect(src).toMatch(/<div key=\{bl\.id\}\s*onClick=\{e => e\.stopPropagation\(\)\}/);
   });
 
   it('filtro visual esconde pendente de quem não é gestão nem criador', () => {
