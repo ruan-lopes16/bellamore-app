@@ -355,8 +355,11 @@ function NovoAgModal({
   const [sucesso,   setSucesso]   = useState<{ clienteNome: string; profNome: string; servicosNomes: string[]; inicio: Date; fim: Date } | null>(null);
   const [avisoTaxaReserva, setAvisoTaxaReserva] = useState('');
 
-  // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço)
+  // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço).
+  // `aplicarTaxaReserva` é opt-in explícito e nasce desmarcado: sem ele nenhuma
+  // linha de `taxas_reserva` é criada (nem 'pendente').
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
+  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(false);
   const [taxaReserva,        setTaxaReserva]        = useState('0');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
@@ -605,16 +608,19 @@ function NovoAgModal({
       if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
       agId = ag.id;
 
-      const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
-      const taxaReservaPayload = buildTaxaReservaInsert({
-        empresaId, agendamentoId: agId, clienteId, valor: taxaReservaValorNum,
-        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
-      }, new Date().toISOString());
-      if (taxaReservaPayload) {
-        const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
-        if (erroReserva) {
-          console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
-          setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
+      // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
+      if (aplicarTaxaReserva) {
+        const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+        const taxaReservaPayload = buildTaxaReservaInsert({
+          empresaId, agendamentoId: agId, clienteId, valor: taxaReservaValorNum,
+          jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
+        }, new Date().toISOString());
+        if (taxaReservaPayload) {
+          const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
+          if (erroReserva) {
+            console.error('Erro ao registrar taxa de reserva:', erroReserva.message);
+            setAvisoTaxaReserva('Agendamento criado, mas a taxa de reserva não pôde ser registrada.');
+          }
         }
       }
     }
@@ -979,43 +985,55 @@ function NovoAgModal({
 
           {taxaReservaCfg.ativa && !agEditar && (
             <div>
-              <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Taxa de reserva</label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  value={taxaReserva}
-                  onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
-                  inputMode="decimal" placeholder="0,00"
-                  className={`${inputClass} pl-9`}
+                  type="checkbox"
+                  checked={aplicarTaxaReserva}
+                  onChange={e => setAplicarTaxaReserva(e.target.checked)}
+                  className="w-4 h-4 rounded border-border accent-primary"
                 />
-              </div>
-              {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
-                <>
-                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                <span className="text-xs font-semibold text-text-2 uppercase tracking-wide">Aplicar taxa de reserva</span>
+              </label>
+              {aplicarTaxaReserva && (
+                <div className="mt-2">
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
                     <input
-                      type="checkbox"
-                      checked={taxaReservaCobrada}
-                      onChange={e => { setTaxaReservaCobrada(e.target.checked); if (!e.target.checked) setTaxaReservaMetodo(null); }}
-                      className="w-4 h-4 rounded border-border accent-primary"
+                      value={taxaReserva}
+                      onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
+                      inputMode="decimal" placeholder="0,00"
+                      className={`${inputClass} pl-9`}
                     />
-                    <span className="text-xs text-text-2">Já foi cobrada?</span>
-                  </label>
-                  {taxaReservaCobrada && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {METODOS_TAXA.map(m => (
-                        <button key={m.key} type="button"
-                          onClick={() => setTaxaReservaMetodo(prev => prev === m.key ? null : m.key)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${
-                            taxaReservaMetodo === m.key
-                              ? 'bg-primary text-white border-primary'
-                              : 'bg-bg text-text-2 border-border hover:border-primary/40'
-                          }`}>
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
+                  </div>
+                  {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+                    <>
+                      <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={taxaReservaCobrada}
+                          onChange={e => { setTaxaReservaCobrada(e.target.checked); if (!e.target.checked) setTaxaReservaMetodo(null); }}
+                          className="w-4 h-4 rounded border-border accent-primary"
+                        />
+                        <span className="text-xs text-text-2">Já foi cobrada?</span>
+                      </label>
+                      {taxaReservaCobrada && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {METODOS_TAXA.map(m => (
+                            <button key={m.key} type="button"
+                              onClick={() => setTaxaReservaMetodo(prev => prev === m.key ? null : m.key)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition ${
+                                taxaReservaMetodo === m.key
+                                  ? 'bg-primary text-white border-primary'
+                                  : 'bg-bg text-text-2 border-border hover:border-primary/40'
+                              }`}>
+                              {m.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
+                </div>
               )}
             </div>
           )}
@@ -1678,8 +1696,8 @@ function TimelineView({
                       >
                         <div className="px-1.5 py-1 h-full flex flex-col justify-start gap-0.5 min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
-                            <span className={`text-[10px] font-bold leading-none flex-shrink-0 ${inativo ? 'text-text-4' : 'text-text-3'}`}>
-                              {format(parseISO(ag.data_hora_inicio), 'HH:mm')}
+                            <span className={`text-[10px] font-bold leading-none flex-shrink-0 whitespace-nowrap tabular-nums ${inativo ? 'text-text-4' : 'text-text-3'}`}>
+                              {format(parseISO(ag.data_hora_inicio), 'HH:mm')}–{format(parseISO(ag.data_hora_fim), 'HH:mm')}
                             </span>
                             <p className={`text-[11px] font-bold leading-tight truncate flex-1 ${inativo ? 'text-text-3 line-through' : 'text-text'}`}>
                               {ag.cliente?.nome ?? '—'}

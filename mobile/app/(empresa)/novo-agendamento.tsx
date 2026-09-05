@@ -155,6 +155,9 @@ export default function NovoAgendamento() {
     params.hora ? { h: horaInicial.getHours(), m: horaInicial.getMinutes() } : null
   );
   const [valor, setValor]       = useState('');
+  // `aplicarTaxaReserva` é opt-in explícito e nasce desmarcado: sem ele nenhuma
+  // linha de `taxas_reserva` é criada (nem 'pendente').
+  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(false);
   const [taxaReserva, setTaxaReserva]             = useState('');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
@@ -398,8 +401,9 @@ export default function NovoAgendamento() {
       return;
     }
 
-    const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
-    if (novoAg) {
+    // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
+    if (novoAg && aplicarTaxaReserva) {
+      const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
       const taxaReservaPayload = buildTaxaReservaInsert({
         empresaId: empresaAtiva.id, agendamentoId: novoAg.id,
         clienteId: clienteSelecionado!.id, valor: taxaReservaValorNum,
@@ -871,6 +875,24 @@ export default function NovoAgendamento() {
           </View>
 
           {taxaReservaAtiva && (
+            <TouchableOpacity
+              onPress={() => setAplicarTaxaReserva(v => !v)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 }}
+            >
+              <View style={{
+                width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
+                borderColor: aplicarTaxaReserva ? C.primary : C.border,
+                backgroundColor: aplicarTaxaReserva ? C.primary : C.surface,
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                {aplicarTaxaReserva && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700', lineHeight: 14 }}>✓</Text>}
+              </View>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
+                Aplicar taxa de reserva
+              </Text>
+            </TouchableOpacity>
+          )}
+          {taxaReservaAtiva && aplicarTaxaReserva && (
             <View style={{
               marginTop: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
               borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -892,7 +914,7 @@ export default function NovoAgendamento() {
               />
             </View>
           )}
-          {taxaReservaAtiva && (parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+          {taxaReservaAtiva && aplicarTaxaReserva && (parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
             <>
               <TouchableOpacity
                 onPress={() => {

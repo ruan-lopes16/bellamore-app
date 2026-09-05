@@ -60,52 +60,69 @@ Sem dedup (é um skeleton só). Duas mudanças:
 
 ### Financeiro
 
-Extrair **`web/app/(app)/financeiro/FinanceiroSkeleton.tsx`** (componente co-localizado,
-não roteável no App Router). Estrutura = o layout real de `page.tsx`:
+**Cuidado (evitar regressão):** `carregar()` faz `setLoading(true)` a **cada** troca de
+mês (`useEffect` em `[empresaId, mesRef, isOwner]`). Um `if (loading) return <Skeleton/>`
+no topo faria a tela inteira (header + seletor de mês) piscar a cada clique em ‹ ›. Então
+o `page.tsx` **continua interleavando** (chrome fixo, só as áreas de dados trocam) — o que
+some é a **divergência** entre os dois skeletons, não o interleaving.
 
-- Header (label "Visão Geral" + h1 "Financeiro" + toggle de privacidade + botão Exportar).
-- Seletor de mês (`FinanceMonthCalendar` fechado — placeholder da barra).
-- Grade de KPIs: `grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6`, **7** cards
-  placeholder, o último com `col-span-2 lg:col-span-1` (mesma regra órfã do real:
-  `i === arr.length - 1 && arr.length % 2 === 1`). Cada card: `p-3 sm:p-5`, barra de
-  label + barra de valor + barra de delta.
-- Grid de 2 colunas `grid-cols-1 md:grid-cols-2 gap-6`: card "Evolução" (barras) +
-  card "Top serviços" (linhas com barra de progresso).
-- Lista de despesas (cabeçalho + 3 linhas com avatar + 2 textos + valor/badge).
+Extrair **`web/app/(app)/financeiro/FinanceiroSkeleton.tsx`** (co-localizado, não roteável)
+exportando peças reutilizáveis:
+
+- `KpisFinanceiroSkeleton` (named): a grade **única** `grid grid-cols-2 lg:grid-cols-3
+  gap-3 sm:gap-4 mb-6`, **7** cards placeholder, último com `col-span-2 lg:col-span-1`
+  (mesma regra órfã do real). Card: `p-3 sm:p-5`, barra de label + valor + delta.
+- `GraficosDespesasSkeleton` (named): grid `grid-cols-1 md:grid-cols-2 gap-6` com card
+  "Evolução" (barras) + card "Top serviços" (linhas com barra) + card "Despesas"
+  (`md:col-span-2`, cabeçalho + 3 linhas).
+- `FinanceiroSkeleton` (default): header placeholder + seletor de mês placeholder +
+  `<KpisFinanceiroSkeleton/>` + `<GraficosDespesasSkeleton/>`. É o skeleton de navegação.
 
 Consumo:
 - `web/app/(app)/financeiro/loading.tsx` → `return <FinanceiroSkeleton />`.
-- `web/app/(app)/financeiro/page.tsx` → logo no início do `return`,
-  `if (loading) return <FinanceiroSkeleton />;` e **apagar** os blocos
-  `{loading ? (<skeleton/>) : (…)}` do carregamento **inicial** (KPIs, evolução/top
-  serviços, despesas). Estados que não são o fetch inicial (ex.: paginação de histórico
-  de despesas, se houver) continuam como estão.
+- `web/app/(app)/financeiro/page.tsx` → trocar a **branch `loading`** das duas ternárias
+  de topo (`{loading ? (<skeleton-inline>) : (<real>)}`, ~linhas 1478 e 1533) por
+  `<KpisFinanceiroSkeleton/>` e `<GraficosDespesasSkeleton/>`. As micro-skeletons
+  aninhadas (`topServicos`/`despesas`, dentro da branch real) ficam como estão —
+  já são inalcançáveis quando `loading` e mexer nelas é fora de escopo.
 
-Resultado: uma definição só → o skeleton de navegação e o de fetch são idênticos e
-batem com a grade real.
+Resultado: `loading.tsx` e o skeleton de fetch usam **as mesmas peças** → não têm como
+divergir, e batem com a grade real; o seletor de mês não pisca na navegação.
 
 ### Relatórios
 
-Extrair **`web/app/(app)/relatorios/RelatoriosSkeleton.tsx`**. Estrutura = 1º paint real:
+**Mesmo cuidado:** `carregar()` faz `setLoading(true)` a cada troca de período
+(`useEffect` em `[empresaId, periodo, periodoOpts]`). Sem early-return — mantém o
+interleaving; o `page.tsx` já renderiza o layout real sempre e troca só as áreas de
+dados por `<Sk>` quando `loading`.
 
-- Header (label "Análise" + h1 "Relatórios" + toggle + controles de exportação/período
-  à direita como placeholders).
-- Linha de pills de período (`SmoothTabs variant="pill"` → placeholder de 4–5 pills).
-- Grade de KPIs no grid **real**: `grid grid-cols-2 md:grid-cols-4 gap-3 mb-6`,
-  ~8 cards no formato `KpiCard` (quadrado de ícone `w-9 h-9` + 2 linhas de texto),
-  reaproveitando o próprio branch `if (loading)` do componente `KpiCard` (ou um
-  placeholder equivalente).
-- Linha das abas (`SmoothTabs variant="underline"` → placeholder da barra de abas).
-- Card do gráfico "Evolução de faturamento" (título + barras `height:140`).
-- **Sem** os cards "Resumo financeiro / Despesas por categoria" — a tela real os
-  esconde enquanto `loading` (`{!loading && …}`), então o skeleton também não os mostra.
+Extrair **`web/app/(app)/relatorios/RelatoriosSkeleton.tsx`** (co-localizado, não
+roteável), exportando peças:
+
+- `KpisRelatoriosSkeleton` (named): a grade **real** `grid grid-cols-2 md:grid-cols-4
+  gap-3 mb-6` com **8** placeholders no formato `KpiCard` (quadrado `w-9 h-9` + 2 linhas).
+- `RelatoriosSkeleton` (default): header placeholder + linha de pills de período +
+  `<KpisRelatoriosSkeleton/>` + linha das abas + card do gráfico "Evolução de
+  faturamento" (título + barras `height:140`). **Sem** os cards "Resumo financeiro /
+  Despesas por categoria" — a tela real os esconde enquanto `loading` (`{!loading && …}`).
 
 Consumo:
 - `web/app/(app)/relatorios/loading.tsx` → `return <RelatoriosSkeleton />`.
-- `web/app/(app)/relatorios/page.tsx` → logo no início do `return`,
-  `if (loading) return <RelatoriosSkeleton />;`. Os `<Sk>` inline restantes ficam
-  para o estado **`loadingAba`** (troca de aba após o load inicial), que é outro
-  estado e continua válido — não mexer nele.
+- `web/app/(app)/relatorios/page.tsx`:
+  - o branch `if (loading)` do componente `KpiCard` interno (~linha 229) passa a
+    renderizar o mesmo placeholder de `KpisRelatoriosSkeleton` (extrair um
+    `<KpiCardSkeleton/>` reutilizado pelos dois), garantindo card idêntico ao da
+    navegação;
+  - a grade que envolve os `KpiCard` já é `grid grid-cols-2 md:grid-cols-4` no real —
+    nada a trocar ali além de garantir a mesma no skeleton de navegação.
+  - o gráfico "Evolução de faturamento" já tem `{loading ? <Sk barras/> : …}` inline
+    (~linha 1104) — alinhar a altura/really das barras com o card do
+    `RelatoriosSkeleton`.
+  - os `<Sk>` inline restantes ficam para o estado **`loadingAba`** (troca de aba
+    após o load inicial), que é outro estado e continua válido — não mexer.
+
+Resultado: o card de KPI e o gráfico da navegação e do fetch usam as mesmas peças; a
+grade de KPI (`md:grid-cols-4`) e a barra de abas param de "saltar" entre os dois.
 
 ---
 
