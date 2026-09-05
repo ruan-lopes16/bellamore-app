@@ -426,11 +426,11 @@ function VenderModal({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div className="min-w-0">
               <label className={labelCls}>Data de início</label>
               <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className={inputCls}/>
             </div>
-            <div>
+            <div className="min-w-0">
               <label className={labelCls}>Valor cobrado</label>
               <div className="relative">
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>

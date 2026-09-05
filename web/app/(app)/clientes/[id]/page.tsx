@@ -235,12 +235,12 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
               required
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Data</label>
               <input type="date" value={data} onChange={e => setData(e.target.value)} required className={inputCls}/>
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Horário</label>
               <input type="time" value={hora} onChange={e => setHora(e.target.value)} required className={inputCls}/>
             </div>

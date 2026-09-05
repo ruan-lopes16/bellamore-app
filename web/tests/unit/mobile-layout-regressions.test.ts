@@ -69,4 +69,28 @@ describe('mobile layout regressions', () => {
     expect(agenda).toContain('bm-modal-mobile');
     expect(agenda).not.toMatch(/className="md:hidden bm-modal fixed/);
   });
+
+  it('declara overflow-y-visible ao lado de overflow-x-hidden no <main> (evita virar scroll container e quebrar modais fixed no iOS)', () => {
+    const layout = read('components/AppLayout.tsx');
+
+    // Por spec, overflow-x:hidden sozinho (sem overflow-y declarado) faz o
+    // overflow-y computado virar "auto" em vez de "visible" — transformando o
+    // <main> num scroll container real. No iOS Safari, um scroll container
+    // aninhado entre <body> e um modal position:fixed (os modais deste app não
+    // usam portal) quebra o fixed: o modal passa a se mover com o toque em vez
+    // de ficar preso à tela. overflow-y-visible explícito neutraliza a regra.
+    expect(layout).toMatch(/overflow-x-hidden overflow-y-visible/);
+  });
+
+  it('reserva min-w-0 nas colunas de Início/Fim do bloqueio de agenda (grid item não encolhe abaixo do conteúdo por padrão)', () => {
+    const agenda = read('app/(app)/agenda/page.tsx');
+
+    // input[type=time] nativo do iOS Safari em pt-BR não coube nunca nos ~166px
+    // de uma coluna de grid-cols-2 dentro do modal max-w-sm; sem min-w-0 no item,
+    // a coluna se recusa a encolher abaixo do conteúdo e os dois campos passam
+    // da largura do modal, sobrepondo um no outro.
+    expect(agenda).toMatch(
+      /grid grid-cols-2 gap-3">\s*<div className="min-w-0">\s*<label className=\{labelCls\}>Início<\/label>\s*<input type="time"[^]*?<div className="min-w-0">\s*<label className=\{labelCls\}>Fim<\/label>\s*<input type="time"/,
+    );
+  });
 });
