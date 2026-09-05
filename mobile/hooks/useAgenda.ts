@@ -359,3 +359,33 @@ export function useRecusarBloqueio() {
     },
   });
 }
+
+/**
+ * Remove um bloqueio de agenda (dona/gestora: qualquer um;
+ * profissional: só o próprio pendente — a policy "bloqueios: excluir"
+ * da migration 068 já decide). O `.select('id')` depois do `.delete()`
+ * confirma que a linha existia e a RLS deixou passar: zero linhas vira
+ * erro de permissão em vez de sucesso silencioso. Invalida as três
+ * query keys de bloqueio usadas nas telas (empresa, pendentes, e a da
+ * agenda da profissional).
+ */
+export function useRemoverBloqueio() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase
+        .from('agenda_bloqueios')
+        .delete()
+        .eq('id', id)
+        .select('id');
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error('Sem permissão para remover este bloqueio.');
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bloqueios-dia'] });
+      qc.invalidateQueries({ queryKey: ['bloqueios-pendentes'] });
+      qc.invalidateQueries({ queryKey: ['bloqueios-prof-dia'] });
+    },
+  });
+}
