@@ -47,7 +47,8 @@ import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada } from '@shared/agendamentos';
 import {
   MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
-  montarInsertBloqueio, type EscopoBloqueio,
+  montarInsertBloqueio, bloqueioEmConflito, bloqueioNoInstante,
+  type EscopoBloqueio,
 } from '@shared/bloqueios';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
@@ -1426,7 +1427,7 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio, meuRole, meuUserId,
+  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio, onAvisoBloqueio, meuRole, meuUserId,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
   loading: boolean; empresaId: string;
@@ -1436,6 +1437,7 @@ function TimelineView({
   onEditar?: (ag: Ag) => void;
   onNovo: (params: { hora: string; profId: string }) => void;
   onDeletarBloqueio: (id: string) => void;
+  onAvisoBloqueio: (msg: string) => void;
   meuRole: string; meuUserId: string;
 }) {
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
@@ -1579,7 +1581,16 @@ function TimelineView({
                   style={{ height: TL_TOTAL_H }}
                   onClick={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
-                    onNovo({ hora: calcHoraTimeline(e.clientY - rect.top), profId: prof.id });
+                    const horaStr = calcHoraTimeline(e.clientY - rect.top);
+                    const [hh, mm] = horaStr.split(':').map(Number);
+                    const instante = new Date(dataSel);
+                    instante.setHours(hh, mm, 0, 0);
+                    const bl = bloqueioNoInstante(bloqueios, prof.id, instante.toISOString());
+                    if (bl) {
+                      onAvisoBloqueio(`Horário bloqueado (${motivoBloqueioLabel(bl.motivo)}). Remova o bloqueio para agendar aqui.`);
+                      return;
+                    }
+                    onNovo({ hora: horaStr, profId: prof.id });
                   }}
                   onMouseMove={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
@@ -1640,6 +1651,7 @@ function TimelineView({
                         || (pendente && bl.criado_por === meuUserId);
                       return (
                         <div key={bl.id}
+                          onClick={e => e.stopPropagation()}
                           className="absolute overflow-hidden z-5 flex flex-col"
                           style={{
                             top: topBl, height: hBl, left: 2, right: 2,
@@ -2274,6 +2286,7 @@ export default function AgendaPage() {
           onEditar={ag => setAgEditar(ag)}
           onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
           onDeletarBloqueio={deletarBloqueio}
+          onAvisoBloqueio={showErro}
           meuRole={meuRole}
           meuUserId={meuUserId}
         />
