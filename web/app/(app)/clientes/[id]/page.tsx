@@ -8,6 +8,7 @@ import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente, TaxaCancelamento, TaxaReserva } from '@/types';
 import { format, differenceInYears, differenceInDays, addMinutes, parseISO } from 'date-fns';
 import { maskPhone, toWhatsApp } from '@/lib/masks';
+import { avancarComEnter } from '@/lib/formNav';
 import { ptBR } from 'date-fns/locale';
 import { Sk } from '@/components/Skeleton';
 import { Secret } from '@/components/privacy';
@@ -220,7 +221,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4">
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Serviço</label>
             <SearchSelect

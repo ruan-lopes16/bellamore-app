@@ -1,13 +1,13 @@
 import { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, StatusBar,
+  RefreshControl, StatusBar, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { Ban, ChevronLeft, ChevronRight, Plus } from 'lucide-react-native';
+import { Ban, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react-native';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -29,9 +29,10 @@ import {
   useAgendaProfissional, useKpisDiaProfissional, useDiasProfissional,
   useBloqueiosProfissionalDia, useCriarBloqueioProfissional,
 } from '@/hooks/useProfissional';
-import { CATEGORIA_CONFIG, type AgendamentoCompleto } from '@/hooks/useAgenda';
+import { CATEGORIA_CONFIG, useRemoverBloqueio, type AgendamentoCompleto } from '@/hooks/useAgenda';
 import { BloqueioModal } from '@/components/BloqueioModal';
-import { motivoBloqueioLabel } from '@shared/bloqueios';
+import { ConfirmarRemoverBloqueio } from '@/components/ConfirmarRemoverBloqueio';
+import { bloqueioNoInstante, motivoBloqueioLabel } from '@shared/bloqueios';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -148,7 +149,10 @@ function AgendamentoCard({ ag, percentual, index }: {
 
 // ── Slot vazio ───────────────────────────────────────────────
 
-function SlotVazio({ hora, dia }: { hora: number; dia: Date }) {
+function SlotVazio({ hora, dia, bloqueado }: { hora: number; dia: Date; bloqueado?: boolean }) {
+  // Hora coberta por bloqueio (aprovado ou pendente) não oferece slot de agendar.
+  if (bloqueado) return null;
+
   return (
     <TouchableOpacity
       onPress={() => router.push(`/(profissional)/novo-agendamento?hora=${hora}` as any)}
@@ -192,7 +196,9 @@ export default function AgendaProfissional() {
   const { data: diasComAg } = useDiasProfissional(mesRef);
   const { data: bloqueios = [] } = useBloqueiosProfissionalDia(diaSelecionado);
   const criarBloqueio = useCriarBloqueioProfissional();
+  const remover = useRemoverBloqueio();
   const [modalBloqueio, setModalBloqueio] = useState(false);
+  const [bloqueioParaRemover, setBloqueioParaRemover] = useState<typeof bloqueios[number] | null>(null);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -404,27 +410,53 @@ export default function AgendaProfissional() {
                   <View style={{ height: 1, backgroundColor: '#D8D0C8', marginBottom: 6 }} />
                   {ags.length > 0
                     ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} percentual={percentual} index={i} />)
-                    : (bloqueiosPorHora[hora]?.length ? null : <SlotVazio hora={hora} dia={diaSelecionado} />)
+                    : (bloqueiosPorHora[hora]?.length ? null : (
+                        <SlotVazio
+                          hora={hora}
+                          dia={diaSelecionado}
+                          bloqueado={!!bloqueioNoInstante(
+                            bloqueios,
+                            user?.id ?? '',
+                            new Date(new Date(diaSelecionado).setHours(hora, 0, 0, 0)).toISOString(),
+                          )}
+                        />
+                      ))
                   }
-                  {(bloqueiosPorHora[hora] ?? []).map((b) => (
-                    <View
-                      key={b.id}
-                      style={{
-                        borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
-                        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
-                        padding: 10, marginBottom: 6,
-                        opacity: b.situacao === 'pendente' ? 0.6 : 1,
-                      }}
-                    >
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
-                        {b.titulo || motivoBloqueioLabel(b.motivo)}
-                      </Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
-                        {format(new Date(b.data_inicio), 'HH:mm')}–{format(new Date(b.data_fim), 'HH:mm')}
-                        {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
-                      </Text>
-                    </View>
-                  ))}
+                  {(bloqueiosPorHora[hora] ?? []).map((b) => {
+                    // Nesta tela o papel é sempre profissional: só o próprio pedido pendente ganha o X.
+                    const podeRemover = b.situacao === 'pendente' && b.criado_por === user?.id;
+                    return (
+                      <View
+                        key={b.id}
+                        style={{
+                          borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
+                          backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+                          padding: 10, marginBottom: 6,
+                          opacity: b.situacao === 'pendente' ? 0.6 : 1,
+                          flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
+                            {b.titulo || motivoBloqueioLabel(b.motivo)}
+                          </Text>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
+                            {format(new Date(b.data_inicio), 'HH:mm')}–{format(new Date(b.data_fim), 'HH:mm')}
+                            {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
+                          </Text>
+                        </View>
+                        {podeRemover && (
+                          <TouchableOpacity
+                            onPress={() => setBloqueioParaRemover(b)}
+                            disabled={remover.isPending}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={{ padding: 2, opacity: remover.isPending ? 0.4 : 1 }}>
+                            <X size={14} color="#C9527F" strokeWidth={2.5} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
                 </View>
               </View>
             );
@@ -444,6 +476,24 @@ export default function AgendaProfissional() {
         onSubmit={async (input) => {
           const r = await criarBloqueio.mutateAsync(input);
           return { situacao: r.situacao };
+        }}
+      />
+
+      <ConfirmarRemoverBloqueio
+        visible={!!bloqueioParaRemover}
+        bloqueio={bloqueioParaRemover}
+        profNome={user?.nome ?? null}
+        removendo={remover.isPending}
+        onCancelar={() => setBloqueioParaRemover(null)}
+        onConfirmar={() => {
+          if (!bloqueioParaRemover) return;
+          remover.mutate(bloqueioParaRemover.id, {
+            onSuccess: () => setBloqueioParaRemover(null),
+            onError: (e: any) => {
+              setBloqueioParaRemover(null);
+              Alert.alert('Erro', e?.message ?? 'Não foi possível remover o bloqueio.');
+            },
+          });
         }}
       />
     </View>

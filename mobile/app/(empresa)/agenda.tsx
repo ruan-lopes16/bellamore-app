@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
-  ChevronLeft, ChevronRight, Plus, Search, Ban,
+  ChevronLeft, ChevronRight, Plus, Search, Ban, X,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -30,14 +30,15 @@ import {
   useAgendamentoDia, useProfissionais, useDiasComAgendamento,
   useResumoDia, CATEGORIA_CONFIG,
   useBloqueiosDia, useBloqueiosPendentes, useCriarBloqueio,
-  useAprovarBloqueio, useRecusarBloqueio,
-  type AgendamentoCompleto, type ProfissionalAgenda,
+  useAprovarBloqueio, useRecusarBloqueio, useRemoverBloqueio,
+  type AgendamentoCompleto, type ProfissionalAgenda, type BloqueioAgenda,
 } from '@/hooks/useAgenda';
 import { useAuthStore } from '@/stores/authStore';
 import { agendarLembretesLocais } from '@/lib/notifications';
-import { motivoBloqueioLabel } from '@shared/bloqueios';
+import { motivoBloqueioLabel, bloqueioNoInstante } from '@shared/bloqueios';
 import { BloqueioModal } from '@/components/BloqueioModal';
 import { PendentesBloqueioSheet } from '@/components/PendentesBloqueioSheet';
+import { ConfirmarRemoverBloqueio } from '@/components/ConfirmarRemoverBloqueio';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -173,8 +174,9 @@ function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number
 
 // ── Slot vazio ───────────────────────────────────────────────
 
-function SlotVazio({ hora, dia }: { hora: number; dia: Date }) {
+function SlotVazio({ hora, dia, bloqueado }: { hora: number; dia: Date; bloqueado?: boolean }) {
   const horaISO = format(new Date(dia.setHours(hora, 0, 0, 0)), "yyyy-MM-dd'T'HH:mm");
+  if (bloqueado) return null;
 
   return (
     <TouchableOpacity
@@ -215,6 +217,8 @@ export default function Agenda() {
   const [profFiltro, setProfFiltro] = useState<string | undefined>(undefined);
   const [modalBloqueio, setModalBloqueio] = useState(false);
   const [sheetPendentes, setSheetPendentes] = useState(false);
+  const remover = useRemoverBloqueio();
+  const [bloqueioParaRemover, setBloqueioParaRemover] = useState<BloqueioAgenda | null>(null);
 
   const semana = Array.from({ length: 7 }, (_, i) =>
     addDays(startOfWeek(diaSelecionado, { weekStartsOn: 1 }), i)
@@ -573,23 +577,47 @@ export default function Agenda() {
                   {ags.length > 0 ? (
                     ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
                   ) : bloqueiosPorHora[hora]?.length ? null : (
-                    <SlotVazio hora={hora} dia={new Date(diaSelecionado)} />
+                    <SlotVazio
+                      hora={hora}
+                      dia={new Date(diaSelecionado)}
+                      bloqueado={!!bloqueioNoInstante(
+                        bloqueios,
+                        profFiltro ?? (bloqueios[0]?.profissional_id ?? ''),
+                        new Date(new Date(diaSelecionado).setHours(hora, 0, 0, 0)).toISOString(),
+                      )}
+                    />
                   )}
-                  {(bloqueiosPorHora[hora] ?? []).map((b) => (
-                    <View key={b.id} style={{
-                      borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
-                      backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
-                      padding: 10, marginBottom: 6,
-                    }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
-                        {b.titulo || motivoBloqueioLabel(b.motivo)}
-                      </Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: '#8878A6' }}>
-                        {format(new Date(b.data_inicio), 'HH:mm')}–{format(new Date(b.data_fim), 'HH:mm')}
-                        {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
-                      </Text>
-                    </View>
-                  ))}
+                  {(bloqueiosPorHora[hora] ?? []).map((b) => {
+                    const podeRemover =
+                      meuRole === 'owner' || meuRole === 'gestor'
+                      || (b.situacao === 'pendente' && b.criado_por === user?.id);
+                    return (
+                      <View key={b.id} style={{
+                        borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
+                        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+                        padding: 10, marginBottom: 6, flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+                      }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
+                            {b.titulo || motivoBloqueioLabel(b.motivo)}
+                          </Text>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: '#8878A6' }}>
+                            {format(new Date(b.data_inicio), 'HH:mm')}–{format(new Date(b.data_fim), 'HH:mm')}
+                            {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
+                          </Text>
+                        </View>
+                        {podeRemover && (
+                          <TouchableOpacity
+                            onPress={() => setBloqueioParaRemover(b)}
+                            disabled={remover.isPending}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={{ padding: 2, opacity: remover.isPending ? 0.4 : 1 }}>
+                            <X size={14} color="#C9527F" strokeWidth={2.5} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
                 </View>
               </View>
             );
@@ -621,6 +649,27 @@ export default function Agenda() {
         onRecusar={(id) =>
           recusar.mutate(id, { onError: (e: any) => Alert.alert('Erro', e?.message ?? 'Não foi possível recusar.') })
         }
+      />
+      <ConfirmarRemoverBloqueio
+        visible={!!bloqueioParaRemover}
+        bloqueio={bloqueioParaRemover}
+        profNome={
+          bloqueioParaRemover && bloqueioParaRemover.escopo === 'profissional'
+            ? (profissionais.find((p) => p.id === bloqueioParaRemover.profissional_id)?.nome ?? null)
+            : null
+        }
+        removendo={remover.isPending}
+        onCancelar={() => setBloqueioParaRemover(null)}
+        onConfirmar={() => {
+          if (!bloqueioParaRemover) return;
+          remover.mutate(bloqueioParaRemover.id, {
+            onSuccess: () => setBloqueioParaRemover(null),
+            onError: (e: any) => {
+              setBloqueioParaRemover(null);
+              Alert.alert('Erro', e?.message ?? 'Não foi possível remover o bloqueio.');
+            },
+          });
+        }}
       />
     </View>
   );

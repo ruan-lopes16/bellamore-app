@@ -13,6 +13,7 @@ import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
 import { podeAtribuirRole } from '@/lib/permissions';
+import { avancarComEnter } from '@/lib/formNav';
 // createClient usado apenas nas funções da tela principal (carregarEquipe, toggleAtivo, salvarComissao)
 import { ptBR } from 'date-fns/locale';
 
@@ -121,7 +122,7 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
             <X size={16}/>
           </button>
         </div>
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Nome *</label>
             <input value={nome} onChange={e => setNome(e.target.value)}
@@ -251,7 +252,7 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
             <X size={16}/>
           </button>
         </div>
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Nome *</label>
             <input value={nome} onChange={e => setNome(e.target.value)}

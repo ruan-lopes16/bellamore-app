@@ -82,15 +82,16 @@ describe('mobile layout regressions', () => {
     expect(layout).toMatch(/overflow-x-hidden overflow-y-visible/);
   });
 
-  it('reserva min-w-0 nas colunas de Início/Fim do bloqueio de agenda (grid item não encolhe abaixo do conteúdo por padrão)', () => {
+  it('Início/Fim do bloqueio de agenda usam flex com w-28 fixo e min-w-0 (não estouram o modal no iOS)', () => {
     const agenda = read('app/(app)/agenda/page.tsx');
 
-    // input[type=time] nativo do iOS Safari em pt-BR não coube nunca nos ~166px
+    // input[type=time] nativo do iOS Safari em pt-BR não cabia nunca nos ~166px
     // de uma coluna de grid-cols-2 dentro do modal max-w-sm; sem min-w-0 no item,
-    // a coluna se recusa a encolher abaixo do conteúdo e os dois campos passam
-    // da largura do modal, sobrepondo um no outro.
+    // a coluna se recusava a encolher abaixo do conteúdo e os dois campos passavam
+    // da largura do modal, sobrepondo um no outro. Agora é um flex row com cada
+    // campo em w-28 (largura fixa) + min-w-0, alinhados à esquerda.
     expect(agenda).toMatch(
-      /grid grid-cols-2 gap-3">\s*<div className="min-w-0">\s*<label className=\{labelCls\}>Início<\/label>\s*<input type="time"[^]*?<div className="min-w-0">\s*<label className=\{labelCls\}>Fim<\/label>\s*<input type="time"/,
+      /flex gap-3 min-w-0">\s*<div className="w-28 min-w-0">\s*<label className=\{labelCls\}>Início<\/label>\s*<input type="time"[^]*?<div className="w-28 min-w-0">\s*<label className=\{labelCls\}>Fim<\/label>\s*<input type="time"/,
     );
   });
 });

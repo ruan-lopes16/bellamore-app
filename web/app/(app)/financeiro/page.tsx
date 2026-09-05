@@ -43,6 +43,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { FinanceMonthCalendar } from '@/components/FinanceMonthCalendar';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
+import { avancarComEnter } from '@/lib/formNav';
 import { KpisFinanceiroSkeleton, GraficosDespesasSkeleton } from './FinanceiroSkeleton';
 import {
   format, addMonths, subMonths, isSameMonth,
@@ -201,7 +202,7 @@ function NovaDespesaModal({ empresaId, onClose, onSalvo }: {
           <h2 className="font-serif text-xl text-text">Nova despesa</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Descrição *</label>
             <input value={descricao} onChange={e => setDescricao(e.target.value)}
@@ -400,7 +401,7 @@ function RetiradaModal({ empresaId, editando, onClose, onSalvo }: {
           <h2 className="font-serif text-xl text-text">{editando ? 'Editar lançamento' : 'Registrar retirada'}</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Tipo</label>
             <div className="flex gap-2">
@@ -868,7 +869,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
           <h2 className="font-serif text-xl text-text">Editar despesa</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
           <div>
             <label className={labelClass}>Descrição *</label>
             <input value={descricao} onChange={e => setDescricao(e.target.value)}

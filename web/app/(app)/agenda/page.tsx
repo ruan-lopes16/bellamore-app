@@ -38,6 +38,7 @@ import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { maskPhone } from '@/lib/masks';
+import { avancarComEnter } from '@/lib/formNav';
 import {
   type CategoriaServico, type CategoriaCustom,
   resolverCategoriaServico, bgDaCor,
@@ -46,7 +47,8 @@ import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada } from '@shared/agendamentos';
 import {
   MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
-  montarInsertBloqueio, type EscopoBloqueio,
+  montarInsertBloqueio, bloqueioEmConflito, bloqueioNoInstante,
+  type EscopoBloqueio,
 } from '@shared/bloqueios';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 
@@ -393,6 +395,8 @@ function NovoAgModal({
 
   // Conflito de horário detectado
   const [conflitos,  setConflitos]  = useState<ConflitoDet[]>([]);
+  // Bloqueios de agenda do dia selecionado — para impedir agendar em cima.
+  const [bloqueiosDia, setBloqueiosDia] = useState<Bloqueio[]>([]);
   const [pendInicio, setPendInicio] = useState<Date | null>(null);
   const [pendFim,    setPendFim]    = useState<Date | null>(null);
 
@@ -420,6 +424,21 @@ function NovoAgModal({
       })));
     });
   }, [empresaId]);
+
+  // Recarrega ao trocar a data dentro do modal (o campo de data é editável).
+  useEffect(() => {
+    const d0 = new Date(dataSel); d0.setHours(0, 0, 0, 0);
+    const d1 = new Date(dataSel); d1.setHours(23, 59, 59, 999);
+    supabase
+      .from('agenda_bloqueios')
+      .select('id, escopo, profissional_id, situacao, motivo, titulo, data_inicio, data_fim')
+      .eq('empresa_id', empresaId)
+      .lt('data_inicio', d1.toISOString())
+      .gt('data_fim', d0.toISOString())
+      .then(({ data }: { data: any[] | null }) => {
+        setBloqueiosDia((data ?? []) as Bloqueio[]);
+      });
+  }, [empresaId, dataSel]);
 
   // Configuração de taxa de reserva da empresa
   useEffect(() => {
@@ -655,6 +674,10 @@ function NovoAgModal({
     e.preventDefault();
     setErro('');
     setConflitos([]);
+    if (bloqueioConflitante) {
+      setErro(`Horário bloqueado (${motivoBloqueioLabel(bloqueioConflitante.motivo)}). Remova o bloqueio para agendar nesse horário.`);
+      return;
+    }
     const filled = linhas.filter(l => l.servico_id);
     if (!clienteId || filled.length === 0 || !profId) {
       setErro('Preencha cliente, pelo menos um serviço e profissional.');
@@ -690,6 +713,25 @@ function NovoAgModal({
     }
     await executarSalvar(inicio, fim);
   }
+
+  // Bloqueio que colide com o intervalo que o formulário representa agora.
+  const bloqueioConflitante = (() => {
+    if (!profId || !hora) return null;
+    const [bh, bm] = hora.split(':').map(Number);
+    if (Number.isNaN(bh) || Number.isNaN(bm)) return null;
+    const ini = new Date(dataSel); ini.setHours(bh, bm, 0, 0);
+    const fim = addMinutes(ini, totalDuracao || 60);
+    // Só trava a edição quando o intervalo/profissional REALMENTE mudou —
+    // o trigger 074 usa a mesma condição (is not distinct from). Sem isto,
+    // um agendamento que já existia quando o bloqueio foi criado ficaria
+    // impossível de editar (até para trocar a observação).
+    const mudouIntervalo = !agEditar
+      || ini.getTime() !== parseISO(agEditar.data_hora_inicio).getTime()
+      || fim.getTime() !== parseISO(agEditar.data_hora_fim).getTime()
+      || profId !== (agEditar.profissional?.id ?? '');
+    if (!mudouIntervalo) return null;
+    return bloqueioEmConflito(bloqueiosDia, profId, ini.toISOString(), fim.toISOString());
+  })();
 
   const inputClass = "w-full min-w-0 max-w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
   const clienteOpts = clientes.map(c => ({ value: c.id, label: c.nome, sub: c.telefone }));
@@ -750,6 +792,21 @@ function NovoAgModal({
         {/* Área rolável (só o conteúdo rola; cabeçalho fica fixo) */}
         <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
 
+        {/* Aviso de horário bloqueado — trava dura, sem opção de forçar */}
+        {bloqueioConflitante && (
+          <div className="mx-5 mt-5 rounded-2xl overflow-hidden border" style={{ borderColor: 'var(--color-rose)', background: 'var(--color-rose-soft)' }}>
+            <div className="flex items-center gap-2 px-4 pt-4 pb-1">
+              <AlertTriangle size={15} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
+              <p className="text-sm font-bold" style={{ color: 'var(--color-rose)' }}>Horário bloqueado</p>
+            </div>
+            <p className="text-xs text-text-2 px-4 pb-4">
+              {motivoBloqueioLabel(bloqueioConflitante.motivo)} ·{' '}
+              {format(parseISO(bloqueioConflitante.data_inicio), 'HH:mm')}–{format(parseISO(bloqueioConflitante.data_fim), 'HH:mm')}.
+              {' '}Remova o bloqueio na agenda para poder agendar nesse horário.
+            </p>
+          </div>
+        )}
+
         {/* Aviso de conflito de horário */}
         {conflitos.length > 0 && (
           <div className="mx-5 mt-5 rounded-2xl overflow-hidden border border-amber/30" style={{ background: 'var(--color-amber-soft)' }}>
@@ -779,7 +836,7 @@ function NovoAgModal({
         )}
 
         {/* Form */}
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4 min-w-0">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4 min-w-0">
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">Cliente</label>
@@ -1067,7 +1124,7 @@ function NovoAgModal({
               <span className="text-xs text-text-4" title={motivoBloqueioExcluir}>Não pode excluir</span>
             )}
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
-            <button type="submit" disabled={salvando} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
+            <button type="submit" disabled={salvando || !!bloqueioConflitante} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
               {salvando ? 'Salvando...' : agEditar ? 'Salvar alterações' : 'Agendar'}
             </button>
           </div>
@@ -1224,13 +1281,13 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
     onSalvo(row as Bloqueio);
   }
 
-  const inputCls = "w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
+  const inputCls = "w-full min-w-0 max-w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
   const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1";
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center gap-2">
             <Ban size={16} style={{ color: 'var(--color-rose)' }} strokeWidth={2}/>
@@ -1243,7 +1300,7 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
           </button>
         </div>
 
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-3">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-3 min-w-0">
           {ehGestao ? (
             <>
               <div>
@@ -1294,12 +1351,12 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
             <input type="date" value={dataBl} onChange={e => setDataBl(e.target.value)} className={inputCls}/>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="min-w-0">
+          <div className="flex gap-3 min-w-0">
+            <div className="w-28 min-w-0">
               <label className={labelCls}>Início</label>
               <input type="time" value={horaIni} onChange={e => setHoraIni(e.target.value)} className={inputCls}/>
             </div>
-            <div className="min-w-0">
+            <div className="w-28 min-w-0">
               <label className={labelCls}>Fim</label>
               <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)} className={inputCls}/>
             </div>
@@ -1425,7 +1482,7 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio, meuRole, meuUserId,
+  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuRole, meuUserId,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
   loading: boolean; empresaId: string;
@@ -1434,7 +1491,8 @@ function TimelineView({
   dataSel: Date;
   onEditar?: (ag: Ag) => void;
   onNovo: (params: { hora: string; profId: string }) => void;
-  onDeletarBloqueio: (id: string) => void;
+  onPedirRemoverBloqueio: (b: Bloqueio) => void;
+  onAvisoBloqueio: (msg: string) => void;
   meuRole: string; meuUserId: string;
 }) {
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
@@ -1578,7 +1636,16 @@ function TimelineView({
                   style={{ height: TL_TOTAL_H }}
                   onClick={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
-                    onNovo({ hora: calcHoraTimeline(e.clientY - rect.top), profId: prof.id });
+                    const horaStr = calcHoraTimeline(e.clientY - rect.top);
+                    const [hh, mm] = horaStr.split(':').map(Number);
+                    const instante = new Date(dataSel);
+                    instante.setHours(hh, mm, 0, 0);
+                    const bl = bloqueioNoInstante(bloqueios, prof.id, instante.toISOString());
+                    if (bl) {
+                      onAvisoBloqueio(`Horário bloqueado (${motivoBloqueioLabel(bl.motivo)}). Remova o bloqueio para agendar aqui.`);
+                      return;
+                    }
+                    onNovo({ hora: horaStr, profId: prof.id });
                   }}
                   onMouseMove={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
@@ -1639,6 +1706,7 @@ function TimelineView({
                         || (pendente && bl.criado_por === meuUserId);
                       return (
                         <div key={bl.id}
+                          onClick={e => e.stopPropagation()}
                           className="absolute overflow-hidden z-5 flex flex-col"
                           style={{
                             top: topBl, height: hBl, left: 2, right: 2,
@@ -1654,7 +1722,7 @@ function TimelineView({
                             </span>
                             {podeRemover && (
                               <button
-                                onClick={e => { e.stopPropagation(); onDeletarBloqueio(bl.id); }}
+                                onClick={e => { e.stopPropagation(); onPedirRemoverBloqueio(bl); }}
                                 className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-rose-soft transition"
                                 title="Remover bloqueio">
                                 <X size={9} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
@@ -1942,6 +2010,7 @@ export default function AgendaPage() {
   const [profissionaisEmpresa, setProfissionaisEmpresa] = useState<{ id: string; nome: string }[]>([]);
   const [membrosAtivos,      setMembrosAtivos]      = useState<{ id: string; nome: string }[]>([]);
   const [bloqueiosPendentes, setBloqueiosPendentes] = useState<BloqueioPendente[]>([]);
+  const [bloqueioParaRemover, setBloqueioParaRemover] = useState<Bloqueio | null>(null);
 
   const ehGestao = meuRole === 'owner' || meuRole === 'gestor';
 
@@ -2272,7 +2341,8 @@ export default function AgendaPage() {
           dataSel={dataSel}
           onEditar={ag => setAgEditar(ag)}
           onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
-          onDeletarBloqueio={deletarBloqueio}
+          onPedirRemoverBloqueio={setBloqueioParaRemover}
+          onAvisoBloqueio={showErro}
           meuRole={meuRole}
           meuUserId={meuUserId}
         />
@@ -2325,6 +2395,28 @@ export default function AgendaPage() {
           agEditar={agEditar ?? undefined}
         />
       )}
+
+      {/* Confirmação ao remover bloqueio pela Timeline */}
+      {bloqueioParaRemover && (() => {
+        const b = bloqueioParaRemover;
+        const alvo = b.escopo === 'geral'
+          ? 'Toda a agenda'
+          : (profissionaisEmpresa.find(p => p.id === b.profissional_id)?.nome ?? 'Profissional');
+        const intervalo =
+          `${format(parseISO(b.data_inicio), "dd/MM 'às' HH:mm")}–${format(parseISO(b.data_fim), 'HH:mm')}`;
+        const pend = b.situacao === 'pendente' ? ' Este pedido ainda aguarda aprovação.' : '';
+        return (
+          <ConfirmDialog
+            open
+            variant="danger"
+            title="Remover bloqueio?"
+            message={`${alvo} · ${motivoBloqueioLabel(b.motivo)} · ${intervalo}.${pend}`}
+            confirmLabel="Remover"
+            onConfirm={() => { deletarBloqueio(b.id); setBloqueioParaRemover(null); }}
+            onCancel={() => setBloqueioParaRemover(null)}
+          />
+        );
+      })()}
 
       {/* Modal de bloqueio */}
       {modalBloq && empresaId && (

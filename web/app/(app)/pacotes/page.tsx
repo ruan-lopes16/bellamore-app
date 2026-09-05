@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
+import { avancarComEnter } from '@/lib/formNav';
 import type { Cliente as ClienteBase, Servico as ServicoBase } from '@/types';
 import { ExportButton } from '@/components/ExportButton';
 import { Sk } from '@/components/Skeleton';
@@ -203,7 +204,7 @@ function PacoteModal({
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
 
-        <form onSubmit={salvar} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="overflow-y-auto flex-1 p-5 flex flex-col gap-4">
           <div>
             <label className={labelCls}>Nome *</label>
             <input value={nome} onChange={e => setNome(e.target.value)} required placeholder="Ex: Pacote Escova Mensal" className={inputCls}/>
@@ -415,7 +416,7 @@ function VenderModal({
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
 
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4">
           <div>
             <label className={labelCls}>Cliente *</label>
             <SearchSelect

@@ -10,6 +10,7 @@ import { format, startOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { maskPhone } from '@/lib/masks';
+import { avancarComEnter } from '@/lib/formNav';
 import { ExportButton } from '@/components/ExportButton';
 
 const supabase = createClient();
@@ -94,7 +95,7 @@ function NovoClienteModal({ empresaId, onClose }: {
           <h2 className="font-serif text-xl text-text">Novo cliente</h2>
           <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition"><X size={16}/></button>
         </div>
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-3">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-3">
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Nome *</label>
             <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome completo" required className={inputClass}/>
