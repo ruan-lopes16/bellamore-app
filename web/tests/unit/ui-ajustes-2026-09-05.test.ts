@@ -104,3 +104,42 @@ describe.each(fluxosNovoAgendamento)('Taxa de reserva opt-in — %s', (_nome, ar
     expect(src).toContain('Aplicar taxa de reserva');
   });
 });
+
+// ── Modal de agendamento (web): portal + estrutura de rolagem ──
+
+describe('Modal Novo/Editar agendamento (web) — não recortado pelo <main>', () => {
+  const src = read('app/(app)/agenda/page.tsx');
+  it('é portalizado para document.body (foge do overflow-x-hidden do <main>)', () => {
+    expect(src).toContain("import { createPortal } from 'react-dom'");
+    expect(src).toContain('return createPortal(');
+    expect(src).toContain('document.body,');
+  });
+  it('é bottom-sheet no mobile, como os demais modais do app', () => {
+    // o wrapper do NovoAgModal deixou de ser só `items-center`
+    const trecho = src.slice(src.indexOf('function NovoAgModal'), src.indexOf('// ── Timeline do dia'));
+    expect(trecho).not.toContain('flex items-center justify-center p-4');
+    expect(trecho).toContain('flex items-end sm:items-center justify-center p-4');
+  });
+  it('painel usa flex-col + área rolável interna (sem overflow-y-auto direto no painel)', () => {
+    const trecho = src.slice(src.indexOf('function NovoAgModal'), src.indexOf('// ── Timeline do dia'));
+    expect(trecho).toContain('max-h-[90dvh] flex flex-col overflow-hidden');
+    expect(trecho).toContain('flex-1 min-w-0 overflow-y-auto overflow-x-hidden');
+  });
+});
+
+// ── Dashboard: card Receita com centavos, sem arredondar pra cima ──
+
+describe('CountUp — casas decimais e truncamento', () => {
+  const src = read('components/CountUp.tsx');
+  it('aceita a prop decimals', () => {
+    expect(src).toContain('decimals = 0');
+    expect(src).toContain('minimumFractionDigits: decimals');
+  });
+  it('trunca (Math.floor), nunca arredonda pra cima', () => {
+    expect(src).toContain('Math.floor(n * factor');
+    expect(src).not.toContain('Math.round(from + (value - from)');
+  });
+  it('o card Receita do Dashboard mostra os centavos', () => {
+    expect(read('app/(app)/dashboard/page.tsx')).toContain('<CountUp value={bruto} decimals={2} />');
+  });
+});

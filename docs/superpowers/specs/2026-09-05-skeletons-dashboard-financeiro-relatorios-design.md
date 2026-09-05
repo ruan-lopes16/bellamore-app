@@ -185,6 +185,54 @@ agenda; o modal do perfil da cliente é sempre novo). Sem mudança.
 
 ---
 
+---
+
+## Item 5 — Modal "Novo/Editar agendamento" (mobile web) desalinhado
+
+**Sintomas** (prints do usuário, PWA no iPhone): faixa de fundo bege embaixo do
+modal ao abrir; cabeçalho recortado no topo; o painel podia ser arrastado na
+horizontal e voltava; campos sem alinhar na borda direita.
+
+**Causa raiz:** o `NovoAgModal` renderiza `position: fixed` **dentro de `<main>`**,
+que tem `overflow-x-hidden`. O iOS Safari recorta `fixed` pela caixa do ancestral
+com `overflow` != visible — e `<main>` tem `pt`/`pb` de safe-area + `px-4`, então o
+modal era cortado ~70px no topo, ~122px embaixo (faixa bege = `<body>` aparecendo)
+e 16px de cada lado. Agravado por `overflow-y-auto` direto no painel: com
+`overflow-x` computando `auto`, qualquer sub-pixel de sobra virava scroll
+horizontal com rubber-band.
+
+**Correção:**
+- `NovoAgModal` passa a ser **portalizado** para `document.body` (`createPortal`),
+  saindo de dentro do `<main>`. Guarda `montado` (`useEffect`) para SSR.
+- Painel: `overflow-y-auto` no painel → `flex flex-col overflow-hidden` no painel +
+  `<div class="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">` interno (mesmo
+  padrão do modal de Detalhes, que não tinha o bug). `min-w-0` no `<form>`.
+- Wrapper: `items-center` → **`items-end sm:items-center`** (bottom-sheet no mobile,
+  como todos os outros modais do app — some a folga do `items-center`).
+- Vale para os dois `return` do componente (sucesso + formulário).
+
+**Não incluído:** `NovoBloqueioModal` e os demais modais da Agenda compartilham o
+mesmo `<main>`, mas têm conteúdo curto e já são `items-end` — não reportados;
+ficam para depois se aparecerem.
+
+---
+
+## Item 6 — Card "Receita" do Dashboard: centavos, sem arredondar pra cima
+
+O card hero mostrava `R$ 2.160` (via `CountUp`, que fazia `Math.round` e sem casas
+decimais) enquanto o KPI "Fat. Bruto" logo abaixo mostrava `R$ 2.159,87`.
+
+- `CountUp` ganha prop `decimals` (default 0 — retrocompatível). Com `decimals`,
+  formata com esse número de casas e **trunca** (`Math.floor(n*factor + 1e-6)`),
+  nunca arredonda pra cima.
+- Dashboard hero: `<CountUp value={bruto} decimals={2} />`.
+- `CountUp` só tem esse consumidor. O texto "Lucro {fmt(lucro)}" já mostrava
+  centavos (`fmt` tem `maximumFractionDigits` 2 por padrão de currency).
+- App nativo `mobile/` usa `formatBRL` com 0 casas em todo o dashboard de forma
+  consistente (não há a inconsistência hero-vs-KPI) — fora de escopo.
+
+---
+
 ## Fora de escopo
 
 - App nativo `mobile/` para skeletons (sem skeleton screens) e para a timeline
@@ -216,6 +264,8 @@ agenda; o modal do perfil da cliente é sempre novo). Sem mudança.
 | `web/app/(app)/relatorios/RelatoriosSkeleton.tsx` | **novo** — skeleton único |
 | `web/app/(app)/relatorios/loading.tsx` | usar `<RelatoriosSkeleton />` |
 | `web/app/(app)/relatorios/page.tsx` | `if (loading) return <RelatoriosSkeleton />` (mantém `loadingAba` inline) |
-| `web/app/(app)/agenda/page.tsx` | item 2: timeline `HH:mm–HH:mm`; item 4: toggle "Aplicar taxa de reserva" no modal NovoAgendamento |
+| `web/app/(app)/agenda/page.tsx` | item 2: timeline `HH:mm–HH:mm`; item 4: toggle "Aplicar taxa de reserva"; item 5: portal + estrutura do NovoAgModal |
 | `web/app/(app)/clientes/[id]/page.tsx` | item 4: toggle "Aplicar taxa de reserva" no modal de novo agendamento |
 | `mobile/app/(empresa)/novo-agendamento.tsx` | item 4: toggle "Aplicar taxa de reserva" |
+| `web/components/CountUp.tsx` | item 6: prop `decimals` + truncamento |
+| `web/app/(app)/dashboard/page.tsx` | item 1 (Fat. Bruto) + item 6 (`<CountUp decimals={2}>`) |

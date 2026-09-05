@@ -20,6 +20,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   format, addDays, addMonths, subMonths,
   startOfDay, endOfDay, startOfMonth, endOfMonth,
@@ -695,9 +696,14 @@ function NovoAgModal({
   const profOpts    = profissionais.map(p => ({ value: p.id, label: p.nome }));
   const servicoOpts = servicos.map(s => ({ value: s.id, label: s.nome }));
 
+  // Portaliza o modal para <body>: dentro de <main> (que tem overflow-x-hidden)
+  // o iOS Safari recorta o position:fixed pela caixa do <main>, deixando faixa
+  // de fundo embaixo e cortando o cabeçalho no topo.
+  if (typeof document === 'undefined') return null;
+
   if (sucesso) {
-    return (
-      <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+    return createPortal(
+      <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
         <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm flex flex-col items-center text-center gap-2.5 py-10 px-6">
           <div className="relative flex items-center justify-center" style={{ width: 64, height: 64 }}>
@@ -719,16 +725,17 @@ function NovoAgModal({
             <p className="text-xs text-amber mt-1">{avisoTaxaReserva}</p>
           )}
         </div>
-      </div>
+      </div>,
+      document.body,
     );
   }
 
-  return (
-    <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+  return createPortal(
+    <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-border">
+        <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
           <div>
             <h2 className="font-serif text-xl text-text">{agEditar ? 'Editar agendamento' : 'Novo agendamento'}</h2>
             <p className="text-text-3 text-xs mt-0.5 capitalize">
@@ -739,6 +746,9 @@ function NovoAgModal({
             <X size={16} />
           </button>
         </div>
+
+        {/* Área rolável (só o conteúdo rola; cabeçalho fica fixo) */}
+        <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
 
         {/* Aviso de conflito de horário */}
         {conflitos.length > 0 && (
@@ -769,7 +779,7 @@ function NovoAgModal({
         )}
 
         {/* Form */}
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4">
+        <form onSubmit={salvar} className="p-5 flex flex-col gap-4 min-w-0">
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">Cliente</label>
@@ -1062,6 +1072,7 @@ function NovoAgModal({
             </button>
           </div>
         </form>
+        </div>
       </div>
 
       {confirmarExcluir && agEditar && (
@@ -1076,7 +1087,8 @@ function NovoAgModal({
           onCancel={() => setConfirmarExcluir(false)}
         />
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

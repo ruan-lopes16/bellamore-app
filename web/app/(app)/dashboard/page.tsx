@@ -384,7 +384,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </p>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 'clamp(28px, 8vw, 38px)', fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
             <span style={{ fontSize: 16, fontWeight: 500, opacity: 0.6, marginRight: 4 }}>R$</span>
-            <Secret><CountUp value={bruto} /></Secret>
+            <Secret><CountUp value={bruto} decimals={2} /></Secret>
           </p>
           <div className="flex items-center gap-3 mt-3">
             {pctBruto !== null && (
