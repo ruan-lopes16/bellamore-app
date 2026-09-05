@@ -19,7 +19,8 @@ describe('Dashboard — KPI "Fat. Bruto" removido (redundante com o card Receita
     expect(page).not.toContain("label: 'Fat. Bruto'");
   });
   it('o ícone TrendingUp, que só era usado por esse card, saiu do import', () => {
-    expect(page).not.toMatch(/import \{[^}]*\bTrendingUp\b[^}]*\} from 'lucide-react'/s);
+    // [^}]* já cruza quebras de linha (não usa `.`), então dispensa a flag /s
+    expect(page).not.toMatch(/import \{[^}]*\bTrendingUp\b[^}]*\} from 'lucide-react'/);
   });
   it('o card órfão numa contagem ímpar ocupa a linha no mobile', () => {
     expect(page).toContain('col-span-2 lg:col-span-1');
