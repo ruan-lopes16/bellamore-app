@@ -4,7 +4,7 @@ import { CountUp } from '@/components/CountUp';
 import { SparkBars } from '@/components/SparkBars';
 import Tilt from '@/components/Tilt';
 import {
-  TrendingUp, CalendarDays, Users, Wallet,
+  CalendarDays, Users, Wallet,
   AlertTriangle, ShoppingBag, Clock, ArrowUp, ArrowDown,
   CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, ChevronLeft, Target,
   UserMinus, Cake, XCircle,
@@ -406,9 +406,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </Tilt>
 
       {/* ── KPIs do mês ── */}
+      {/* "Fat. Bruto" saiu daqui: repete o valor do card hero (Receita) logo acima. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4">
         {[
-          { label: 'Fat. Bruto',    value: fmt(bruto),       color: 'var(--color-green)',   delta: pctBruto, sub: null,         icon: TrendingUp      },
           { label: 'Fat. Líquido',  value: fmt(liquido),     color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
           { label: 'Lucro do mês',  value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: isOwner && retiradasMes > 0 ? `Após retiradas ${fmt(lucroAposRetiradas)}` : null, icon: Wallet },
           { label: 'Comissões',     value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} de ${fmt(totalComMes)} pendente` : 'Em dia', icon: BadgeDollarSign },
@@ -417,8 +417,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             label: 'A dona deve', value: fmt(emprestimosAbertos), color: 'var(--color-amber)',
             delta: null as number | null, sub: 'empréstimos em aberto', icon: BadgeDollarSign,
           }] : []),
-        ].map(({ label, value, color, delta, sub, icon: Icon }, i) => (
-          <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
+        ].map(({ label, value, color, delta, sub, icon: Icon }, i, arr) => (
+          <div key={label} className={`rounded-2xl p-3 md:p-5 bm-stagger min-w-0 ${
+            i === arr.length - 1 && arr.length % 2 === 1 ? 'col-span-2 lg:col-span-1' : ''
+          }`}
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
             <div className="flex items-start justify-between mb-2 gap-1">
               <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
