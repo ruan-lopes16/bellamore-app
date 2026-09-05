@@ -429,9 +429,21 @@ Hoje o slot vazio já é escondido quando a hora tem qualquer item em
 
 ## 10. Pendências para produção
 
-- Aplicar `074` **e** as migrations que já estavam pendentes de aplicação
-  (`062`, `063`, `066`–`069`) — `supabase db push`. Sem a `074`, a trava do
-  servidor não existe (mas os guards de cliente já barram os caminhos normais).
+- Aplicar **só a migration `074`** — a sonda de schema no banco de produção
+  (2026-09-05) confirmou que `062`, `063`, `066`–`073` **já estão aplicadas**;
+  as "pendências" citadas nas sessões anteriores do CLAUDE.md estavam
+  desatualizadas. Sem a `074`, a trava do servidor não existe (mas os guards
+  de cliente já barram os caminhos normais).
+- **NÃO usar `supabase db push`.** A tabela `supabase_migrations.schema_migrations`
+  de produção só tem 4 linhas de um template antigo (`schema`, `rls`,
+  `auth_seed`, `recurring`) — nunca acompanhou as 77 migrations reais do repo,
+  que foram todas aplicadas à mão pelo SQL editor. Um `db push` tentaria rodar
+  tudo do zero e quebraria. Aplicar `074` colando o SQL no editor; para saber o
+  que falta, sondar o schema (`to_regclass`, `information_schema.columns`,
+  `pg_trigger`, …), não o CLI.
+- **Depois de aplicar a `074`:** bloqueios com `situacao = 'pendente'`
+  esquecidos no banco passam a barrar agendamentos naquele horário. Rodar
+  `select ... from agenda_bloqueios where situacao = 'pendente'` e revisar.
 - `mobile/` mantém os ~10 erros de `tsc` pré-existentes (baseline); nenhum novo.
 
 ---
