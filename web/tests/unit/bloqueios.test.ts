@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
-  situacaoInicialBloqueio, montarInsertBloqueio,
+  situacaoInicialBloqueio, montarInsertBloqueio, bloqueioEmConflito, bloqueioNoInstante, type BlocoParaChecagem,
 } from '@shared/bloqueios';
 
 const BASE = {
@@ -85,5 +85,83 @@ describe('montarInsertBloqueio', () => {
   it('titulo vazio cai no rotulo do motivo; com texto usa o texto (trim)', () => {
     expect(montarInsertBloqueio({ ...BASE, role: 'gestor', escopo: 'profissional', profissionalId: 'x' }).titulo).toBe('Folga');
     expect(montarInsertBloqueio({ ...BASE, role: 'gestor', escopo: 'profissional', profissionalId: 'x', titulo: '  Dentista  ' }).titulo).toBe('Dentista');
+  });
+});
+
+const blocoBase: BlocoParaChecagem = {
+  escopo: 'profissional',
+  profissional_id: 'u-prof',
+  situacao: 'aprovado',
+  data_inicio: '2026-09-10T14:00:00.000Z',
+  data_fim:    '2026-09-10T15:00:00.000Z',
+  motivo: 'folga',
+  titulo: 'Folga',
+};
+
+describe('bloqueioEmConflito', () => {
+  it('bloqueio do próprio profissional que sobrepõe o intervalo => devolve o bloco', () => {
+    const r = bloqueioEmConflito([blocoBase], 'u-prof',
+      '2026-09-10T14:30:00.000Z', '2026-09-10T15:30:00.000Z');
+    expect(r).toBe(blocoBase);
+  });
+
+  it('bloqueio de OUTRO profissional (escopo profissional) => null', () => {
+    const r = bloqueioEmConflito([blocoBase], 'u-outra',
+      '2026-09-10T14:30:00.000Z', '2026-09-10T15:30:00.000Z');
+    expect(r).toBeNull();
+  });
+
+  it('bloqueio escopo "geral" colide com qualquer profissional', () => {
+    const geral: BlocoParaChecagem = { ...blocoBase, escopo: 'geral', profissional_id: null };
+    const r = bloqueioEmConflito([geral], 'qualquer-um',
+      '2026-09-10T14:10:00.000Z', '2026-09-10T14:20:00.000Z');
+    expect(r).toBe(geral);
+  });
+
+  it('situacao "pendente" também colide (não só aprovado)', () => {
+    const pend: BlocoParaChecagem = { ...blocoBase, situacao: 'pendente' };
+    const r = bloqueioEmConflito([pend], 'u-prof',
+      '2026-09-10T14:00:00.000Z', '2026-09-10T14:30:00.000Z');
+    expect(r).toBe(pend);
+  });
+
+  it('encostar não é colisão: agendamento termina exatamente quando o bloqueio começa', () => {
+    const r = bloqueioEmConflito([blocoBase], 'u-prof',
+      '2026-09-10T13:00:00.000Z', '2026-09-10T14:00:00.000Z');
+    expect(r).toBeNull();
+  });
+
+  it('encostar não é colisão: agendamento começa exatamente quando o bloqueio termina', () => {
+    const r = bloqueioEmConflito([blocoBase], 'u-prof',
+      '2026-09-10T15:00:00.000Z', '2026-09-10T16:00:00.000Z');
+    expect(r).toBeNull();
+  });
+
+  it('vários blocos colidindo => devolve o de menor data_inicio', () => {
+    const cedo:  BlocoParaChecagem = { ...blocoBase, data_inicio: '2026-09-10T13:30:00.000Z', data_fim: '2026-09-10T14:30:00.000Z', motivo: 'reuniao' };
+    const tarde: BlocoParaChecagem = { ...blocoBase };
+    const r = bloqueioEmConflito([tarde, cedo], 'u-prof',
+      '2026-09-10T14:00:00.000Z', '2026-09-10T15:00:00.000Z');
+    expect(r).toBe(cedo);
+  });
+
+  it('lista vazia => null', () => {
+    expect(bloqueioEmConflito([], 'u-prof',
+      '2026-09-10T14:00:00.000Z', '2026-09-10T15:00:00.000Z')).toBeNull();
+  });
+});
+
+describe('bloqueioNoInstante', () => {
+  it('instante dentro do bloqueio => devolve o bloco', () => {
+    expect(bloqueioNoInstante([blocoBase], 'u-prof', '2026-09-10T14:30:00.000Z')).toBe(blocoBase);
+  });
+  it('instante == data_inicio => colide (meia-aberto inclui o início)', () => {
+    expect(bloqueioNoInstante([blocoBase], 'u-prof', '2026-09-10T14:00:00.000Z')).toBe(blocoBase);
+  });
+  it('instante == data_fim => não colide (meia-aberto exclui o fim)', () => {
+    expect(bloqueioNoInstante([blocoBase], 'u-prof', '2026-09-10T15:00:00.000Z')).toBeNull();
+  });
+  it('bloqueio de outro profissional => null', () => {
+    expect(bloqueioNoInstante([blocoBase], 'u-outra', '2026-09-10T14:30:00.000Z')).toBeNull();
   });
 });

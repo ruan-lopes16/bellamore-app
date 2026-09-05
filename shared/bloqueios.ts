@@ -95,3 +95,84 @@ export function montarInsertBloqueio(input: MontarInsertBloqueioInput): Bloqueio
     criado_por:      input.meuUserId,
   };
 }
+
+/**
+ * Forma mínima de um bloqueio para checagem de colisão com agendamento.
+ * Tanto o tipo `Bloqueio` do web quanto `BloqueioAgenda` do mobile são
+ * estruturalmente compatíveis com esta interface.
+ */
+export interface BlocoParaChecagem {
+  escopo: EscopoBloqueio;
+  profissional_id: string | null;
+  situacao: SituacaoBloqueio;
+  /** ISO string. */
+  data_inicio: string;
+  /** ISO string. */
+  data_fim: string;
+  motivo?: string | null;
+  titulo?: string | null;
+}
+
+/** Um bloqueio vale para este profissional se é geral ou aponta para ele. */
+function blocoAlcancaProfissional(b: BlocoParaChecagem, profissionalId: string): boolean {
+  return b.escopo === 'geral' || b.profissional_id === profissionalId;
+}
+
+/** Bloqueio ativo = aprovado OU pendente (pendente também trava o agendamento). */
+function blocoAtivo(b: BlocoParaChecagem): boolean {
+  return b.situacao === 'aprovado' || b.situacao === 'pendente';
+}
+
+/**
+ * Primeiro bloqueio (menor `data_inicio`) que colide com o intervalo
+ * meia-aberto [inicioISO, fimISO) para o profissional dado, ou `null`.
+ * Considera bloqueio "geral" e o do próprio profissional; aprovado OU
+ * pendente. Encostar (fim de um == início do outro) NÃO é colisão.
+ * Fonte única de verdade para web, mobile e o pré-check que espelha o
+ * trigger `check_agendamento_bloqueio` do banco.
+ */
+export function bloqueioEmConflito(
+  blocos: readonly BlocoParaChecagem[],
+  profissionalId: string,
+  inicioISO: string,
+  fimISO: string,
+): BlocoParaChecagem | null {
+  const ini = Date.parse(inicioISO);
+  const fim = Date.parse(fimISO);
+  if (Number.isNaN(ini) || Number.isNaN(fim)) return null;
+
+  let achado: BlocoParaChecagem | null = null;
+  let achadoIni = Infinity;
+  for (const b of blocos) {
+    if (!blocoAtivo(b) || !blocoAlcancaProfissional(b, profissionalId)) continue;
+    const bIni = Date.parse(b.data_inicio);
+    const bFim = Date.parse(b.data_fim);
+    if (Number.isNaN(bIni) || Number.isNaN(bFim)) continue;
+    if (bIni < fim && bFim > ini && bIni < achadoIni) {
+      achado = b;
+      achadoIni = bIni;
+    }
+  }
+  return achado;
+}
+
+/**
+ * Bloqueio que cobre um instante pontual (usado no clique da Timeline).
+ * Meia-aberto: `data_inicio <= instante < data_fim`.
+ */
+export function bloqueioNoInstante(
+  blocos: readonly BlocoParaChecagem[],
+  profissionalId: string,
+  instanteISO: string,
+): BlocoParaChecagem | null {
+  const t = Date.parse(instanteISO);
+  if (Number.isNaN(t)) return null;
+  for (const b of blocos) {
+    if (!blocoAtivo(b) || !blocoAlcancaProfissional(b, profissionalId)) continue;
+    const bIni = Date.parse(b.data_inicio);
+    const bFim = Date.parse(b.data_fim);
+    if (Number.isNaN(bIni) || Number.isNaN(bFim)) continue;
+    if (bIni <= t && t < bFim) return b;
+  }
+  return null;
+}
