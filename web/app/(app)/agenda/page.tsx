@@ -1473,7 +1473,7 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio, onAvisoBloqueio, meuRole, meuUserId,
+  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio, onPedirRemoverBloqueio, onAvisoBloqueio, meuRole, meuUserId,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
   loading: boolean; empresaId: string;
@@ -1483,6 +1483,7 @@ function TimelineView({
   onEditar?: (ag: Ag) => void;
   onNovo: (params: { hora: string; profId: string }) => void;
   onDeletarBloqueio: (id: string) => void;
+  onPedirRemoverBloqueio: (b: Bloqueio) => void;
   onAvisoBloqueio: (msg: string) => void;
   meuRole: string; meuUserId: string;
 }) {
@@ -1713,7 +1714,7 @@ function TimelineView({
                             </span>
                             {podeRemover && (
                               <button
-                                onClick={e => { e.stopPropagation(); onDeletarBloqueio(bl.id); }}
+                                onClick={e => { e.stopPropagation(); onPedirRemoverBloqueio(bl); }}
                                 className="flex-shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-rose-soft transition"
                                 title="Remover bloqueio">
                                 <X size={9} strokeWidth={2.5} style={{ color: 'var(--color-rose)' }}/>
@@ -2001,6 +2002,7 @@ export default function AgendaPage() {
   const [profissionaisEmpresa, setProfissionaisEmpresa] = useState<{ id: string; nome: string }[]>([]);
   const [membrosAtivos,      setMembrosAtivos]      = useState<{ id: string; nome: string }[]>([]);
   const [bloqueiosPendentes, setBloqueiosPendentes] = useState<BloqueioPendente[]>([]);
+  const [bloqueioParaRemover, setBloqueioParaRemover] = useState<Bloqueio | null>(null);
 
   const ehGestao = meuRole === 'owner' || meuRole === 'gestor';
 
@@ -2332,6 +2334,7 @@ export default function AgendaPage() {
           onEditar={ag => setAgEditar(ag)}
           onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
           onDeletarBloqueio={deletarBloqueio}
+          onPedirRemoverBloqueio={setBloqueioParaRemover}
           onAvisoBloqueio={showErro}
           meuRole={meuRole}
           meuUserId={meuUserId}
@@ -2385,6 +2388,28 @@ export default function AgendaPage() {
           agEditar={agEditar ?? undefined}
         />
       )}
+
+      {/* Confirmação ao remover bloqueio pela Timeline */}
+      {bloqueioParaRemover && (() => {
+        const b = bloqueioParaRemover;
+        const alvo = b.escopo === 'geral'
+          ? 'Toda a agenda'
+          : (profissionaisEmpresa.find(p => p.id === b.profissional_id)?.nome ?? 'Profissional');
+        const intervalo =
+          `${format(parseISO(b.data_inicio), "dd/MM 'às' HH:mm")}–${format(parseISO(b.data_fim), 'HH:mm')}`;
+        const pend = b.situacao === 'pendente' ? ' Este pedido ainda aguarda aprovação.' : '';
+        return (
+          <ConfirmDialog
+            open
+            variant="danger"
+            title="Remover bloqueio?"
+            message={`${alvo} · ${motivoBloqueioLabel(b.motivo)} · ${intervalo}.${pend}`}
+            confirmLabel="Remover"
+            onConfirm={() => { deletarBloqueio(b.id); setBloqueioParaRemover(null); }}
+            onCancel={() => setBloqueioParaRemover(null)}
+          />
+        );
+      })()}
 
       {/* Modal de bloqueio */}
       {modalBloq && empresaId && (
