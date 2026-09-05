@@ -143,74 +143,67 @@ Tab; ver spec §2 "Não entra").
 
 - [ ] **Step 1: Escrever o teste que falha**
 
-Criar `web/tests/unit/form-nav.test.tsx`:
+Criar `web/tests/unit/form-nav.test.tsx`. Cada teste monta seu próprio
+`<form>` (o DOM muda conforme o caso — não há helper compartilhado com
+`<textarea>` fixo, senão o teste do "foca o submit" nunca alcançaria o
+botão). `fireEvent.keyDown` devolve `false` quando algum handler chamou
+`preventDefault` (evento cancelado) e `true` caso contrário — é assim que
+os casos "avançou" vs "ignorou" são distinguidos.
 
 ```tsx
-import { describe, expect, it, vi } from 'vitest';
-import { createElement } from 'react';
-import { render } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { createElement, type ReactNode } from 'react';
+import { render, fireEvent } from '@testing-library/react';
 import { avancarComEnter } from '@/lib/formNav';
 
-/** Monta um <form> React e devolve o nó + os inputs por id. */
-function montar(extra?: (f: HTMLFormElement) => void) {
+/** Monta um <form onKeyDown={avancarComEnter}> com os filhos dados. */
+function montarForm(...filhos: ReactNode[]) {
   const { container } = render(
-    createElement(
-      'form',
-      { onKeyDown: avancarComEnter },
-      createElement('input', { id: 'a', type: 'text', defaultValue: '' }),
-      createElement('input', { id: 'b', type: 'text', defaultValue: '', disabled: extra ? true : false }),
-      createElement('input', { id: 'c', type: 'text', defaultValue: '' }),
-      createElement('textarea', { id: 't', defaultValue: '' }),
-      createElement('button', { type: 'submit' }, 'Salvar'),
-    ),
+    createElement('form', { onKeyDown: avancarComEnter }, ...filhos),
   );
-  const form = container.querySelector('form') as HTMLFormElement;
-  return { form };
+  return container.querySelector('form') as HTMLFormElement;
 }
-
-function enter(el: HTMLElement, opts: Partial<KeyboardEventInit> = {}) {
-  const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...opts });
-  el.dispatchEvent(ev);
-  return ev;
-}
+const inp = (id: string, extra: Record<string, unknown> = {}) =>
+  createElement('input', { key: id, id, type: 'text', defaultValue: '', ...extra });
+const submitBtn = () => createElement('button', { key: 's', type: 'submit' }, 'Salvar');
 
 describe('avancarComEnter', () => {
-  it('Enter num input move o foco para o próximo input', () => {
-    const { form } = montar();
+  it('Enter num input move o foco para o próximo, pulando o disabled', () => {
+    const form = montarForm(inp('a'), inp('b', { disabled: true }), inp('c'), submitBtn());
     const a = form.querySelector('#a') as HTMLInputElement;
-    const c = form.querySelector('#c') as HTMLInputElement;
     a.focus();
-    const ev = enter(a);
-    expect(ev.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(c); // #b está disabled → pulado
+    const naoCancelado = fireEvent.keyDown(a, { key: 'Enter' });
+    expect(naoCancelado).toBe(false); // preventDefault foi chamado
+    expect(document.activeElement).toBe(form.querySelector('#c'));
   });
 
-  it('Enter no último input foca o button[type=submit] e NÃO envia', () => {
-    const { form } = montar();
+  it('Enter no último campo foca o button[type=submit] e NÃO envia', () => {
+    const form = montarForm(inp('a'), inp('c'), submitBtn());
+    let enviou = false;
+    form.addEventListener('submit', (e) => { enviou = true; e.preventDefault(); });
     const c = form.querySelector('#c') as HTMLInputElement;
-    const submit = form.querySelector('button[type=submit]') as HTMLButtonElement;
-    const onSubmit = vi.fn((e: Event) => e.preventDefault());
-    form.addEventListener('submit', onSubmit);
     c.focus();
-    enter(c);
-    expect(document.activeElement).toBe(submit);
-    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(c, { key: 'Enter' });
+    expect(document.activeElement).toBe(form.querySelector('button[type=submit]'));
+    expect(enviou).toBe(false);
   });
 
-  it('Shift+Enter é ignorado (sem preventDefault)', () => {
-    const { form } = montar();
+  it('Shift+Enter é ignorado (evento não cancelado)', () => {
+    const form = montarForm(inp('a'), inp('c'), submitBtn());
     const a = form.querySelector('#a') as HTMLInputElement;
     a.focus();
-    const ev = enter(a, { shiftKey: true });
-    expect(ev.defaultPrevented).toBe(false);
+    const naoCancelado = fireEvent.keyDown(a, { key: 'Enter', shiftKey: true });
+    expect(naoCancelado).toBe(true);
+    expect(document.activeElement).toBe(a); // foco não mudou
   });
 
-  it('Enter em <textarea> não faz preventDefault (quebra de linha normal)', () => {
-    const { form } = montar();
+  it('Enter em <textarea> não é interceptado (quebra de linha normal)', () => {
+    const form = montarForm(inp('a'), createElement('textarea', { key: 't', id: 't' }), submitBtn());
     const t = form.querySelector('#t') as HTMLTextAreaElement;
     t.focus();
-    const ev = enter(t);
-    expect(ev.defaultPrevented).toBe(false);
+    const naoCancelado = fireEvent.keyDown(t, { key: 'Enter' });
+    expect(naoCancelado).toBe(true);
+    expect(document.activeElement).toBe(t);
   });
 });
 ```

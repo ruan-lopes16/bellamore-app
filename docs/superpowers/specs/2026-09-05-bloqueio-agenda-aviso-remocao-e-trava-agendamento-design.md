@@ -484,6 +484,12 @@ export function avancarComEnter(e: React.KeyboardEvent<HTMLFormElement>): void {
   (não foi pedido).
 - **`<select>`:** Enter avança (não abre); o usuário escolhe com as setas ou
   o clique nativo. Aceitável.
+- **`SearchSelect` (componente custom):** quando fechado, renderiza um
+  `<div role="combobox">` (não um `<input>` no chain) — a navegação por Enter
+  **pula** esses campos. É por design: o `SearchSelect` é dirigido a clique
+  e não tem "Enter para selecionar" hoje. Fora de escopo mudar isso. O único
+  efeito colateral positivo: quando o dropdown está aberto, o Enter no input
+  de busca deixa de enviar o formulário (hoje envia) e passa a avançar.
 
 ### 12.2 Aplicação
 
