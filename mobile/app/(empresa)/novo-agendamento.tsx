@@ -395,6 +395,8 @@ export default function NovoAgendamento() {
     if (error) {
       if (error.message.includes('Conflito')) {
         Alert.alert('Conflito de horário', 'Este profissional já tem um agendamento nesse período.');
+      } else if (error.message.includes('Horário bloqueado')) {
+        Alert.alert('Horário bloqueado', 'Esse horário está bloqueado na agenda. Remova o bloqueio para agendar nesse período.');
       } else {
         Alert.alert('Erro', error.message);
       }
