@@ -27,6 +27,7 @@
 
 | Arquivo | Responsabilidade | Task |
 |---|---|---|
+| `web/app/(app)/agenda/page.tsx` — `NovoBloqueioModal` | corrige alinhamento (campos estourando a borda no PWA iOS) e reduz a largura de Início/Fim | 0 |
 | `shared/bloqueios.ts` | + `BlocoParaChecagem`, `bloqueioEmConflito`, `bloqueioNoInstante` (funções puras) | 1 |
 | `web/tests/unit/bloqueios.test.ts` | + casos das 2 funções novas | 1 |
 | `supabase/migrations/074_agendamentos_recusa_bloqueio.sql` | trigger `BEFORE INSERT/UPDATE` em `agendamentos` que recusa horário coberto por bloqueio | 2 |
@@ -37,6 +38,88 @@
 | `mobile/app/(profissional)/agenda.tsx` | `X` no bloco (só o próprio pendente) + modal + guarda no `SlotVazio` | 9 |
 | `mobile/app/(empresa)/novo-agendamento.tsx` | ramo de erro que reconhece a mensagem do trigger | 10 |
 | `docs/superpowers/plans/…` + verificação final | tsc/test/baseline + checklist manual | 11 |
+
+---
+
+## Task 0: Web — alinhar o modal "Bloquear horário" e encolher Início/Fim
+
+**Contexto:** bug reportado por screenshot do PWA no iPhone. O `NovoAgModal`
+(agendamento) já recebeu `min-w-0 max-w-full` na classe do input + `min-w-0`
+no `<form>` (commit `4deffa5`); o `NovoBloqueioModal` **não**. No iOS,
+`<input type="date">` / `type="time"` têm largura intrínseca grande e, sem
+`min-width: 0`, estouram a borda direita do card. Além disso Início/Fim estão
+num `grid grid-cols-2` — cada um ocupa 50% do modal (~150px) só para mostrar
+`HH:MM`. Esta task é independente das demais; roda **primeiro** para as tasks
+web seguintes já editarem um arquivo alinhado.
+
+**Files:**
+- Modify: `web/app/(app)/agenda/page.tsx` — `NovoBloqueioModal` (linhas ~1227, ~1233, ~1246, ~1297–1306)
+
+**Interfaces:**
+- Consumes: nada novo.
+- Produces: nada para outras tasks (só CSS/markup).
+
+- [ ] **Step 1: `inputCls` ganha `min-w-0 max-w-full` (igual ao `NovoAgModal`)**
+
+Trocar a linha ~1227:
+
+```tsx
+  const inputCls = "w-full min-w-0 max-w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
+```
+
+- [ ] **Step 2: card do modal com `overflow-hidden` + `<form>` com `min-w-0`**
+
+Linha ~1233:
+
+```tsx
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+```
+
+Linha ~1246:
+
+```tsx
+        <form onSubmit={salvar} className="p-5 flex flex-col gap-3 min-w-0">
+```
+
+- [ ] **Step 3: Início/Fim lado a lado, mas estreitos**
+
+Substituir o bloco das linhas ~1297–1306:
+
+```tsx
+          <div className="flex gap-3 min-w-0">
+            <div className="w-28 min-w-0">
+              <label className={labelCls}>Início</label>
+              <input type="time" value={horaIni} onChange={e => setHoraIni(e.target.value)} className={inputCls}/>
+            </div>
+            <div className="w-28 min-w-0">
+              <label className={labelCls}>Fim</label>
+              <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)} className={inputCls}/>
+            </div>
+          </div>
+```
+
+- [ ] **Step 4: tsc + testes**
+
+Run: `cd web && npx tsc --noEmit && npm test`
+Expected: zero erros; suíte verde (nenhum teste cobre esse markup — é só não regredir).
+
+- [ ] **Step 5: Verificação visual**
+
+Se houver navegador disponível na sessão: abrir a Agenda, `resize_window` para `mobile` (375×812), abrir "Bloquear horário" e conferir que Data / Início / Fim não passam da borda direita do card e que Início/Fim ficam compactos à esquerda. Sem conta de teste para login local, a conferência fica por leitura do markup (espelha o `NovoAgModal`, que já se comporta certo no mesmo aparelho).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add web/app/(app)/agenda/page.tsx
+git commit -m "fix(agenda): alinha modal de bloqueio e encolhe Início/Fim (web)
+
+NovoBloqueioModal ganha min-w-0/max-w-full no input, min-w-0 no form e
+overflow-hidden no card (espelha o NovoAgModal, fix 4deffa5) — campos de
+data/hora deixam de estourar a borda no PWA iOS. Início/Fim passam de
+grid-cols-2 (50% cada) para largura fixa w-28 alinhados à esquerda.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+```
 
 ---
 
@@ -1308,6 +1391,9 @@ Usar a skill `superpowers:finishing-a-development-branch` para abrir o PR (lembr
 Decisões tomadas no plano (dentro do que a spec deixou aberto):
 - Web: reusar `ConfirmDialog` em vez de criar `ConfirmarRemoverBloqueioModal` novo — DRY, é o padrão já usado no "Excluir agendamento". (A spec previa componente novo; a reutilização é estritamente melhor e não muda o comportamento.)
 - Mobile `novo-agendamento.tsx`: **sem** pré-check reativo (a spec marcou como opcional). Trigger + `Alert` amigável, igual ao tratamento de `Conflito` que já existe.
+
+Fora da spec original (bug reportado durante o planejamento, aceito na mesma branch):
+- **Task 0** — alinhamento do `NovoBloqueioModal` no PWA iOS + Início/Fim compactos. Não tem relação com a lógica de bloqueio; entra por ser o mesmo arquivo/feature e roda primeiro.
 
 **2. Placeholders:** nenhum "TBD"/"etc." — todo passo tem código ou comando completo.
 
