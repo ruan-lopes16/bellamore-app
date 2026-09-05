@@ -52,4 +52,26 @@ describe('avancarComEnter', () => {
     expect(naoCancelado).toBe(true);
     expect(document.activeElement).toBe(t);
   });
+
+  it('Enter que confirma composição de IME (isComposing) não é navegação', () => {
+    const form = montarForm(inp('a'), inp('c'), submitBtn());
+    const a = form.querySelector('#a') as HTMLInputElement;
+    a.focus();
+    const naoCancelado = fireEvent.keyDown(a, { key: 'Enter', isComposing: true });
+    expect(naoCancelado).toBe(true); // preventDefault NÃO foi chamado
+    expect(document.activeElement).toBe(a); // foco não mudou
+  });
+
+  it('Enter a partir de elemento fora da lista de campos não volta o foco pro 1º campo', () => {
+    const form = montarForm(
+      createElement('div', { key: 'd', id: 'd', tabIndex: 0 }, 'fora'),
+      inp('a'),
+      inp('c'),
+      submitBtn(),
+    );
+    const d = form.querySelector('#d') as HTMLDivElement;
+    d.focus();
+    fireEvent.keyDown(d, { key: 'Enter' });
+    expect(document.activeElement).toBe(d); // não caiu em campos[0]
+  });
 });

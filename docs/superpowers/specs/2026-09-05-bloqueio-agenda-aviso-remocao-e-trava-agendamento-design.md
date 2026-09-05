@@ -84,6 +84,22 @@ bloqueio de 2026-09-02 (`docs/superpowers/specs/2026-09-02-bloqueio-tipos-aprova
   perfil) e **telas de autenticação** (`login`, `cadastro`, `criar-empresa`,
   `convite/aceitar`). Nesses, Enter-envia é o comportamento esperado. A
   Parte C toca só os `<form>` dentro de `.bm-modal`.
+- **`clientes/[id]/page.tsx` (agendamento pelo perfil da cliente) não ganha
+  tratamento amigável do erro do trigger.** Diferente da agenda web (faixa
+  vermelha) e do `novo-agendamento` mobile (Alert), aqui o erro do trigger 074
+  aparece via `setErro(error.message)` — o texto cru do Postgres, que já é
+  pt-BR legível ("Horário bloqueado na agenda (folga). Remova o bloqueio...").
+  Aceitável; padronizar fica para um follow-up.
+- **Guarda de cliente ×  RLS de bloqueio pendente.** A policy `"bloqueios: excluir"`/
+  `"bloqueios: ver"` (068) esconde bloqueio `pendente` de quem não é gestão nem
+  autor. Então uma profissional criando agendamento pelo web pode não ver a
+  faixa vermelha de um pendente de terceiro e levar o erro cru do trigger no
+  submit. É o comportamento correto de segurança (o trigger é `SECURITY DEFINER`
+  justamente para enxergar o pendente que a RLS esconde do cliente).
+- **`SearchSelect` + Enter.** Com o dropdown aberto, Enter no campo de busca
+  fecha o dropdown sem selecionar (antes: enviava o formulário — pior). O
+  "digito e dou Enter na primeira opção" continua não atendido; o `SearchSelect`
+  é dirigido a clique. Follow-up, fora deste PR.
 
 ---
 

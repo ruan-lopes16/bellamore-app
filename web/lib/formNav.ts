@@ -12,6 +12,8 @@ import type React from 'react';
  */
 export function avancarComEnter(e: React.KeyboardEvent<HTMLFormElement>): void {
   if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+  // Enter que confirma composição de IME (acentuação, etc.) não é navegação.
+  if ((e.nativeEvent as unknown as { isComposing?: boolean }).isComposing) return;
   const alvo = e.target as HTMLElement;
   if (alvo.tagName === 'TEXTAREA' || alvo.tagName === 'BUTTON') return;
   e.preventDefault();
@@ -24,7 +26,9 @@ export function avancarComEnter(e: React.KeyboardEvent<HTMLFormElement>): void {
     return true;
   });
 
-  const prox = campos[campos.indexOf(alvo) + 1];
+  const i = campos.indexOf(alvo);
+  if (i < 0) return;
+  const prox = campos[i + 1];
   if (prox) {
     prox.focus();
     (prox as HTMLInputElement).select?.();

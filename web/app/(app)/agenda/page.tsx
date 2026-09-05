@@ -721,6 +721,15 @@ function NovoAgModal({
     if (Number.isNaN(bh) || Number.isNaN(bm)) return null;
     const ini = new Date(dataSel); ini.setHours(bh, bm, 0, 0);
     const fim = addMinutes(ini, totalDuracao || 60);
+    // Só trava a edição quando o intervalo/profissional REALMENTE mudou —
+    // o trigger 074 usa a mesma condição (is not distinct from). Sem isto,
+    // um agendamento que já existia quando o bloqueio foi criado ficaria
+    // impossível de editar (até para trocar a observação).
+    const mudouIntervalo = !agEditar
+      || ini.getTime() !== parseISO(agEditar.data_hora_inicio).getTime()
+      || fim.getTime() !== parseISO(agEditar.data_hora_fim).getTime()
+      || profId !== (agEditar.profissional?.id ?? '');
+    if (!mudouIntervalo) return null;
     return bloqueioEmConflito(bloqueiosDia, profId, ini.toISOString(), fim.toISOString());
   })();
 
@@ -1473,7 +1482,7 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onDeletarBloqueio, onPedirRemoverBloqueio, onAvisoBloqueio, meuRole, meuUserId,
+  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuRole, meuUserId,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
   loading: boolean; empresaId: string;
@@ -1482,7 +1491,6 @@ function TimelineView({
   dataSel: Date;
   onEditar?: (ag: Ag) => void;
   onNovo: (params: { hora: string; profId: string }) => void;
-  onDeletarBloqueio: (id: string) => void;
   onPedirRemoverBloqueio: (b: Bloqueio) => void;
   onAvisoBloqueio: (msg: string) => void;
   meuRole: string; meuUserId: string;
@@ -2333,7 +2341,6 @@ export default function AgendaPage() {
           dataSel={dataSel}
           onEditar={ag => setAgEditar(ag)}
           onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
-          onDeletarBloqueio={deletarBloqueio}
           onPedirRemoverBloqueio={setBloqueioParaRemover}
           onAvisoBloqueio={showErro}
           meuRole={meuRole}

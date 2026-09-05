@@ -80,7 +80,7 @@ describe('agenda: pílula + modal de bloqueios pendentes (aprovar/recusar)', () 
 describe('agenda: TimelineView desenha bloqueio pendente + trava do remover', () => {
   it('TimelineView recebe meuRole e meuUserId (destructure + type + call site)', () => {
     expect(src).toMatch(/function TimelineView\(\{[\s\S]*?meuRole, meuUserId,[\s\S]*?\}: \{/);
-    expect(src).toMatch(/onDeletarBloqueio: \(id: string\) => void;\s*onPedirRemoverBloqueio: \(b: Bloqueio\) => void;\s*onAvisoBloqueio: \(msg: string\) => void;\s*meuRole: string; meuUserId: string;/);
+    expect(src).toMatch(/onPedirRemoverBloqueio: \(b: Bloqueio\) => void;\s*onAvisoBloqueio: \(msg: string\) => void;\s*meuRole: string; meuUserId: string;/);
     expect(src).toMatch(/<TimelineView[\s\S]*?meuRole=\{meuRole\}[\s\S]*?meuUserId=\{meuUserId\}[\s\S]*?\/>/);
   });
 

@@ -482,7 +482,7 @@ export default function AgendaProfissional() {
       <ConfirmarRemoverBloqueio
         visible={!!bloqueioParaRemover}
         bloqueio={bloqueioParaRemover}
-        profNome={null}
+        profNome={user?.nome ?? null}
         removendo={remover.isPending}
         onCancelar={() => setBloqueioParaRemover(null)}
         onConfirmar={() => {
