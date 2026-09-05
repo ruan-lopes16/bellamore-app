@@ -1224,13 +1224,13 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
     onSalvo(row as Bloqueio);
   }
 
-  const inputCls = "w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
+  const inputCls = "w-full min-w-0 max-w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
   const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1";
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm">
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center gap-2">
             <Ban size={16} style={{ color: 'var(--color-rose)' }} strokeWidth={2}/>
@@ -1243,7 +1243,7 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
           </button>
         </div>
 
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-3">
+        <form onSubmit={salvar} className="p-5 flex flex-col gap-3 min-w-0">
           {ehGestao ? (
             <>
               <div>
@@ -1294,12 +1294,12 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
             <input type="date" value={dataBl} onChange={e => setDataBl(e.target.value)} className={inputCls}/>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="min-w-0">
+          <div className="flex gap-3 min-w-0">
+            <div className="w-28 min-w-0">
               <label className={labelCls}>Início</label>
               <input type="time" value={horaIni} onChange={e => setHoraIni(e.target.value)} className={inputCls}/>
             </div>
-            <div className="min-w-0">
+            <div className="w-28 min-w-0">
               <label className={labelCls}>Fim</label>
               <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)} className={inputCls}/>
             </div>

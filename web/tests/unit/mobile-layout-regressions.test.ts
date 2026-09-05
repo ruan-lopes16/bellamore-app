@@ -88,9 +88,9 @@ describe('mobile layout regressions', () => {
     // input[type=time] nativo do iOS Safari em pt-BR não coube nunca nos ~166px
     // de uma coluna de grid-cols-2 dentro do modal max-w-sm; sem min-w-0 no item,
     // a coluna se recusa a encolher abaixo do conteúdo e os dois campos passam
-    // da largura do modal, sobrepondo um no outro.
+    // da largura do modal, sobrepondo um no outro. Agora usam flex com w-28 fixo.
     expect(agenda).toMatch(
-      /grid grid-cols-2 gap-3">\s*<div className="min-w-0">\s*<label className=\{labelCls\}>Início<\/label>\s*<input type="time"[^]*?<div className="min-w-0">\s*<label className=\{labelCls\}>Fim<\/label>\s*<input type="time"/,
+      /flex gap-3 min-w-0">\s*<div className="w-28 min-w-0">\s*<label className=\{labelCls\}>Início<\/label>\s*<input type="time"[^]*?<div className="w-28 min-w-0">\s*<label className=\{labelCls\}>Fim<\/label>\s*<input type="time"/,
     );
   });
 });
