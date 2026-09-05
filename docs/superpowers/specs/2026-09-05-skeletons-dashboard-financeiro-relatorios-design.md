@@ -1,9 +1,15 @@
-# Alinhamento de skeletons — Dashboard, Financeiro, Relatórios
+# Ajustes de UI — skeletons, timeline e taxa de reserva
 
 **Data:** 2026-09-05
-**Escopo:** só `web/` (as três telas são o app web; o print do usuário é o PWA no iPhone,
-identificado pela barra inferior `Sidebar.tsx`). O app nativo `mobile/` não tem tela de
-skeleton (usa `RefreshControl` / `ActivityIndicator`), então não entra.
+**Entrega:** um PR só (branch `claude/kpis-dashboard-blank-space-085964`), 4 itens:
+1. Alinhamento de skeletons (Dashboard, Financeiro, Relatórios) — só `web/`.
+2. Timeline da Agenda (web) passa a exibir `início–fim` no bloco.
+3. (incluído no item 1)
+4. Taxa de reserva vira opt-in por agendamento (toggle, default desmarcado) — web ×2 + mobile.
+
+**Escopo dos skeletons:** só `web/` (as três telas são o app web; o print do usuário é o
+PWA no iPhone, identificado pela barra inferior `Sidebar.tsx`). O app nativo `mobile/` não
+tem tela de skeleton (usa `RefreshControl` / `ActivityIndicator`), então não entra.
 "mobile e desktop web" = o mesmo `web/` responsivo nos dois viewports.
 
 ---
@@ -103,12 +109,73 @@ Consumo:
 
 ---
 
+---
+
+## Item 2 — Timeline da Agenda: exibir horário de término
+
+**Onde:** `web/app/(app)/agenda/page.tsx`, componente `TimelineView`, bloco de
+agendamento (~linha 1681). Hoje o rótulo de hora mostra só
+`format(parseISO(ag.data_hora_inicio), 'HH:mm')`.
+
+**Mudança:** passar a mostrar o intervalo `HH:mm–HH:mm` (en-dash, sem espaços,
+`flex-shrink-0`; o nome do cliente continua `flex-1 truncate`). `ag.data_hora_fim`
+já é usado ali no cálculo de `tlHeight`, então o dado está disponível. Fica sempre
+visível, inclusive nos blocos curtos onde a 2ª linha (serviço) é escondida (`h >= 34`).
+Vale para desktop e mobile-web (mesmo componente).
+
+**Fora de escopo:** o app nativo `mobile/` já mostra o intervalo `HH:mm – HH:mm` no
+card de agendamento usado pela timeline (`(empresa)/agenda.tsx:133`,
+`(profissional)/agenda.tsx:111`) — nada a fazer lá.
+
+---
+
+## Item 4 — Taxa de reserva vira opt-in por agendamento
+
+**Contexto.** Quando a empresa tem `taxa_reserva_ativa`, ao criar um agendamento e
+escolher o serviço o campo "Taxa de reserva" **auto-preenche** com o valor sugerido da
+config; se ficar > 0 aparece "Já foi cobrada?" (default desmarcado); ao salvar,
+`buildTaxaReservaInsert` cria uma linha em `taxas_reserva` (`pago` se marcado, senão
+`pendente`). Resultado: o caminho natural **já gera uma pendência** — origem do bug
+"taxas de reserva pendentes que nunca se resolviam" (sessão 2026-08-25).
+
+**Mudança.** Inverter para opt-in explícito:
+
+- Novo estado `aplicarTaxaReserva: boolean`, **default `false`**.
+- No bloco de taxa de reserva (só quando `taxa_reserva_ativa` e agendamento novo),
+  o primeiro elemento passa a ser um toggle **"Aplicar taxa de reserva"** (checkbox
+  no padrão `accent-primary`, mesmo estilo do "Já foi cobrada?" irmão; no mobile,
+  o mesmo touchable "✓" já usado ali).
+- **Desmarcado (default):** não mostra mais nada e **não cria nenhuma linha** em
+  `taxas_reserva` (nem `pendente`).
+- **Marcado:** revela o campo de valor (auto-preenchido da config, respeitando
+  `taxaReservaEditada`) + "Já foi cobrada?" + método — **exatamente como hoje**.
+- No save, o `buildTaxaReservaInsert`/insert só roda quando `aplicarTaxaReserva`
+  é `true`. `buildTaxaReservaInsert` já devolve `null` para valor ≤ 0 — a guarda
+  nova é só `if (aplicarTaxaReserva) { … }` por fora.
+- O `useEffect` de auto-preenchimento do valor continua rodando como hoje
+  (inofensivo com o toggle desligado; garante o valor pronto se o usuário ligar).
+
+**Sem mudança de schema/RLS.** `shared/taxa-reserva.ts` não muda — a decisão de
+não inserir é do chamador.
+
+**Edição de agendamento:** o bloco já não aparece na edição (`!agEditar` no web
+agenda; o modal do perfil da cliente é sempre novo). Sem mudança.
+
+**Arquivos (item 4):**
+- `web/app/(app)/agenda/page.tsx` — modal NovoAgendamento (state, UI ~980, save ~608).
+- `web/app/(app)/clientes/[id]/page.tsx` — modal de novo agendamento (state, UI ~258, save ~190).
+- `mobile/app/(empresa)/novo-agendamento.tsx` — equivalente nativo (state ~158, UI ~873, save ~401).
+
+---
+
 ## Fora de escopo
 
-- App nativo `mobile/` (sem skeleton screens).
+- App nativo `mobile/` para skeletons (sem skeleton screens) e para a timeline
+  (já mostra o intervalo).
 - Blocos condicionais citados acima (Reconquistar/Aniversariantes; Resumo/Categorias).
 - Qualquer mudança de lógica de cálculo de KPI — só layout de skeleton + a remoção do
   card redundante "Fat. Bruto" do Dashboard.
+- Mudança de schema, RLS ou de `shared/taxa-reserva.ts` no item 4.
 
 ## Verificação
 
@@ -132,3 +199,6 @@ Consumo:
 | `web/app/(app)/relatorios/RelatoriosSkeleton.tsx` | **novo** — skeleton único |
 | `web/app/(app)/relatorios/loading.tsx` | usar `<RelatoriosSkeleton />` |
 | `web/app/(app)/relatorios/page.tsx` | `if (loading) return <RelatoriosSkeleton />` (mantém `loadingAba` inline) |
+| `web/app/(app)/agenda/page.tsx` | item 2: timeline `HH:mm–HH:mm`; item 4: toggle "Aplicar taxa de reserva" no modal NovoAgendamento |
+| `web/app/(app)/clientes/[id]/page.tsx` | item 4: toggle "Aplicar taxa de reserva" no modal de novo agendamento |
+| `mobile/app/(empresa)/novo-agendamento.tsx` | item 4: toggle "Aplicar taxa de reserva" |
