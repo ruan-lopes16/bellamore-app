@@ -38,6 +38,7 @@ import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { maskPhone } from '@/lib/masks';
+import { avancarComEnter } from '@/lib/formNav';
 import {
   type CategoriaServico, type CategoriaCustom,
   resolverCategoriaServico, bgDaCor,
@@ -779,7 +780,7 @@ function NovoAgModal({
         )}
 
         {/* Form */}
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-4 min-w-0">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-4 min-w-0">
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">Cliente</label>
@@ -1243,7 +1244,7 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
           </button>
         </div>
 
-        <form onSubmit={salvar} className="p-5 flex flex-col gap-3 min-w-0">
+        <form onSubmit={salvar} onKeyDown={avancarComEnter} className="p-5 flex flex-col gap-3 min-w-0">
           {ehGestao ? (
             <>
               <div>
