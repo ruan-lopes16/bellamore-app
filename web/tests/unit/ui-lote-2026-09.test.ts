@@ -81,10 +81,17 @@ describe('A5 mobile — card da timeline concatena serviços', () => {
 // ── B. Financeiro ────────────────────────────────────────────
 
 describe('B1 — skeleton de Financeiro espelha o layout real', () => {
-  const sk = read('app/(app)/financeiro/loading.tsx');
+  // O skeleton virou um componente compartilhado (FinanceiroSkeleton.tsx) usado
+  // tanto pelo loading.tsx (navegação) quanto pelo page.tsx (gate de fetch), pra
+  // não poderem divergir.
+  const sk = read('app/(app)/financeiro/FinanceiroSkeleton.tsx');
   it('usa a mesma grade de KPIs da tela real (grid-cols-2 lg:grid-cols-3)', () => {
     expect(sk).toContain('grid grid-cols-2 lg:grid-cols-3');
     expect(sk).not.toContain('sm:grid-cols-3');
+  });
+  it('loading.tsx e page.tsx consomem a mesma definição', () => {
+    expect(read('app/(app)/financeiro/loading.tsx')).toContain("from './FinanceiroSkeleton'");
+    expect(read('app/(app)/financeiro/page.tsx')).toContain('KpisFinanceiroSkeleton');
   });
 });
 

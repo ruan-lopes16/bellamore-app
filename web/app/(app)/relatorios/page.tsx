@@ -36,6 +36,7 @@ import { ExportButton } from '@/components/ExportButton';
 import type { ExportColumn } from '@/lib/export';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
+import { KpiCardSkeleton } from './RelatoriosSkeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   format, startOfMonth, endOfMonth, startOfYear, endOfYear,
@@ -226,16 +227,7 @@ function KpiCard({
   icon: React.ElementType; label: string; value: string;
   sub?: string; cor: string; loading: boolean;
 }) {
-  if (loading) {
-    return (
-      <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 min-w-0">
-        <Sk className="w-9 h-9 rounded-xl flex-shrink-0" />
-        <div className="flex-1 min-w-0 flex flex-col gap-2 w-full">
-          <Sk className="h-5 w-1/2 max-w-[60px]" /><Sk className="h-3 w-2/3 max-w-[100px]" />
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <KpiCardSkeleton />;
   return (
     <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 min-w-0">
       <div className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center"

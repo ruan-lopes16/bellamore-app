@@ -43,7 +43,7 @@ import { ExportButton } from '@/components/ExportButton';
 import { FinanceMonthCalendar } from '@/components/FinanceMonthCalendar';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
-import { Sk } from '@/components/Skeleton';
+import { KpisFinanceiroSkeleton, GraficosDespesasSkeleton } from './FinanceiroSkeleton';
 import {
   format, addMonths, subMonths, isSameMonth,
 } from 'date-fns';
@@ -1476,17 +1476,7 @@ export default function FinanceiroPage() {
 
       {/* KPIs */}
       {loading ? (
-        <div className="flex flex-col gap-3 mb-6">
-          {[0,1].map(row => (
-            <div key={row} className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              {[1,2,3].map(i => (
-                <div key={i} className="bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm">
-                  <Sk className="h-3 w-1/3 mb-3 max-w-[100px]"/><Sk className="h-7 w-2/3 mb-3 max-w-[140px]"/><Sk className="h-3 w-1/2 max-w-[120px]"/>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
+        <KpisFinanceiroSkeleton />
       ) : (() => {
         // Grade única de KPIs — evita a 4ª célula órfã que sobrava quando a
         // primeira linha tinha 3 itens num grid de 2 colunas (anexo 7).
@@ -1531,58 +1521,7 @@ export default function FinanceiroPage() {
       })()}
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Skeleton: evolução */}
-          <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-            <Sk className="h-5 w-36 mb-5"/>
-            <div className="flex items-end gap-3 h-24">
-              {[60,80,45,90,70,100].map((h,i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <Sk className="w-full rounded-t-sm" style={{ height: `${h}%` }}/>
-                  <Sk className="h-2.5 w-6"/>
-                </div>
-              ))}
-            </div>
-          </div>
-          {/* Skeleton: top serviços */}
-          <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
-            <Sk className="h-5 w-28 mb-5"/>
-            <div className="flex flex-col gap-4">
-              {[1,2,3].map(i => (
-                <div key={i} className="flex items-center gap-3">
-                  <Sk className="w-5 h-5 rounded flex-shrink-0"/>
-                  <div className="flex-1 flex flex-col gap-1.5">
-                    <Sk className="h-3.5 w-full"/>
-                    <Sk className="h-2 w-full rounded-full"/>
-                    <Sk className="h-2.5 w-16"/>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          {/* Skeleton: despesas (col-span-2) */}
-          <div className="md:col-span-2 bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <Sk className="h-5 w-24"/>
-              <Sk className="h-4 w-16"/>
-            </div>
-            <div className="p-5 flex flex-col gap-3">
-              {[1,2,3].map(i => (
-                <div key={i} className="flex items-center gap-3">
-                  <Sk className="w-8 h-8 rounded-lg flex-shrink-0"/>
-                  <div className="flex-1 flex flex-col gap-1.5">
-                    <Sk className="h-3.5 w-40"/>
-                    <Sk className="h-3 w-24"/>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    <Sk className="h-4 w-16"/>
-                    <Sk className="h-4 w-20 rounded-md"/>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <GraficosDespesasSkeleton />
       ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
