@@ -52,6 +52,7 @@ import { ptBR } from 'date-fns/locale';
 import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
 import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
+import { agruparValoresPorAgendamento } from '@shared/comanda';
 
 const supabase = createClient();
 
@@ -59,7 +60,7 @@ const supabase = createClient();
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-type AgServicoDia = { servico: { id: string; nome: string } | null; valor: number; duracao_minutos: number; ordem: number };
+type AgServicoDia = { id: string; servico: { id: string; nome: string } | null; valor: number; duracao_minutos: number; ordem: number };
 type AgDia = {
   id: string;
   data_hora_inicio: string;
@@ -82,6 +83,7 @@ type ComandaItem = {
   valor:          number;       // valor unitário
   quantidade:     number;
   agendamento_id?: string;
+  ag_servico_id?: string;   // id da linha em agendamento_servicos (agendamento multi-serviço)
   servico_id?:    string;
   produto_id?:    string;
   pacote_id?:     string;
@@ -255,7 +257,7 @@ export default function ComandaPage() {
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
           servico:servicos(id, nome, preco),
-          agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome))`)
+          agendamento_servicos(id,servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome))`)
         .eq('empresa_id', empresaId)
         .gte('data_hora_inicio', startOfDay(dataComanda).toISOString())
         .lte('data_hora_inicio', endOfDay(dataComanda).toISOString())
@@ -402,6 +404,7 @@ export default function ComandaPage() {
               valor:           s.valor,
               quantidade:      1,
               agendamento_id:  ag.id,
+              ag_servico_id:   s.id,
               servico_id:      s.servico?.id,
               profissional_id: ag.profissional?.id,
             }));
@@ -439,6 +442,7 @@ export default function ComandaPage() {
           profissional: ag.profissional?.nome,
           valor: s.valor, quantidade: 1,
           agendamento_id: ag.id,
+          ag_servico_id: s.id,
           servico_id: s.servico?.id,
           profissional_id: ag.profissional?.id,
         }));
@@ -481,20 +485,96 @@ export default function ComandaPage() {
     })));
   }
 
+  /**
+   * Grava, de volta no próprio atendimento, o valor editado dos procedimentos
+   * da comanda: cada `agendamento_servicos.valor` (multi-serviço) e o
+   * `agendamentos.valor` total. O UPDATE do total dispara o trigger
+   * `trg_sincronizar_comissao_valor` (migration 075), que acerta a comissão.
+   *
+   * `extraUpdate` entra no mesmo UPDATE de `agendamentos` — no fechamento novo
+   * é `{ status: 'concluido', comanda_id }`, para o `trg_gerar_comissao` já
+   * nascer com o valor certo. Espelha o novo valor no estado local para a
+   * comanda reabrir correta. Retorna string de erro (aborta) ou null.
+   */
+  async function persistirValoresAgendamento(
+    extraUpdate: Record<string, unknown> = {},
+  ): Promise<string | null> {
+    const grupos = agruparValoresPorAgendamento(itens);
+    for (const g of grupos) {
+      for (const linha of g.linhasServico) {
+        const { data, error } = await supabase.from('agendamento_servicos')
+          .update({ valor: linha.valor }).eq('id', linha.agServicoId).select('id');
+        if (error) return error.message;
+        if (!data || data.length === 0) return 'Não foi possível salvar o valor de um serviço do atendimento.';
+      }
+      const { data, error } = await supabase.from('agendamentos')
+        .update({ valor: g.novoValorTotal, ...extraUpdate }).eq('id', g.agendamentoId).select('id');
+      if (error) return error.message;
+      if (!data || data.length === 0) return 'Não foi possível salvar o valor do atendimento.';
+    }
+    setAgDia(prev => prev.map(ag => {
+      const g = grupos.find(x => x.agendamentoId === ag.id);
+      if (!g) return ag;
+      return {
+        ...ag,
+        valor: g.novoValorTotal,
+        agendamento_servicos: (ag.agendamento_servicos ?? []).map(s => {
+          const linha = g.linhasServico.find(x => x.agServicoId === s.id);
+          return linha ? { ...s, valor: linha.valor } : s;
+        }),
+      };
+    }));
+    return null;
+  }
+
+  /**
+   * Confere que um DELETE por `comanda_id` realmente removeu tudo. Sem a
+   * policy da migration 075 o DELETE de `pagamentos` falha em silêncio (0
+   * linhas, sem erro) e os splits duplicam a cada "Salvar edição". Retorna
+   * string de erro ou null.
+   */
+  async function conferirDeleteVazio(tabela: 'pagamentos' | 'comanda_itens', comandaId: string): Promise<string | null> {
+    const { count, error } = await supabase.from(tabela)
+      .select('id', { count: 'exact', head: true }).eq('comanda_id', comandaId);
+    if (error) return error.message;
+    if ((count ?? 0) > 0) {
+      return tabela === 'pagamentos'
+        ? 'Não foi possível substituir os pagamentos (permissão). Aplique a migration 075 no banco.'
+        : 'Não foi possível substituir os itens da comanda (permissão). Aplique a migration 075 no banco.';
+    }
+    return null;
+  }
+
   // ── Editar comanda já fechada (UPDATE ao invés de INSERT)
   async function editarComanda(comandaId: string) {
     setFechando(true); setErro('');
+
+    // Troca itens/pagamentos por DELETE + INSERT. Faz os DELETEs primeiro e
+    // confere que apagaram — sem a policy da migration 075 o DELETE de
+    // `pagamentos` falha em silêncio e os splits duplicam a cada save.
+    // Abortar aqui deixa a comanda intacta (nada foi escrito ainda).
+    await supabase.from('comanda_itens').delete().eq('comanda_id', comandaId);
+    const errItensDel = await conferirDeleteVazio('comanda_itens', comandaId);
+    if (errItensDel) { setErro(errItensDel); setFechando(false); return; }
+
+    await supabase.from('pagamentos').delete().eq('comanda_id', comandaId);
+    const errPagDel = await conferirDeleteVazio('pagamentos', comandaId);
+    if (errPagDel) { setErro(errPagDel); setFechando(false); return; }
 
     const { error: errCmd } = await supabase.from('comandas')
       .update({ valor_total: subtotal, desconto: descontoN + descontoReservaAplicado, desconto_reserva: descontoReservaAplicado })
       .eq('id', comandaId);
     if (errCmd) { setErro(errCmd.message); setFechando(false); return; }
 
-    // Substitui itens extras
-    await supabase.from('comanda_itens').delete().eq('comanda_id', comandaId);
+    // Persiste o valor editado dos procedimentos no próprio atendimento
+    // (dispara o trigger de sincronização da comissão — migration 075).
+    const errValor = await persistirValoresAgendamento();
+    if (errValor) { setErro(errValor); setFechando(false); return; }
+
+    // Reinsere itens extras
     const extras = itens.filter(i => i.tipo !== 'agendamento');
     if (extras.length > 0) {
-      await supabase.from('comanda_itens').insert(
+      const { error: errItens } = await supabase.from('comanda_itens').insert(
         extras.map(i => ({
           comanda_id: comandaId, empresa_id: empresaId,
           tipo: i.tipo, descricao: i.descricao,
@@ -505,10 +585,10 @@ export default function ComandaPage() {
           quantidade: i.quantidade, valor_unit: i.valor,
         }))
       );
+      if (errItens) { setErro(errItens.message); setFechando(false); return; }
     }
 
-    // Substitui pagamentos
-    await supabase.from('pagamentos').delete().eq('comanda_id', comandaId);
+    // Reinsere pagamentos
     const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
     if (splitsValidos.length > 0) {
       const { error: errPag } = await supabase.from('pagamentos').insert(
@@ -640,14 +720,13 @@ export default function ComandaPage() {
 
     const comandaId = comanda.id;
 
-    // 2. Marcar agendamentos como concluídos (trigger gera comissão automaticamente)
+    // 2. Marcar agendamentos como concluídos + gravar o valor cobrado no
+    //    mesmo UPDATE do status, para o trigger trg_gerar_comissao já nascer
+    //    com o valor certo (inclusive quando o usuário editou algum preço).
     const agIds = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
     if (agIds.length > 0) {
-      const { error: errAg } = await supabase
-        .from('agendamentos')
-        .update({ status: 'concluido', comanda_id: comandaId })
-        .in('id', agIds);
-      if (errAg) { setErro(errAg.message); setFechando(false); return; }
+      const errValor = await persistirValoresAgendamento({ status: 'concluido', comanda_id: comandaId });
+      if (errValor) { setErro(errValor); setFechando(false); return; }
     }
 
     // 3. Inserir itens extras (serviços e produtos manuais)
