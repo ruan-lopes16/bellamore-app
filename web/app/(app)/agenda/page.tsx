@@ -2280,7 +2280,7 @@ export default function AgendaPage() {
               { header: 'Valor',        accessor: (a: Ag) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(a.valor), width: 14 },
               { header: 'Status',       accessor: (a: Ag) => STATUS[a.status]?.label ?? a.status,           width: 12 },
             ]}
-            getData={() => ags}
+            getData={() => agsVisiveis}
           />
           <button onClick={() => setModalBloq(true)}
             className="press flex items-center gap-2 px-3 h-10 rounded-2xl text-sm font-bold border border-border transition hover:bg-bg"

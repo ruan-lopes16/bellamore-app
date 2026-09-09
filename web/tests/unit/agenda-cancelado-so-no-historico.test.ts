@@ -8,16 +8,20 @@ describe('agenda web — cancelado oculto', () => {
   const src = readWeb('app/(app)/agenda/page.tsx');
 
   it('filtra cancelado nas duas queries de agendamentos (dia e mês)', () => {
-    // fetchDia + fetchMes → duas ocorrências do filtro.
+    // fetchDia: filtro dentro da própria query de agendamentos do dia.
+    expect(src).toMatch(/from\('agendamentos'\)[\s\S]{0,800}\.neq\('status', 'cancelado'\)/);
+    // fetchMes: filtro na query de contagem por dia.
+    expect(src).toMatch(/select\('data_hora_inicio'\)[\s\S]{0,200}\.neq\('status', 'cancelado'\)/);
+    // backstop: exatamente essas duas ocorrências, nada a mais.
     const ocorrencias = src.match(/\.neq\('status', 'cancelado'\)/g) ?? [];
-    expect(ocorrencias.length).toBeGreaterThanOrEqual(2);
+    expect(ocorrencias.length).toBe(2);
   });
 
   it('deriva a lista visível sem os cancelados', () => {
     expect(src).toMatch(/const agsVisiveis\s*=\s*useMemo\(/);
     expect(src).toMatch(/ags\.filter\(\s*a\s*=>\s*a\.status !== 'cancelado'\s*\)/);
-    // O filtro NÃO pode tocar em 'faltou'.
-    expect(src).not.toMatch(/agsVisiveis[\s\S]{0,120}'faltou'/);
+    // O filtro do agsVisiveis é exatamente o check de cancelado — sem faltou, sem AND/OR.
+    expect(src).toMatch(/agsVisiveis\s*=\s*useMemo\(\s*\n?\s*\(\)\s*=>\s*ags\.filter\(a => a\.status !== 'cancelado'\),\s*\n?\s*\[ags\],?\s*\n?\s*\)/);
   });
 
   it('as três chamadas de view recebem agsVisiveis, não o ags cru', () => {
@@ -26,6 +30,10 @@ describe('agenda web — cancelado oculto', () => {
     expect(comFiltro.length).toBeGreaterThanOrEqual(3);
     // Nenhum call site pode continuar passando ags={ags}.
     expect(src).not.toMatch(/ags=\{ags\}/);
+    // O Exportar também precisa da lista filtrada — senão o PDF/XLSX sai com
+    // a linha cancelada que já sumiu da tela (mudarStatus não refaz o fetch).
+    expect(src).not.toMatch(/getData=\{\(\) => ags\}/);
+    expect(src).toMatch(/getData=\{\(\) => agsVisiveis\}/);
   });
 
   it('mantém "faltou" visível e riscado na timeline', () => {
