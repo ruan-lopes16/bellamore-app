@@ -2014,6 +2014,14 @@ export default function AgendaPage() {
 
   const ehGestao = meuRole === 'owner' || meuRole === 'gestor';
 
+  // Cancelado não aparece na agenda — vive só no histórico da cliente.
+  // `ags` cru continua sendo a fonte de verdade do revert otimista em
+  // `mudarStatus`; toda renderização passa por `agsVisiveis`.
+  const agsVisiveis = useMemo(
+    () => ags.filter(a => a.status !== 'cancelado'),
+    [ags],
+  );
+
   function showErro(msg: string) {
     setToastErro(msg);
     setTimeout(() => setToastErro(''), 4000);
@@ -2065,6 +2073,7 @@ export default function AgendaPage() {
         .eq('empresa_id', empId)
         .gte('data_hora_inicio', iniDia)
         .lte('data_hora_inicio', fimDia)
+        .neq('status', 'cancelado')
         .order('data_hora_inicio'),
       supabase
         .from('agenda_bloqueios')
@@ -2085,6 +2094,7 @@ export default function AgendaPage() {
       .from('agendamentos')
       .select('data_hora_inicio')
       .eq('empresa_id', empId)
+      .neq('status', 'cancelado')
       .gte('data_hora_inicio', startOfMonth(mes).toISOString())
       .lte('data_hora_inicio', endOfMonth(mes).toISOString());
     const map = new Map<string, number>();
@@ -2328,10 +2338,10 @@ export default function AgendaPage() {
       )}
 
       {view === 'semana' ? (
-        <ListaDia ags={ags} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)}/>
+        <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)}/>
       ) : view === 'timeline' ? (
         <TimelineView
-          ags={ags}
+          ags={agsVisiveis}
           bloqueios={bloqueios}
           profissionaisEmpresa={profissionaisEmpresa}
           loading={loading}
@@ -2365,7 +2375,7 @@ export default function AgendaPage() {
             <MesView mes={dataSel} agsPorDia={agsMes} diaSel={dataSel} onDiaClick={selecionarDia}/>
           </div>
           </div>
-          <ListaDia ags={ags} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)}/>
+          <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)}/>
         </>
       )}
 
