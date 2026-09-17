@@ -46,7 +46,7 @@ export default function LoginPage() {
       <div className="min-h-screen flex flex-col items-center justify-center bg-bg gap-4">
         <img
           src="/icon.png" alt="Bellamore" width={80} height={80}
-          className="w-20 h-20"
+          className="w-20 h-20 rounded-[22%]"
           style={{ filter: 'drop-shadow(0 4px 16px rgba(44,23,80,0.3))' }}
         />
         <p className="text-sm text-text-3 font-medium">Entrando...</p>
@@ -61,7 +61,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <img
             src="/icon.png" alt="Bellamore" width={80} height={80}
-            className="w-20 h-20 mx-auto mb-4"
+            className="w-20 h-20 mx-auto mb-4 rounded-[22%]"
             style={{ filter: 'drop-shadow(0 4px 16px rgba(44,23,80,0.3))' }}
           />
           <h1 className="font-serif text-3xl text-text leading-tight">Bem-vindo de volta</h1>

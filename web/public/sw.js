@@ -73,8 +73,8 @@ self.addEventListener('push', e => {
   e.waitUntil(
     self.registration.showNotification(data.title ?? 'Bellamore', {
       body:    data.body  ?? '',
-      icon:    '/icon',
-      badge:   '/icon',
+      icon:    '/icon.png',
+      badge:   '/icon.png',
       vibrate: [200, 100, 200],
       data:    { url: data.url ?? '/dashboard' },
     }),
