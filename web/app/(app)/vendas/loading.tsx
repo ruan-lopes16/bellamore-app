@@ -22,9 +22,9 @@ export default function VendasLoading() {
       </div>
 
       {/* Layout PDV: produtos esquerda + carrinho/checkout direita */}
-      <div className="flex flex-col md:flex-row gap-6">
+      <div className="flex flex-col lg:flex-row gap-6">
         {/* Coluna esquerda: lista de produtos */}
-        <div className="w-full md:w-[300px] md:flex-shrink-0 flex flex-col gap-3">
+        <div className="w-full lg:w-[300px] lg:flex-shrink-0 flex flex-col gap-3">
           {/* Busca */}
           <Sk className="h-10 rounded-xl" />
           {/* Cards de produtos */}

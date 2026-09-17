@@ -65,7 +65,7 @@ describe('mobile layout regressions', () => {
     const agenda = read('app/(app)/agenda/page.tsx');
 
     expect(css).toContain('.bm-modal-mobile');
-    expect(css).toMatch(/max-width:\s*767px[\s\S]{0,80}html:has\(\.bm-modal-mobile\)/);
+    expect(css).toMatch(/max-width:\s*1023px[\s\S]{0,80}html:has\(\.bm-modal-mobile\)/);
     expect(agenda).toContain('bm-modal-mobile');
     expect(agenda).not.toMatch(/className="md:hidden bm-modal fixed/);
   });

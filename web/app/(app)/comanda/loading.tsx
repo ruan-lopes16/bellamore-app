@@ -2,10 +2,10 @@ import { Sk } from '@/components/Skeleton';
 
 export default function ComandaLoading() {
   return (
-    <div className="flex -mt-6 -mb-24 -mx-4 md:-mt-8 md:-mb-10 md:-mx-8 overflow-hidden" style={{ height: '100dvh' }}>
+    <div className="flex -mt-6 -mb-24 -mx-4 lg:-mt-8 lg:-mb-10 lg:-mx-8 overflow-hidden" style={{ height: '100dvh' }}>
 
       {/* Painel esquerdo — mesma largura que o estado carregado */}
-      <div className="w-full md:w-[26rem] flex-shrink-0 border-r border-border bg-bg flex flex-col">
+      <div className="w-full lg:w-[26rem] flex-shrink-0 border-r border-border bg-bg flex flex-col">
 
         {/* Header: label + título + toggle + week strip */}
         <div className="px-3 pt-3 pb-2 border-b border-border flex-shrink-0">
@@ -44,7 +44,7 @@ export default function ComandaLoading() {
       </div>
 
       {/* Painel direito — empty state (desktop) */}
-      <div className="hidden md:flex flex-1 flex-col items-center justify-center gap-3">
+      <div className="hidden lg:flex flex-1 flex-col items-center justify-center gap-3">
         <Sk className="w-14 h-14 rounded-2xl" />
         <Sk className="h-6 w-48" />
         <Sk className="h-4 w-64" />

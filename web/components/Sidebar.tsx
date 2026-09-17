@@ -80,7 +80,7 @@ export default function Sidebar({
   const [alertCount,     setAlertCount]     = useState(0);
   const [comissoesCount, setComissoesCount] = useState(0);
   const [maisAberto,     setMaisAberto]     = useState(false);
-  // O drawer "Mais" e md:hidden — so existe no mobile.
+  // O drawer "Mais" e lg:hidden — so existe no mobile/tablet.
   useScrollLock(maisAberto, { apenasMobile: true });
 
   const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
@@ -124,7 +124,7 @@ export default function Sidebar({
   return (
     <>
       {/* ── Sidebar desktop ──────────────────────────────────── */}
-      <aside className="hidden md:flex fixed top-0 left-0 h-screen w-60 flex-col z-40"
+      <aside className="hidden lg:flex fixed top-0 left-0 h-screen w-60 flex-col z-40"
         style={{ background: 'var(--color-surface)', borderRight: '1px solid var(--color-border)' }}>
 
         {/* Logo / empresa */}
@@ -212,7 +212,7 @@ export default function Sidebar({
       </aside>
 
       {/* ── Bottom nav mobile ─────────────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex"
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex"
         style={{
           background:    'var(--color-nav-bg)',
           backdropFilter:'blur(28px) saturate(200%)',
@@ -263,9 +263,9 @@ export default function Sidebar({
       {/* ── Drawer "Mais" mobile ─────────────────────────────── */}
       {maisAberto && (
         <>
-          <div className="md:hidden bm-modal fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+          <div className="lg:hidden bm-modal fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
             onClick={() => setMaisAberto(false)} />
-          <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl overflow-hidden"
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 rounded-t-3xl overflow-hidden"
             style={{ background: 'var(--color-surface)', boxShadow: '0 -4px 24px rgba(44,23,80,0.12)', paddingBottom: 'env(safe-area-inset-bottom)', animation: 'bm-sheet .28s cubic-bezier(.2,.85,.3,1) both' }}>
             {/* Handle + header */}
             <div className="flex items-center justify-between px-5 pt-4 pb-3" style={{ borderBottom: '1px solid var(--color-border-soft)' }}>

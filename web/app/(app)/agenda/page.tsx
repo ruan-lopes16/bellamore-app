@@ -1496,7 +1496,7 @@ function TimelineView({
   meuRole: string; meuUserId: string;
 }) {
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
-  // O painel Detalhes so vira modal no mobile (md:hidden). No desktop ele e um
+  // O painel Detalhes so vira modal no mobile/tablet (lg:hidden). No desktop ele e um
   // painel lateral e travar a pagina seria bug — foi exatamente o problema que
   // motivou a variante .bm-modal-mobile no globals.css.
   useScrollLock(!!agSel, { apenasMobile: true });
@@ -1814,7 +1814,7 @@ function TimelineView({
       {agSel && (
         <>
           {/* Mobile: modal centralizado — mesmo padrão dos modais de despesa */}
-          <div className="md:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="lg:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAgSel(null)} />
             <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[88dvh] flex flex-col">
               <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
@@ -1833,7 +1833,7 @@ function TimelineView({
           </div>
 
           {/* Desktop: painel lateral */}
-          <div className="hidden md:block w-72 flex-shrink-0">
+          <div className="hidden lg:block w-72 flex-shrink-0">
             <div className="sticky top-4">
               <div className="flex items-center justify-between mb-2 px-1">
                 <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>

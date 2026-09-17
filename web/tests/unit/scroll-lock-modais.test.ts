@@ -41,7 +41,7 @@ describe('trava de scroll nos modais autonomos', () => {
 
 describe('trava de scroll nos modais embutidos', () => {
   it('condiciona a trava ao estado que abre cada modal', () => {
-    // md:hidden — o modal nem existe no desktop, travar la seria bug
+    // lg:hidden — o modal nem existe no desktop, travar la seria bug
     expect(read('app/(app)/agenda/page.tsx'))
       .toContain('useScrollLock(!!agSel, { apenasMobile: true })');
     expect(read('components/Sidebar.tsx'))
