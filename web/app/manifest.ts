@@ -12,13 +12,15 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color:      '#2C1750',
     icons: [
       {
-        src:     '/icon',
+        // '/icon' (sem extensão) dá 404 nesta versão do Next — a rota gerada
+        // é '/icon.png' (mesmo bug já documentado em public/sw.js).
+        src:     '/icon.png',
         sizes:   '512x512',
         type:    'image/png',
         purpose: 'any',
       },
       {
-        src:     '/apple-icon',
+        src:     '/apple-icon.png',
         sizes:   '180x180',
         type:    'image/png',
         purpose: 'maskable',
