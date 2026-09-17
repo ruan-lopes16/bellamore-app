@@ -222,7 +222,6 @@ export function useClienteDetalhe(clienteId: string) {
               profissional:users!agendamentos_profissional_id_fkey(nome)`)
             .eq('empresa_id', empresaId!)
             .eq('cliente_id', clienteId)
-            .neq('status', 'cancelado')
             .order('data_hora_inicio', { ascending: false })
             .range(from, to) as any
         ),
