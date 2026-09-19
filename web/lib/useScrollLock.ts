@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 
 /** Mesmo breakpoint usado pelas media queries de mobile em globals.css. */
-const BREAKPOINT_MOBILE = 767;
+const BREAKPOINT_MOBILE = 1023;
 
 /**
  * Quantos modais estao com a trava aplicada agora. Vive no modulo (nao no
@@ -55,10 +55,10 @@ function removerTrava() {
  *   renderizacao (regras dos hooks) mas so deve agir com o modal visivel. Em
  *   modais que o componente pai monta e desmonta condicionalmente, chamar sem
  *   argumento basta.
- * @param opcoes.apenasMobile Quando true, so trava abaixo de 768px. Usado pelos
- *   modais marcados com `md:hidden`, que nem existem no desktop — travar a
- *   pagina la seria um bug (foi exatamente o que aconteceu com o painel
- *   Detalhes da Agenda antes da variante `.bm-modal-mobile`).
+ * @param opcoes.apenasMobile Quando true, so trava abaixo de 1024px. Usado
+ *   pelos modais marcados com `lg:hidden`, que nem existem no desktop —
+ *   travar a pagina la seria um bug (foi exatamente o que aconteceu com o
+ *   painel Detalhes da Agenda antes da variante `.bm-modal-mobile`).
  */
 export function useScrollLock(
   ativo: boolean = true,

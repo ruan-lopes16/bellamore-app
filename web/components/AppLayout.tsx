@@ -26,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           o fixed (o modal passa a se mover/voltar com o toque, "elástico", em vez
           de ficar preso à tela). Sem efeito visual: este <main> nunca precisou
           rolar por conta própria, a altura sempre acompanha o conteúdo. */}
-      <main className="flex-1 md:ml-60 pt-[var(--bm-mobile-content-top)] md:pt-8 pb-[var(--bm-mobile-content-bottom)] md:pb-10 px-4 md:px-8 bm-page overflow-x-hidden overflow-y-visible min-w-0">
+      <main className="flex-1 lg:ml-60 pt-[var(--bm-mobile-content-top)] lg:pt-8 pb-[var(--bm-mobile-content-bottom)] lg:pb-10 px-4 lg:px-8 bm-page overflow-x-hidden overflow-y-visible min-w-0">
         <PrivacyProvider>{children}</PrivacyProvider>
       </main>
     </div>

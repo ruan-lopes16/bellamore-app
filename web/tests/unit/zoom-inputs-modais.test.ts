@@ -67,6 +67,6 @@ describe('modais ancorados no viewport dinamico', () => {
 
     const vendas = read('app/(app)/vendas/page.tsx');
     expect(vendas).toContain('max-h-[50dvh]');
-    expect(vendas).toContain('md:h-[calc(100dvh-220px)]');
+    expect(vendas).toContain('lg:h-[calc(100dvh-220px)]');
   });
 });

@@ -874,10 +874,10 @@ export default function ComandaPage() {
   // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="bm-page flex gap-0 -mx-4 md:-mx-8 overflow-hidden bm-comanda-shell">
+    <div className="bm-page flex gap-0 -mx-4 lg:-mx-8 overflow-hidden bm-comanda-shell">
 
       {/* ════ PAINEL ESQUERDO — clientes do dia ════ */}
-      <div className={`${clienteSel ? 'hidden md:flex' : 'flex'} md:w-[26rem] w-full flex-shrink-0 border-r border-border flex-col bg-bg`}>
+      <div className={`${clienteSel ? 'hidden lg:flex' : 'flex'} lg:w-[26rem] w-full flex-shrink-0 border-r border-border flex-col bg-bg`}>
         {/* Header — título + toggle + week strip */}
         <div className="px-3 pt-3 pb-2 border-b border-border flex-shrink-0">
           {/* Linha 1: título + toggle Semana/Mês */}
@@ -1045,7 +1045,7 @@ export default function ComandaPage() {
       </div>
 
       {/* ════ PAINEL DIREITO — comanda ════ */}
-      <div className={`${!clienteSel ? 'hidden md:flex' : 'flex'} flex-1 flex-col overflow-hidden bg-surface relative`}>
+      <div className={`${!clienteSel ? 'hidden lg:flex' : 'flex'} flex-1 flex-col overflow-hidden bg-surface relative`}>
         {/* Toast de feedback */}
         {toast && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-green text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 pointer-events-none">
