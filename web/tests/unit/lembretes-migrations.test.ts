@@ -37,3 +37,11 @@ describe('Migration 068 — limpeza diária de notificações', () => {
     expect(all).not.toMatch(/delete from public\.notificacoes\s+where tipo = 'agendamento'/); // não filtra por tipo
   });
 });
+
+describe('Migration 076 — lembrete único de 30 min (substitui 1h + 15min)', () => {
+  it('dropa as duas colunas antigas e cria lembrete_30min_em', () => {
+    expect(all).toContain('drop column if exists lembrete_1h_em');
+    expect(all).toContain('drop column if exists lembrete_15min_em');
+    expect(all).toContain('add  column if not exists lembrete_30min_em');
+  });
+});

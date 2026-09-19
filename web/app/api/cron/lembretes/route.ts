@@ -3,27 +3,22 @@ import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import {
   selecionarLembrete, corpoLembrete, tituloLembrete, destinatarios,
-  type AgLembrete, type JanelaLembrete,
+  ALVO_MIN, FOLGA_MIN, type AgLembrete,
 } from '@shared/lembretes';
 
 export const dynamic = 'force-dynamic';
 
-const CAMPO: Record<JanelaLembrete, 'lembrete_1h_em' | 'lembrete_15min_em'> = {
-  '1h': 'lembrete_1h_em',
-  '15min': 'lembrete_15min_em',
-};
-
 /**
  * Motor de lembretes de atendimento. Chamado a cada ~5 min pelo pg_cron
- * (migration 067). Envia 1 push 1h antes e 1 push 15 min antes de cada
- * atendimento (agendado ou confirmado). Idempotente: usa
- * agendamentos.lembrete_1h_em / lembrete_15min_em como ledger, nunca reenvia.
+ * (migration 071). Envia 1 push único, 30 min antes de cada atendimento
+ * (agendado ou confirmado). Idempotente: usa agendamentos.lembrete_30min_em
+ * como ledger, nunca reenvia.
  *
  * Não dispara para atendimento já concluído (comanda fechada = status
  * 'concluido'), cancelado, ou cujo horário já passou.
  *
  * Cada envio grava 1 linha em notificacoes (tipo 'agendamento') — a
- * migration 068 apaga essas linhas todo dia de madrugada.
+ * migration 072 apaga essas linhas todo dia de madrugada.
  */
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization');
@@ -43,13 +38,13 @@ export async function GET(req: NextRequest) {
   );
 
   const agora = new Date();
-  const limiteSup = new Date(agora.getTime() + 90 * 60_000).toISOString(); // cobre as duas janelas
+  const limiteSup = new Date(agora.getTime() + (ALVO_MIN + FOLGA_MIN) * 60_000).toISOString();
 
   const { data: empresas } = await db.from('empresas').select('id').eq('ativo', true);
 
   let enviados = 0;
 
-  const SEL = `id, profissional_id, data_hora_inicio, lembrete_1h_em, lembrete_15min_em,
+  const SEL = `id, profissional_id, data_hora_inicio, lembrete_30min_em,
     cliente:clientes!agendamentos_cliente_id_fkey(nome),
     servico:servicos(nome),
     agendamento_servicos(ordem, servico:servicos(nome)),
@@ -70,8 +65,7 @@ export async function GET(req: NextRequest) {
       data_hora_inicio: r.data_hora_inicio,
       cliente_nome: r.cliente?.nome ?? null,
       descricao_servico,
-      lembrete_1h_em: r.lembrete_1h_em,
-      lembrete_15min_em: r.lembrete_15min_em,
+      lembrete_30min_em: r.lembrete_30min_em,
     };
   };
 
@@ -117,17 +111,15 @@ export async function GET(req: NextRequest) {
 
     const ags = (agsRaw ?? []).map(mapAg);
 
-    for (const janela of ['1h', '15min'] as JanelaLembrete[]) {
-      for (const ag of selecionarLembrete(ags, agora, janela)) {
-        const titulo = tituloLembrete(janela);
-        const body = corpoLembrete(ag);
-        await pushPara(destinatarios(ag.profissional_id, membros ?? []), titulo, body);
-        await db.from('notificacoes').insert({
-          user_id: ag.profissional_id, empresa_id: empId,
-          tipo: 'agendamento', titulo, mensagem: body,
-        });
-        await db.from('agendamentos').update({ [CAMPO[janela]]: agora.toISOString() }).eq('id', ag.id);
-      }
+    for (const ag of selecionarLembrete(ags, agora)) {
+      const titulo = tituloLembrete();
+      const body = corpoLembrete(ag);
+      await pushPara(destinatarios(ag.profissional_id, membros ?? []), titulo, body);
+      await db.from('notificacoes').insert({
+        user_id: ag.profissional_id, empresa_id: empId,
+        tipo: 'agendamento', titulo, mensagem: body,
+      });
+      await db.from('agendamentos').update({ lembrete_30min_em: agora.toISOString() }).eq('id', ag.id);
     }
   }
 
