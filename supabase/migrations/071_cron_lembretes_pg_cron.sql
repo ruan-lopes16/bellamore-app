@@ -8,7 +8,7 @@
 -- Pré-requisitos: extensões pg_cron e pg_net habilitadas no projeto Supabase.
 --
 -- Jobs criados:
---   lembretes-atendimento  a cada 5 min  → push 1h e 15 min antes de cada atendimento
+--   lembretes-atendimento  a cada 5 min  → push 30 min antes de cada atendimento (migration 076)
 --   resumo-diario          07:00 BRT     → 1 push com agendamentos do dia / despesas / estoque
 --
 -- Rodar de novo com o mesmo nome SUBSTITUI o job (não duplica).

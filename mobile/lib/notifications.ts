@@ -46,11 +46,16 @@ export async function registrarPushToken(userId: string): Promise<void> {
 
 /**
  * Agenda lembretes LOCAIS (sem servidor) para os atendimentos futuros do
- * usuário: 1 disparo às 18:00 da véspera + 1 disparo 30 min antes.
+ * usuário: 1 disparo único, 30 min antes de cada atendimento.
  * Recria tudo a cada chamada — chamar quando a agenda recarrega.
+ *
+ * `notifLembreteAtendimento` é a preferência do usuário (users.notif_lembrete_atendimento,
+ * migration 077, default true) — quando false, só limpa os agendados e não
+ * reprograma nenhum (o usuário pediu pra parar de receber esse aviso).
  */
 export async function agendarLembretesLocais(
   ags: { id: string; dataHoraInicio: string; clienteNome: string | null; servicoNome: string | null }[],
+  notifLembreteAtendimento: boolean = true,
 ): Promise<void> {
   if (!Device.isDevice) return;
   const { status } = await Notifications.getPermissionsAsync();
@@ -58,6 +63,7 @@ export async function agendarLembretesLocais(
 
   // Limpa os agendados e reprograma do zero (evita duplicar / manter obsoletos).
   await Notifications.cancelAllScheduledNotificationsAsync();
+  if (!notifLembreteAtendimento) return;
 
   const agora = Date.now();
 
@@ -70,23 +76,13 @@ export async function agendarLembretesLocais(
     const hhmm = new Date(ag.dataHoraInicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const body = `${cli} · ${serv} · ${hhmm}`;
 
-    // 1 h antes
-    const t1h = new Date(inicio - 60 * 60_000);
-    if (t1h.getTime() > agora) {
+    // 30 min antes
+    const t30 = new Date(inicio - 30 * 60_000);
+    if (t30.getTime() > agora) {
       await Notifications.scheduleNotificationAsync({
-        identifier: `ag-${ag.id}-1h`,
-        content: { title: 'Atendimento em 1 hora', body },
-        trigger: { date: t1h },
-      });
-    }
-
-    // 15 min antes
-    const t15 = new Date(inicio - 15 * 60_000);
-    if (t15.getTime() > agora) {
-      await Notifications.scheduleNotificationAsync({
-        identifier: `ag-${ag.id}-15`,
-        content: { title: 'Atendimento em 15 minutos', body },
-        trigger: { date: t15 },
+        identifier: `ag-${ag.id}-30`,
+        content: { title: 'Atendimento em 30 minutos', body },
+        trigger: { date: t30 },
       });
     }
   }

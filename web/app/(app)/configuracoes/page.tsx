@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
-import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target, Ban, Banknote } from 'lucide-react';
+import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target, Ban, Banknote, Bell } from 'lucide-react';
 import { validaCNPJ, maskMoeda, parseMoeda, formatMoeda, maskComCursor } from '@/lib/masks';
+import { registrarEInscrever } from '@/components/SwRegister';
 import Image from 'next/image';
 
 const supabase = createClient();
@@ -83,6 +84,102 @@ function SectionCard({ title, icon: Icon, children, color = 'primary' }: {
   );
 }
 
+type PermissaoPush = 'default' | 'granted' | 'denied' | 'sem-suporte';
+
+/**
+ * Card de status/ativação do push no aparelho atual. O pedido de permissão
+ * só acontece no clique — no Safari/iOS, chamar Notification.requestPermission()
+ * fora de um gesto direto do usuário é negado silenciosamente, sem popup
+ * nenhum (é por isso que não roda automático em lugar nenhum do app).
+ */
+function CardPushDispositivo() {
+  const [permissao, setPermissao] = useState<PermissaoPush>('sem-suporte');
+  const [ativando,  setAtivando]  = useState(false);
+
+  useEffect(() => {
+    const apto = 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined';
+    setPermissao(apto ? (Notification.permission as PermissaoPush) : 'sem-suporte');
+  }, []);
+
+  async function ativar() {
+    setAtivando(true);
+    try {
+      const resultado = await Notification.requestPermission();
+      setPermissao(resultado as PermissaoPush);
+      if (resultado === 'granted') await registrarEInscrever();
+    } catch {
+      // Falha silenciosa: o card continua mostrando o estado atual.
+    } finally {
+      setAtivando(false);
+    }
+  }
+
+  if (permissao === 'sem-suporte') return null;
+
+  return (
+    <SectionCard title="Notificações" icon={Bell} color="accent">
+      <div className="flex items-center gap-4">
+        <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: permissao === 'granted' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)' }}>
+          <Bell size={18} style={{ color: permissao === 'granted' ? 'var(--color-green)' : 'var(--color-primary)' }}/>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700, color: 'var(--color-ink)' }}>
+            {permissao === 'granted' ? 'Ativadas neste aparelho'
+              : permissao === 'denied' ? 'Bloqueadas neste aparelho'
+              : 'Ativar notificações'}
+          </p>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--color-ink3)', marginTop: 2 }}>
+            {permissao === 'granted' ? 'Você recebe o resumo do dia e um aviso 30 min antes de cada atendimento.'
+              : permissao === 'denied' ? 'Ative em Ajustes do aparelho > Notificações > Bellamore (não dá para pedir de novo por aqui).'
+              : 'Receba o resumo do dia e um aviso 30 min antes de cada atendimento, direto na tela do celular.'}
+          </p>
+        </div>
+        {permissao === 'default' && (
+          <button type="button" onClick={ativar} disabled={ativando}
+            className="press flex-shrink-0 h-9 px-4 rounded-xl text-white text-xs font-bold transition disabled:opacity-60"
+            style={{ background: 'var(--color-primary)' }}>
+            {ativando ? 'Ativando…' : 'Ativar'}
+          </button>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function ToggleLinha({ label, desc, checked, onToggle }: {
+  label: string; desc: string; checked: boolean; onToggle: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <button type="button" onClick={() => onToggle(!checked)}
+        className={`relative w-10 h-5 rounded-full transition flex-shrink-0 cursor-pointer ${checked ? 'bg-primary' : 'bg-border'}`}>
+        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${checked ? 'left-[22px]' : 'left-0.5'}`}/>
+      </button>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--color-ink)' }}>{label}</p>
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, color: 'var(--color-ink3)' }}>{desc}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Preferência por tipo de notificação — independente de dono/gestora/profissional. */
+function CardPreferenciasNotificacao({ notifResumo, notifLembrete, onChange }: {
+  notifResumo: boolean; notifLembrete: boolean;
+  onChange: (campo: 'notif_resumo_diario' | 'notif_lembrete_atendimento', valor: boolean) => void;
+}) {
+  return (
+    <SectionCard title="Preferências de notificação" icon={Bell} color="accent">
+      <div className="flex flex-col gap-4">
+        <ToggleLinha label="Resumo do dia" desc="1x por dia, às 07:00"
+          checked={notifResumo} onToggle={v => onChange('notif_resumo_diario', v)}/>
+        <ToggleLinha label="Lembrete de atendimento" desc="30 min antes de cada atendimento"
+          checked={notifLembrete} onToggle={v => onChange('notif_lembrete_atendimento', v)}/>
+      </div>
+    </SectionCard>
+  );
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter();
 
@@ -144,6 +241,10 @@ export default function ConfiguracoesPage() {
   const [perfilTelefone, setPerfilTelefone] = useState('');
   const [perfilEmail,    setPerfilEmail]    = useState('');
 
+  // Preferências de notificação (por usuário, migration 077)
+  const [notifResumo,   setNotifResumo]   = useState(true);
+  const [notifLembrete, setNotifLembrete] = useState(true);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadando, setUploadando] = useState(false);
 
@@ -184,7 +285,7 @@ export default function ConfiguracoesPage() {
       const [{ data: empresa }, { data: perfil }] = await Promise.all([
         supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id, meta_mensal, taxa_cancelamento_ativa, taxa_cancelamento_modo, taxa_cancelamento_valor, taxa_cancelamento_aplica_cancelado, taxa_cancelamento_aplica_faltou, taxa_reserva_ativa, taxa_reserva_modo, taxa_reserva_valor')
           .eq('id', membro.empresa_id).single(),
-        supabase.from('users').select('nome, telefone').eq('id', user.id).single(),
+        supabase.from('users').select('nome, telefone, notif_resumo_diario, notif_lembrete_atendimento').eq('id', user.id).single(),
       ]);
 
       if (empresa) {
@@ -241,6 +342,8 @@ export default function ConfiguracoesPage() {
       if (perfil) {
         setPerfilNome(perfil.nome ?? '');
         setPerfilTelefone(maskPhone(perfil.telefone ?? ''));
+        setNotifResumo(perfil.notif_resumo_diario ?? true);
+        setNotifLembrete(perfil.notif_lembrete_atendimento ?? true);
       }
 
       setLoading(false);
@@ -380,6 +483,17 @@ export default function ConfiguracoesPage() {
     setSalvando(false);
     if (error) { setErro(error.message); return; }
     showToast('Perfil atualizado!');
+  }
+
+  /** Toggle de preferência de notificação — salva na hora, sem esperar "Salvar perfil". */
+  async function alterarPrefNotif(campo: 'notif_resumo_diario' | 'notif_lembrete_atendimento', valor: boolean) {
+    const setter = campo === 'notif_resumo_diario' ? setNotifResumo : setNotifLembrete;
+    setter(valor);
+    const { error } = await supabase.from('users').update({ [campo]: valor }).eq('id', userId);
+    if (error) {
+      setter(!valor);
+      showToast('Não deu pra salvar a preferência. Tente de novo.');
+    }
   }
 
   async function solicitarMudancaEmail() {
@@ -877,6 +991,10 @@ export default function ConfiguracoesPage() {
               )}
             </div>
           </SectionCard>
+
+          <CardPushDispositivo />
+
+          <CardPreferenciasNotificacao notifResumo={notifResumo} notifLembrete={notifLembrete} onChange={alterarPrefNotif}/>
 
           {erro && (
             <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">

@@ -169,17 +169,17 @@ describe('D — menu inferior troca Financeiro por Comanda', () => {
 
 // ── E. Lembretes / Notificações ──────────────────────────────
 
-describe('E2 — rota de lembretes por atendimento (1h + 15min)', () => {
+describe('E2 — rota de lembretes por atendimento (30 min)', () => {
   const src = read('app/api/cron/lembretes/route.ts');
-  it('importa de @shared/lembretes e itera as duas janelas', () => {
+  it('importa de @shared/lembretes e chama selecionarLembrete sem janela', () => {
     expect(src).toContain("from '@shared/lembretes'");
-    expect(src).toContain("['1h', '15min'] as JanelaLembrete[]");
+    expect(src).toContain('selecionarLembrete(ags, agora)');
   });
-  it('marca as colunas novas após enviar', () => {
-    expect(src).toContain('lembrete_1h_em');
-    expect(src).toContain('lembrete_15min_em');
+  it('marca a coluna nova após enviar', () => {
+    expect(src).toContain('lembrete_30min_em');
+    expect(src).not.toContain('lembrete_1h_em');
+    expect(src).not.toContain('lembrete_15min_em');
     expect(src).not.toContain('lembrete_vespera_em');
-    expect(src).not.toContain('lembrete_30min_em');
   });
   it('só considera atendimento não concluído/cancelado com horário à frente', () => {
     expect(src).toContain("in('status', ['agendado', 'confirmado'])");
@@ -209,9 +209,12 @@ describe('E5 — alertas de agendamento colapsados', () => {
   });
 });
 
-describe('E-push — ativação do push vive em Notificações, não flutuante', () => {
-  it('notificacoes/page.tsx tem o card de ativação', () => {
-    expect(read('app/(app)/notificacoes/page.tsx')).toContain('function CardPushDispositivo');
+describe('E-push — ativação do push vive em Configurações, não flutuante nem em Notificações', () => {
+  it('configuracoes/page.tsx tem o card de ativação', () => {
+    expect(read('app/(app)/configuracoes/page.tsx')).toContain('function CardPushDispositivo');
+  });
+  it('notificacoes/page.tsx não tem mais o card (mudou para Configurações)', () => {
+    expect(read('app/(app)/notificacoes/page.tsx')).not.toContain('CardPushDispositivo');
   });
   it('SwRegister não exporta mais um botão flutuante', () => {
     expect(read('components/SwRegister.tsx')).not.toContain('BotaoAtivarNotificacoes');

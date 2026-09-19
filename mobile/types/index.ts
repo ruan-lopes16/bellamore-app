@@ -31,6 +31,9 @@ export interface User {
   endereco?: string;
   foto_url?: string;
   created_at: string;
+  /** Preferências de notificação por usuário (migration 077), true por padrão. */
+  notif_resumo_diario?: boolean;
+  notif_lembrete_atendimento?: boolean;
 }
 
 export interface Empresa {
