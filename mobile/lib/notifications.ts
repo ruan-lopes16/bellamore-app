@@ -48,9 +48,14 @@ export async function registrarPushToken(userId: string): Promise<void> {
  * Agenda lembretes LOCAIS (sem servidor) para os atendimentos futuros do
  * usuário: 1 disparo único, 30 min antes de cada atendimento.
  * Recria tudo a cada chamada — chamar quando a agenda recarrega.
+ *
+ * `notifLembreteAtendimento` é a preferência do usuário (users.notif_lembrete_atendimento,
+ * migration 077, default true) — quando false, só limpa os agendados e não
+ * reprograma nenhum (o usuário pediu pra parar de receber esse aviso).
  */
 export async function agendarLembretesLocais(
   ags: { id: string; dataHoraInicio: string; clienteNome: string | null; servicoNome: string | null }[],
+  notifLembreteAtendimento: boolean = true,
 ): Promise<void> {
   if (!Device.isDevice) return;
   const { status } = await Notifications.getPermissionsAsync();
@@ -58,6 +63,7 @@ export async function agendarLembretesLocais(
 
   // Limpa os agendados e reprograma do zero (evita duplicar / manter obsoletos).
   await Notifications.cancelAllScheduledNotificationsAsync();
+  if (!notifLembreteAtendimento) return;
 
   const agora = Date.now();
 

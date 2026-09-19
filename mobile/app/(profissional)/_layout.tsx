@@ -10,8 +10,9 @@ export default function ProfissionalLayout() {
         tabBarStyle: { borderTopColor: '#f3e8ff' },
       }}
     >
-      <Tabs.Screen name="agenda"    options={{ title: 'Minha Agenda', tabBarIcon: () => null }} />
-      <Tabs.Screen name="comissoes" options={{ title: 'Comissões',    tabBarIcon: () => null }} />
+      <Tabs.Screen name="agenda"        options={{ title: 'Minha Agenda', tabBarIcon: () => null }} />
+      <Tabs.Screen name="comissoes"     options={{ title: 'Comissões',    tabBarIcon: () => null }} />
+      <Tabs.Screen name="configuracoes" options={{ title: 'Ajustes',      tabBarIcon: () => null }} />
     </Tabs>
   );
 }

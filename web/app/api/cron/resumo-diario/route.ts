@@ -13,6 +13,8 @@ export const dynamic = 'force-dynamic';
  * - profissional: visão pessoal — nº de atendimentos dela hoje e quanto ela
  *   já comissionou hoje (de atendimentos já concluídos).
  * Quem não tem nada a reportar não recebe push nem linha em notificacoes.
+ * Quem desligou `users.notif_resumo_diario` (migration 077) também não —
+ * a preferência é "parar de receber" de verdade, não só silenciar o push.
  *
  * Grava 1 linha em notificacoes por membro ativo com algo a reportar (tipo
  * 'resumo') — a migration 072 apaga essas linhas na madrugada seguinte.
@@ -60,7 +62,7 @@ export async function GET(req: NextRequest) {
         .eq('empresa_id', empId).eq('status', 'pendente')
         .eq('data_vencimento', hojeStr),
       db.from('v_produtos_estoque_baixo').select('id').eq('empresa_id', empId).eq('ativo', true),
-      db.from('empresa_membros').select('user_id, role').eq('empresa_id', empId).eq('ativo', true),
+      db.from('empresa_membros').select('user_id, role, usuario:users(notif_resumo_diario)').eq('empresa_id', empId).eq('ativo', true),
       db.from('web_push_subscriptions').select('user_id, endpoint, p256dh, auth').eq('empresa_id', empId),
     ]);
 
@@ -92,7 +94,9 @@ export async function GET(req: NextRequest) {
 
     const linhas: { user_id: string; empresa_id: string; tipo: string; titulo: string; mensagem: string }[] = [];
 
-    for (const m of (membros ?? []) as { user_id: string; role: string }[]) {
+    for (const m of (membros ?? []) as any[]) {
+      if (m.usuario?.notif_resumo_diario === false) continue;
+
       const body = m.role === 'profissional'
         ? corpoResumoDiarioProfissional({
             atendimentos: atendimentosPorProf.get(m.user_id) ?? 0,

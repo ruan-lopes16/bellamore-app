@@ -10,7 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
   Store, Phone, MapPin, FileText, User, Lock,
-  Camera, LogOut, Save, ChevronLeft, Image as ImageIcon, Percent,
+  Camera, LogOut, Save, ChevronLeft, Image as ImageIcon, Percent, Bell,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -114,7 +114,7 @@ function Campo({
 
 export default function Configuracoes() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, user, signOut, roleAtivo, isOwner: souOwner, selecionarEmpresa } = useAuthStore();
+  const { empresaAtiva, user, sair, roleAtivo, isOwner: souOwner, selecionarEmpresa } = useAuthStore();
   const qc = useQueryClient();
   const podeEditarTaxa = souOwner || roleAtivo === 'gestor';
 
@@ -155,6 +155,10 @@ export default function Configuracoes() {
   const [nomeUser,     setNomeUser]     = useState(user?.nome ?? '');
   const [telefoneUser, setTelefoneUser] = useState(user?.telefone ?? '');
   const [novaSenha,    setNovaSenha]    = useState('');
+
+  // Preferências de notificação (por usuário, migration 077)
+  const [notifResumo,   setNotifResumo]   = useState(user?.notif_resumo_diario ?? true);
+  const [notifLembrete, setNotifLembrete] = useState(user?.notif_lembrete_atendimento ?? true);
 
   const [salvando, setSalvando] = useState(false);
 
@@ -204,6 +208,8 @@ export default function Configuracoes() {
       supabase.from('users').update({
         nome:     nomeUser.trim(),
         telefone: telefoneUser.trim() || null,
+        notif_resumo_diario:       notifResumo,
+        notif_lembrete_atendimento: notifLembrete,
       }).eq('id', user.id),
     ];
 
@@ -251,7 +257,7 @@ export default function Configuracoes() {
         {
           text: 'Sair', style: 'destructive',
           onPress: async () => {
-            await signOut();
+            await sair();
             router.replace('/(auth)/login' as any);
           },
         },
@@ -602,6 +608,46 @@ export default function Configuracoes() {
                 <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
                   value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry />
               </View>
+            </View>
+          </MotiView>
+
+          {/* ── Notificações ── */}
+          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 200 }}
+            style={{ marginHorizontal: 24, marginTop: 20 }}
+          >
+            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Bell size={16} color={C.primary} strokeWidth={1.8} />
+                <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>
+                  Notificações
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setNotifResumo((v) => !v)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Switch value={notifResumo} onValueChange={setNotifResumo}
+                  trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
+                    Resumo do dia
+                  </Text>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+                    1x por dia, às 07:00
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setNotifLembrete((v) => !v)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Switch value={notifLembrete} onValueChange={setNotifLembrete}
+                  trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
+                    Lembrete de atendimento
+                  </Text>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+                    30 min antes de cada atendimento
+                  </Text>
+                </View>
+              </TouchableOpacity>
             </View>
           </MotiView>
 

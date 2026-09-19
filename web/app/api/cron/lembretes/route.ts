@@ -17,6 +17,11 @@ export const dynamic = 'force-dynamic';
  * Não dispara para atendimento já concluído (comanda fechada = status
  * 'concluido'), cancelado, ou cujo horário já passou.
  *
+ * Cada destinatário com `users.notif_lembrete_atendimento = false`
+ * (migration 077) é pulado — nem push, nem linha em notificacoes. A coluna
+ * `lembrete_30min_em` é marcada mesmo assim, pra não reavaliar o mesmo
+ * atendimento a cada 5 min só porque ninguém tinha o aviso ligado.
+ *
  * Cada envio grava 1 linha em notificacoes (tipo 'agendamento') — a
  * migration 072 apaga essas linhas todo dia de madrugada.
  */
@@ -73,7 +78,7 @@ export async function GET(req: NextRequest) {
     const empId = empresa.id;
 
     const [{ data: membros }, { data: subs }, { data: agsRaw }] = await Promise.all([
-      db.from('empresa_membros').select('user_id, role').eq('empresa_id', empId).eq('ativo', true),
+      db.from('empresa_membros').select('user_id, role, usuario:users(notif_lembrete_atendimento)').eq('empresa_id', empId).eq('ativo', true),
       db.from('web_push_subscriptions').select('user_id, endpoint, p256dh, auth').eq('empresa_id', empId),
       db.from('agendamentos').select(SEL)
         .eq('empresa_id', empId)
@@ -89,6 +94,12 @@ export async function GET(req: NextRequest) {
       arr.push(s);
       subsPorUser.set(s.user_id, arr);
     }
+
+    const querLembrete = new Set(
+      (membros ?? [])
+        .filter((m: any) => m.usuario?.notif_lembrete_atendimento !== false)
+        .map((m: any) => m.user_id),
+    );
 
     async function pushPara(userIds: string[], titulo: string, body: string) {
       const vistos = new Set<string>();
@@ -114,11 +125,19 @@ export async function GET(req: NextRequest) {
     for (const ag of selecionarLembrete(ags, agora)) {
       const titulo = tituloLembrete();
       const body = corpoLembrete(ag);
-      await pushPara(destinatarios(ag.profissional_id, membros ?? []), titulo, body);
-      await db.from('notificacoes').insert({
-        user_id: ag.profissional_id, empresa_id: empId,
-        tipo: 'agendamento', titulo, mensagem: body,
-      });
+
+      const destino = destinatarios(ag.profissional_id, membros ?? []).filter(uid => querLembrete.has(uid));
+      if (destino.length) await pushPara(destino, titulo, body);
+
+      if (querLembrete.has(ag.profissional_id)) {
+        await db.from('notificacoes').insert({
+          user_id: ag.profissional_id, empresa_id: empId,
+          tipo: 'agendamento', titulo, mensagem: body,
+        });
+      }
+
+      // Marca mesmo sem destinatário elegível — evita reavaliar o mesmo
+      // atendimento a cada 5 min dentro da janela.
       await db.from('agendamentos').update({ lembrete_30min_em: agora.toISOString() }).eq('id', ag.id);
     }
   }

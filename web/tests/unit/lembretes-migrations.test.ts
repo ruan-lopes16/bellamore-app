@@ -45,3 +45,10 @@ describe('Migration 076 — lembrete único de 30 min (substitui 1h + 15min)', (
     expect(all).toContain('add  column if not exists lembrete_30min_em');
   });
 });
+
+describe('Migration 077 — preferências de notificação por usuário', () => {
+  it('cria as 2 colunas em users, true por padrão', () => {
+    expect(all).toContain('add column if not exists notif_resumo_diario       boolean not null default true');
+    expect(all).toContain('add column if not exists notif_lembrete_atendimento boolean not null default true');
+  });
+});

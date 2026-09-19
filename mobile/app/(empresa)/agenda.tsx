@@ -253,7 +253,7 @@ export default function Agenda() {
 
   const onRefresh = useCallback(() => refetch(), [refetch]);
 
-  // Reprograma os lembretes locais (véspera + 30 min) sempre que a lista muda.
+  // Reprograma os lembretes locais (30 min antes) sempre que a lista muda.
   useEffect(() => {
     const futuros = agendamentos
       .filter((a) => new Date(a.data_hora_inicio) > new Date() && (a.status === 'agendado' || a.status === 'confirmado'))
@@ -263,8 +263,8 @@ export default function Agenda() {
         clienteNome: a.cliente?.nome ?? null,
         servicoNome: nomesServicos(a),
       }));
-    agendarLembretesLocais(futuros).catch(() => {});
-  }, [agendamentos]);
+    agendarLembretesLocais(futuros, user?.notif_lembrete_atendimento ?? true).catch(() => {});
+  }, [agendamentos, user?.notif_lembrete_atendimento]);
 
   if (!fontsLoaded) return null;
 

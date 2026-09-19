@@ -146,6 +146,40 @@ function CardPushDispositivo() {
   );
 }
 
+function ToggleLinha({ label, desc, checked, onToggle }: {
+  label: string; desc: string; checked: boolean; onToggle: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <button type="button" onClick={() => onToggle(!checked)}
+        className={`relative w-10 h-5 rounded-full transition flex-shrink-0 cursor-pointer ${checked ? 'bg-primary' : 'bg-border'}`}>
+        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${checked ? 'left-[22px]' : 'left-0.5'}`}/>
+      </button>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--color-ink)' }}>{label}</p>
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, color: 'var(--color-ink3)' }}>{desc}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Preferência por tipo de notificação — independente de dono/gestora/profissional. */
+function CardPreferenciasNotificacao({ notifResumo, notifLembrete, onChange }: {
+  notifResumo: boolean; notifLembrete: boolean;
+  onChange: (campo: 'notif_resumo_diario' | 'notif_lembrete_atendimento', valor: boolean) => void;
+}) {
+  return (
+    <SectionCard title="Preferências de notificação" icon={Bell} color="accent">
+      <div className="flex flex-col gap-4">
+        <ToggleLinha label="Resumo do dia" desc="1x por dia, às 07:00"
+          checked={notifResumo} onToggle={v => onChange('notif_resumo_diario', v)}/>
+        <ToggleLinha label="Lembrete de atendimento" desc="30 min antes de cada atendimento"
+          checked={notifLembrete} onToggle={v => onChange('notif_lembrete_atendimento', v)}/>
+      </div>
+    </SectionCard>
+  );
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter();
 
@@ -207,6 +241,10 @@ export default function ConfiguracoesPage() {
   const [perfilTelefone, setPerfilTelefone] = useState('');
   const [perfilEmail,    setPerfilEmail]    = useState('');
 
+  // Preferências de notificação (por usuário, migration 077)
+  const [notifResumo,   setNotifResumo]   = useState(true);
+  const [notifLembrete, setNotifLembrete] = useState(true);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadando, setUploadando] = useState(false);
 
@@ -247,7 +285,7 @@ export default function ConfiguracoesPage() {
       const [{ data: empresa }, { data: perfil }] = await Promise.all([
         supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id, meta_mensal, taxa_cancelamento_ativa, taxa_cancelamento_modo, taxa_cancelamento_valor, taxa_cancelamento_aplica_cancelado, taxa_cancelamento_aplica_faltou, taxa_reserva_ativa, taxa_reserva_modo, taxa_reserva_valor')
           .eq('id', membro.empresa_id).single(),
-        supabase.from('users').select('nome, telefone').eq('id', user.id).single(),
+        supabase.from('users').select('nome, telefone, notif_resumo_diario, notif_lembrete_atendimento').eq('id', user.id).single(),
       ]);
 
       if (empresa) {
@@ -304,6 +342,8 @@ export default function ConfiguracoesPage() {
       if (perfil) {
         setPerfilNome(perfil.nome ?? '');
         setPerfilTelefone(maskPhone(perfil.telefone ?? ''));
+        setNotifResumo(perfil.notif_resumo_diario ?? true);
+        setNotifLembrete(perfil.notif_lembrete_atendimento ?? true);
       }
 
       setLoading(false);
@@ -443,6 +483,17 @@ export default function ConfiguracoesPage() {
     setSalvando(false);
     if (error) { setErro(error.message); return; }
     showToast('Perfil atualizado!');
+  }
+
+  /** Toggle de preferência de notificação — salva na hora, sem esperar "Salvar perfil". */
+  async function alterarPrefNotif(campo: 'notif_resumo_diario' | 'notif_lembrete_atendimento', valor: boolean) {
+    const setter = campo === 'notif_resumo_diario' ? setNotifResumo : setNotifLembrete;
+    setter(valor);
+    const { error } = await supabase.from('users').update({ [campo]: valor }).eq('id', userId);
+    if (error) {
+      setter(!valor);
+      showToast('Não deu pra salvar a preferência. Tente de novo.');
+    }
   }
 
   async function solicitarMudancaEmail() {
@@ -942,6 +993,8 @@ export default function ConfiguracoesPage() {
           </SectionCard>
 
           <CardPushDispositivo />
+
+          <CardPreferenciasNotificacao notifResumo={notifResumo} notifLembrete={notifLembrete} onChange={alterarPrefNotif}/>
 
           {erro && (
             <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
