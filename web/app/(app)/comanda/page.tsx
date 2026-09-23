@@ -53,6 +53,7 @@ import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-ca
 import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { agruparValoresPorAgendamento } from '@shared/comanda';
+import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 
 const supabase = createClient();
 
@@ -68,6 +69,7 @@ type AgDia = {
   status: string;
   valor: number;
   comanda_id: string | null;
+  pacote_cliente_id: string | null;
   cliente:      { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico:      { id: string; nome: string; preco: number }    | null;
@@ -203,6 +205,12 @@ export default function ComandaPage() {
   );
   const [agsMes,            setAgsMes]            = useState<Map<string, number>>(new Map());
   const [comandaExistenteId, setComandaExistenteId] = useState<string | null>(null);
+  // Pacotes ativos do cliente selecionado, elegíveis pra vincular a um atendimento
+  const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
+  // Vínculos feitos NESTA sessão de comanda (agendamento_id -> pacote_clientes.id), ainda não persistidos
+  const [pacoteLinks, setPacoteLinks] = useState<Record<string, string>>({});
+  // Pacotes NOVOS a vender do catálogo (agendamento_id -> pacotes.id), pra quando o cliente não tem nenhum elegível
+  const [pacoteVenderPorAgendamento, setPacoteVenderPorAgendamento] = useState<Record<string, string>>({});
 
   // Catálogos para pesquisa
   const [servicos,  setServicos]    = useState<{ id: string; nome: string; preco: number }[]>([]);
@@ -245,6 +253,19 @@ export default function ComandaPage() {
     })();
   }, []);
 
+  // Pacotes ativos do cliente selecionado — pra oferecer vínculo com sessão
+  useEffect(() => {
+    if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) { setPacotesClienteAtivos([]); return; }
+    supabase.from('pacote_clientes')
+      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id, created_at, agendamento_id, servico:servicos(nome))')
+      .eq('empresa_id', empresaId)
+      .eq('cliente_id', clienteSel.id)
+      .eq('status', 'ativo')
+      .then(({ data }: { data: any[] | null }) => {
+        setPacotesClienteAtivos(calcularPacotesAtivosCliente((data ?? []) as any[], format(new Date(), 'yyyy-MM-dd')));
+      });
+  }, [clienteSel?.id, empresaId]);
+
   // ── Carregar dados do dia selecionado
   useEffect(() => {
     if (!empresaId) return;
@@ -253,7 +274,7 @@ export default function ComandaPage() {
     Promise.all([
       // Agendamentos do dia (exceto cancelados)
       supabase.from('agendamentos')
-        .select(`id, data_hora_inicio, data_hora_fim, status, valor, comanda_id,
+        .select(`id, data_hora_inicio, data_hora_fim, status, valor, comanda_id, pacote_cliente_id,
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
           servico:servicos(id, nome, preco),
@@ -389,11 +410,24 @@ export default function ComandaPage() {
     setErro('');
     setDescontoPct('');
     setSplits([]);
+    setPacoteVenderPorAgendamento({});
+
+    // Atendimentos já vinculados a um pacote na Agenda (ou numa comanda
+    // anterior desta sessão) entram já cobertos — é o que resolve, sem
+    // backfill, os atendimentos que hoje ficam travados sem cobrança
+    // possível.
+    const linksIniciais: Record<string, string> = {};
+    for (const ag of cliente.agendamentos) {
+      if (ag.pacote_cliente_id) linksIniciais[ag.id] = ag.pacote_cliente_id;
+    }
+    setPacoteLinks(linksIniciais);
+
     // Pré-preenche itens — cada serviço do agendamento vira um item separado
     setItens(
       cliente.agendamentos
         .filter(ag => ag.status !== 'concluido')
         .flatMap(ag => {
+          const coberto = !!ag.pacote_cliente_id;
           const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
           if (servicos.length > 0) {
             return servicos.map(s => ({
@@ -401,7 +435,7 @@ export default function ComandaPage() {
               tipo:            'agendamento' as const,
               descricao:       s.servico?.nome ?? 'Serviço',
               profissional:    ag.profissional?.nome,
-              valor:           s.valor,
+              valor:           coberto ? 0 : s.valor,
               quantidade:      1,
               agendamento_id:  ag.id,
               ag_servico_id:   s.id,
@@ -414,7 +448,7 @@ export default function ComandaPage() {
             tipo:            'agendamento' as const,
             descricao:       ag.servico?.nome ?? 'Serviço',
             profissional:    ag.profissional?.nome,
-            valor:           ag.valor,
+            valor:           coberto ? 0 : ag.valor,
             quantidade:      1,
             agendamento_id:  ag.id,
             servico_id:      ag.servico?.id,
@@ -432,6 +466,8 @@ export default function ComandaPage() {
     setClienteSel(cliente);
     setComandaExistenteId(comandaId);
     setErro(''); setDescontoPct(''); setSplits([]);
+    setPacoteLinks({});
+    setPacoteVenderPorAgendamento({});
 
     const agItems: ComandaItem[] = cliente.agendamentos.flatMap(ag => {
       const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
