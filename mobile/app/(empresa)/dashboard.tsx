@@ -9,7 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
   Bell, Calendar, FileText, User, DollarSign,
-  TrendingUp, AlertTriangle, ChevronRight,
+  TrendingUp, AlertTriangle, ChevronRight, Receipt,
   Home, BarChart2, Users, MoreHorizontal,
 } from 'lucide-react-native';
 import {
@@ -110,6 +110,7 @@ export default function Dashboard() {
     receitaMes,
     comissoesPendentes,
     estoqueBaixo,
+    comandasNaoFechadas,
     isLoading,
     refetch,
   } = useDashboard();
@@ -829,7 +830,7 @@ export default function Dashboard() {
         </MotiView>
 
         {/* ── Alertas ── */}
-        {(estoqueBaixo.length > 0 || comissoesPendentes.quantidade > 0) && (
+        {(estoqueBaixo.length > 0 || comissoesPendentes.quantidade > 0 || comandasNaoFechadas.length > 0) && (
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -898,6 +899,52 @@ export default function Dashboard() {
                   <ChevronRight size={14} color={C.amber} strokeWidth={2} />
                 </TouchableOpacity>
               ))}
+
+              {comandasNaoFechadas.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => router.push(`/(empresa)/agendamento/${comandasNaoFechadas[0].id}` as any)}
+                  style={{
+                    backgroundColor: C.roseSoft,
+                    borderWidth: 1,
+                    borderColor: 'rgba(212,96,138,0.15)',
+                    borderRadius: 14,
+                    padding: 12,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <View style={{
+                    width: 30, height: 30,
+                    backgroundColor: 'rgba(212,96,138,0.12)',
+                    borderRadius: 8,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Receipt size={14} color={C.rose} strokeWidth={2} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontFamily: 'PlusJakartaSans_600SemiBold',
+                      fontSize: 12,
+                      color: C.rose,
+                      lineHeight: 16,
+                    }}>
+                      <SecretText>{comandasNaoFechadas.length}</SecretText>{' '}
+                      {comandasNaoFechadas.length === 1 ? 'comanda não fechada' : 'comandas não fechadas'}
+                    </Text>
+                    <Text style={{
+                      fontFamily: 'PlusJakartaSans_400Regular',
+                      fontSize: 10,
+                      color: C.text3,
+                      marginTop: 1,
+                    }}>
+                      Mais antiga: {format(new Date(comandasNaoFechadas[0].data_hora_inicio), "dd/MM 'às' HH:mm", { locale: ptBR })}
+                    </Text>
+                  </View>
+                  <ChevronRight size={14} color={C.rose} strokeWidth={2} />
+                </TouchableOpacity>
+              )}
 
               {comissoesPendentes.quantidade > 0 && (
                 <TouchableOpacity
