@@ -12,7 +12,7 @@ import {
   ChevronLeft, ChevronRight, Check, X, Trash2, User,
   Banknote, Zap, CreditCard, Gift, Tag, Receipt,
 } from 'lucide-react-native';
-import { format, startOfDay, endOfDay, parseISO } from 'date-fns';
+import { format, startOfDay, endOfDay, parseISO, addDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import {
@@ -344,12 +344,90 @@ export default function NovaComandaScreen() {
     }
 
     const comandaId = comanda.id;
+    // Ids dos atendimentos que ainda estão na comanda agora — calculado ANTES
+    // do laço de venda de pacote abaixo porque um atendimento marcado pra
+    // "vender pacote novo" pode ter sido removido da comanda depois (botão
+    // Remover); sem esse filtro o laço venderia um pacote fantasma pra um
+    // item que não existe mais aqui.
     const agIds = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
 
     if (agIds.length > 0) {
-      const { error } = await supabase.from('agendamentos')
-        .update({ status: 'concluido', comanda_id: comandaId }).in('id', agIds).eq('empresa_id', empresaId);
-      if (error) { Alert.alert('Erro', error.message); setFechando(false); return; }
+      // Resolve pacotes NOVOS escolhidos no vínculo da comanda (cliente sem
+      // pacote elegível) — mesmo padrão do web: vende o pacote, registra a
+      // receita da venda, e usa o id resultante como o vínculo final da
+      // sessão.
+      const pacoteLinksFinal: Record<string, string> = { ...pacoteLinks };
+      for (const [agendamentoId, pacoteCatalogoId] of Object.entries(pacoteVenderPorAgendamento)) {
+        // Item removido da comanda depois de marcado pra vender pacote —
+        // nada a vender, nada a vincular. Silencioso (não é erro do usuário).
+        if (!agIds.includes(agendamentoId)) continue;
+        // Walk-in sem cadastro não pode receber pacote (pacote_clientes/vendas
+        // exigem cliente_id) — o item já foi zerado na comanda (venderEVincularPacote),
+        // então deixar passar em silêncio daria o serviço de graça. Aborta com erro.
+        if (clienteSel.id === '__sem__') {
+          Alert.alert('Erro', 'Venda de pacote exige cliente cadastrado.');
+          setFechando(false);
+          return;
+        }
+        const pacote = pacotesCat.find(p => p.id === pacoteCatalogoId);
+        if (!pacote) {
+          Alert.alert('Erro', 'Pacote selecionado não encontrado.');
+          setFechando(false);
+          return;
+        }
+        const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
+          empresa_id:    empresaId,
+          pacote_id:     pacote.id,
+          cliente_id:    clienteSel.id,
+          data_inicio:   format(new Date(), 'yyyy-MM-dd'),
+          data_validade: pacote.validade_dias != null
+            ? format(addDays(new Date(), pacote.validade_dias), 'yyyy-MM-dd')
+            : null,
+          valor_pago:    pacote.preco,
+          status:        'ativo',
+        }).select('id').single();
+        if (errVenda || !novaVenda) { Alert.alert('Erro', errVenda?.message ?? 'Erro ao vender pacote'); setFechando(false); return; }
+        pacoteLinksFinal[agendamentoId] = novaVenda.id;
+        const { error: errVenda2 } = await supabase.from('vendas').insert({
+          empresa_id:  empresaId,
+          cliente_id:  clienteSel.id,
+          valor_total: pacote.preco,
+          desconto:    0,
+          observacao:  `Venda de pacote: ${pacote.nome}`,
+        });
+        if (errVenda2) { Alert.alert('Erro', errVenda2.message); setFechando(false); return; }
+        // Move o vínculo de "a vender" pra "já vinculado" no estado — se um
+        // passo mais adiante falhar e o usuário tocar em "Fechar comanda" de
+        // novo, este laço não deve vender um SEGUNDO pacote pro mesmo
+        // atendimento. (O mapa local `pacoteLinksFinal` acima já cobre esta
+        // mesma chamada; isto aqui é só pra uma eventual nova tentativa.)
+        setPacoteVenderPorAgendamento(prev => {
+          const { [agendamentoId]: _omit, ...rest } = prev;
+          return rest;
+        });
+        setPacoteLinks(prev => ({ ...prev, [agendamentoId]: novaVenda.id }));
+      }
+
+      // Marcar agendamentos como concluídos + gravar o vínculo de pacote (se
+      // houver) no MESMO update do status — o trigger fn_registrar_uso_pacote
+      // só dispara na transição pra 'concluido' e só nesse momento lê
+      // NEW.pacote_cliente_id; gravar o vínculo num update separado, depois
+      // do status já ter virado 'concluido', faria o trigger rodar sem
+      // enxergar o vínculo (ele não dispara de novo).
+      const agIdsSemPacote = agIds.filter(id => !pacoteLinksFinal[id]);
+      const agIdsComPacote = agIds.filter(id => pacoteLinksFinal[id]);
+
+      if (agIdsSemPacote.length > 0) {
+        const { error } = await supabase.from('agendamentos')
+          .update({ status: 'concluido', comanda_id: comandaId }).in('id', agIdsSemPacote).eq('empresa_id', empresaId);
+        if (error) { Alert.alert('Erro', error.message); setFechando(false); return; }
+      }
+      for (const agendamentoId of agIdsComPacote) {
+        const { error } = await supabase.from('agendamentos')
+          .update({ status: 'concluido', comanda_id: comandaId, pacote_cliente_id: pacoteLinksFinal[agendamentoId] })
+          .eq('id', agendamentoId).eq('empresa_id', empresaId);
+        if (error) { Alert.alert('Erro', error.message); setFechando(false); return; }
+      }
     }
 
     const extras = itens.filter(i => i.tipo !== 'agendamento');
@@ -390,10 +468,18 @@ export default function NovaComandaScreen() {
       }
     }
 
+    // Se nenhum split foi lançado e o total já fechou em R$ 0 (sessão de
+    // pacote cobrindo tudo, ou desconto manual de 100%), grava um "Cortesia"
+    // de R$ 0 em vez de deixar sem nenhum registro: fica claro no relatório
+    // de formas de pagamento que esse fechamento não gerou cobrança nova,
+    // sem somar nada na receita.
     const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
-    if (splitsValidos.length > 0) {
+    const splitsParaGravar = splitsValidos.length === 0 && total <= 0.01
+      ? [{ metodo: 'cortesia', valor: '0' }]
+      : splitsValidos;
+    if (splitsParaGravar.length > 0) {
       await supabase.from('pagamentos').insert(
-        splitsValidos.map(s => ({
+        splitsParaGravar.map(s => ({
           empresa_id: empresaId, comanda_id: comandaId,
           valor: parseFloat(s.valor.replace(',', '.')),
           metodo: s.metodo, status: 'pago',
