@@ -26,6 +26,8 @@ export type PersistenciaValorAgendamento = {
   novoValorTotal: number;
   /** Linhas de `agendamento_servicos` cujo `valor` deve ser regravado. */
   linhasServico: { agServicoId: string; valor: number }[];
+  /** pacote_clientes.id a gravar em agendamentos.pacote_cliente_id, quando a comanda vinculou uma sessao de pacote a este agendamento. Ausente = nao mexer no vinculo existente. */
+  pacoteClienteId?: string;
 };
 
 /**
@@ -44,6 +46,7 @@ export type PersistenciaValorAgendamento = {
  */
 export function agruparValoresPorAgendamento(
   itens: ItemComandaValor[],
+  pacoteLinksPorAgendamento: Record<string, string> = {},
 ): PersistenciaValorAgendamento[] {
   const porAgendamento = new Map<string, PersistenciaValorAgendamento>();
 
@@ -71,6 +74,8 @@ export function agruparValoresPorAgendamento(
 
   for (const grupo of porAgendamento.values()) {
     grupo.novoValorTotal = Math.round(grupo.novoValorTotal * 100) / 100;
+    const pacoteClienteId = pacoteLinksPorAgendamento[grupo.agendamentoId];
+    if (pacoteClienteId) grupo.pacoteClienteId = pacoteClienteId;
   }
 
   return [...porAgendamento.values()];

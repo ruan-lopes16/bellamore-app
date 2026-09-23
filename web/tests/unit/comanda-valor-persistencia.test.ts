@@ -83,6 +83,28 @@ describe('agruparValoresPorAgendamento', () => {
     ]);
     expect(r[0].novoValorTotal).toBe(0.3);
   });
+
+  it('inclui pacoteClienteId no grupo quando ha vinculo pendente pro agendamento', () => {
+    const r = agruparValoresPorAgendamento(
+      [item({ agendamento_id: 'ag1', ag_servico_id: 'as1', valor: 0 })],
+      { ag1: 'pc-123' },
+    );
+    expect(r[0].pacoteClienteId).toBe('pc-123');
+  });
+
+  it('nao inclui pacoteClienteId quando o agendamento nao esta no mapa de vinculos', () => {
+    const r = agruparValoresPorAgendamento(
+      [item({ agendamento_id: 'ag1', ag_servico_id: 'as1', valor: 100 })],
+      { outroAgendamento: 'pc-999' },
+    );
+    expect(r[0].pacoteClienteId).toBeUndefined();
+  });
+
+  it('sem segundo argumento, comportamento identico ao anterior (compatibilidade com editarComanda)', () => {
+    const r = agruparValoresPorAgendamento([item({ agendamento_id: 'ag1', ag_servico_id: 'as1', valor: 100 })]);
+    expect(r[0].pacoteClienteId).toBeUndefined();
+    expect(r[0].novoValorTotal).toBe(100);
+  });
 });
 
 // ── Migration 075 ────────────────────────────────────────────
