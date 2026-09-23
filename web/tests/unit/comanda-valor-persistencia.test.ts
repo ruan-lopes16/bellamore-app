@@ -100,6 +100,18 @@ describe('agruparValoresPorAgendamento', () => {
     expect(r[0].pacoteClienteId).toBeUndefined();
   });
 
+  it('inclui pacoteClienteId: null quando o agendamento foi desvinculado explicitamente (distinto de ausente)', () => {
+    const r = agruparValoresPorAgendamento(
+      [item({ agendamento_id: 'ag1', ag_servico_id: 'as1', valor: 150 })],
+      { ag1: null },
+    );
+    expect(r[0].pacoteClienteId).toBeNull();
+    // 'pacoteClienteId' em null (presente e falsy) precisa ser distinguivel
+    // de undefined (chave ausente) para o UPDATE saber que deve limpar a
+    // coluna no banco, e nao so deixar de mexer nela.
+    expect('pacoteClienteId' in r[0]).toBe(true);
+  });
+
   it('sem segundo argumento, comportamento identico ao anterior (compatibilidade com editarComanda)', () => {
     const r = agruparValoresPorAgendamento([item({ agendamento_id: 'ag1', ag_servico_id: 'as1', valor: 100 })]);
     expect(r[0].pacoteClienteId).toBeUndefined();

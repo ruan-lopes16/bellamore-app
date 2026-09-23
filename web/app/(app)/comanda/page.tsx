@@ -207,8 +207,10 @@ export default function ComandaPage() {
   const [comandaExistenteId, setComandaExistenteId] = useState<string | null>(null);
   // Pacotes ativos do cliente selecionado, elegíveis pra vincular a um atendimento
   const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
-  // Vínculos feitos NESTA sessão de comanda (agendamento_id -> pacote_clientes.id), ainda não persistidos
-  const [pacoteLinks, setPacoteLinks] = useState<Record<string, string>>({});
+  // Vínculos feitos NESTA sessão de comanda (agendamento_id -> pacote_clientes.id), ainda não
+  // persistidos. `null` = desvinculado explicitamente (precisa limpar a coluna no banco ao
+  // fechar), distinto de "chave ausente" (agendamento nunca teve vínculo tocado nesta sessão).
+  const [pacoteLinks, setPacoteLinks] = useState<Record<string, string | null>>({});
   // Pacotes NOVOS a vender do catálogo (agendamento_id -> pacotes.id), pra quando o cliente não tem nenhum elegível
   const [pacoteVenderPorAgendamento, setPacoteVenderPorAgendamento] = useState<Record<string, string>>({});
 
@@ -534,7 +536,7 @@ export default function ComandaPage() {
    */
   async function persistirValoresAgendamento(
     extraUpdate: Record<string, unknown> = {},
-    pacoteLinksPorAgendamento: Record<string, string> = {},
+    pacoteLinksPorAgendamento: Record<string, string | null> = {},
   ): Promise<string | null> {
     const grupos = agruparValoresPorAgendamento(itens, pacoteLinksPorAgendamento);
     for (const g of grupos) {
@@ -548,7 +550,10 @@ export default function ComandaPage() {
         .update({
           valor: g.novoValorTotal,
           ...extraUpdate,
-          ...(g.pacoteClienteId ? { pacote_cliente_id: g.pacoteClienteId } : {}),
+          // `undefined` = agendamento nem estava no mapa de vinculos, nao mexe na coluna.
+          // `null` (desvinculado explicitamente) ou string (novo vinculo) SAO gravados —
+          // por isso o teste eh presenca (!== undefined), nao truthiness.
+          ...(g.pacoteClienteId !== undefined ? { pacote_cliente_id: g.pacoteClienteId } : {}),
         })
         .eq('id', g.agendamentoId).select('id');
       if (error) return error.message;
@@ -560,7 +565,10 @@ export default function ComandaPage() {
       return {
         ...ag,
         valor: g.novoValorTotal,
-        pacote_cliente_id: g.pacoteClienteId ?? ag.pacote_cliente_id,
+        // Mesmo criterio de presenca do UPDATE acima: `??` trataria null e
+        // undefined igual e manteria o vinculo antigo em memoria mesmo apos
+        // um desvincular explicito.
+        pacote_cliente_id: g.pacoteClienteId !== undefined ? g.pacoteClienteId : ag.pacote_cliente_id,
         agendamento_servicos: (ag.agendamento_servicos ?? []).map(s => {
           const linha = g.linhasServico.find(x => x.agServicoId === s.id);
           return linha ? { ...s, valor: linha.valor } : s;
@@ -703,13 +711,17 @@ export default function ComandaPage() {
     setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
   }
 
-  /** Desfaz o vínculo (existente ou "vender pacote novo") — restaura o valor de tabela do atendimento. */
+  /**
+   * Desfaz o vínculo (existente ou "vender pacote novo") — restaura o valor de tabela do
+   * atendimento. Quando o agendamento já chegou na comanda com `pacote_cliente_id` gravado no
+   * banco (vínculo feito lá na Agenda), simplesmente REMOVER a chave de `pacoteLinks` não basta:
+   * `agruparValoresPorAgendamento` trataria como "nunca mencionado" e não escreveria nada no
+   * UPDATE, deixando o vínculo antigo — e o trigger de consumo de sessão — intactos no banco. Por
+   * isso grava `null` explícito, que persistirValoresAgendamento agora sabe distinguir de
+   * "ausente" e grava como limpeza real da coluna.
+   */
   function desvincularPacote(agendamentoId: string) {
-    setPacoteLinks(prev => {
-      if (!(agendamentoId in prev)) return prev;
-      const { [agendamentoId]: _omit, ...resto } = prev;
-      return resto;
-    });
+    setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
     setPacoteVenderPorAgendamento(prev => {
       if (!(agendamentoId in prev)) return prev;
       const { [agendamentoId]: _omit, ...resto } = prev;
@@ -818,7 +830,9 @@ export default function ComandaPage() {
     //     sem pacote elegível) — mesmo padrão que a Agenda já usa em
     //     executarSalvar: vende o pacote, registra a receita da venda, e usa
     //     o id resultante como o vínculo final da sessão.
-    const pacoteLinksFinal: Record<string, string> = { ...pacoteLinks };
+    // `null` (desvinculado nesta sessão) flui intacto pro UPDATE se nenhuma venda
+    // sobrescrever a entrada — é exatamente essa a limpeza que precisa acontecer no banco.
+    const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
     for (const [agendamentoId, pacoteCatalogoId] of Object.entries(pacoteVenderPorAgendamento)) {
       // Item removido da comanda depois de marcado pra vender pacote — nada
       // a vender, nada a vincular. Silencioso (não é erro do usuário).
