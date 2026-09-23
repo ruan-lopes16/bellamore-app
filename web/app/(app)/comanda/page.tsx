@@ -685,6 +685,50 @@ export default function ComandaPage() {
   function removerItem(u: string) {
     setItens(prev => prev.filter(i => i.uid !== u));
   }
+  /** Vincula um atendimento a uma sessão de um pacote já ativo do cliente — zera o(s) item(ns) daquele atendimento. */
+  function vincularPacote(agendamentoId: string, pacoteClienteId: string) {
+    setPacoteLinks(prev => ({ ...prev, [agendamentoId]: pacoteClienteId }));
+    setPacoteVenderPorAgendamento(prev => {
+      if (!(agendamentoId in prev)) return prev;
+      const { [agendamentoId]: _omit, ...resto } = prev;
+      return resto;
+    });
+    setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
+  }
+
+  /** Desfaz o vínculo (existente ou "vender pacote novo") — restaura o valor de tabela do atendimento. */
+  function desvincularPacote(agendamentoId: string) {
+    setPacoteLinks(prev => {
+      if (!(agendamentoId in prev)) return prev;
+      const { [agendamentoId]: _omit, ...resto } = prev;
+      return resto;
+    });
+    setPacoteVenderPorAgendamento(prev => {
+      if (!(agendamentoId in prev)) return prev;
+      const { [agendamentoId]: _omit, ...resto } = prev;
+      return resto;
+    });
+    const ag = agDia.find(a => a.id === agendamentoId);
+    setItens(prev => prev.map(i => {
+      if (i.agendamento_id !== agendamentoId || !ag) return i;
+      if (i.ag_servico_id) {
+        const s = (ag.agendamento_servicos ?? []).find(x => x.id === i.ag_servico_id);
+        return s ? { ...i, valor: s.valor } : i;
+      }
+      return { ...i, valor: ag.valor };
+    }));
+  }
+
+  /** Cliente sem pacote elegível pro serviço — marca pra vender um pacote novo do catálogo ao fechar, e já zera o item (a venda de fato acontece em fecharComanda). */
+  function venderEVincularPacote(agendamentoId: string, pacoteCatalogoId: string) {
+    setPacoteVenderPorAgendamento(prev => ({ ...prev, [agendamentoId]: pacoteCatalogoId }));
+    setPacoteLinks(prev => {
+      if (!(agendamentoId in prev)) return prev;
+      const { [agendamentoId]: _omit, ...resto } = prev;
+      return resto;
+    });
+    setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
+  }
   function atualizarValor(u: string, v: string) {
     const n = parseFloat(v.replace(',', '.'));
     setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: isNaN(n) ? i.valor : n } : i));
@@ -1313,6 +1357,50 @@ export default function ComandaPage() {
                             </select>
                           </div>
                         )}
+                        {/* Vínculo com sessão de pacote — uma vez por atendimento, não por linha de serviço */}
+                        {item.tipo === 'agendamento' && item.agendamento_id &&
+                         item === itens.find(i => i.agendamento_id === item.agendamento_id) && (() => {
+                          const agendamentoId = item.agendamento_id!;
+                          const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === pacoteLinks[agendamentoId]);
+                          const pacoteParaVender = pacotesCat.find(p => p.id === pacoteVenderPorAgendamento[agendamentoId]);
+                          if (pacoteVinculado || pacoteParaVender) {
+                            return (
+                              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-green-soft border border-green/20 px-3 py-2">
+                                <span className="text-xs font-semibold text-green truncate">
+                                  {pacoteVinculado ? `Sessão de pacote — ${pacoteVinculado.nome}` : `Novo pacote — ${pacoteParaVender!.nome}`}
+                                </span>
+                                <button onClick={() => desvincularPacote(agendamentoId)}
+                                  className="text-xs font-semibold text-text-4 hover:text-red flex-shrink-0">
+                                  Desvincular
+                                </button>
+                              </div>
+                            );
+                          }
+                          const servicoId = item.servico_id;
+                          const elegiveis = servicoId
+                            ? pacotesClienteAtivos.filter(p => p.servicos.some(s => s.servico_id === servicoId))
+                            : [];
+                          if (elegiveis.length === 0 && pacotesCat.length === 0) return null;
+                          return (
+                            <div className="mt-2">
+                              {elegiveis.length > 0 ? (
+                                <SearchSelect
+                                  options={elegiveis.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
+                                  value=""
+                                  onChange={id => vincularPacote(agendamentoId, id)}
+                                  placeholder="Vincular a sessão de pacote..."
+                                />
+                              ) : (
+                                <SearchSelect
+                                  options={pacotesCat.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
+                                  value=""
+                                  onChange={id => venderEVincularPacote(agendamentoId, id)}
+                                  placeholder="Cliente não tem pacote — vender pacote novo..."
+                                />
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
 
