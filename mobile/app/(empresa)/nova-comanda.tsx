@@ -119,7 +119,11 @@ export default function NovaComandaScreen() {
   const [produtos, setProdutos] = useState<{ id: string; nome: string; preco_venda: number }[]>([]);
   const [pacotesCat, setPacotesCat] = useState<{ id: string; nome: string; preco: number; validade_dias: number | null }[]>([]);
   const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
-  const [pacoteLinks, setPacoteLinks] = useState<Record<string, string>>({});
+  // string = vinculado (sessão existente ou venda nova); null = explicitamente
+  // desvinculado nesta sessão (precisa gravar `pacote_cliente_id: null` no
+  // fechamento, pra sobrescrever um vínculo que já existia no banco vindo da
+  // Agenda); ausente da chave = nunca mexido, fechamento não toca na coluna.
+  const [pacoteLinks, setPacoteLinks] = useState<Record<string, string | null>>({});
   const [pacoteVenderPorAgendamento, setPacoteVenderPorAgendamento] = useState<Record<string, string>>({});
 
   const [etapa, setEtapa] = useState<Etapa>('lista');
@@ -286,11 +290,15 @@ export default function NovaComandaScreen() {
   }
 
   function desvincularPacote(agendamentoId: string) {
-    setPacoteLinks(prev => {
-      if (!(agendamentoId in prev)) return prev;
-      const { [agendamentoId]: _omit, ...resto } = prev;
-      return resto;
-    });
+    // NÃO apagar a chave — precisa ficar como `null` explícito, distinto de
+    // "nunca mexido" (chave ausente). Um agendamento pode chegar na comanda
+    // já com `pacote_cliente_id` gravado no banco (vínculo feito na Agenda);
+    // se a chave só fosse apagada, o fechamento cairia no update em lote
+    // (que não toca em `pacote_cliente_id`) e o vínculo antigo sobreviveria
+    // no banco — cobrando o valor cheio na comanda E consumindo a sessão do
+    // pacote de qualquer forma via trigger. `null` força o update individual
+    // que sobrescreve a coluna.
+    setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
     setPacoteVenderPorAgendamento(prev => {
       if (!(agendamentoId in prev)) return prev;
       const { [agendamentoId]: _omit, ...resto } = prev;
@@ -303,11 +311,15 @@ export default function NovaComandaScreen() {
 
   function venderEVincularPacote(agendamentoId: string, pacoteCatalogoId: string) {
     setPacoteVenderPorAgendamento(prev => ({ ...prev, [agendamentoId]: pacoteCatalogoId }));
-    setPacoteLinks(prev => {
-      if (!(agendamentoId in prev)) return prev;
-      const { [agendamentoId]: _omit, ...resto } = prev;
-      return resto;
-    });
+    // Mesmo raciocínio de `desvincularPacote`: `null` explícito, não apagar a
+    // chave — se este atendimento já chegou com um vínculo real no banco
+    // (Agenda) que por algum motivo não apareceu como "vinculado" na UI, o
+    // valor final gravado no fechamento é sempre sobrescrito pelo id da venda
+    // nova (laço de venda em `fecharComanda`); mas se essa venda for pulada
+    // (ex.: item removido da comanda antes de fechar), `null` garante que o
+    // update individual ainda rode e limpe a coluna, em vez de cair no update
+    // em lote e deixar o vínculo antigo sobreviver no banco.
+    setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
     setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
   }
 
@@ -356,7 +368,7 @@ export default function NovaComandaScreen() {
       // pacote elegível) — mesmo padrão do web: vende o pacote, registra a
       // receita da venda, e usa o id resultante como o vínculo final da
       // sessão.
-      const pacoteLinksFinal: Record<string, string> = { ...pacoteLinks };
+      const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
       for (const [agendamentoId, pacoteCatalogoId] of Object.entries(pacoteVenderPorAgendamento)) {
         // Item removido da comanda depois de marcado pra vender pacote —
         // nada a vender, nada a vincular. Silencioso (não é erro do usuário).
@@ -414,8 +426,18 @@ export default function NovaComandaScreen() {
       // NEW.pacote_cliente_id; gravar o vínculo num update separado, depois
       // do status já ter virado 'concluido', faria o trigger rodar sem
       // enxergar o vínculo (ele não dispara de novo).
-      const agIdsSemPacote = agIds.filter(id => !pacoteLinksFinal[id]);
-      const agIdsComPacote = agIds.filter(id => pacoteLinksFinal[id]);
+      //
+      // A distinção aqui é `undefined` (chave nunca mexida — update em lote,
+      // não toca na coluna) vs "presente" (string = vínculo novo/existente,
+      // ou `null` = desvínculo explícito — os dois precisam do update
+      // individual, porque os dois têm que SOBRESCREVER o que já está no
+      // banco). Checar truthiness em vez de `!== undefined` reintroduziria o
+      // bug: um `null` explícito também é falsy, cairia no lote errado, e um
+      // `pacote_cliente_id` antigo gravado pela Agenda sobreviveria no banco
+      // — cobrando o valor cheio na comanda E consumindo a sessão do pacote
+      // mesmo assim via trigger.
+      const agIdsSemPacote = agIds.filter(id => pacoteLinksFinal[id] === undefined);
+      const agIdsComPacote = agIds.filter(id => pacoteLinksFinal[id] !== undefined);
 
       if (agIdsSemPacote.length > 0) {
         const { error } = await supabase.from('agendamentos')
