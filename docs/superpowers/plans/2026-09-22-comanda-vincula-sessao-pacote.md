@@ -26,7 +26,7 @@ editado).
 - Quando não houver nenhum split de pagamento lançado e o total já for R$ 0, grava um pagamento `cortesia` de **valor 0** — nunca o valor cheio (evita contar receita da venda do pacote duas vezes).
 - **Fora de escopo:** vincular pacote ao editar uma comanda já fechada (`editarComanda` no web). Não mexer nesse fluxo.
 - **Fora de escopo:** mudar o cálculo de valor na tela de Agenda (web ou mobile).
-- Sem migration nova.
+- ~~Sem migration nova.~~ **Emenda pós-Task 8 (aprovada pelo usuário):** uma migration nova (078) foi necessária — ver Task 10. O trigger `fn_registrar_uso_pacote` (037) sempre buscava pacote automaticamente quando `pacote_cliente_id IS NULL`, então "desvincular" na Comanda não impedia o consumo da sessão (o banco não distinguia "decisão explícita de não usar pacote" de "nunca foi tocado"). Achado nas revisões de fix da Task 5/8, confirmado independentemente nas duas plataformas.
 - `cd web && npx tsc --noEmit` deve ficar em zero erros após cada task web.
 - `cd mobile && npx tsc --noEmit` não pode introduzir nenhum erro novo além dos pré-existentes (rodar a baseline na Task 6 antes de mexer em mobile, para comparar).
 - **Números de linha são aproximados**, válidos no estado do arquivo no momento em que este plano foi escrito (antes da Task 1). Cada task de `comanda/page.tsx` (3, 4, 5) e de `nova-comanda.tsx` (6, 7, 8) roda depois da anterior ter inserido código no mesmo arquivo, então a linha real pode ter deslocado. Use o texto citado (`old_string`) pra localizar o trecho por busca — ele é único no arquivo — e trate o número de linha só como uma pista de vizinhança, não como verdade absoluta.
@@ -1290,6 +1290,233 @@ git status
 ```
 
 Expected: working tree limpo (tudo já commitado task a task).
+
+**Nota:** esta task rodou ANTES da Task 10 existir (ver abaixo). Depois que a
+Task 10 for aprovada, os Steps 1-3 devem ser rodados de novo (web tsc +
+mobile tsc baseline + suíte completa) para confirmar que a migration nova
+não quebrou nada — não é preciso repetir o checklist manual do Step 4.
+
+---
+
+## Task 10: Migration 078 — trigger só busca pacote automático fora da Comanda
+
+**Contexto (achado durante a revisão dos fixes das Tasks 5 e 8, não estava no
+plano original):** `fn_registrar_uso_pacote()` (migration 037) sempre busca
+um pacote automaticamente por `servico_id` quando `NEW.pacote_cliente_id IS
+NULL` — não existe, hoje, um jeito de dizer ao trigger "a Comanda decidiu
+conscientemente não usar pacote nesse atendimento". Isso quebra duas coisas:
+(1) desvincular um pacote na Comanda grava `pacote_cliente_id: null`, mas o
+trigger encontra o MESMO pacote de novo pela busca automática e consome a
+sessão assim mesmo; (2) **qualquer** comanda fechada cobrando valor cheio,
+sem nunca tocar na UI de pacote, já consumia uma sessão em silêncio sempre
+que a cliente tinha algum pacote ativo elegível pro serviço — bug
+pré-existente (desde a migration 011), não introduzido por este plano, só
+exposto por ele.
+
+**Files:**
+- Create: `supabase/migrations/078_pacote_uso_so_automatico_fora_comanda.sql`
+- Test: `web/tests/unit/pacote-uso-so-automatico-fora-comanda.test.ts`
+
+**Interfaces:**
+- Não muda nenhuma função/tipo TypeScript. Só redefine a function SQL
+  `fn_registrar_uso_pacote()` (mesmo trigger `trg_uso_pacote`, já existe).
+
+- [ ] **Step 1: Escrever o teste que falha**
+
+```typescript
+// web/tests/unit/pacote-uso-so-automatico-fora-comanda.test.ts
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+const sql = readFileSync(
+  join(process.cwd(), '..', 'supabase', 'migrations', '078_pacote_uso_so_automatico_fora_comanda.sql'),
+  'utf8',
+).toLowerCase();
+
+describe('Migration 078 — busca automática de pacote só fora da Comanda', () => {
+  it('redefine fn_registrar_uso_pacote (mesma function das migrations 011/036/037)', () => {
+    expect(sql).toContain('create or replace function fn_registrar_uso_pacote()');
+    expect(sql).toContain('security definer');
+  });
+
+  it('mantém o vínculo explícito (pacote_cliente_id preenchido) tratado primeiro', () => {
+    expect(sql).toContain('if new.pacote_cliente_id is not null then');
+  });
+
+  it('só cai na busca automática quando NÃO veio de uma comanda (comanda_id nulo)', () => {
+    expect(sql).toMatch(/elsif\s+new\.comanda_id\s+is\s+null\s+then/);
+  });
+
+  it('não altera a query de busca automática em si (mesmos filtros da 037)', () => {
+    expect(sql).toContain("pc.status        = 'ativo'");
+    expect(sql).toContain('pc.data_validade is null or pc.data_validade >= current_date');
+    expect(sql).toContain('ps.quantidade is null');
+  });
+
+  it('não faz backfill — decisão de não reescrever pacote_uso já gravado (mesma politica da migration 065)', () => {
+    expect(sql).not.toMatch(/delete\s+from\s+public\.pacote_uso/);
+    expect(sql).not.toMatch(/update\s+public\.pacote_uso/);
+  });
+
+  it('mantém o mesmo trigger trg_uso_pacote (não cria um novo)', () => {
+    expect(sql).toContain('drop trigger if exists trg_uso_pacote on public.agendamentos');
+    expect(sql).toContain('create trigger trg_uso_pacote');
+    expect(sql).toContain('after update on public.agendamentos');
+  });
+});
+```
+
+- [ ] **Step 2: Rodar e confirmar que falha**
+
+Run: `cd web && npx vitest run tests/unit/pacote-uso-so-automatico-fora-comanda.test.ts`
+Expected: FAIL — `ENOENT` (arquivo de migration ainda não existe)
+
+- [ ] **Step 3: Escrever a migration**
+
+```sql
+-- supabase/migrations/078_pacote_uso_so_automatico_fora_comanda.sql
+-- ============================================================
+-- MIGRATION 078 — busca automatica de pacote so fora da Comanda
+--
+-- EXECUTE NO SUPABASE SQL EDITOR (migrations sao manuais).
+--
+-- PROBLEMA
+-- fn_registrar_uso_pacote() (migration 037) sempre busca um pacote
+-- automaticamente por servico_id quando NEW.pacote_cliente_id e NULL. Isso
+-- nao distingue "a Comanda decidiu explicitamente nao usar pacote" (usuario
+-- clicou em "Desvincular", ou simplesmente nunca vinculou e fechou cobrando
+-- o valor cheio) de "esse atendimento nunca passou pela Comanda" (ex.:
+-- marcado concluido direto pela Agenda, ou pelo atalho "Marcar como
+-- concluido" do app mobile, sem nunca criar uma comanda financeira).
+--
+-- Resultado: desvincular um pacote na Comanda grava pacote_cliente_id=null,
+-- mas o trigger encontra o MESMO pacote de novo pela busca automatica e
+-- consome uma sessao assim mesmo — a cliente paga o valor cheio E perde a
+-- sessao. E o inverso tambem ja acontecia silenciosamente, desde a
+-- migration 011: qualquer comanda fechada cobrando valor cheio, sem nunca
+-- tocar na tela de pacote, ja consumia uma sessao da cliente sempre que ela
+-- tinha algum pacote ativo elegivel pro servico — sem nenhum aviso.
+--
+-- CORRECAO
+-- fn_registrar_uso_pacote() so faz a busca automatica quando o fechamento
+-- NAO veio de uma comanda (NEW.comanda_id IS NULL). Web e mobile sempre
+-- gravam comanda_id no MESMO UPDATE que muda o status para 'concluido' (ver
+-- shared/comanda.ts e comanda/page.tsx / nova-comanda.tsx), entao o trigger
+-- ja enxerga esse valor no momento certo. A Comanda passa a ser de fato a
+-- unica fonte de verdade sobre usar pacote ou nao: com comanda_id
+-- preenchido e pacote_cliente_id nulo, nenhuma sessao e consumida.
+--
+-- O caminho que marca "concluido" direto (sem nunca criar uma comanda —
+-- comanda_id fica NULL) mantem o comportamento automatico de sempre,
+-- inalterado. Corrigir esse caminho especifico esta fora do escopo desta
+-- entrega.
+--
+-- Nao faz backfill: sessoes de pacote_uso ja registradas continuam como
+-- estao (mesma decisao da migration 065, de nao reescrever historico).
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION fn_registrar_uso_pacote()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_pc_id      uuid;
+  v_empresa_id uuid;
+BEGIN
+  IF NEW.status <> 'concluido' OR OLD.status = 'concluido' THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.pacote_cliente_id IS NOT NULL THEN
+    -- Vínculo explícito escolhido no agendamento ou na comanda
+    SELECT pc.id, pc.empresa_id
+      INTO v_pc_id, v_empresa_id
+    FROM public.pacote_clientes pc
+    WHERE pc.id = NEW.pacote_cliente_id
+      AND pc.empresa_id = NEW.empresa_id;
+  ELSIF NEW.comanda_id IS NULL THEN
+    -- Busca automática por serviço — só quando o atendimento NÃO passou
+    -- pela Comanda (ela é quem decide, quando passa por lá).
+    SELECT pc.id, pc.empresa_id
+      INTO v_pc_id, v_empresa_id
+    FROM public.pacote_clientes pc
+    JOIN public.pacote_servicos ps
+      ON ps.pacote_id = pc.pacote_id
+     AND ps.servico_id = NEW.servico_id
+    WHERE pc.cliente_id    = NEW.cliente_id
+      AND pc.empresa_id    = NEW.empresa_id
+      AND pc.status        = 'ativo'
+      AND (pc.data_validade IS NULL OR pc.data_validade >= CURRENT_DATE)
+      AND (
+        ps.quantidade IS NULL  -- sessões ilimitadas para este serviço
+        OR (
+          SELECT COUNT(*) FROM public.pacote_uso pu WHERE pu.pacote_cliente_id = pc.id
+        ) < (
+          SELECT COALESCE(SUM(ps2.quantidade), 0)
+            FROM public.pacote_servicos ps2
+           WHERE ps2.pacote_id = pc.pacote_id AND ps2.quantidade IS NOT NULL
+        )
+      )
+    ORDER BY pc.data_validade ASC NULLS LAST
+    LIMIT 1;
+  END IF;
+  -- ELSE (pacote_cliente_id nulo E comanda_id preenchido): a Comanda
+  -- decidiu não usar pacote neste atendimento — v_pc_id fica NULL, nenhuma
+  -- sessão é consumida.
+
+  IF v_pc_id IS NOT NULL THEN
+    INSERT INTO public.pacote_uso
+      (empresa_id, pacote_cliente_id, servico_id, agendamento_id)
+    VALUES
+      (v_empresa_id, v_pc_id, NEW.servico_id, NEW.id)
+    ON CONFLICT (agendamento_id) DO NOTHING;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_uso_pacote ON public.agendamentos;
+
+CREATE TRIGGER trg_uso_pacote
+  AFTER UPDATE ON public.agendamentos
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_registrar_uso_pacote();
+```
+
+- [ ] **Step 4: Rodar e confirmar que passa**
+
+Run: `cd web && npx vitest run tests/unit/pacote-uso-so-automatico-fora-comanda.test.ts`
+Expected: PASS — 6/6
+
+- [ ] **Step 5: Rodar a suíte inteira (a migration não toca em nenhum arquivo TypeScript, mas confirma que nada mais quebrou)**
+
+Run: `cd web && npx vitest run`
+Expected: todos os testes passando
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add supabase/migrations/078_pacote_uso_so_automatico_fora_comanda.sql web/tests/unit/pacote-uso-so-automatico-fora-comanda.test.ts
+git commit -m "fix(pacotes): trigger so busca pacote automatico fora do fluxo da comanda"
+```
+
+## Não coberto / limitações (Task 10)
+
+- **Não corrige o caminho "concluído direto, sem comanda"** (Agenda web sem
+  UPDATE de comanda_id; atalho "Marcar como concluído" do app mobile) —
+  esse caminho mantém a busca automática de sempre, propositalmente, por
+  estar fora do escopo desta entrega (é o mesmo caminho já documentado como
+  "concluido sem comanda" nas sessões anteriores do projeto).
+- **Migration precisa ser aplicada manualmente** no banco (SQL Editor do
+  Supabase) — mesma pendência de todas as migrations anteriores deste
+  projeto (062, 063, 066–069, 075 seguem sem confirmação de aplicação).
+- **Sem teste de integração real do trigger** (não há acesso a um banco de
+  teste local) — o teste desta task verifica o CONTEÚDO da migration
+  (mesma técnica já usada em `pacotes-sessoes-agenda-comanda.test.ts` e nos
+  testes da migration 075), não o comportamento do Postgres em si.
 
 ---
 
