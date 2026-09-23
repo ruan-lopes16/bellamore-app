@@ -27,6 +27,10 @@ describe('Migration 078 — busca automática de pacote só fora da Comanda', ()
     expect(sql).toContain('ps.quantidade is null');
   });
 
+  it('preserva o filtro controla_sessoes=true da migration 037 nas duas ramificações (vínculo explícito e busca automática)', () => {
+    expect(sql.match(/p\.controla_sessoes\s*=\s*true/g)?.length).toBe(2);
+  });
+
   it('não faz backfill — decisão de não reescrever pacote_uso já gravado (mesma politica da migration 065)', () => {
     expect(sql).not.toMatch(/delete\s+from\s+public\.pacote_uso/);
     expect(sql).not.toMatch(/update\s+public\.pacote_uso/);

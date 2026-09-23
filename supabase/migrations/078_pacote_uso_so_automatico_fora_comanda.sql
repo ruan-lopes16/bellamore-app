@@ -24,8 +24,9 @@
 -- fn_registrar_uso_pacote() so faz a busca automatica quando o fechamento
 -- NAO veio de uma comanda (NEW.comanda_id IS NULL). Web e mobile sempre
 -- gravam comanda_id no MESMO UPDATE que muda o status para 'concluido' (ver
--- shared/comanda.ts e comanda/page.tsx / nova-comanda.tsx), entao o trigger
--- ja enxerga esse valor no momento certo. A Comanda passa a ser de fato a
+-- web/app/(app)/comanda/page.tsx:895, via persistirValoresAgendamento, e
+-- mobile/app/(empresa)/nova-comanda.tsx:444/449), entao o trigger ja
+-- enxerga esse valor no momento certo. A Comanda passa a ser de fato a
 -- unica fonte de verdade sobre usar pacote ou nao: com comanda_id
 -- preenchido e pacote_cliente_id nulo, nenhuma sessao e consumida.
 --
@@ -35,13 +36,13 @@
 -- entrega.
 --
 -- DESVIO DO SQL PROPOSTO NO PLANO (achado na auto-revisao, antes do commit)
--- O texto do plano (.superpowers/sdd/task-10-brief.md) baseou o corpo desta
--- function na migration 036, anterior ao modo "combo" que a migration 037
--- introduziu (pacotes.controla_sessoes). Copiar aquele texto ao pe da letra
+-- O texto do plano original baseou o corpo desta function na migration 036,
+-- anterior ao modo "combo" que a migration 037 introduziu
+-- (pacotes.controla_sessoes). Copiar aquele texto ao pe da letra
 -- reverteria o fix da 037: pacotes combo (controla_sessoes = false)
 -- voltariam a ter sessao rastreada/consumida em pacote_uso, tanto por
 -- vinculo explicito quanto pela busca automatica. Esta migration preserva o
--- filtro "p.controla_sessoes = true" (identico ao da 037, JOIN com
+-- filtro de controla_sessoes = true (identico ao da 037, JOIN com
 -- public.pacotes nas duas ramificacoes) e soma a ele a nova condicao
 -- "NEW.comanda_id IS NULL" na busca automatica — a unica mudanca de
 -- comportamento desta migration.
