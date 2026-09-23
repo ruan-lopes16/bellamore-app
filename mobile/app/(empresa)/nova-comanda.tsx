@@ -30,6 +30,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import SuccessCheck from '@/components/SuccessCheck';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
+import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -61,6 +62,7 @@ type AgDia = {
   data_hora_inicio: string;
   status: string;
   valor: number;
+  pacote_cliente_id: string | null;
   cliente:      { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico:      { id: string; nome: string; preco: number }    | null;
@@ -115,6 +117,10 @@ export default function NovaComandaScreen() {
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
   const [servicos, setServicos] = useState<{ id: string; nome: string; preco: number }[]>([]);
   const [produtos, setProdutos] = useState<{ id: string; nome: string; preco_venda: number }[]>([]);
+  const [pacotesCat, setPacotesCat] = useState<{ id: string; nome: string; preco: number; validade_dias: number | null }[]>([]);
+  const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
+  const [pacoteLinks, setPacoteLinks] = useState<Record<string, string>>({});
+  const [pacoteVenderPorAgendamento, setPacoteVenderPorAgendamento] = useState<Record<string, string>>({});
 
   const [etapa, setEtapa] = useState<Etapa>('lista');
   const [clienteSel, setClienteSel] = useState<ClienteComanda | null>(null);
@@ -145,7 +151,7 @@ export default function NovaComandaScreen() {
     const hoje = new Date();
     Promise.all([
       supabase.from('agendamentos')
-        .select(`id, data_hora_inicio, status, valor,
+        .select(`id, data_hora_inicio, status, valor, pacote_cliente_id,
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
           servico:servicos(id, nome, preco)`)
@@ -156,7 +162,8 @@ export default function NovaComandaScreen() {
         .order('data_hora_inicio'),
       supabase.from('servicos').select('id, nome, preco').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       supabase.from('produtos').select('id, nome, preco_venda').eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
-    ]).then(async ([rAgs, rServs, rProds]) => {
+      supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
+    ]).then(async ([rAgs, rServs, rProds, rPacotes]) => {
       const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
 
       // Taxas de reserva já pagas — buscadas só depois de sabermos os
@@ -179,6 +186,7 @@ export default function NovaComandaScreen() {
       setAgDia(agsDoDia);
       setServicos((rServs.data ?? []) as any[]);
       setProdutos((rProds.data ?? []) as any[]);
+      setPacotesCat((rPacotes.data ?? []) as { id: string; nome: string; preco: number; validade_dias: number | null }[]);
       setTaxasReservaPagas((rTaxasReserva.data ?? []) as { agendamento_id: string; valor: number }[]);
       setLoading(false);
     });
@@ -193,6 +201,18 @@ export default function NovaComandaScreen() {
     }
     return Object.values(map).sort((a, b) => (a.agendamentos[0]?.data_hora_inicio ?? '').localeCompare(b.agendamentos[0]?.data_hora_inicio ?? ''));
   }, [agDia]);
+
+  useEffect(() => {
+    if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) { setPacotesClienteAtivos([]); return; }
+    supabase.from('pacote_clientes')
+      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id, created_at, agendamento_id, servico:servicos(nome))')
+      .eq('empresa_id', empresaId)
+      .eq('cliente_id', clienteSel.id)
+      .eq('status', 'ativo')
+      .then(({ data }: { data: any[] | null }) => {
+        setPacotesClienteAtivos(calcularPacotesAtivosCliente((data ?? []) as any[], format(new Date(), 'yyyy-MM-dd')));
+      });
+  }, [clienteSel?.id, empresaId]);
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) hoje */
   const totalDia = useMemo(
@@ -225,12 +245,20 @@ export default function NovaComandaScreen() {
     setClienteSel(cliente);
     setDesconto('');
     setSplits([]);
+    setPacoteVenderPorAgendamento({});
+
+    const linksIniciais: Record<string, string> = {};
+    for (const ag of cliente.agendamentos) {
+      if (ag.pacote_cliente_id) linksIniciais[ag.id] = ag.pacote_cliente_id;
+    }
+    setPacoteLinks(linksIniciais);
+
     setItens(
       cliente.agendamentos
         .filter(ag => ag.status !== 'concluido')
         .map(ag => ({
           uid: uid(), tipo: 'agendamento', descricao: ag.servico?.nome ?? 'Serviço',
-          profissional: ag.profissional?.nome, valor: ag.valor, quantidade: 1,
+          profissional: ag.profissional?.nome, valor: ag.pacote_cliente_id ? 0 : ag.valor, quantidade: 1,
           agendamento_id: ag.id, servico_id: ag.servico?.id, profissional_id: ag.profissional?.id,
         })),
     );
