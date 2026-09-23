@@ -275,6 +275,42 @@ export default function NovaComandaScreen() {
   }
   function removerItem(u: string) { setItens(prev => prev.filter(i => i.uid !== u)); }
 
+  function vincularPacote(agendamentoId: string, pacoteClienteId: string) {
+    setPacoteLinks(prev => ({ ...prev, [agendamentoId]: pacoteClienteId }));
+    setPacoteVenderPorAgendamento(prev => {
+      if (!(agendamentoId in prev)) return prev;
+      const { [agendamentoId]: _omit, ...resto } = prev;
+      return resto;
+    });
+    setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
+  }
+
+  function desvincularPacote(agendamentoId: string) {
+    setPacoteLinks(prev => {
+      if (!(agendamentoId in prev)) return prev;
+      const { [agendamentoId]: _omit, ...resto } = prev;
+      return resto;
+    });
+    setPacoteVenderPorAgendamento(prev => {
+      if (!(agendamentoId in prev)) return prev;
+      const { [agendamentoId]: _omit, ...resto } = prev;
+      return resto;
+    });
+    const ag = agDia.find(a => a.id === agendamentoId);
+    if (!ag) return;
+    setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: ag.valor } : i));
+  }
+
+  function venderEVincularPacote(agendamentoId: string, pacoteCatalogoId: string) {
+    setPacoteVenderPorAgendamento(prev => ({ ...prev, [agendamentoId]: pacoteCatalogoId }));
+    setPacoteLinks(prev => {
+      if (!(agendamentoId in prev)) return prev;
+      const { [agendamentoId]: _omit, ...resto } = prev;
+      return resto;
+    });
+    setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
+  }
+
   const subtotal  = itens.reduce((s, i) => s + i.valor * i.quantidade, 0);
   const descontoN = parseFloat(desconto.replace(',', '.')) || 0;
   const agendamentoIdsNaComanda = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
@@ -645,6 +681,52 @@ export default function NovaComandaScreen() {
                     </TouchableOpacity>
                   )}
                 </View>
+
+                {/* Vínculo com sessão de pacote — mobile não tem multi-serviço por
+                    atendimento (um agendamento = um item), então não há risco de
+                    renderizar o seletor mais de uma vez por atendimento aqui. */}
+                {item.tipo === 'agendamento' && item.agendamento_id && (() => {
+                  const agendamentoId = item.agendamento_id!;
+                  const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === pacoteLinks[agendamentoId]);
+                  const pacoteParaVender = pacotesCat.find(p => p.id === pacoteVenderPorAgendamento[agendamentoId]);
+                  if (pacoteVinculado || pacoteParaVender) {
+                    return (
+                      <TouchableOpacity onPress={() => desvincularPacote(agendamentoId)}
+                        style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.green, flex: 1 }} numberOfLines={1}>
+                          {pacoteVinculado ? `Sessão de pacote — ${pacoteVinculado.nome}` : `Novo pacote — ${pacoteParaVender!.nome}`}
+                        </Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text4 }}>Desvincular</Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                  const servicoId = item.servico_id;
+                  const elegiveis = servicoId ? pacotesClienteAtivos.filter(p => p.servicos.some(s => s.servico_id === servicoId)) : [];
+                  // "Vender pacote novo" exige cliente cadastrado (a venda grava
+                  // cliente_id em pacote_clientes/vendas) — não oferecer pra walk-in
+                  // (clienteSel.id === '__sem__'), senão a comanda zera o preço do
+                  // atendimento e fecha de graça sem nada ter sido vendido de fato.
+                  const podeVenderNovo = !!clienteSel && clienteSel.id !== '__sem__';
+                  if (elegiveis.length === 0 && (pacotesCat.length === 0 || !podeVenderNovo)) return null;
+                  const opcoes = elegiveis.length > 0 ? elegiveis : (podeVenderNovo ? pacotesCat : []);
+                  if (opcoes.length === 0) return null;
+                  return (
+                    <View style={{ marginTop: 8, gap: 4 }}>
+                      {opcoes.map((p: any) => (
+                        <TouchableOpacity key={p.id}
+                          onPress={() => elegiveis.length > 0 ? vincularPacote(agendamentoId, p.id) : venderEVincularPacote(agendamentoId, p.id)}
+                          style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text }} numberOfLines={1}>
+                            {elegiveis.length > 0 ? `Vincular: ${p.nome}` : `Vender pacote: ${p.nome}`}
+                          </Text>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 }}>
+                            {elegiveis.length > 0 ? (p.restantes == null ? 'ilimitado' : `${p.restantes} rest.`) : fmtBRL(p.preco)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  );
+                })()}
               </View>
             ))}
 
