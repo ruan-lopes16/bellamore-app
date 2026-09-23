@@ -534,8 +534,9 @@ export default function ComandaPage() {
    */
   async function persistirValoresAgendamento(
     extraUpdate: Record<string, unknown> = {},
+    pacoteLinksPorAgendamento: Record<string, string> = {},
   ): Promise<string | null> {
-    const grupos = agruparValoresPorAgendamento(itens);
+    const grupos = agruparValoresPorAgendamento(itens, pacoteLinksPorAgendamento);
     for (const g of grupos) {
       for (const linha of g.linhasServico) {
         const { data, error } = await supabase.from('agendamento_servicos')
@@ -544,7 +545,12 @@ export default function ComandaPage() {
         if (!data || data.length === 0) return 'Não foi possível salvar o valor de um serviço do atendimento.';
       }
       const { data, error } = await supabase.from('agendamentos')
-        .update({ valor: g.novoValorTotal, ...extraUpdate }).eq('id', g.agendamentoId).select('id');
+        .update({
+          valor: g.novoValorTotal,
+          ...extraUpdate,
+          ...(g.pacoteClienteId ? { pacote_cliente_id: g.pacoteClienteId } : {}),
+        })
+        .eq('id', g.agendamentoId).select('id');
       if (error) return error.message;
       if (!data || data.length === 0) return 'Não foi possível salvar o valor do atendimento.';
     }
@@ -554,6 +560,7 @@ export default function ComandaPage() {
       return {
         ...ag,
         valor: g.novoValorTotal,
+        pacote_cliente_id: g.pacoteClienteId ?? ag.pacote_cliente_id,
         agendamento_servicos: (ag.agendamento_servicos ?? []).map(s => {
           const linha = g.linhasServico.find(x => x.agServicoId === s.id);
           return linha ? { ...s, valor: linha.valor } : s;
@@ -800,12 +807,47 @@ export default function ComandaPage() {
 
     const comandaId = comanda.id;
 
-    // 2. Marcar agendamentos como concluídos + gravar o valor cobrado no
-    //    mesmo UPDATE do status, para o trigger trg_gerar_comissao já nascer
-    //    com o valor certo (inclusive quando o usuário editou algum preço).
+    // 1b. Resolve pacotes NOVOS escolhidos no vínculo da comanda (cliente
+    //     sem pacote elegível) — mesmo padrão que a Agenda já usa em
+    //     executarSalvar: vende o pacote, registra a receita da venda, e usa
+    //     o id resultante como o vínculo final da sessão.
+    const pacoteLinksFinal: Record<string, string> = { ...pacoteLinks };
+    for (const [agendamentoId, pacoteCatalogoId] of Object.entries(pacoteVenderPorAgendamento)) {
+      if (clienteSel.id === '__sem__') continue;
+      const pacote = pacotesCat.find(p => p.id === pacoteCatalogoId);
+      if (!pacote) continue;
+      const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
+        empresa_id:    empresaId,
+        pacote_id:     pacote.id,
+        cliente_id:    clienteSel.id,
+        data_inicio:   format(new Date(), 'yyyy-MM-dd'),
+        data_validade: pacote.validade_dias != null
+          ? format(addDays(new Date(), pacote.validade_dias), 'yyyy-MM-dd')
+          : null,
+        valor_pago:    pacote.preco,
+        status:        'ativo',
+      }).select('id').single();
+      if (errVenda || !novaVenda) { setErro(errVenda?.message ?? 'Erro ao vender pacote'); setFechando(false); return; }
+      pacoteLinksFinal[agendamentoId] = novaVenda.id;
+      await supabase.from('vendas').insert({
+        empresa_id:  empresaId,
+        cliente_id:  clienteSel.id,
+        valor_total: pacote.preco,
+        desconto:    0,
+        observacao:  `Venda de pacote: ${pacote.nome}`,
+      });
+    }
+
+    // 2. Marcar agendamentos como concluídos + gravar o valor cobrado (e o
+    //    vínculo de pacote, se houver) no mesmo UPDATE do status — pra o
+    //    trigger trg_gerar_comissao (e o trg_uso_pacote, que também só
+    //    dispara nessa transição) já nascerem com o valor e o vínculo
+    //    certos. Gravar o vínculo NUM SEGUNDO UPDATE, depois do status já
+    //    ter virado 'concluido', faria o trigger de uso de pacote rodar sem
+    //    enxergar o vínculo (ele só dispara na transição, não de novo).
     const agIds = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
     if (agIds.length > 0) {
-      const errValor = await persistirValoresAgendamento({ status: 'concluido', comanda_id: comandaId });
+      const errValor = await persistirValoresAgendamento({ status: 'concluido', comanda_id: comandaId }, pacoteLinksFinal);
       if (errValor) { setErro(errValor); setFechando(false); return; }
     }
 
@@ -908,11 +950,18 @@ export default function ComandaPage() {
       }
     }
 
-    // 4. Inserir pagamentos
+    // 4. Inserir pagamentos — se nenhum split foi lançado e o total já
+    //    fechou em R$ 0 (sessão de pacote ou desconto manual de 100%),
+    //    grava um "Cortesia" de R$ 0 em vez de deixar sem nenhum registro:
+    //    fica claro no relatório de formas de pagamento que esse
+    //    fechamento não gerou cobrança nova, sem somar nada na receita.
     const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
-    if (splitsValidos.length > 0) {
+    const splitsParaGravar = splitsValidos.length === 0 && total <= 0.01
+      ? [{ metodo: 'cortesia', valor: '0' }]
+      : splitsValidos;
+    if (splitsParaGravar.length > 0) {
       const { error: errPag } = await supabase.from('pagamentos').insert(
-        splitsValidos.map(s => {
+        splitsParaGravar.map(s => {
           const v    = parseFloat(s.valor.replace(',', '.'));
           const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
           const taxa = calcTaxa(s.metodo, parc);
@@ -1619,7 +1668,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || splits.length === 0 || !empresaId || (splits.length > 0 && restante > 0.01)}
+                  disabled={fechando || itens.length === 0 || !empresaId || (total > 0.01 && (splits.length === 0 || restante > 0.01))}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {fechando ? (
