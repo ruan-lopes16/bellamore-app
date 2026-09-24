@@ -26,6 +26,14 @@ export type PersistenciaValorAgendamento = {
   novoValorTotal: number;
   /** Linhas de `agendamento_servicos` cujo `valor` deve ser regravado. */
   linhasServico: { agServicoId: string; valor: number }[];
+  /**
+   * pacote_clientes.id a gravar em agendamentos.pacote_cliente_id, quando a
+   * comanda vinculou (ou desvinculou) uma sessao de pacote a este
+   * agendamento. `undefined` (chave ausente) = nao mexer no vinculo
+   * existente. `null` = desvincular explicitamente (limpa o valor no banco).
+   * String = novo vinculo.
+   */
+  pacoteClienteId?: string | null;
 };
 
 /**
@@ -44,6 +52,7 @@ export type PersistenciaValorAgendamento = {
  */
 export function agruparValoresPorAgendamento(
   itens: ItemComandaValor[],
+  pacoteLinksPorAgendamento: Record<string, string | null> = {},
 ): PersistenciaValorAgendamento[] {
   const porAgendamento = new Map<string, PersistenciaValorAgendamento>();
 
@@ -71,6 +80,12 @@ export function agruparValoresPorAgendamento(
 
   for (const grupo of porAgendamento.values()) {
     grupo.novoValorTotal = Math.round(grupo.novoValorTotal * 100) / 100;
+    // Checa PRESENCA da chave, nao truthiness — um valor `null` explicito
+    // (desvincular) precisa ser distinguivel de "agendamento nao mencionado
+    // no mapa" (undefined, nao mexer no vinculo existente no banco).
+    if (grupo.agendamentoId in pacoteLinksPorAgendamento) {
+      grupo.pacoteClienteId = pacoteLinksPorAgendamento[grupo.agendamentoId];
+    }
   }
 
   return [...porAgendamento.values()];
