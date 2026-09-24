@@ -458,6 +458,80 @@ bruto (Dashboard, Financeiro e Relatórios somam `taxas_reserva` com `paga_em` p
 
 ---
 
+### Sessão 2026-09-22/24 — Comanda vincula sessão de pacote + trigger de sessão fantasma
+
+*Escopo: pedido do usuário a partir de bug reportado em produção — comandas ficavam*
+*presas sem fechar quando o atendimento era coberto por sessão de pacote já paga.*
+*Investigação (systematic-debugging) revelou a causa raiz real: o vínculo de pacote*
+*já existia desde as migrations 011/036/037 (trigger automático + campo*
+*`agendamentos.pacote_cliente_id`), mas nunca zerava o valor cobrado na Comanda —*
+*staff tentava contornar com desconto manual/cortesia, e o botão de fechar travava*
+*sem erro porque sempre exigia pelo menos 1 pagamento lançado, mesmo com total R$0.*
+*Brainstorming → spec → plano (10 tasks) → superpowers:subagent-driven-development,*
+*implementer + reviewer dedicados por task, modelo explícito por risco (haiku pra*
+*funções puras com código já dado no brief, sonnet pra wiring de UI, opus pra*
+*fecharComanda/migration — dinheiro de verdade). 2 rodadas de revisão final de*
+*branch (a 1ª achou 1 Critical na costura entre tasks; o fix da 1ª gerou uma 2ª*
+*rodada que achou mais 1 Critical na mesma área). PR #135.*
+
+**Causa raiz mais funda, achada só na revisão dos fixes de "desvincular pacote"**
+*(Tasks 5/8, não estava no plano original): o trigger `fn_registrar_uso_pacote`*
+*sempre busca um pacote elegível automaticamente por serviço sempre que*
+*`pacote_cliente_id` está vazio — nunca soube distinguir "a Comanda decidiu não*
+*usar pacote" de "ninguém tocou nisso ainda". Na prática, **qualquer** comanda*
+*fechada cobrando valor cheio, sem nunca abrir a tela de pacote, já consumia uma*
+*sessão da cliente em silêncio desde a migration 011, sempre que ela tinha pacote*
+*elegível pro serviço — sem nenhum aviso, há anos. Usuário aprovou corrigir com uma*
+*migration nova (078) como parte da mesma entrega, apesar do plano original dizer*
+*"sem migration".*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web em todas as 10 tasks + 2 fixes pós-revisão; mobile manteve os mesmos 9 erros pré-existentes (baseline capturada antes da Task 6, reconfirmada byte-a-byte em cada task mobile), zero novos |
+| UX / Padrões    | 9.0  | Seletor de vincular pacote reaproveita `SearchSelect` no mesmo padrão de "vender pacote"/"adicionar extra" já existentes; badge "Sessão de pacote" e chip "Cortesia" seguem a paleta verde/rosa já usada pra alertas e confirmações no resto do app |
+| Segurança       | 9.0  | Migration 078 é só `CREATE OR REPLACE FUNCTION` + recriar o trigger — sem `ALTER TABLE`, sem backfill, sem risco de lock. Preserva, byte a byte, o filtro `controla_sessoes = true` da migration 037 (revisor comparou linha a linha contra o arquivo real antes de aprovar) |
+| Documentação    | 9.0  | Spec + plano completos em `docs/superpowers/`, emendados no meio do processo quando a Task 10 surgiu; JSDoc pt-BR nos 2 helpers novos de `shared/pacotes.ts`; cabeçalho da migration 078 documenta a causa raiz e por que o desvio do SQL do plano original (baseado numa versão desatualizada do trigger) foi necessário |
+| Arquitetura     | 9.5  | `calcularPacotesAtivosCliente` como função pura única compartilhada (só usada pelos 2 pontos novos desta entrega — os 2 pontos já existentes na Agenda continuam com cópia inline própria, registrado como dívida técnica, não corrigido por estar fora do escopo aprovado); tipo `string \| null \| undefined` pra `pacote_cliente_id` (vincular / desvincular explicitamente / nunca tocado) threading consistente por `shared/comanda.ts` → estado → persistência nas duas plataformas |
+| Performance     | 9.0  | Sem query nova cara — pacotes elegíveis do cliente carregam numa query só, disparada ao trocar de cliente selecionado; contagens da Sidebar (sessão anterior) não tocadas |
+| Visual (UI)     | —    | Sem conta de teste para login local — verificação visual não executada, como nas sessões anteriores |
+| **Completude**  | 9.5  | Feature completa em web + mobile (query, estado, UI de vincular/desvincular/vender-novo, persistência com ordem correta pro trigger); migration corrigindo bug de produção pré-existente; 6 bugs reais de dinheiro encontrados e corrigidos antes do merge (nenhum chegou ao PR sem correção) |
+| **Proatividade**| 9.5  | Implementador da Task 10 comparou o SQL do brief contra a migration 037 real antes de commitar e achou que o plano tinha sido escrito em cima de uma versão desatualizada do trigger — teria revertido silenciosamente o fix de pacotes "combo" se seguisse o plano ao pé da letra; avisos proativos no dispatch da Task 7/8 evitaram repetir, sem precisar de revisão, os 4 bugs já achados nas Tasks 4/5 |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**6 bugs reais de dinheiro encontrados e corrigidos antes do merge:**
+1. Venda fantasma de pacote: marcar "vender pacote novo" e depois remover o item da comanda ainda vendia o pacote e contava receita, sem nenhum item vinculado a ele (Task 5, revisão).
+2. Comanda fechava de graça pra cliente avulso (`__sem__`) escolhendo "vender pacote novo" — venda exigia `cliente_id`, então o item zerava mas nada era vendido (Task 5, revisão; evitado proativamente nas Tasks 7/8 só com aviso no dispatch).
+3. Retry após falha parcial vendia o mesmo pacote 2x (Task 5, revisão).
+4. Erro do insert em `vendas` não era checado — pacote criado sem receita correspondente em caso de falha (Task 5, revisão).
+5. "Desvincular" um pacote vinculado pela Agenda não limpava `pacote_cliente_id` no banco — cliente pagava o valor cheio **e** perdia a sessão (achado na revisão dos fixes acima, afetando web e mobile igualmente; motivou a migration 078 ao revelar que o problema era mais fundo que só esse botão).
+6. Descoberto na revisão final de branch, em 2 rodadas: a UI de vincular pacote (Task 4) reaproveitava o mesmo bloco de itens usado tanto no fechamento novo quanto na *edição* de uma comanda já fechada — clicar em "vincular"/"vender pacote novo" nessa edição zerava o item sem nunca gravar vínculo nem venda; e deixar "Desvincular" clicável na mesma edição restaurava o preço mas nunca limpava `pacote_cliente_id`, fazendo receita cobrada de verdade sumir de Dashboard/Financeiro/Relatórios (que excluem tudo com essa coluna preenchida). Corrigido tornando o bloco inteiro só leitura em modo de edição.
+
+**Decisão de projeto — sinal de "sessão de pacote consumida":** a partir desta
+sessão, `agendamentos.comanda_id IS NOT NULL` (fechado por uma Comanda) passa a
+ser o sinal de que `pacote_cliente_id` reflete uma decisão explícita — vazio
+significa "decidido não usar pacote", não "ninguém verificou". Só quando
+`comanda_id IS NULL` (concluído fora da Comanda) o trigger volta a buscar
+automaticamente, preservando o comportamento antigo pra esse caminho específico.
+
+**Pendências para produção:**
+- Aplicar a migration `078_pacote_uso_so_automatico_fora_comanda.sql`
+  (`supabase db push`) — soma-se às migrations `062`, `063`, `066`–`069`, `075`
+  que já seguiam pendentes de sessões anteriores.
+- **Vincular pacote em edição de comanda já fechada continua indisponível** —
+  decisão deliberada: o trigger só reage à transição pra `concluido`, então
+  precisaria de lógica extra específica pra funcionar em edição. A UI que
+  vazava pra esse fluxo foi corrigida (achado 6 acima), não a limitação em si.
+- Elegibilidade de pacote em atendimento multi-serviço (web) olha só o serviço
+  da primeira linha do grupo, não de cada serviço individualmente.
+- Mobile nunca exigiu forma de pagamento pra fechar comanda (diferente do web,
+  que agora trava quando o total é positivo) — pré-existente, não é regressão
+  desta entrega, mas significa que a proteção nova de "cortesia automática" só
+  cobre o caso de total R$0 em ambas as plataformas igualmente.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
