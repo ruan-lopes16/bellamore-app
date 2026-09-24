@@ -1471,10 +1471,19 @@ export default function ComandaPage() {
                                 <span className="text-xs font-semibold text-green truncate">
                                   {pacoteVinculado ? `Sessão de pacote — ${pacoteVinculado.nome}` : `Novo pacote — ${pacoteParaVender!.nome}`}
                                 </span>
-                                <button onClick={() => desvincularPacote(agendamentoId)}
-                                  className="text-xs font-semibold text-text-4 hover:text-red flex-shrink-0">
-                                  Desvincular
-                                </button>
+                                {/* Desvincular também fica fora de escopo em edição: restaura o
+                                    valor localmente, mas editarComanda() nunca grava
+                                    pacote_cliente_id=null — a coluna fica travada no vínculo
+                                    antigo e some da receita/comissão de Dashboard, Financeiro e
+                                    Relatórios (que excluem tudo com pacote_cliente_id preenchido
+                                    pra não contar a venda do pacote duas vezes). Em edição, o
+                                    badge é só informativo. */}
+                                {!comandaExistenteId && (
+                                  <button onClick={() => desvincularPacote(agendamentoId)}
+                                    className="text-xs font-semibold text-text-4 hover:text-red flex-shrink-0">
+                                    Desvincular
+                                  </button>
+                                )}
                               </div>
                             );
                           }
