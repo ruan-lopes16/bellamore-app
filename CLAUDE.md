@@ -458,6 +458,65 @@ bruto (Dashboard, Financeiro e Relatórios somam `taxas_reserva` com `paga_em` p
 
 ---
 
+### Sessão 2026-09-24 — Fluxo "Esqueci minha senha" (web + mobile) + e-mail de convite pronto pra ativar
+
+*Escopo: usuário perguntou como se define a senha de um profissional novo ("Nova profissional"*
+*não tem campo de senha) — investigação revelou que o e-mail de convite (`invite-user.html`,*
+*já existia desde 23/07) nunca foi aplicado por falta de SMTP customizado no Supabase, e que*
+*não existia nenhum fluxo de "esqueci minha senha" no app. Escopo combinado: (A) deixar o*
+*convite pronto pra ativação (sem código novo, só infra pendente do usuário) e (B) construir*
+*o fluxo de redefinição de senha do zero. Web: `/esqueci-senha` (pede e-mail) +*
+*`/redefinir-senha` (define nova senha, reaproveita o padrão de `convite/aceitar`), link novo*
+*em `/login`. Mobile: nova tela `(auth)/esqueci-senha.tsx`, ligada ao botão "Esqueci a senha"*
+*que já existia na tela de login mas não tinha `onPress`. Novo template*
+*`supabase/email-templates/reset-password.html`, mesma identidade visual do convite.*
+*Implementado direto (escopo pequeno o bastante para dispensar spec/plano formais).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `npx tsc --noEmit` zerado no web; mobile manteve exatamente os mesmos 10 erros pré-existentes, nenhum nos 2 arquivos tocados |
+| UX / Padrões    | 9.0  | `/redefinir-senha` reaproveita a estrutura visual de `convite/aceitar` sem inventar padrão novo; tela mobile nova espelha `register.tsx`/`login.tsx` (mesmos componentes `Campo`, cores, tipografia) |
+| Segurança       | 9.0  | Sem tabela nova, sem RLS novo; copy da tela `/esqueci-senha` evita confirmar se o e-mail existe ("Se X estiver cadastrado..."), e `/redefinir-senha` chama `signOut()` após trocar a senha para forçar login explícito em vez de deixar a sessão de recovery aberta |
+| Documentação    | 8.0  | Sem README novo (escopo pequeno); nenhum helper puro novo que precisasse de JSDoc — toda a lógica é chamada direta ao Supabase Auth |
+| Arquitetura     | 9.0  | Reaproveita o `auth/callback` genérico já existente (não precisou mexer nele); mobile nunca precisa de deep link — o link do e-mail sempre abre a página web, mesmo padrão que o convite já usa |
+| Performance     | —    | Sem query nova — só chamadas diretas ao Supabase Auth (`resetPasswordForEmail`/`updateUser`) |
+| Visual (UI)     | 8.0  | `/esqueci-senha` e `/login` verificados ao vivo no navegador (formulário, envio, estado de sucesso); estado autenticado de `/redefinir-senha` não verificado — exige uma sessão de recovery real, que depende do SMTP ainda pendente |
+| **Completude**  | 8.5  | Código completo e testado nas duas plataformas; falta só a ação do usuário (SMTP + colar os 2 templates no Dashboard) para o e-mail sair de verdade |
+| **Proatividade**| 9.5  | Encontrei e corrigi um bug real ao testar no navegador: `/esqueci-senha` estava sendo bloqueada pelo middleware (`web/lib/auth/proxy-rules.ts` não tinha essa rota na lista de páginas públicas) e redirecionava pro login — travaria a feature inteira em produção. Também achei e liguei o botão "Esqueci a senha" do mobile, que já existia na tela mas nunca tinha funcionado |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem nota humana):** `8.9 / 10` → **A**
+
+**Bug encontrado e corrigido nesta sessão:**
+- `web/lib/auth/proxy-rules.ts`: `PUBLIC_PREFIXES` não incluía `/esqueci-senha` — a página nova
+  era tratada como rota protegida e o middleware redirecionava qualquer visitante (sem sessão,
+  como é o caso de quem esqueceu a senha) direto pro login antes mesmo de carregar o formulário.
+  Só descoberto porque a verificação visual no navegador rodou desta vez (com `.env.local`
+  copiado pro worktree, que não vem por padrão — git worktree não compartilha arquivos
+  ignorados pelo git). Corrigido adicionando `/esqueci-senha` à lista; `/redefinir-senha` não
+  precisou do mesmo tratamento porque ela só é acessada depois do `/auth/callback` já ter criado
+  a sessão (mesmo padrão comprovado de `/convite/aceitar`, testado lado a lado para confirmar).
+  Adicionado teste em `web/tests/unit/proxy-rules.test.ts` pra travar a regressão.
+
+**Pendências para produção:**
+- Configurar SMTP customizado no Supabase Dashboard (Authentication → Emails → SMTP Settings)
+  — sem isso nenhum dos dois templates (`invite-user.html`, `reset-password.html`) pode ser
+  editado nem enviado com a identidade do Bellamore; hoje os e-mails saem com o template
+  genérico do Supabase. Ação exclusiva do usuário — envolve colar credencial de um provedor
+  de e-mail, que não deve ser feita por mim.
+  **Decisão do usuário em 2026-09-24: adiado indefinidamente.** Ele só tem o domínio
+  `*.vercel.app` (não dá pra verificar em nenhum provedor de SMTP — nenhum aceita domínio que
+  você não controla o DNS) e não pretende registrar um domínio próprio por enquanto. **Sem
+  problema**: o fluxo de convite e de "esqueci senha" já funciona hoje via e-mail padrão do
+  Supabase (feio, sem a marca do Bellamore, e com rate limit baixo — mas funcional pra um time
+  pequeno). Não cobrar isso de novo; só retomar se o usuário mencionar domínio próprio.
+- Colar os dois templates (`supabase/email-templates/invite-user.html` e `reset-password.html`)
+  nos campos correspondentes do Dashboard (Invite user / Reset password) depois do SMTP pronto.
+- Visual autenticado de `/redefinir-senha` (formulário de nova senha, tela de sucesso) não
+  verificado — só dá pra testar de ponta a ponta depois do SMTP configurado.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
