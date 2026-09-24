@@ -468,7 +468,15 @@ export default function ComandaPage() {
     setClienteSel(cliente);
     setComandaExistenteId(comandaId);
     setErro(''); setDescontoPct(''); setSplits([]);
-    setPacoteLinks({});
+    // Semeia (só pra exibição — vincular pacote fica fora de escopo em
+    // edição de comanda já fechada, ver bloco abaixo) a partir do vínculo
+    // que já está gravado no banco, senão o badge "Sessão de pacote" some
+    // ao reabrir um atendimento que já estava corretamente vinculado.
+    const linksExistentes: Record<string, string> = {};
+    for (const ag of cliente.agendamentos) {
+      if (ag.pacote_cliente_id) linksExistentes[ag.id] = ag.pacote_cliente_id;
+    }
+    setPacoteLinks(linksExistentes);
     setPacoteVenderPorAgendamento({});
 
     const agItems: ComandaItem[] = cliente.agendamentos.flatMap(ag => {
@@ -1470,6 +1478,13 @@ export default function ComandaPage() {
                               </div>
                             );
                           }
+                          // Vincular/vender pacote novo fica fora de escopo ao editar uma
+                          // comanda já fechada: persistirValoresAgendamento() é chamado sem
+                          // vínculo nenhum nesse fluxo (editarComanda), então zerar o item
+                          // aqui gravaria R$0 sem nunca registrar a venda nem o vínculo —
+                          // perda de receita silenciosa. O badge acima continua mostrando o
+                          // vínculo já existente; só o seletor de criar um vínculo novo some.
+                          if (comandaExistenteId) return null;
                           const servicoId = item.servico_id;
                           const elegiveis = servicoId
                             ? pacotesClienteAtivos.filter(p => p.servicos.some(s => s.servico_id === servicoId))
