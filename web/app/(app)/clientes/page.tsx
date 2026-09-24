@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, UserPlus, Phone, Mail, X, ChevronRight, Users, UserCheck, CalendarPlus, Crown, AlertTriangle, Sparkles, LayoutGrid, List } from 'lucide-react';
+import { Search, UserPlus, Phone, Mail, X, ChevronRight, ChevronLeft, Users, UserCheck, CalendarPlus, Crown, AlertTriangle, Sparkles, LayoutGrid, List } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente } from '@/types';
@@ -154,6 +154,7 @@ export default function ClientesPage() {
   const [viewMode,       setViewMode]       = useState<'lista' | 'grade'>('lista');
   const [visitaMap,      setVisitaMap]      = useState<Map<string, { lastVisit: Date; total: number }> | null>(null);
   const [loadingVisitas, setLoadingVisitas] = useState(false);
+  const [segmentoAtivo,  setSegmentoAtivo]  = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -170,6 +171,10 @@ export default function ClientesPage() {
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    if (filtro !== 'segmentos') setSegmentoAtivo(null);
+  }, [filtro]);
 
   useEffect(() => {
     if (filtro !== 'segmentos' || !empresaId || visitaMap !== null) return;
@@ -364,12 +369,74 @@ export default function ClientesPage() {
           { label: 'Novos', desc: 'Cadastrados há menos de 30 dias', icon: Sparkles,    cor: 'var(--color-green)', bg: 'var(--color-green-soft)', clientes: novos,     qtd: novos.length },
         ];
 
+        function itemCliente(c: Cliente) {
+          let h = 0;
+          for (let i = 0; i < c.nome.length; i++) h = (h * 31 + c.nome.charCodeAt(i)) % 360;
+          const inits = c.nome.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
+          const v = visitaMap!.get(c.id);
+          return (
+            <button key={c.id} onClick={() => router.push(`/clientes/${c.id}`)}
+              className="press w-full text-left flex items-center gap-3 p-3 rounded-xl"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 12, flexShrink: 0, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 13 }}>
+                {inits}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-text truncate" style={{ fontFamily: 'var(--font-sans)' }}>{c.nome}</p>
+                <p className="text-xs text-text-4 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>
+                  {v ? `${v.total} atend. · último ${format(v.lastVisit, 'dd/MM/yy')}` : 'Sem atendimento'}
+                </p>
+              </div>
+              <ChevronRight size={14} className="text-text-4 flex-shrink-0"/>
+            </button>
+          );
+        }
+
+        const segAtivo = segmentos.find(s => s.label === segmentoAtivo) ?? null;
+
+        // ── Vista de um segmento único, com todos os clientes ──
+        if (segAtivo) {
+          const q = busca.toLowerCase().trim();
+          const lista = q
+            ? segAtivo.clientes.filter(c =>
+                c.nome.toLowerCase().includes(q) || c.telefone?.includes(q) || c.email?.toLowerCase().includes(q))
+            : segAtivo.clientes;
+          return (
+            <div className="mb-5">
+              <button onClick={() => setSegmentoAtivo(null)}
+                className="press flex items-center gap-1 mb-4 text-sm font-semibold" style={{ color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}>
+                <ChevronLeft size={16}/> Todos os segmentos
+              </button>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: segAtivo.bg }}>
+                  <segAtivo.icon size={16} style={{ color: segAtivo.cor }} strokeWidth={1.8}/>
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-lg leading-none" style={{ color: segAtivo.cor, fontFamily: 'var(--font-sans)' }}>{segAtivo.label} · {lista.length}</p>
+                  <p className="text-xs text-text-4 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>{segAtivo.desc}</p>
+                </div>
+              </div>
+              {lista.length === 0 ? (
+                <div className="rounded-2xl p-8 text-center" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                  <p className="text-sm text-text-3" style={{ fontFamily: 'var(--font-sans)' }}>Nenhum cliente encontrado.</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {lista.map(itemCliente)}
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // ── Visão geral: 4 KPIs clicáveis + prévia de cada segmento ──
         return (
           <div className="mb-5">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
               {segmentos.map(({ label, desc, icon: Icon, cor, bg, qtd }) => (
-                <div key={label} className="rounded-2xl p-4 flex items-center gap-3"
-                  style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.05)' }}>
+                <button key={label} onClick={() => setSegmentoAtivo(label)} disabled={qtd === 0}
+                  className="press rounded-2xl p-4 flex items-center gap-3 text-left"
+                  style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.05)', opacity: qtd === 0 ? 0.6 : 1, cursor: qtd === 0 ? 'default' : 'pointer' }}>
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
                     <Icon size={16} style={{ color: cor }} strokeWidth={1.8}/>
                   </div>
@@ -378,7 +445,7 @@ export default function ClientesPage() {
                     <p className="text-xs font-semibold text-text-2 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>{label}</p>
                     <p className="text-[10px] text-text-4 mt-0.5 truncate" style={{ fontFamily: 'var(--font-sans)' }}>{desc}</p>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
 
@@ -386,32 +453,12 @@ export default function ClientesPage() {
               <div key={label} className="mb-4">
                 <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: cor, fontFamily: 'var(--font-sans)' }}>{label}</p>
                 <div className="flex flex-col gap-2">
-                  {list.slice(0, 5).map(c => {
-                    let h = 0;
-                    for (let i = 0; i < c.nome.length; i++) h = (h * 31 + c.nome.charCodeAt(i)) % 360;
-                    const inits = c.nome.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
-                    const v = visitaMap.get(c.id);
-                    return (
-                      <button key={c.id} onClick={() => router.push(`/clientes/${c.id}`)}
-                        className="press w-full text-left flex items-center gap-3 p-3 rounded-xl"
-                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 12, flexShrink: 0, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 13 }}>
-                          {inits}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm text-text truncate" style={{ fontFamily: 'var(--font-sans)' }}>{c.nome}</p>
-                          <p className="text-xs text-text-4 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>
-                            {v ? `${v.total} atend. · último ${format(v.lastVisit, 'dd/MM/yy')}` : 'Sem atendimento'}
-                          </p>
-                        </div>
-                        <ChevronRight size={14} className="text-text-4 flex-shrink-0"/>
-                      </button>
-                    );
-                  })}
+                  {list.slice(0, 5).map(itemCliente)}
                   {list.length > 5 && (
-                    <p className="text-xs text-text-4 text-center py-1" style={{ fontFamily: 'var(--font-sans)' }}>
-                      +{list.length - 5} clientes neste segmento
-                    </p>
+                    <button onClick={() => setSegmentoAtivo(label)}
+                      className="press text-xs font-semibold text-center py-2" style={{ color: cor, fontFamily: 'var(--font-sans)' }}>
+                      Ver todos os {list.length} clientes →
+                    </button>
                   )}
                 </div>
               </div>

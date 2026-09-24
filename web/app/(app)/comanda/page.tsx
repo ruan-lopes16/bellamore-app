@@ -203,6 +203,10 @@ export default function ComandaPage() {
   );
   const [agsMes,            setAgsMes]            = useState<Map<string, number>>(new Map());
   const [comandaExistenteId, setComandaExistenteId] = useState<string | null>(null);
+  // Backlog de atendimentos já ocorridos (qualquer dia) sem comanda_id — não
+  // depende do dia selecionado, para avisar mesmo de dias que o usuário não
+  // está vendo agora.
+  const [backlog, setBacklog] = useState<{ id: string; data: Date }[]>([]);
 
   // Catálogos para pesquisa
   const [servicos,  setServicos]    = useState<{ id: string; nome: string; preco: number }[]>([]);
@@ -303,6 +307,28 @@ export default function ComandaPage() {
       setLoading(false);
     });
   }, [empresaId, dataComanda]);
+
+  // Backlog de comandas não fechadas — atendimentos já ocorridos (data_hora_fim
+  // passada), sem comanda_id, que não foram cancelados/faltaram. Cobre tanto
+  // quem esqueceu de fechar quanto o atalho "Marcar como concluído" do app
+  // mobile, que muda o status sem nunca gerar a comanda.
+  const fetchBacklog = useCallback(async (empId: string) => {
+    const { data } = await supabase.from('agendamentos')
+      .select('id, data_hora_inicio')
+      .eq('empresa_id', empId)
+      .is('comanda_id', null)
+      .not('status', 'in', '("cancelado","faltou")')
+      .lt('data_hora_fim', new Date().toISOString())
+      .order('data_hora_inicio', { ascending: true })
+      .limit(500);
+    setBacklog(((data ?? []) as { id: string; data_hora_inicio: string }[])
+      .map(r => ({ id: r.id, data: parseISO(r.data_hora_inicio) })));
+  }, []);
+
+  useEffect(() => {
+    if (!empresaId) return;
+    fetchBacklog(empresaId);
+  }, [empresaId, fetchBacklog]);
 
   // Contagem por dia para a visão mensal
   const fetchMes = useCallback(async (mes: Date, empId: string) => {
@@ -622,6 +648,7 @@ export default function ComandaPage() {
     setClienteSel(null);
     setComandaExistenteId(null);
     setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, descontoReserva: reciboDescontoReserva, data: new Date() });
+    if (empresaId) fetchBacklog(empresaId);
   }
 
   // ── Itens: adicionar/remover
@@ -869,6 +896,7 @@ export default function ComandaPage() {
     setProximoCliente(proximoClienteAberto(clienteSel.id));
     setClienteSel(null);
     setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, descontoReserva: reciboDescontoReserva, data: new Date() });
+    if (empresaId) fetchBacklog(empresaId);
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -932,6 +960,20 @@ export default function ComandaPage() {
               </button>
             </div>
           </div>}
+
+          {/* Alerta — comandas não fechadas (qualquer dia, não só o selecionado) */}
+          {backlog.length > 0 && (
+            <button
+              onClick={() => selecionarDia(backlog[0].data)}
+              className="press w-full flex items-center gap-2 mt-2 px-3 py-2 rounded-xl text-left"
+              style={{ background: 'var(--color-rose-soft)', border: '1px solid rgba(212,96,138,0.25)' }}>
+              <AlertCircle size={14} style={{ color: 'var(--color-rose)', flexShrink: 0 }} strokeWidth={2.5}/>
+              <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-rose)', lineHeight: 1.3 }}>
+                {backlog.length === 1 ? '1 comanda não fechada' : `${backlog.length} comandas não fechadas`}
+                {' · mais antiga '}{format(backlog[0].data, 'dd/MM')}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Conteúdo: lista de clientes ou calendário mensal */}
