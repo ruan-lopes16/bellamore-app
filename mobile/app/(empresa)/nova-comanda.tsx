@@ -62,6 +62,7 @@ type AgDia = {
   data_hora_inicio: string;
   status: string;
   valor: number;
+  comanda_id: string | null;
   pacote_cliente_id: string | null;
   cliente:      { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
@@ -155,7 +156,7 @@ export default function NovaComandaScreen() {
     const hoje = new Date();
     Promise.all([
       supabase.from('agendamentos')
-        .select(`id, data_hora_inicio, status, valor, pacote_cliente_id,
+        .select(`id, data_hora_inicio, status, valor, comanda_id, pacote_cliente_id,
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
           servico:servicos(id, nome, preco)`)
@@ -229,7 +230,7 @@ export default function NovaComandaScreen() {
     const agora = new Date();
     return clientesDia.find(c =>
       c.id !== excluirId &&
-      c.agendamentos.some(a => a.status !== 'concluido') &&
+      c.agendamentos.some(a => a.status !== 'concluido' || !a.comanda_id) &&
       c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
     ) ?? null;
   }
@@ -257,9 +258,13 @@ export default function NovaComandaScreen() {
     }
     setPacoteLinks(linksIniciais);
 
+    // Um atendimento "concluído" sem comanda_id (ex.: marcado direto pelo
+    // atalho de status, sem nunca passar por uma comanda) precisa continuar
+    // aparecendo aqui pra poder ser cobrado — senão a comanda nasce vazia em
+    // R$0. Só sai da lista quando já está vinculado a uma comanda de verdade.
     setItens(
       cliente.agendamentos
-        .filter(ag => ag.status !== 'concluido')
+        .filter(ag => ag.status !== 'concluido' || !ag.comanda_id)
         .map(ag => ({
           uid: uid(), tipo: 'agendamento', descricao: ag.servico?.nome ?? 'Serviço',
           profissional: ag.profissional?.nome, valor: ag.pacote_cliente_id ? 0 : ag.valor, quantidade: 1,
@@ -675,7 +680,11 @@ export default function NovaComandaScreen() {
         ) : (
           <ScrollView contentContainerStyle={{ padding: 12, gap: 8 }}>
             {clientesDia.map((cliente, idx) => {
-              const jaFeita = cliente.agendamentos.every(a => a.status === 'concluido');
+              // "Já cobrado" de verdade = concluído E com comanda vinculada.
+              // Concluído sem comanda_id (ex.: status mudado direto, sem
+              // nunca fechar) ainda tem algo a cobrar — não pode travar a
+              // linha, senão não existe outro jeito de fechar essa comanda.
+              const jaCobrado = cliente.agendamentos.every(a => a.status === 'concluido' && a.comanda_id);
               const ag1 = cliente.agendamentos[0];
               const hue = avatarHue(cliente.nome);
               return (
@@ -684,13 +693,13 @@ export default function NovaComandaScreen() {
                   animate={{ opacity: 1, translateY: 0 }}
                   transition={{ type: 'timing', duration: 300, delay: idx * 60 }}>
                   <TouchableOpacity
-                    onPress={() => !jaFeita && abrirComanda(cliente)}
-                    disabled={jaFeita}
+                    onPress={() => !jaCobrado && abrirComanda(cliente)}
+                    disabled={jaCobrado}
                     activeOpacity={0.7}
                     style={{
                       backgroundColor: C.surface, borderRadius: 16, padding: 14,
                       borderWidth: 1, borderColor: C.border,
-                      opacity: jaFeita ? 0.5 : 1,
+                      opacity: jaCobrado ? 0.5 : 1,
                     }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <LinearGradient colors={[`hsl(${hue},60%,50%)`, `hsl(${hue},50%,35%)`]}
@@ -705,7 +714,7 @@ export default function NovaComandaScreen() {
                           {fmtHora(ag1.data_hora_inicio)} · {ag1.servico?.nome ?? '—'}
                         </Text>
                       </View>
-                      {jaFeita ? (
+                      {jaCobrado ? (
                         <Check size={16} color={C.green} strokeWidth={2.5} />
                       ) : (
                         <ChevronRight size={16} color={C.text4} />

@@ -426,7 +426,7 @@ export default function ComandaPage() {
     const agora = new Date();
     return clientesDia.find(c =>
       c.id !== excluirId &&
-      c.agendamentos.some(a => a.status !== 'concluido') &&
+      c.agendamentos.some(a => a.status !== 'concluido' || !a.comanda_id) &&
       c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
     ) ?? null;
   }
@@ -450,10 +450,18 @@ export default function ComandaPage() {
     }
     setPacoteLinks(linksIniciais);
 
-    // Pré-preenche itens — cada serviço do agendamento vira um item separado
+    // Pré-preenche itens — cada serviço do agendamento vira um item separado.
+    // Um atendimento "concluído" some daqui SÓ se já está vinculado a uma
+    // comanda de verdade (comanda_id) — ou seja, já foi cobrado em outro
+    // lugar. Um atendimento "concluído" sem comanda_id (ex.: marcado direto
+    // pelo atalho do app, ou um caso do backlog do alerta "comandas não
+    // fechadas") precisa continuar aparecendo aqui pra poder ser cobrado —
+    // senão abrirComandaFechada() não acha comanda nenhuma, cai de volta
+    // pra cá, e esse filtro descartava o único jeito de cobrar por ele,
+    // fechando uma comanda vazia em R$0.
     setItens(
       cliente.agendamentos
-        .filter(ag => ag.status !== 'concluido')
+        .filter(ag => ag.status !== 'concluido' || !ag.comanda_id)
         .flatMap(ag => {
           const coberto = !!ag.pacote_cliente_id;
           const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
