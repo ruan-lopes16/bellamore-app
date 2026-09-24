@@ -124,6 +124,30 @@ export function useDashboard() {
     },
   });
 
+  // Comandas não fechadas — atendimentos já ocorridos (data_hora_fim passada),
+  // sem comanda_id, que não foram cancelados/faltaram. Cobre tanto quem
+  // esqueceu de fechar quanto o atalho "Marcar como concluído" desta tela,
+  // que muda o status sem nunca gerar a comanda (fechamento fica pendente).
+  const comandasNaoFechadas = useQuery({
+    queryKey: ['comandas-nao-fechadas', empresaId],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('agendamentos')
+        .select('id, data_hora_inicio')
+        .eq('empresa_id', empresaId!)
+        .is('comanda_id', null)
+        .not('status', 'in', '("cancelado","faltou")')
+        .lt('data_hora_fim', new Date().toISOString())
+        .order('data_hora_inicio', { ascending: true })
+        .limit(500);
+
+      if (error) throw error;
+      return data as { id: string; data_hora_inicio: string }[];
+    },
+  });
+
   const isLoading =
     agendamentosHoje.isLoading ||
     receitaHoje.isLoading ||
@@ -135,6 +159,7 @@ export function useDashboard() {
     receitaMes: receitaMes.data ?? 0,
     comissoesPendentes: comissoesPendentes.data ?? { quantidade: 0, total: 0 },
     estoqueBaixo: estoqueBaixo.data ?? [],
+    comandasNaoFechadas: comandasNaoFechadas.data ?? [],
     isLoading,
     refetch: () => {
       agendamentosHoje.refetch();
@@ -142,6 +167,7 @@ export function useDashboard() {
       receitaMes.refetch();
       comissoesPendentes.refetch();
       estoqueBaixo.refetch();
+      comandasNaoFechadas.refetch();
     },
   };
 }

@@ -458,6 +458,48 @@ bruto (Dashboard, Financeiro e Relatórios somam `taxas_reserva` com `paga_em` p
 
 ---
 
+### Sessão 2026-09-22 — Alerta de comandas não fechadas + KPIs de segmentos clicáveis
+
+*Escopo, pedido direto do usuário (sem spec/plano formais, escopo pequeno o bastante): (1) alerta*
+*para comandas não fechadas — badge no item "Comanda" da sidebar/bottom nav (web) e card na seção*
+*"Alertas" do Dashboard (mobile), mais um banner no topo da própria tela de Comanda (web) que pula*
+*direto pro dia mais antigo pendente; (2) em Clientes → Segmentos, os 4 cards de KPI (VIP/Em*
+*risco/Nunca retornou/Novos) viraram clicáveis e abrem a lista completa do segmento — antes cada*
+*segmento mostrava só os 5 primeiros clientes, sem nenhum jeito de ver o resto ("+N clientes neste*
+*segmento" era texto estático, não um link). Sem migration — os dois campos usados (`comanda_id`,*
+*`data_hora_fim`) já existiam desde a 001.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc --noEmit` zerado no web; mobile manteve os mesmos 9 erros pré-existentes (nenhum dos 2 arquivos tocados — `dashboard.tsx`, `useDashboard.ts` — aparece na lista) |
+| UX / Padrões    | 9.0  | KPI cards reaproveitam a mesma classe `press` + estilo de card já usado no resto do app; banner de comanda e card mobile reaproveitam a cor `rose`/`roseSoft` que o app já usa para alertas urgentes (ex.: badge de bloqueio pendente) |
+| Segurança       | —    | Sem tabela nova, sem RLS nova — leitura simples de `agendamentos`, já coberto pelas policies existentes |
+| Documentação    | 9.0  | Comentário no código explica por que o sinal certo é `comanda_id IS NULL` e não `status = 'concluido'` (ver Proatividade) |
+| Arquitetura     | 9.0  | Reaproveitado o padrão de alerta já existente (contagem paralela no `Promise.all` da Sidebar; card na seção "Alertas" do Dashboard mobile) em vez de criar um mecanismo novo; consulta de backlog no Comanda web independe do dia selecionado, então avisa mesmo de dias fora de vista |
+| Performance     | 9.0  | Contagens da Sidebar usam `count: 'exact', head: true` (sem baixar linhas); backlog do Comanda/Dashboard limitado a 500 linhas, ordenado pela mais antiga |
+| Visual (UI)     | —    | Sem conta de teste para login local — verificação visual não executada, como nas sessões anteriores. `.claude/launch.json` aponta pra um `cwd` que não existe neste worktree (achado fora de escopo, não corrigido — ver abaixo) |
+| **Completude**  | 9.0  | Web + mobile em ambos os pedidos; banner do Comanda web pula pro dia certo, card do Dashboard mobile abre o atendimento mais antigo pendente |
+| **Proatividade**| 9.5  | Descoberta central da sessão: no mobile, "Marcar como concluído" (`agendamento/[id].tsx`) muda `status` pra `concluido` sem nunca criar a `comanda` (sem `comanda_id`, sem `pagamentos`) — então `status = 'concluido'` sozinho NÃO prova que a comanda foi fechada financeiramente. O alerta usa `comanda_id IS NULL` (não status) exatamente por isso, cobrindo os dois casos: quem esqueceu de fechar e quem usou o atalho mobile. Sem essa checagem o alerta teria buracos silenciosos. `.claude/launch.json` com `cwd` inválido identificado e reportado ao usuário, não corrigido (fora do escopo pedido) |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Decisão de projeto — sinal de "comanda não fechada":** `agendamentos.comanda_id IS NULL`
+`AND status NOT IN ('cancelado','faltou') AND data_hora_fim < now()`. Não usa `status = 'concluido'`
+porque esse status pode ter sido setado pelo atalho mobile sem gerar comanda nenhuma (ver
+Proatividade acima). `cancelado`/`faltou` ficam de fora porque não geram serviço prestado — não
+precisam de comanda fechada.
+
+**Achado fora de escopo, não corrigido:** `.claude/launch.json` (raiz do repo, versionado desde o
+commit inicial) tem `cwd` apontando para `C:\Users\sruan\Documents\IA\app-estetica\App de estética\web`,
+um caminho que não existe — falta o segmento `ACBeauty` e não aponta para o worktree. Bloqueia
+`preview_start`/verificação visual em qualquer sessão neste worktree até ser corrigido.
+
+*Corrigido na sessão seguinte (2026-09-24), só localmente — `.claude/` é ignorado pelo git, então
+cada worktree novo precisa do mesmo ajuste manual até alguém decidir versionar um `cwd` relativo.*
+
+---
+
 ### Sessão 2026-09-24 — Fluxo "Esqueci minha senha" (web + mobile) + e-mail de convite pronto pra ativar
 
 *Escopo: usuário perguntou como se define a senha de um profissional novo ("Nova profissional"*
