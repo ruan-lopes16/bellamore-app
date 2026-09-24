@@ -79,6 +79,7 @@ export default function Sidebar({
   const router          = useRouter();
   const [alertCount,     setAlertCount]     = useState(0);
   const [comissoesCount, setComissoesCount] = useState(0);
+  const [comandasAbertasCount, setComandasAbertasCount] = useState(0);
   const [maisAberto,     setMaisAberto]     = useState(false);
   // O drawer "Mais" e lg:hidden — so existe no mobile/tablet.
   useScrollLock(maisAberto, { apenasMobile: true });
@@ -94,7 +95,7 @@ export default function Sidebar({
       const hoje   = new Date().toISOString().slice(0, 10);
       const daqui7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
-      const [estoque, despesas, comissoes] = await Promise.all([
+      const [estoque, despesas, comissoes, comandas] = await Promise.all([
         supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
           .eq('empresa_id', empresaId).eq('ativo', true),
         supabase.from('despesas').select('id', { count: 'exact', head: true })
@@ -102,11 +103,21 @@ export default function Sidebar({
           .gte('data_vencimento', hoje).lte('data_vencimento', daqui7),
         supabase.from('comissoes').select('id', { count: 'exact', head: true })
           .eq('empresa_id', empresaId).eq('status', 'pendente'),
+        // Atendimentos já ocorridos (data_hora_fim passada) sem comanda_id — o
+        // fechamento (INSERT em comandas + link do agendamento) nunca aconteceu.
+        // Cobre tanto quem esqueceu de fechar quanto o atalho "Marcar como
+        // concluído" do app mobile, que muda o status sem gerar comanda.
+        supabase.from('agendamentos').select('id', { count: 'exact', head: true })
+          .eq('empresa_id', empresaId).is('comanda_id', null)
+          .not('status', 'in', '("cancelado","faltou")')
+          .lt('data_hora_fim', new Date().toISOString()),
       ]);
 
       const comCount = comissoes.count ?? 0;
+      const comandasCount = comandas.count ?? 0;
       setComissoesCount(comCount);
-      const total = (estoque.count ?? 0) + (despesas.count ?? 0) + (comCount > 0 ? 1 : 0);
+      setComandasAbertasCount(comandasCount);
+      const total = (estoque.count ?? 0) + (despesas.count ?? 0) + (comCount > 0 ? 1 : 0) + (comandasCount > 0 ? 1 : 0);
       setAlertCount(total);
     })();
   }, [empresaId]);
@@ -166,6 +177,13 @@ export default function Sidebar({
                   <span className="ml-auto text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none"
                     style={{ background: 'var(--color-amber)' }}>
                     {comissoesCount > 99 ? '99+' : comissoesCount}
+                  </span>
+                )}
+                {href === '/comanda' && comandasAbertasCount > 0 && (
+                  <span className="ml-auto text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none"
+                    style={{ background: 'var(--color-rose)' }}
+                    title="Comandas não fechadas">
+                    {comandasAbertasCount > 99 ? '99+' : comandasAbertasCount}
                   </span>
                 )}
               </Link>
@@ -252,6 +270,10 @@ export default function Sidebar({
                 {label}
               </span>
               {href === '/agenda' && alertCount > 0 && (
+                <span className="absolute top-1.5 right-[calc(50%-6px)] w-1.5 h-1.5 rounded-full"
+                  style={{ background: 'var(--color-rose)' }} />
+              )}
+              {href === '/comanda' && comandasAbertasCount > 0 && (
                 <span className="absolute top-1.5 right-[calc(50%-6px)] w-1.5 h-1.5 rounded-full"
                   style={{ background: 'var(--color-rose)' }} />
               )}
