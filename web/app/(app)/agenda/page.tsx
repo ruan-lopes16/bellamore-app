@@ -2037,12 +2037,16 @@ export default function AgendaPage() {
       setMeuUserId(user.id);
       setMeuRole((membro?.role as string) ?? 'profissional');
       if (membro?.empresa_id) {
+        const souGestao = membro.role === 'owner' || membro.role === 'gestor';
         const [{ data: cats }, { data: profs }] = await Promise.all([
           supabase.from('categorias_servico').select('*')
             .eq('empresa_id', membro.empresa_id).order('nome'),
-          supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
-            .eq('empresa_id', membro.empresa_id)
-            .in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true),
+          souGestao
+            ? supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
+                .eq('empresa_id', membro.empresa_id)
+                .in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true)
+            : supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
+                .eq('empresa_id', membro.empresa_id).eq('user_id', user.id).limit(1),
         ]);
         setCategoriasCustom((cats ?? []) as CategoriaCustom[]);
         const membrosMapeados = ((profs ?? []) as any[])
@@ -2061,20 +2065,24 @@ export default function AgendaPage() {
     setLoading(true);
     const iniDia = startOfDay(data).toISOString();
     const fimDia = endOfDay(data).toISOString();
+    const souGestao = meuRole === 'owner' || meuRole === 'gestor';
+
+    let queryAgs = supabase
+      .from('agendamentos')
+      .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,
+        cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
+        profissional:users!agendamentos_profissional_id_fkey(id,nome),
+        servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
+        agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria,categoria_id))`)
+      .eq('empresa_id', empId)
+      .gte('data_hora_inicio', iniDia)
+      .lte('data_hora_inicio', fimDia)
+      .neq('status', 'cancelado')
+      .order('data_hora_inicio');
+    if (!souGestao && meuUserId) queryAgs = queryAgs.eq('profissional_id', meuUserId);
 
     const [{ data: rows }, { data: blRows }] = await Promise.all([
-      supabase
-        .from('agendamentos')
-        .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,
-          cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
-          profissional:users!agendamentos_profissional_id_fkey(id,nome),
-          servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
-          agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria,categoria_id))`)
-        .eq('empresa_id', empId)
-        .gte('data_hora_inicio', iniDia)
-        .lte('data_hora_inicio', fimDia)
-        .neq('status', 'cancelado')
-        .order('data_hora_inicio'),
+      queryAgs,
       supabase
         .from('agenda_bloqueios')
         .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
@@ -2086,7 +2094,7 @@ export default function AgendaPage() {
     setAgs((rows ?? []) as unknown as Ag[]);
     setBloqueios((blRows ?? []) as Bloqueio[]);
     setLoading(false);
-  }, []);
+  }, [meuRole, meuUserId]);
 
   // Busca contagem por dia para visão mensal
   const fetchMes = useCallback(async (mes: Date, empId: string) => {
