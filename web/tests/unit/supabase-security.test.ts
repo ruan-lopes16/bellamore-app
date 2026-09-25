@@ -27,4 +27,19 @@ describe('Supabase security migrations', () => {
     expect(migrations).toContain('"pacotes: gestor gerencia"');
     expect(migrations).toContain('"pacote_servicos: gestor gerencia"');
   });
+
+  it('meta pessoal só é escrita via funcao security definer restrita ao proprio usuario', () => {
+    const migrationsDir = join(process.cwd(), '..', 'supabase', 'migrations');
+    const migrations = readdirSync(migrationsDir)
+      .filter((file) => file.endsWith('.sql'))
+      .map((file) => readFileSync(join(migrationsDir, file), 'utf8').toLowerCase())
+      .join('\n');
+
+    expect(migrations).toContain('meta_mensal_pessoal');
+    expect(migrations).toContain('definir_minha_meta_mensal');
+    expect(migrations).toMatch(/definir_minha_meta_mensal[\s\S]*?security definer/);
+    // A função não pode abrir uma policy de UPDATE genérica em empresa_membros
+    // — só o campo meta_mensal_pessoal, só da própria linha.
+    expect(migrations).toMatch(/update public\.empresa_membros\s+set meta_mensal_pessoal/);
+  });
 });
