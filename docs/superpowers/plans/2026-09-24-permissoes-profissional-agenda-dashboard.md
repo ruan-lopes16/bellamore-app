@@ -91,7 +91,7 @@ begin
     from pg_policies
     where schemaname = 'public'
       and tablename in ('servicos', 'pacotes', 'pacote_servicos')
-      and cmd in ('INSERT', 'UPDATE', 'DELETE')
+      and cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
   end loop;
