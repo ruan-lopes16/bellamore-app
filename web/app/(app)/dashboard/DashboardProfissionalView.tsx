@@ -1,10 +1,11 @@
 import Link from 'next/link';
-import { CalendarDays, Wallet, BadgeDollarSign } from 'lucide-react';
+import { CalendarDays, Wallet, BadgeDollarSign, AlertTriangle, UserX } from 'lucide-react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import type { AppContext } from '@/lib/auth/server-context';
 import MetaPessoalCard from './MetaPessoalCard';
+import { classificarClientesReconquista, type VisitaClienteProfissional } from '@shared/dashboard-profissional';
 
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -41,7 +42,7 @@ export default async function DashboardProfissionalView({
   const inicioMes = startOfMonth(mesRef).toISOString();
   const fimMes     = endOfMonth(mesRef).toISOString();
 
-  const [{ data: agendaHoje }, { data: comissoesMes }, { data: membro }] = await Promise.all([
+  const [{ data: agendaHoje }, { data: comissoesMes }, { data: membro }, { data: historico }] = await Promise.all([
     supabase.from('agendamentos')
       .select('id, data_hora_inicio, status, valor, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
@@ -54,9 +55,33 @@ export default async function DashboardProfissionalView({
       .gte('created_at', inicioMes).lte('created_at', fimMes),
     supabase.from('empresa_membros').select('meta_mensal_pessoal')
       .eq('empresa_id', empresaId).eq('user_id', userId).single(),
+    supabase.from('agendamentos')
+      .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(id, nome)')
+      .eq('empresa_id', empresaId).eq('profissional_id', userId).eq('status', 'concluido')
+      .order('data_hora_inicio', { ascending: false })
+      .limit(2000),
   ]);
 
   const metaMensalPessoal = membro?.meta_mensal_pessoal != null ? Number(membro.meta_mensal_pessoal) : null;
+
+  // Histórico vem ordenado do mais recente pro mais antigo — a primeira
+  // ocorrência de cada cliente_id já é a última visita.
+  const visitasPorCliente = new Map<string, VisitaClienteProfissional>();
+  for (const ag of (historico ?? []) as any[]) {
+    if (!ag.cliente_id) continue;
+    const existente = visitasPorCliente.get(ag.cliente_id);
+    if (existente) {
+      existente.totalVisitas++;
+    } else {
+      visitasPorCliente.set(ag.cliente_id, {
+        clienteId: ag.cliente_id,
+        nome: ag.cliente?.nome ?? 'Cliente',
+        ultimaVisita: ag.data_hora_inicio,
+        totalVisitas: 1,
+      });
+    }
+  }
+  const { emRisco, naoRetornou } = classificarClientesReconquista(Array.from(visitasPorCliente.values()));
 
   const ags     = (agendaHoje ?? []) as any[];
   const fatHoje = ags.reduce((s, a) => s + Number(a.valor), 0);
@@ -139,6 +164,46 @@ export default async function DashboardProfissionalView({
           </div>
         )}
       </div>
+
+      {(emRisco.length > 0 || naoRetornou.length > 0) && (
+        <div className="mb-2">
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 10 }}>
+            Clientes para reconquistar
+          </p>
+          <div className="flex flex-col gap-2">
+            {naoRetornou.slice(0, 6).map((c) => (
+              <Link key={c.clienteId} href={`/clientes/${c.clienteId}`}
+                className="press flex items-center gap-3 p-3.5 rounded-2xl"
+                style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-bg)' }}>
+                  <UserX size={15} style={{ color: 'var(--color-ink3)' }} strokeWidth={2}/>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 13.5, fontWeight: 600, color: 'var(--color-ink)' }}>{c.nome}</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink4)', marginTop: 1 }}>
+                    Veio 1x há {c.diasSemVisita} dias e não voltou
+                  </p>
+                </div>
+              </Link>
+            ))}
+            {emRisco.slice(0, 6).map((c) => (
+              <Link key={c.clienteId} href={`/clientes/${c.clienteId}`}
+                className="press flex items-center gap-3 p-3.5 rounded-2xl"
+                style={{ background: 'var(--color-rose-soft)', border: '1px solid rgba(220,38,38,0.15)' }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#fff' }}>
+                  <AlertTriangle size={15} style={{ color: 'var(--color-rose)' }} strokeWidth={2}/>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 13.5, fontWeight: 600, color: 'var(--color-ink)' }}>{c.nome}</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-rose)', marginTop: 1 }}>
+                    {c.totalVisitas} atendimentos · sem vir há {c.diasSemVisita} dias
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
