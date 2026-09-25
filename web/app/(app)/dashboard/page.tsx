@@ -1,4 +1,7 @@
 import { getAppContext } from '@/lib/auth/server-context';
+import { temPermissao } from '@/lib/permissions';
+import type { PerfilRole } from '@/types';
+import DashboardProfissionalView from './DashboardProfissionalView';
 import Link from 'next/link';
 import { CountUp } from '@/components/CountUp';
 import { SparkBars } from '@/components/SparkBars';
@@ -85,7 +88,12 @@ function StatusChip({ status }: { status: string }) {
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ mes?: string }> }) {
-  const { supabase, empresaId, empresa, user } = await getAppContext();
+  const { supabase, empresaId, empresa, user, role } = await getAppContext();
+
+  const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
+  if (!temPermissao(efetivo, 'ver_resumo_financeiro')) {
+    return <DashboardProfissionalView supabase={supabase} empresaId={empresaId} userId={user.id} />;
+  }
 
   // Brazil is UTC-3 (no DST since 2019). Shift so getUTC* returns Brazil local values.
   const hoje     = new Date(Date.now() - 3 * 60 * 60 * 1000);
