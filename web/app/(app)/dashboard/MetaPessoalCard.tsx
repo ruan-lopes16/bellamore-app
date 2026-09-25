@@ -17,9 +17,10 @@ function fmt(v: number) {
 /** Meta mensal pessoal da profissional — distinta da meta da empresa. Ela
  * mesma define e altera; a mutação passa pela RPC `definir_minha_meta_mensal`
  * (migration 079), que só toca a própria linha/coluna. */
-export default function MetaPessoalCard({ metaInicial, faturamentoBrutoMes }: {
+export default function MetaPessoalCard({ metaInicial, faturamentoBrutoMes, empresaId }: {
   metaInicial: number | null;
   faturamentoBrutoMes: number;
+  empresaId: string;
 }) {
   const [meta,       setMeta]       = useState(metaInicial);
   const [editando,   setEditando]   = useState(false);
@@ -39,7 +40,7 @@ export default function MetaPessoalCard({ metaInicial, faturamentoBrutoMes }: {
     setErro('');
     if (!valorInput.trim()) {
       setSalvando(true);
-      const { error } = await supabase.rpc('definir_minha_meta_mensal', { p_valor: null });
+      const { error } = await supabase.rpc('definir_minha_meta_mensal', { p_valor: null, p_empresa_id: empresaId });
       setSalvando(false);
       if (error) { setErro(error.message); return; }
       setMeta(null); setEditando(false);
@@ -48,7 +49,7 @@ export default function MetaPessoalCard({ metaInicial, faturamentoBrutoMes }: {
     const valor = parseFloat(valorInput.replace(',', '.'));
     if (!Number.isFinite(valor) || valor < 0) { setErro('Valor inválido.'); return; }
     setSalvando(true);
-    const { error } = await supabase.rpc('definir_minha_meta_mensal', { p_valor: valor });
+    const { error } = await supabase.rpc('definir_minha_meta_mensal', { p_valor: valor, p_empresa_id: empresaId });
     setSalvando(false);
     if (error) { setErro(error.message); return; }
     setMeta(valor); setEditando(false);

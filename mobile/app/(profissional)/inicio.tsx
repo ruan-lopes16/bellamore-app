@@ -46,7 +46,11 @@ function fmtBRL(v: number) {
 
 // ── Card de meta pessoal ──────────────────────────────────────
 
-function MetaPessoalCard({ meta, faturamentoBruto }: { meta: number | null; faturamentoBruto: number }) {
+// `empresaId` não é usado diretamente aqui — `useDefinirMetaPessoal` já lê a
+// empresa ativa via seu próprio `useAuthStore()` (fix da migration 079,
+// escopo por empresa). O prop existe pra deixar explícito, no call site,
+// que este card é sempre relativo à empresa em foco na tela.
+function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number | null; faturamentoBruto: number; empresaId: string }) {
   const definirMeta = useDefinirMetaPessoal();
   const [editando, setEditando] = useState(false);
   const [valor, setValor] = useState(meta ? String(meta) : '');
@@ -55,6 +59,9 @@ function MetaPessoalCard({ meta, faturamentoBruto }: { meta: number | null; fatu
   async function salvar() {
     const num = valor.trim() ? parseFloat(valor.replace(',', '.')) : null;
     if (valor.trim() && (!Number.isFinite(num) || (num as number) < 0)) return;
+    // p_empresa_id é resolvido dentro de useDefinirMetaPessoal (empresaAtiva
+    // do próprio hook) — não duplicar aqui pra não dar type error na
+    // mutationFn, que só aceita o valor numérico.
     await definirMeta.mutateAsync(num);
     setEditando(false);
   }
@@ -164,7 +171,7 @@ export default function Inicio() {
           ))}
         </View>
 
-        <MetaPessoalCard meta={meta ?? null} faturamentoBruto={resumoMes?.faturamentoBruto ?? 0} />
+        <MetaPessoalCard meta={meta ?? null} faturamentoBruto={resumoMes?.faturamentoBruto ?? 0} empresaId={empresaAtiva?.id ?? ''} />
 
         {/* Agenda de hoje */}
         <View style={{ marginHorizontal: 24, marginBottom: 20 }}>

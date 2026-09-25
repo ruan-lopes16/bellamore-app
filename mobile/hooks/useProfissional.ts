@@ -327,12 +327,15 @@ export function useMetaPessoal() {
   });
 }
 
-/** Define/limpa (valor null) a meta pessoal via RPC restrita à própria linha. */
+/** Define/limpa (valor null) a meta pessoal via RPC restrita à própria linha
+ * e à empresa ativa (uma profissional pode estar em 2+ empresas — sem o
+ * filtro de empresa, definir a meta numa sobrescreveria a meta em todas). */
 export function useDefinirMetaPessoal() {
+  const { empresaAtiva } = useAuthStore();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (valor: number | null) => {
-      const { error } = await supabase.rpc('definir_minha_meta_mensal', { p_valor: valor });
+      const { error } = await supabase.rpc('definir_minha_meta_mensal', { p_valor: valor, p_empresa_id: empresaAtiva?.id });
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['prof-meta-pessoal'] }),
@@ -357,12 +360,14 @@ export function useClientesReconquistaProfissional() {
     enabled: !!userId && !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('agendamentos')
         .select('cliente_id, data_hora_inicio, cliente:users!agendamentos_cliente_id_fkey(id, nome)')
         .eq('empresa_id', empresaId!).eq('profissional_id', userId!).eq('status', 'concluido')
         .order('data_hora_inicio', { ascending: false })
         .limit(2000);
+
+      if (error) throw error;
 
       // Ordenado do mais recente pro mais antigo — a 1a ocorrência de cada
       // cliente_id já é a última visita.

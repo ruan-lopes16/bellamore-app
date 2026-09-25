@@ -126,7 +126,7 @@ export default async function DashboardProfissionalView({
         ))}
       </div>
 
-      <MetaPessoalCard metaInicial={metaMensalPessoal} faturamentoBrutoMes={faturamentoBrutoMes} />
+      <MetaPessoalCard metaInicial={metaMensalPessoal} faturamentoBrutoMes={faturamentoBrutoMes} empresaId={empresaId} />
 
       {/* Agenda de hoje */}
       <div className="mb-7">

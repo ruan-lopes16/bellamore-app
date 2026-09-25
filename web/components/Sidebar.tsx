@@ -19,13 +19,13 @@ const supabase = createClient();
 
 // Itens principais da sidebar desktop
 const NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
+  { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard },
   { href: '/agenda',       label: 'Agenda',       icon: CalendarDays    },
   { href: '/comanda',      label: 'Comanda',      icon: Receipt         },
   { href: '/vendas',       label: 'Vendas',       icon: ShoppingCart,    permissao: 'gerenciar_vendas'       },
   { href: '/clientes',     label: 'Clientes',     icon: Users           },
   { href: '/financeiro',   label: 'Financeiro',   icon: DollarSign,      permissao: 'ver_resumo_financeiro' },
-  { href: '/servicos',     label: 'Serviços',     icon: Scissors,        permissao: 'gerenciar_servicos'     },
+  { href: '/servicos',     label: 'Serviços',     icon: Scissors,        permissao: 'ver_servicos'     },
   { href: '/pacotes',      label: 'Pacotes',      icon: Gift            },
   { href: '/equipe',       label: 'Equipe',       icon: UserCog,         permissao: 'gerenciar_profissionais' },
   { href: '/comissoes',    label: 'Comissões',    icon: Banknote,        permissao: 'ver_propria_comissao'   },
@@ -41,7 +41,7 @@ const BOTTOM_NAV_DESKTOP: { href: string; label: string; icon: React.ElementType
 // 5 abas do bottom nav mobile (design Bellamore) — sem permissão condicionada.
 // Comanda no bottom nav; Financeiro vive em "Mais" e some de lá quando restrito.
 const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/dashboard',  label: 'Início',   icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
+  { href: '/dashboard',  label: 'Início',   icon: LayoutDashboard },
   { href: '/agenda',     label: 'Agenda',   icon: CalendarDays    },
   { href: '/clientes',   label: 'Clientes', icon: Users           },
   { href: '/comanda',    label: 'Comanda',  icon: Receipt         },
@@ -52,7 +52,7 @@ const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permis
 const MAIS_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
   { href: '/financeiro',   label: 'Financeiro',    icon: DollarSign,   permissao: 'ver_resumo_financeiro'  },
   { href: '/vendas',       label: 'Vendas',        icon: ShoppingCart, permissao: 'gerenciar_vendas'        },
-  { href: '/servicos',     label: 'Serviços',      icon: Scissors,     permissao: 'gerenciar_servicos'     },
+  { href: '/servicos',     label: 'Serviços',      icon: Scissors,     permissao: 'ver_servicos'     },
   { href: '/pacotes',      label: 'Pacotes',       icon: Gift         },
   { href: '/equipe',       label: 'Equipe',        icon: UserCog,      permissao: 'gerenciar_profissionais' },
   { href: '/comissoes',    label: 'Comissões',     icon: Banknote,     permissao: 'ver_propria_comissao'   },

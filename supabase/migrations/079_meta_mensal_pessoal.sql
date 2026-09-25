@@ -12,7 +12,7 @@
 alter table public.empresa_membros
   add column if not exists meta_mensal_pessoal numeric(10,2);
 
-create or replace function public.definir_minha_meta_mensal(p_valor numeric)
+create or replace function public.definir_minha_meta_mensal(p_valor numeric, p_empresa_id uuid)
 returns void
 language plpgsql
 security definer
@@ -26,8 +26,9 @@ begin
   update public.empresa_membros
   set meta_mensal_pessoal = p_valor
   where user_id = auth.uid()
-    and ativo = true;
+    and ativo = true
+    and empresa_id = p_empresa_id;
 end;
 $$;
 
-grant execute on function public.definir_minha_meta_mensal(numeric) to authenticated;
+grant execute on function public.definir_minha_meta_mensal(numeric, uuid) to authenticated;
