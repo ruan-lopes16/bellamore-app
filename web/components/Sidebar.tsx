@@ -85,6 +85,7 @@ export default function Sidebar({
   useScrollLock(maisAberto, { apenasMobile: true });
 
   const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
+  const podeVerEstoque = temPermissao(efetivo, 'gerenciar_estoque');
   const navFiltrado          = NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
   const bottomNavFiltrado    = BOTTOM_NAV_DESKTOP.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
   const mobileNavFiltrado    = MOBILE_NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
@@ -96,8 +97,10 @@ export default function Sidebar({
       const daqui7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
       const [estoque, despesas, comissoes, comandas] = await Promise.all([
-        supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empresaId).eq('ativo', true),
+        podeVerEstoque
+          ? supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
+              .eq('empresa_id', empresaId).eq('ativo', true)
+          : Promise.resolve({ count: 0 } as { count: number | null }),
         supabase.from('despesas').select('id', { count: 'exact', head: true })
           .eq('empresa_id', empresaId).eq('status', 'pendente')
           .gte('data_vencimento', hoje).lte('data_vencimento', daqui7),
@@ -120,7 +123,7 @@ export default function Sidebar({
       const total = (estoque.count ?? 0) + (despesas.count ?? 0) + (comCount > 0 ? 1 : 0) + (comandasCount > 0 ? 1 : 0);
       setAlertCount(total);
     })();
-  }, [empresaId]);
+  }, [empresaId, podeVerEstoque]);
 
   async function sair() {
     await supabase.auth.signOut();
