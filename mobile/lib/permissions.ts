@@ -13,8 +13,10 @@ type Permissao =
   | 'ver_proprios_agendamentos'
   | 'gerenciar_profissionais'
   | 'gerenciar_servicos'
+  | 'ver_servicos'
   | 'gerenciar_produtos'
   | 'gerenciar_estoque'
+  | 'gerenciar_pacotes'
   | 'ver_comissoes_todas'
   | 'ver_propria_comissao'
   | 'ver_todos_clientes'
@@ -31,8 +33,10 @@ const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
     'ver_proprios_agendamentos',
     'gerenciar_profissionais',
     'gerenciar_servicos',
+    'ver_servicos',
     'gerenciar_produtos',
     'gerenciar_estoque',
+    'gerenciar_pacotes',
     'ver_comissoes_todas',
     'ver_propria_comissao',
     'ver_todos_clientes',
@@ -47,8 +51,10 @@ const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
     'ver_proprios_agendamentos',
     'gerenciar_profissionais',
     'gerenciar_servicos',
+    'ver_servicos',
     'gerenciar_produtos',
     'gerenciar_estoque',
+    'gerenciar_pacotes',
     'ver_comissoes_todas',
     'ver_propria_comissao',
     'ver_todos_clientes',
@@ -60,6 +66,7 @@ const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
     'ver_propria_comissao',
     'ver_anamnese',
     'fechar_comanda',
+    'ver_servicos',
   ],
   cliente: [],
 };
@@ -78,7 +85,7 @@ export function rotaInicial(role: PerfilRole | 'owner'): string {
     case 'gestor':
       return '/(empresa)/dashboard';
     case 'profissional':
-      return '/(profissional)/agenda';
+      return '/(profissional)/inicio';
     case 'cliente':
       return '/(cliente)/inicio';
     default:
