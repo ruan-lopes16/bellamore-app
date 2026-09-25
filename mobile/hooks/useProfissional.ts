@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { resolverCategoria, type AgendamentoCompleto, type BloqueioAgenda } from '@/hooks/useAgenda';
 import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bloqueios';
+import { classificarClientesReconquista, type VisitaClienteProfissional } from '@shared/dashboard-profissional';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ export interface ResumoComissoes {
   pendente: number;
   atendimentos: number;
   ticketMedio: number;
+  /** Soma de valor_servico (preço do serviço, não a comissão) do período. */
+  faturamentoBruto: number;
 }
 
 // ── Agenda da profissional (dia) ─────────────────────────────
@@ -174,7 +177,7 @@ export function useComissoesProfissional(mesRef: Date, filtro: 'todas' | 'penden
 
 // ── Resumo de comissões do mês ───────────────────────────────
 
-export function useResumoComissoes(mesRef: Date): { data: ResumoComissoes | null; isLoading: boolean } {
+export function useResumoComissoes(mesRef: Date): { data: ResumoComissoes | null; isLoading: boolean; refetch: () => void } {
   const { user, empresaAtiva } = useAuthStore();
   const userId    = user?.id;
   const empresaId = empresaAtiva?.id;
@@ -187,24 +190,25 @@ export function useResumoComissoes(mesRef: Date): { data: ResumoComissoes | null
     queryFn: async () => {
       const { data } = await supabase
         .from('comissoes')
-        .select('valor_comissao, status')
+        .select('valor_servico, valor_comissao, status')
         .eq('profissional_id', userId!)
         .eq('empresa_id', empresaId!)
         .gte('created_at', startOfMonth(mesRef).toISOString())
         .lte('created_at', endOfMonth(mesRef).toISOString());
 
       const items = data ?? [];
-      const total      = items.reduce((s, c) => s + Number(c.valor_comissao), 0);
-      const pago       = items.filter((c) => c.status === 'pago').reduce((s, c) => s + Number(c.valor_comissao), 0);
-      const pendente   = items.filter((c) => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
-      const atendimentos = items.length;
-      const ticketMedio = atendimentos > 0 ? Math.round(total / atendimentos) : 0;
+      const total            = items.reduce((s, c) => s + Number(c.valor_comissao), 0);
+      const pago             = items.filter((c) => c.status === 'pago').reduce((s, c) => s + Number(c.valor_comissao), 0);
+      const pendente          = items.filter((c) => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
+      const atendimentos      = items.length;
+      const ticketMedio       = atendimentos > 0 ? Math.round(total / atendimentos) : 0;
+      const faturamentoBruto  = items.reduce((s, c) => s + Number(c.valor_servico), 0);
 
-      return { total, pago, pendente, atendimentos, ticketMedio } as ResumoComissoes;
+      return { total, pago, pendente, atendimentos, ticketMedio, faturamentoBruto } as ResumoComissoes;
     },
   });
 
-  return { data: query.data ?? null, isLoading: query.isLoading };
+  return { data: query.data ?? null, isLoading: query.isLoading, refetch: query.refetch };
 }
 
 // ── Dias com agendamentos da profissional (dots) ─────────────
@@ -299,5 +303,85 @@ export function useCriarBloqueioProfissional() {
       return data as { id: string; situacao: 'aprovado' | 'pendente' };
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['bloqueios-prof-dia'] }),
+  });
+}
+
+// ── Meta mensal pessoal ──────────────────────────────────────
+
+/** Busca a meta pessoal (distinta da meta_mensal da empresa). null = sem meta. */
+export function useMetaPessoal() {
+  const { user, empresaAtiva } = useAuthStore();
+  const userId    = user?.id;
+  const empresaId = empresaAtiva?.id;
+
+  return useQuery({
+    queryKey: ['prof-meta-pessoal', userId, empresaId],
+    enabled: !!userId && !!empresaId,
+    staleTime: 1000 * 60,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('empresa_membros').select('meta_mensal_pessoal')
+        .eq('user_id', userId!).eq('empresa_id', empresaId!).single();
+      return data?.meta_mensal_pessoal != null ? Number(data.meta_mensal_pessoal) : null;
+    },
+  });
+}
+
+/** Define/limpa (valor null) a meta pessoal via RPC restrita à própria linha. */
+export function useDefinirMetaPessoal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (valor: number | null) => {
+      const { error } = await supabase.rpc('definir_minha_meta_mensal', { p_valor: valor });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['prof-meta-pessoal'] }),
+  });
+}
+
+// ── Clientes para reconquistar ───────────────────────────────
+
+/**
+ * Clientes que a profissional já atendeu, classificados em "em risco"
+ * (2+ visitas, 45+ dias sem voltar) e "não retornou" (1 visita só, 30+
+ * dias). Mesma regra pura de `shared/dashboard-profissional.ts` usada no
+ * dashboard web.
+ */
+export function useClientesReconquistaProfissional() {
+  const { user, empresaAtiva } = useAuthStore();
+  const userId    = user?.id;
+  const empresaId = empresaAtiva?.id;
+
+  return useQuery({
+    queryKey: ['prof-reconquista', userId, empresaId],
+    enabled: !!userId && !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('agendamentos')
+        .select('cliente_id, data_hora_inicio, cliente:users!agendamentos_cliente_id_fkey(id, nome)')
+        .eq('empresa_id', empresaId!).eq('profissional_id', userId!).eq('status', 'concluido')
+        .order('data_hora_inicio', { ascending: false })
+        .limit(2000);
+
+      // Ordenado do mais recente pro mais antigo — a 1a ocorrência de cada
+      // cliente_id já é a última visita.
+      const visitasPorCliente = new Map<string, VisitaClienteProfissional>();
+      for (const ag of (data ?? []) as any[]) {
+        if (!ag.cliente_id) continue;
+        const existente = visitasPorCliente.get(ag.cliente_id);
+        if (existente) {
+          existente.totalVisitas++;
+        } else {
+          visitasPorCliente.set(ag.cliente_id, {
+            clienteId: ag.cliente_id,
+            nome: ag.cliente?.nome ?? 'Cliente',
+            ultimaVisita: ag.data_hora_inicio,
+            totalVisitas: 1,
+          });
+        }
+      }
+      return classificarClientesReconquista(Array.from(visitasPorCliente.values()));
+    },
   });
 }
