@@ -103,6 +103,7 @@ export default function Dashboard() {
   const insets = useSafeAreaInsets();
   const { user, empresaAtiva, isOwner, roleAtivo } = useAuthStore();
   const role = isOwner ? 'owner' : (roleAtivo ?? 'gestor');
+  const podeVerEstoque = temPermissao(role, 'gerenciar_estoque');
 
   const {
     agendamentosHoje,
@@ -830,7 +831,7 @@ export default function Dashboard() {
         </MotiView>
 
         {/* ── Alertas ── */}
-        {(estoqueBaixo.length > 0 || comissoesPendentes.quantidade > 0 || comandasNaoFechadas.length > 0) && (
+        {((podeVerEstoque && estoqueBaixo.length > 0) || comissoesPendentes.quantidade > 0 || comandasNaoFechadas.length > 0) && (
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -854,51 +855,53 @@ export default function Dashboard() {
             </View>
 
             <View style={{ marginHorizontal: 24, gap: 6 }}>
-              {estoqueBaixo.map((produto) => (
-                <TouchableOpacity
-                  key={produto.id}
-                  onPress={() => router.push('/(empresa)/estoque' as any)}
-                  style={{
-                    backgroundColor: C.amberSoft,
-                    borderWidth: 1,
-                    borderColor: 'rgba(180,83,9,0.12)',
-                    borderRadius: 14,
-                    padding: 12,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 12,
-                  }}
-                >
-                  <View style={{
-                    width: 30, height: 30,
-                    backgroundColor: 'rgba(180,83,9,0.1)',
-                    borderRadius: 8,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{
-                      fontFamily: 'PlusJakartaSans_600SemiBold',
-                      fontSize: 12,
-                      color: C.amber,
-                      lineHeight: 16,
+              {podeVerEstoque && (
+                estoqueBaixo.map((produto) => (
+                  <TouchableOpacity
+                    key={produto.id}
+                    onPress={() => router.push('/(empresa)/estoque' as any)}
+                    style={{
+                      backgroundColor: C.amberSoft,
+                      borderWidth: 1,
+                      borderColor: 'rgba(180,83,9,0.12)',
+                      borderRadius: 14,
+                      padding: 12,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <View style={{
+                      width: 30, height: 30,
+                      backgroundColor: 'rgba(180,83,9,0.1)',
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}>
-                      Estoque baixo: {produto.nome}
-                    </Text>
-                    <Text style={{
-                      fontFamily: 'PlusJakartaSans_400Regular',
-                      fontSize: 10,
-                      color: C.text3,
-                      marginTop: 1,
-                    }}>
-                      {produto.estoque_atual} un. restantes · mínimo: {produto.estoque_minimo}
-                    </Text>
-                  </View>
-                  <ChevronRight size={14} color={C.amber} strokeWidth={2} />
-                </TouchableOpacity>
-              ))}
+                      <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontFamily: 'PlusJakartaSans_600SemiBold',
+                        fontSize: 12,
+                        color: C.amber,
+                        lineHeight: 16,
+                      }}>
+                        Estoque baixo: {produto.nome}
+                      </Text>
+                      <Text style={{
+                        fontFamily: 'PlusJakartaSans_400Regular',
+                        fontSize: 10,
+                        color: C.text3,
+                        marginTop: 1,
+                      }}>
+                        {produto.estoque_atual} un. restantes · mínimo: {produto.estoque_minimo}
+                      </Text>
+                    </View>
+                    <ChevronRight size={14} color={C.amber} strokeWidth={2} />
+                  </TouchableOpacity>
+                ))
+              )}
 
               {comandasNaoFechadas.length > 0 && (
                 <TouchableOpacity

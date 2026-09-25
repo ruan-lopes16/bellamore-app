@@ -33,7 +33,8 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { avancarComEnter } from '@/lib/formNav';
-import type { Cliente as ClienteBase, Servico as ServicoBase } from '@/types';
+import type { Cliente as ClienteBase, Servico as ServicoBase, PerfilRole } from '@/types';
+import { temPermissao } from '@/lib/permissions';
 import { ExportButton } from '@/components/ExportButton';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -732,8 +733,11 @@ function SessoesModal({
 
 export default function PacotesPage() {
   const [empresaId, setEmpresaId] = useState<string | null>(null);
+  const [role,      setRole]      = useState<string | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [aba,       setAba]       = useState<'catalogo' | 'vendidos' | 'relatorio'>('catalogo');
+
+  const podeGerenciarCatalogo = temPermissao((role ?? 'profissional') as 'owner' | PerfilRole, 'gerenciar_pacotes');
 
   // Dados
   const [pacotes,   setPacotes]   = useState<Pacote[]>([]);
@@ -766,9 +770,9 @@ export default function PacotesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data } = await supabase
-        .from('empresa_membros').select('empresa_id')
+        .from('empresa_membros').select('empresa_id, role')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (data) setEmpresaId(data.empresa_id);
+      if (data) { setEmpresaId(data.empresa_id); setRole(data.role); }
     })();
   }, []);
 
@@ -1015,10 +1019,12 @@ export default function PacotesPage() {
               getData={() => relatorio?.porPacote ?? []}
             />
           )}
-          <button onClick={() => setModalPacote('novo')}
-            className="flex items-center gap-2 h-10 px-4 rounded-xl bg-primary text-white text-sm font-semibold hover:opacity-90 transition shadow-sm">
-            <Plus size={16}/> Novo pacote
-          </button>
+          {podeGerenciarCatalogo && (
+            <button onClick={() => setModalPacote('novo')}
+              className="flex items-center gap-2 h-10 px-4 rounded-xl bg-primary text-white text-sm font-semibold hover:opacity-90 transition shadow-sm">
+              <Plus size={16}/> Novo pacote
+            </button>
+          )}
         </div>
       </div>
 
@@ -1069,10 +1075,12 @@ export default function PacotesPage() {
           <div className="text-center py-16">
             <Gift size={36} className="mx-auto mb-3 text-text-4"/>
             <p className="text-text-3 text-sm">Nenhum pacote criado ainda.</p>
-            <button onClick={() => setModalPacote('novo')}
-              className="mt-4 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:opacity-90 transition">
-              Criar primeiro pacote
-            </button>
+            {podeGerenciarCatalogo && (
+              <button onClick={() => setModalPacote('novo')}
+                className="mt-4 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:opacity-90 transition">
+                Criar primeiro pacote
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1128,20 +1136,24 @@ export default function PacotesPage() {
                       className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition disabled:opacity-40">
                       {p.servicos.length === 0 ? '⚠ Sem serviços' : 'Vender'}
                     </button>
-                    <button onClick={() => setModalPacote(p)}
-                      className="w-8 h-8 rounded-lg border border-border hover:bg-bg flex items-center justify-center text-text-3 transition">
-                      <Edit3 size={13}/>
-                    </button>
-                    <button onClick={() => toggleAtivo(p)}
-                      title={p.ativo ? 'Desativar' : 'Reativar'}
-                      className="w-8 h-8 rounded-lg border border-border hover:bg-bg flex items-center justify-center text-text-3 transition">
-                      {p.ativo ? <X size={13}/> : <Check size={13}/>}
-                    </button>
-                    <button onClick={() => pedirExclusao(p)}
-                      title="Excluir pacote"
-                      className="w-8 h-8 rounded-lg border border-border hover:bg-red-soft hover:border-red/30 flex items-center justify-center text-text-3 hover:text-red transition">
-                      <Trash2 size={13}/>
-                    </button>
+                    {podeGerenciarCatalogo && (
+                      <>
+                        <button onClick={() => setModalPacote(p)}
+                          className="w-8 h-8 rounded-lg border border-border hover:bg-bg flex items-center justify-center text-text-3 transition">
+                          <Edit3 size={13}/>
+                        </button>
+                        <button onClick={() => toggleAtivo(p)}
+                          title={p.ativo ? 'Desativar' : 'Reativar'}
+                          className="w-8 h-8 rounded-lg border border-border hover:bg-bg flex items-center justify-center text-text-3 transition">
+                          {p.ativo ? <X size={13}/> : <Check size={13}/>}
+                        </button>
+                        <button onClick={() => pedirExclusao(p)}
+                          title="Excluir pacote"
+                          className="w-8 h-8 rounded-lg border border-border hover:bg-red-soft hover:border-red/30 flex items-center justify-center text-text-3 hover:text-red transition">
+                          <Trash2 size={13}/>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
