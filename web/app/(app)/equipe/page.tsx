@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog, ChevronDown, CheckCircle2,
+  Eye, EyeOff, Copy, Check, Sparkles,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -61,6 +62,13 @@ function fmtBRL(v: number) {
 const inputClass = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5";
 
+function gerarSenha() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 10; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
 // ── Modal adicionar profissional ──────────────────────────────
 
 function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
@@ -73,19 +81,28 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   const [nome,          setNome]          = useState('');
   const [telefone,      setTelefone]      = useState('');
   const [email,         setEmail]         = useState('');
-  const [enviarConvite, setEnviarConvite] = useState(true);
+  const [modoAcesso,    setModoAcesso]    = useState<'convite' | 'senha'>('convite');
+  const [senha,         setSenha]         = useState('');
+  const [verSenha,      setVerSenha]      = useState(false);
   const [comissao,      setComissao]      = useState('0');
   const [role,          setRole]          = useState<'gestor' | 'profissional'>('profissional');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
-
-  const temEmail = email.trim().length > 0;
+  const [credenciais,   setCredenciais]   = useState<{ email: string; senha: string } | null>(null);
+  const [copiado,       setCopiado]       = useState(false);
+  const [membroPendente, setMembroPendente] = useState<Profissional | null>(null);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
-    setErro(''); setSalvando(true);
+    setErro('');
 
-    const usarConvite = temEmail && enviarConvite;
+    if (modoAcesso === 'senha' && senha.length < 6) {
+      setErro('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    setSalvando(true);
+    const usarConvite = modoAcesso === 'convite';
     const res = await fetch(usarConvite ? '/api/convites' : '/api/profissionais', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -93,7 +110,8 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
         empresaId,
         nome:                 nome.trim(),
         telefone:             telefone.trim() || null,
-        email:                email.trim() || null,
+        email:                email.trim(),
+        senha:                usarConvite ? undefined : senha,
         percentual_comissao:  parseFloat(comissao) || 0,
         role,
       }),
@@ -104,11 +122,67 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
 
     if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
 
+    const membro = { ...json.membro, total_mes: 0, atendimentos_mes: 0 };
+
+    if (!usarConvite && json.status === 'criado') {
+      // Senha definida agora numa conta nova — mostra pra copiar antes de fechar.
+      setMembroPendente(membro);
+      setCredenciais({ email: email.trim(), senha });
+      return;
+    }
+
     onSalvo(
-      { ...json.membro, total_mes: 0, atendimentos_mes: 0 },
+      membro,
       json.status === 'convite_enviado'
         ? `Convite enviado! ${nome.trim()} vai receber um e-mail para criar a senha.`
-        : undefined,
+        : json.status === 'adicionado'
+          ? `${nome.trim()} já tinha conta e foi adicionada à equipe.`
+          : undefined,
+    );
+  }
+
+  function copiarCredenciais() {
+    if (!credenciais) return;
+    navigator.clipboard.writeText(`E-mail: ${credenciais.email}\nSenha: ${credenciais.senha}`);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2000);
+  }
+
+  if (credenciais && membroPendente) {
+    return (
+      <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+        <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
+          <div className="p-5 border-b border-border">
+            <h2 className="font-serif text-xl text-text">Conta criada!</h2>
+          </div>
+          <div className="p-5 flex flex-col gap-4">
+            <p className="text-sm text-text-2">
+              Repasse esses dados para {nome.trim()} acessar o app. Eles só aparecem aqui, uma vez —
+              não ficam salvos em nenhum outro lugar.
+            </p>
+            <div className="rounded-xl border border-border bg-bg p-3.5 flex flex-col gap-2.5">
+              <div>
+                <span className="text-xs font-semibold text-text-3 uppercase tracking-wide">E-mail</span>
+                <p className="text-sm text-text font-medium font-mono">{credenciais.email}</p>
+              </div>
+              <div>
+                <span className="text-xs font-semibold text-text-3 uppercase tracking-wide">Senha</span>
+                <p className="text-sm text-text font-medium font-mono">{credenciais.senha}</p>
+              </div>
+            </div>
+            <button type="button" onClick={copiarCredenciais}
+              className="h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition flex items-center justify-center gap-2">
+              {copiado ? <Check size={15}/> : <Copy size={15}/>}
+              {copiado ? 'Copiado!' : 'Copiar e-mail e senha'}
+            </button>
+            <button type="button" onClick={() => onSalvo(membroPendente)}
+              className="h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition">
+              Concluir
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -134,18 +208,59 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
               placeholder="(11) 99999-9999" type="tel" maxLength={15} className={inputClass}/>
           </div>
           <div>
-            <label className={labelClass}>E-mail <span className="text-text-4 normal-case font-normal">(opcional)</span></label>
+            <label className={labelClass}>E-mail *</label>
             <input value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="email@exemplo.com" type="email" className={inputClass}/>
+              placeholder="email@exemplo.com" type="email" required className={inputClass}/>
           </div>
-          {temEmail && (
-            <label className="flex items-start gap-2.5 -mt-1 cursor-pointer">
-              <input type="checkbox" checked={enviarConvite} onChange={e => setEnviarConvite(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded border-border accent-[var(--color-primary)] flex-shrink-0"/>
-              <span className="text-xs text-text-2 leading-snug">
-                Enviar convite por e-mail — ela cria a própria senha e acessa o app com este e-mail.
-              </span>
-            </label>
+          <div>
+            <label className={labelClass}>Como dar acesso</label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setModoAcesso('convite')}
+                className="flex-1 h-10 rounded-xl border text-xs font-semibold transition px-2"
+                style={{
+                  borderColor: modoAcesso === 'convite' ? 'var(--color-primary)' : 'var(--color-border)',
+                  background:  modoAcesso === 'convite' ? 'var(--color-primary-soft)' : 'transparent',
+                  color:       modoAcesso === 'convite' ? 'var(--color-primary)' : 'var(--color-text-2)',
+                }}>
+                Enviar convite por e-mail
+              </button>
+              <button type="button" onClick={() => setModoAcesso('senha')}
+                className="flex-1 h-10 rounded-xl border text-xs font-semibold transition px-2"
+                style={{
+                  borderColor: modoAcesso === 'senha' ? 'var(--color-primary)' : 'var(--color-border)',
+                  background:  modoAcesso === 'senha' ? 'var(--color-primary-soft)' : 'transparent',
+                  color:       modoAcesso === 'senha' ? 'var(--color-primary)' : 'var(--color-text-2)',
+                }}>
+                Definir senha agora
+              </button>
+            </div>
+            <p className="text-xs text-text-3 mt-1.5 leading-snug">
+              {modoAcesso === 'convite'
+                ? 'Ela recebe um e-mail e cria a própria senha.'
+                : 'Você define a senha agora e repassa pra ela por fora (WhatsApp, pessoalmente).'}
+            </p>
+          </div>
+          {modoAcesso === 'senha' && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className={`${labelClass} !mb-0`}>Senha *</label>
+                <button type="button" onClick={() => { setSenha(gerarSenha()); setVerSenha(true); }}
+                  className="text-xs font-semibold text-accent hover:underline flex items-center gap-1">
+                  <Sparkles size={12}/> Gerar senha
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  type={verSenha ? 'text' : 'password'}
+                  value={senha} onChange={e => setSenha(e.target.value)}
+                  placeholder="mínimo 6 caracteres" required minLength={6}
+                  className={`${inputClass} pr-11 font-mono`}/>
+                <button type="button" onClick={() => setVerSenha(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3 hover:text-text-2 transition">
+                  {verSenha ? <EyeOff size={15}/> : <Eye size={15}/>}
+                </button>
+              </div>
+            </div>
           )}
           {podeAtribuirRole(meuRole, 'gestor') && (
             <div>
@@ -187,11 +302,11 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
               Cancelar
             </button>
-            <button type="submit" disabled={salvando || !nome.trim()}
+            <button type="submit" disabled={salvando || !nome.trim() || !email.trim()}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
               {salvando
-                ? (temEmail && enviarConvite ? 'Enviando convite...' : 'Salvando...')
-                : (temEmail && enviarConvite ? 'Enviar convite' : 'Adicionar')}
+                ? (modoAcesso === 'convite' ? 'Enviando convite...' : 'Salvando...')
+                : (modoAcesso === 'convite' ? 'Enviar convite' : 'Adicionar')}
             </button>
           </div>
         </form>

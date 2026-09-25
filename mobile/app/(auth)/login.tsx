@@ -4,7 +4,7 @@ import {
   KeyboardAvoidingView, Platform, Alert,
   ActivityIndicator, StatusBar, ScrollView,
 } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
@@ -206,7 +206,10 @@ export default function Login() {
             }
           />
 
-          <TouchableOpacity style={{ alignSelf: 'flex-end', marginBottom: 24, marginTop: -4 }}>
+          <TouchableOpacity
+            onPress={() => router.push('/(auth)/esqueci-senha')}
+            style={{ alignSelf: 'flex-end', marginBottom: 24, marginTop: -4 }}
+          >
             <Text style={{
               fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.accent,
             }}>
