@@ -4,6 +4,7 @@ import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import type { AppContext } from '@/lib/auth/server-context';
+import MetaPessoalCard from './MetaPessoalCard';
 
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -40,7 +41,7 @@ export default async function DashboardProfissionalView({
   const inicioMes = startOfMonth(mesRef).toISOString();
   const fimMes     = endOfMonth(mesRef).toISOString();
 
-  const [{ data: agendaHoje }, { data: comissoesMes }] = await Promise.all([
+  const [{ data: agendaHoje }, { data: comissoesMes }, { data: membro }] = await Promise.all([
     supabase.from('agendamentos')
       .select('id, data_hora_inicio, status, valor, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
@@ -51,7 +52,11 @@ export default async function DashboardProfissionalView({
       .select('valor_servico, valor_comissao, status')
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
       .gte('created_at', inicioMes).lte('created_at', fimMes),
+    supabase.from('empresa_membros').select('meta_mensal_pessoal')
+      .eq('empresa_id', empresaId).eq('user_id', userId).single(),
   ]);
+
+  const metaMensalPessoal = membro?.meta_mensal_pessoal != null ? Number(membro.meta_mensal_pessoal) : null;
 
   const ags     = (agendaHoje ?? []) as any[];
   const fatHoje = ags.reduce((s, a) => s + Number(a.valor), 0);
@@ -95,6 +100,8 @@ export default async function DashboardProfissionalView({
           </div>
         ))}
       </div>
+
+      <MetaPessoalCard metaInicial={metaMensalPessoal} faturamentoBrutoMes={faturamentoBrutoMes} />
 
       {/* Agenda de hoje */}
       <div className="mb-7">
