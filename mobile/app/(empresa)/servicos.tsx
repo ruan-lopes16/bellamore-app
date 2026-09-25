@@ -21,6 +21,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
+import { temPermissao } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { CategoriasManagerModal } from '@/components/CategoriasManagerModal';
@@ -78,8 +79,9 @@ function useServicos() {
 
 // ── Card de serviço ───────────────────────────────────────────
 
-function ServicoCard({ servico, onToggle, onEdit }: {
+function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
   servico: Servico;
+  podeGerenciar: boolean;
   onToggle: () => void;
   onEdit: () => void;
 }) {
@@ -106,13 +108,15 @@ function ServicoCard({ servico, onToggle, onEdit }: {
             </Text>
           ) : null}
         </View>
-        <Switch
-          value={servico.ativo}
-          onValueChange={onToggle}
-          trackColor={{ false: '#E5E7EB', true: C.green }}
-          thumbColor="#fff"
-          style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-        />
+        {podeGerenciar && (
+          <Switch
+            value={servico.ativo}
+            onValueChange={onToggle}
+            trackColor={{ false: '#E5E7EB', true: C.green }}
+            thumbColor="#fff"
+            style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+          />
+        )}
       </View>
 
       {/* Linha inferior */}
@@ -134,16 +138,18 @@ function ServicoCard({ servico, onToggle, onEdit }: {
           <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: servico.ativo ? C.primary : C.text3, letterSpacing: -0.5 }}>
             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(servico.preco)}
           </Text>
-          <TouchableOpacity
-            onPress={onEdit}
-            style={{
-              width: 30, height: 30, borderRadius: 8,
-              backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
-              alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            <Edit3 size={13} color={C.text3} strokeWidth={2} />
-          </TouchableOpacity>
+          {podeGerenciar && (
+            <TouchableOpacity
+              onPress={onEdit}
+              style={{
+                width: 30, height: 30, borderRadius: 8,
+                backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <Edit3 size={13} color={C.text3} strokeWidth={2} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </MotiView>
@@ -154,13 +160,14 @@ function ServicoCard({ servico, onToggle, onEdit }: {
 
 export default function Servicos() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, roleAtivo, isOwner } = useAuthStore();
   const qc = useQueryClient();
 
   const { data, isLoading, refetch } = useServicos();
   const servicos = data?.servicos ?? [];
   const categorias = data?.categorias ?? [];
   const [gerenciar, setGerenciar] = useState(false);
+  const podeGerenciar = temPermissao(isOwner ? 'owner' : (roleAtivo ?? 'profissional'), 'gerenciar_servicos');
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -217,30 +224,32 @@ export default function Servicos() {
                 Serviços
               </Text>
             </View>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TouchableOpacity
-                onPress={() => setGerenciar(true)}
-                style={{
-                  width: 38, height: 38,
-                  backgroundColor: 'rgba(255,255,255,0.15)',
-                  borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
-                  borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <Tags size={17} color="#fff" strokeWidth={2.2} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => router.push('/(empresa)/novo-servico' as any)}
-                style={{
-                  width: 38, height: 38,
-                  backgroundColor: 'rgba(255,255,255,0.15)',
-                  borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
-                  borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <Plus size={18} color="#fff" strokeWidth={2.5} />
-              </TouchableOpacity>
-            </View>
+            {podeGerenciar && (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => setGerenciar(true)}
+                  style={{
+                    width: 38, height: 38,
+                    backgroundColor: 'rgba(255,255,255,0.15)',
+                    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+                    borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Tags size={17} color="#fff" strokeWidth={2.2} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => router.push('/(empresa)/novo-servico' as any)}
+                  style={{
+                    width: 38, height: 38,
+                    backgroundColor: 'rgba(255,255,255,0.15)',
+                    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+                    borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Plus size={18} color="#fff" strokeWidth={2.5} />
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </LinearGradient>
 
@@ -310,6 +319,7 @@ export default function Servicos() {
                 <ServicoCard
                   key={s.id}
                   servico={s}
+                  podeGerenciar={podeGerenciar}
                   onToggle={() => toggleServico(s)}
                   onEdit={() => router.push(`/(empresa)/editar-servico/${s.id}` as any)}
                 />
@@ -323,32 +333,36 @@ export default function Servicos() {
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
               Nenhum serviço cadastrado ainda.
             </Text>
-            <TouchableOpacity
-              onPress={() => router.push('/(empresa)/novo-servico' as any)}
-              style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
-            >
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
-                Adicionar primeiro serviço
-              </Text>
-            </TouchableOpacity>
+            {podeGerenciar && (
+              <TouchableOpacity
+                onPress={() => router.push('/(empresa)/novo-servico' as any)}
+                style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
+              >
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
+                  Adicionar primeiro serviço
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity
-        onPress={() => router.push('/(empresa)/novo-servico' as any)}
-        style={{
-          position: 'absolute', bottom: insets.bottom + 24, right: 24,
-          width: 52, height: 52, borderRadius: 16,
-          backgroundColor: C.primary,
-          alignItems: 'center', justifyContent: 'center',
-          shadowColor: C.primary, shadowOpacity: 0.35,
-          shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
-        }}
-      >
-        <Plus size={22} color="#fff" strokeWidth={2.5} />
-      </TouchableOpacity>
+      {podeGerenciar && (
+        <TouchableOpacity
+          onPress={() => router.push('/(empresa)/novo-servico' as any)}
+          style={{
+            position: 'absolute', bottom: insets.bottom + 24, right: 24,
+            width: 52, height: 52, borderRadius: 16,
+            backgroundColor: C.primary,
+            alignItems: 'center', justifyContent: 'center',
+            shadowColor: C.primary, shadowOpacity: 0.35,
+            shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
+          }}
+        >
+          <Plus size={22} color="#fff" strokeWidth={2.5} />
+        </TouchableOpacity>
+      )}
 
       <CategoriasManagerModal
         visible={gerenciar}
