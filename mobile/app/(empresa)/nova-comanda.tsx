@@ -71,7 +71,7 @@ type AgDia = {
 
 type ComandaItem = {
   uid: string;
-  tipo: 'agendamento' | 'servico' | 'produto';
+  tipo: 'agendamento' | 'servico' | 'produto' | 'pacote';
   descricao: string;
   profissional?: string;
   valor: number;
@@ -79,6 +79,7 @@ type ComandaItem = {
   agendamento_id?: string;
   servico_id?: string;
   produto_id?: string;
+  pacote_id?: string;
   profissional_id?: string;
 };
 
@@ -280,6 +281,10 @@ export default function NovaComandaScreen() {
     setItens(prev => [...prev, { uid: uid(), tipo: 'produto', descricao: p.nome, valor: p.preco_venda, quantidade: 1, produto_id: p.id }]);
     setShowExtras(false);
   }
+  function adicionarPacote(p: { id: string; nome: string; preco: number }) {
+    setItens(prev => [...prev, { uid: uid(), tipo: 'pacote', descricao: p.nome, valor: p.preco, quantidade: 1, pacote_id: p.id }]);
+    setShowExtras(false);
+  }
   function removerItem(u: string) { setItens(prev => prev.filter(i => i.uid !== u)); }
 
   function vincularPacote(agendamentoId: string, pacoteClienteId: string) {
@@ -379,7 +384,7 @@ export default function NovaComandaScreen() {
         extras.map(i => ({
           comanda_id: comandaId, empresa_id: empresaId, tipo: i.tipo,
           descricao: i.descricao, servico_id: i.servico_id ?? null,
-          produto_id: i.produto_id ?? null, profissional_id: i.profissional_id ?? null,
+          produto_id: i.produto_id ?? null, pacote_id: i.pacote_id ?? null, profissional_id: i.profissional_id ?? null,
           quantidade: i.quantidade, valor_unit: i.valor,
         })),
       );
@@ -408,6 +413,44 @@ export default function NovaComandaScreen() {
             preco_unitario: i.valor,
           })),
         );
+      }
+    }
+
+    // Vender pacotes adicionados na comanda (gera pacote_clientes para o cliente)
+    const extrasPacotes = extras.filter(i => i.tipo === 'pacote' && i.pacote_id);
+    if (extrasPacotes.length > 0 && clienteSel.id !== '__sem__') {
+      const hoje = new Date();
+      const dataInicio = format(hoje, 'yyyy-MM-dd');
+      const novasVendas = extrasPacotes.flatMap(i => {
+        const pacoteInfo = pacotesCat.find(p => p.id === i.pacote_id);
+        if (!pacoteInfo) return [];
+        const dataValidade = pacoteInfo.validade_dias != null
+          ? format(addDays(hoje, pacoteInfo.validade_dias), 'yyyy-MM-dd')
+          : null;
+        return Array.from({ length: Math.max(1, Math.round(i.quantidade)) }, () => ({
+          empresa_id:    empresaId,
+          pacote_id:     i.pacote_id!,
+          cliente_id:    clienteSel.id,
+          data_inicio:   dataInicio,
+          data_validade: dataValidade,
+          valor_pago:    i.valor,
+          status:        'ativo',
+        }));
+      });
+      if (novasVendas.length > 0) {
+        await supabase.from('pacote_clientes').insert(novasVendas);
+        // Registra a venda do pacote como faturamento (uma vez, no ato).
+        // As sessões consumidas depois NÃO contam como receita.
+        const totalPacotes = novasVendas.reduce((s, v) => s + Number(v.valor_pago ?? 0), 0);
+        if (totalPacotes > 0) {
+          await supabase.from('vendas').insert({
+            empresa_id:  empresaId,
+            cliente_id:  clienteSel.id,
+            valor_total: totalPacotes,
+            desconto:    0,
+            observacao:  `Pacote(s) via comanda`,
+          });
+        }
       }
     }
 
@@ -784,6 +827,18 @@ export default function NovaComandaScreen() {
                         style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, backgroundColor: C.surface, marginBottom: 4 }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text }}>{p.nome}</Text>
                         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text3 }}>{fmtBRL(p.preco_venda)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
+                {pacotesCat.length > 0 && clienteSel && clienteSel.id !== '__sem__' && (
+                  <>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8, marginBottom: 4 }}>Pacotes</Text>
+                    {pacotesCat.map(p => (
+                      <TouchableOpacity key={p.id} onPress={() => adicionarPacote(p)}
+                        style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, backgroundColor: C.surface, marginBottom: 4 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text }}>{p.nome}</Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text3 }}>{fmtBRL(p.preco)}</Text>
                       </TouchableOpacity>
                     ))}
                   </>
