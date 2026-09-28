@@ -19,13 +19,13 @@ const supabase = createClient();
 
 // Itens principais da sidebar desktop
 const NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
+  { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard },
   { href: '/agenda',       label: 'Agenda',       icon: CalendarDays    },
   { href: '/comanda',      label: 'Comanda',      icon: Receipt         },
   { href: '/vendas',       label: 'Vendas',       icon: ShoppingCart,    permissao: 'gerenciar_vendas'       },
   { href: '/clientes',     label: 'Clientes',     icon: Users           },
   { href: '/financeiro',   label: 'Financeiro',   icon: DollarSign,      permissao: 'ver_resumo_financeiro' },
-  { href: '/servicos',     label: 'Serviços',     icon: Scissors,        permissao: 'gerenciar_servicos'     },
+  { href: '/servicos',     label: 'Serviços',     icon: Scissors,        permissao: 'ver_servicos'     },
   { href: '/pacotes',      label: 'Pacotes',      icon: Gift            },
   { href: '/equipe',       label: 'Equipe',       icon: UserCog,         permissao: 'gerenciar_profissionais' },
   { href: '/comissoes',    label: 'Comissões',    icon: Banknote,        permissao: 'ver_propria_comissao'   },
@@ -41,7 +41,7 @@ const BOTTOM_NAV_DESKTOP: { href: string; label: string; icon: React.ElementType
 // 5 abas do bottom nav mobile (design Bellamore) — sem permissão condicionada.
 // Comanda no bottom nav; Financeiro vive em "Mais" e some de lá quando restrito.
 const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/dashboard',  label: 'Início',   icon: LayoutDashboard, permissao: 'ver_resumo_financeiro' },
+  { href: '/dashboard',  label: 'Início',   icon: LayoutDashboard },
   { href: '/agenda',     label: 'Agenda',   icon: CalendarDays    },
   { href: '/clientes',   label: 'Clientes', icon: Users           },
   { href: '/comanda',    label: 'Comanda',  icon: Receipt         },
@@ -52,7 +52,7 @@ const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permis
 const MAIS_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
   { href: '/financeiro',   label: 'Financeiro',    icon: DollarSign,   permissao: 'ver_resumo_financeiro'  },
   { href: '/vendas',       label: 'Vendas',        icon: ShoppingCart, permissao: 'gerenciar_vendas'        },
-  { href: '/servicos',     label: 'Serviços',      icon: Scissors,     permissao: 'gerenciar_servicos'     },
+  { href: '/servicos',     label: 'Serviços',      icon: Scissors,     permissao: 'ver_servicos'     },
   { href: '/pacotes',      label: 'Pacotes',       icon: Gift         },
   { href: '/equipe',       label: 'Equipe',        icon: UserCog,      permissao: 'gerenciar_profissionais' },
   { href: '/comissoes',    label: 'Comissões',     icon: Banknote,     permissao: 'ver_propria_comissao'   },
@@ -85,6 +85,7 @@ export default function Sidebar({
   useScrollLock(maisAberto, { apenasMobile: true });
 
   const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
+  const podeVerEstoque = temPermissao(efetivo, 'gerenciar_estoque');
   const navFiltrado          = NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
   const bottomNavFiltrado    = BOTTOM_NAV_DESKTOP.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
   const mobileNavFiltrado    = MOBILE_NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
@@ -96,8 +97,10 @@ export default function Sidebar({
       const daqui7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
       const [estoque, despesas, comissoes, comandas] = await Promise.all([
-        supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empresaId).eq('ativo', true),
+        podeVerEstoque
+          ? supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
+              .eq('empresa_id', empresaId).eq('ativo', true)
+          : Promise.resolve({ count: 0 } as { count: number | null }),
         supabase.from('despesas').select('id', { count: 'exact', head: true })
           .eq('empresa_id', empresaId).eq('status', 'pendente')
           .gte('data_vencimento', hoje).lte('data_vencimento', daqui7),
@@ -120,7 +123,7 @@ export default function Sidebar({
       const total = (estoque.count ?? 0) + (despesas.count ?? 0) + (comCount > 0 ? 1 : 0) + (comandasCount > 0 ? 1 : 0);
       setAlertCount(total);
     })();
-  }, [empresaId]);
+  }, [empresaId, podeVerEstoque]);
 
   async function sair() {
     await supabase.auth.signOut();

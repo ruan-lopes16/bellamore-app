@@ -55,6 +55,12 @@ describe('temPermissao', () => {
       expect(temPermissao('profissional', 'gerenciar_servicos')).toBe(false);
       expect(temPermissao('profissional', 'configurar_empresa')).toBe(false);
     });
+
+    it('vê a lista de serviços mas não gerencia catálogo', () => {
+      expect(temPermissao('profissional', 'ver_servicos')).toBe(true);
+      expect(temPermissao('profissional', 'gerenciar_servicos')).toBe(false);
+      expect(temPermissao('profissional', 'gerenciar_pacotes')).toBe(false);
+    });
   });
 
   describe('cliente', () => {
@@ -73,8 +79,8 @@ describe('rotaInicial', () => {
     expect(rotaInicial('gestor')).toBe('/dashboard');
   });
 
-  it('profissional vai à agenda', () => {
-    expect(rotaInicial('profissional')).toBe('/agenda');
+  it('profissional vai ao dashboard (visão pessoal)', () => {
+    expect(rotaInicial('profissional')).toBe('/dashboard');
   });
 
   it('cliente vai ao início', () => {

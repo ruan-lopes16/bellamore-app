@@ -29,6 +29,8 @@ import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { temPermissao } from '@/lib/permissions';
+import type { PerfilRole } from '@/types';
 
 const supabase = createClient();
 
@@ -96,12 +98,13 @@ export default function NotificacoesPage() {
       if (!user) return;
 
       const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id')
+        .from('empresa_membros').select('empresa_id, role')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
 
       const empId = membro.empresa_id;
       setEmpresaId(empId);
+      const podeVerEstoque = temPermissao((membro.role ?? 'profissional') as 'owner' | PerfilRole, 'gerenciar_estoque');
 
       const hoje      = new Date();
       const hojeStr   = hoje.toISOString().slice(0, 10);
@@ -119,10 +122,12 @@ export default function NotificacoesPage() {
           .not('status', 'in', '("concluido","cancelado","faltou")')
           .order('data_hora_inicio'),
 
-        // Estoque abaixo do mínimo
-        supabase.from('v_produtos_estoque_baixo')
-          .select('id, nome, estoque_atual, estoque_minimo')
-          .eq('empresa_id', empId).eq('ativo', true),
+        // Estoque abaixo do mínimo — só pra quem gerencia estoque
+        podeVerEstoque
+          ? supabase.from('v_produtos_estoque_baixo')
+              .select('id, nome, estoque_atual, estoque_minimo')
+              .eq('empresa_id', empId).eq('ativo', true)
+          : Promise.resolve({ data: [] as { id: string; nome: string; estoque_atual: number; estoque_minimo: number }[] }),
 
         // Despesas pendentes vencendo em 7 dias
         supabase.from('despesas')

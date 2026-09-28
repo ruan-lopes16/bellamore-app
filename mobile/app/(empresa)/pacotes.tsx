@@ -22,6 +22,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
+import { temPermissao } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import {
   usePacotes, usePacotesVendidos,
@@ -83,8 +84,9 @@ const inputSt = {
 
 // ── Card de pacote (catálogo) ────────────────────────────────
 
-function PacoteCard({ pacote, onToggle, onEdit }: {
+function PacoteCard({ pacote, podeGerenciar, onToggle, onEdit }: {
   pacote: PacoteComServicos;
+  podeGerenciar: boolean;
   onToggle: () => void;
   onEdit: () => void;
 }) {
@@ -111,13 +113,15 @@ function PacoteCard({ pacote, onToggle, onEdit }: {
             {pacote.nome}
           </Text>
         </View>
-        <Switch
-          value={pacote.ativo}
-          onValueChange={onToggle}
-          trackColor={{ false: '#E5E7EB', true: C.green }}
-          thumbColor="#fff"
-          style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-        />
+        {podeGerenciar && (
+          <Switch
+            value={pacote.ativo}
+            onValueChange={onToggle}
+            trackColor={{ false: '#E5E7EB', true: C.green }}
+            thumbColor="#fff"
+            style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+          />
+        )}
       </View>
 
       {/* Validade / sessões */}
@@ -163,16 +167,18 @@ function PacoteCard({ pacote, onToggle, onEdit }: {
         }}>
           {fmtBRL(pacote.preco)}
         </Text>
-        <TouchableOpacity
-          onPress={onEdit}
-          style={{
-            width: 30, height: 30, borderRadius: 8,
-            backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
-            alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <Edit3 size={13} color={C.text3} strokeWidth={2} />
-        </TouchableOpacity>
+        {podeGerenciar && (
+          <TouchableOpacity
+            onPress={onEdit}
+            style={{
+              width: 30, height: 30, borderRadius: 8,
+              backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <Edit3 size={13} color={C.text3} strokeWidth={2} />
+          </TouchableOpacity>
+        )}
       </View>
     </MotiView>
   );
@@ -665,8 +671,9 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
 
 export default function Pacotes() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, roleAtivo, isOwner } = useAuthStore();
   const empresaId = empresaAtiva?.id;
+  const podeGerenciarCatalogo = temPermissao(isOwner ? 'owner' : (roleAtivo ?? 'profissional'), 'gerenciar_pacotes');
   const qc = useQueryClient();
 
   const [aba, setAba] = useState<'catalogo' | 'vendidos'>('catalogo');
@@ -750,6 +757,7 @@ export default function Pacotes() {
           <PacoteCard
             key={p.id}
             pacote={p}
+            podeGerenciar={podeGerenciarCatalogo}
             onToggle={() => togglePacote(p)}
             onEdit={() => router.push(`/(empresa)/editar-pacote/${p.id}` as any)}
           />
@@ -836,14 +844,16 @@ export default function Pacotes() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
                   Nenhum pacote cadastrado ainda.
                 </Text>
-                <TouchableOpacity
-                  onPress={() => router.push('/(empresa)/novo-pacote' as any)}
-                  style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
-                >
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
-                    Criar primeiro pacote
-                  </Text>
-                </TouchableOpacity>
+                {podeGerenciarCatalogo && (
+                  <TouchableOpacity
+                    onPress={() => router.push('/(empresa)/novo-pacote' as any)}
+                    style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
+                  >
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
+                      Criar primeiro pacote
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
           </>
@@ -890,19 +900,21 @@ export default function Pacotes() {
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity
-        onPress={() => router.push('/(empresa)/novo-pacote' as any)}
-        style={{
-          position: 'absolute', bottom: insets.bottom + 24, right: 24,
-          width: 52, height: 52, borderRadius: 16,
-          backgroundColor: C.primary,
-          alignItems: 'center', justifyContent: 'center',
-          shadowColor: C.primary, shadowOpacity: 0.35,
-          shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
-        }}
-      >
-        <Plus size={22} color="#fff" strokeWidth={2.5} />
-      </TouchableOpacity>
+      {podeGerenciarCatalogo && (
+        <TouchableOpacity
+          onPress={() => router.push('/(empresa)/novo-pacote' as any)}
+          style={{
+            position: 'absolute', bottom: insets.bottom + 24, right: 24,
+            width: 52, height: 52, borderRadius: 16,
+            backgroundColor: C.primary,
+            alignItems: 'center', justifyContent: 'center',
+            shadowColor: C.primary, shadowOpacity: 0.35,
+            shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
+          }}
+        >
+          <Plus size={22} color="#fff" strokeWidth={2.5} />
+        </TouchableOpacity>
+      )}
 
       {modalSessao && empresaId && (
         <SessoesModal

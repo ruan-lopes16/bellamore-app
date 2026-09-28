@@ -14,6 +14,8 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ExportButton } from '@/components/ExportButton';
 import { CategoriaPicker } from '@/components/CategoriaPicker';
 import { CategoriasManagerModal } from '@/components/CategoriasManagerModal';
+import { temPermissao } from '@/lib/permissions';
+import type { PerfilRole } from '@/types';
 import {
   resolverCategoriaServico, bgDaCor,
   type CategoriaCustom, type CategoriaResolvida,
@@ -478,9 +480,10 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
 
 // ── Card de serviço ───────────────────────────────────────────
 
-function ServicoCard({ servico, resolvida, onToggle, onEdit, onDelete, onCancelDelete, excluindo }: {
+function ServicoCard({ servico, resolvida, podeGerenciar, onToggle, onEdit, onDelete, onCancelDelete, excluindo }: {
   servico: Servico;
   resolvida: CategoriaResolvida;
+  podeGerenciar: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -523,7 +526,7 @@ function ServicoCard({ servico, resolvida, onToggle, onEdit, onDelete, onCancelD
           </div>
 
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {excluindo ? (
+            {!podeGerenciar ? null : excluindo ? (
               <>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-rose)', fontFamily: 'var(--font-sans)', whiteSpace: 'nowrap' }}>Excluir?</span>
                 <button onClick={onDelete} aria-label="Confirmar exclusão"
@@ -573,12 +576,15 @@ export default function ServicosPage() {
   const [categorias,  setCategorias]  = useState<CategoriaCustom[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [empresaId,   setEmpresaId]   = useState<string | null>(null);
+  const [role,        setRole]        = useState<string | null>(null);
   const [modal,       setModal]       = useState<ModalState | null>(null);
   const [gerenciarCategorias, setGerenciarCategorias] = useState(false);
   const [colapsos,    setColapsos]    = useState<Set<string>>(new Set(CATEGORIAS.map(c => c.key)));
   const [excluindoId,   setExcluindoId]   = useState<string | null>(null);
   const [toastErro,     setToastErro]     = useState('');
   const [toastSucesso,  setToastSucesso]  = useState('');
+
+  const podeGerenciar = temPermissao((role ?? 'profissional') as 'owner' | PerfilRole, 'gerenciar_servicos');
 
   function toggleColapso(key: string) {
     setColapsos(prev => {
@@ -592,10 +598,11 @@ export default function ServicosPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
+      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id, role')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
       setEmpresaId(membro.empresa_id);
+      setRole(membro.role);
       const [{ data: servs }, { data: cats }] = await Promise.all([
         supabase.from('servicos').select('*')
           .eq('empresa_id', membro.empresa_id).order('categoria').order('nome'),
@@ -698,15 +705,19 @@ export default function ServicosPage() {
             ]}
             getData={() => servicos}
           />
-          <button onClick={() => setGerenciarCategorias(true)}
-            title="Gerenciar categorias"
-            className="flex items-center gap-1.5 px-3 h-10 rounded-2xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
-            <Tags size={15} strokeWidth={2}/> Categorias
-          </button>
-          <button onClick={() => setModal({ modo: 'criar' })} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
-            style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
-            <Plus size={15} strokeWidth={2.5}/> Novo serviço
-          </button>
+          {podeGerenciar && (
+            <>
+              <button onClick={() => setGerenciarCategorias(true)}
+                title="Gerenciar categorias"
+                className="flex items-center gap-1.5 px-3 h-10 rounded-2xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+                <Tags size={15} strokeWidth={2}/> Categorias
+              </button>
+              <button onClick={() => setModal({ modo: 'criar' })} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
+                style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
+                <Plus size={15} strokeWidth={2.5}/> Novo serviço
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -770,10 +781,12 @@ export default function ServicosPage() {
       ) : servicos.length === 0 ? (
         <div className="text-center py-16 rounded-2xl" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
           <IconOutros size={32} style={{ margin: '0 auto 12px', color: 'var(--color-ink4)' }} strokeWidth={1.5}/>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--color-ink3)', marginBottom: 12 }}>Nenhum serviço cadastrado ainda.</p>
-          <button onClick={() => setModal({ modo: 'criar' })} style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, color: 'var(--color-accent)' }}>
-            + Cadastrar primeiro serviço
-          </button>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--color-ink3)', marginBottom: podeGerenciar ? 12 : 0 }}>Nenhum serviço cadastrado ainda.</p>
+          {podeGerenciar && (
+            <button onClick={() => setModal({ modo: 'criar' })} style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, color: 'var(--color-accent)' }}>
+              + Cadastrar primeiro serviço
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-8">
@@ -803,15 +816,17 @@ export default function ServicosPage() {
                       size={15} strokeWidth={2.5}
                       style={{ color: grupo.cor, transition: 'transform 0.2s', transform: colapsado ? 'rotate(-90deg)' : 'rotate(0deg)', flexShrink: 0 }}/>
                   </button>
-                  <button
-                    onClick={() => setModal(grupo.categoriaId
-                      ? { modo: 'criar', categoriaId: grupo.categoriaId }
-                      : { modo: 'criar', categoria: grupo.categoriaKey })}
-                    title={`Novo serviço em ${grupo.label}`}
-                    className="w-7 h-7 rounded-xl flex items-center justify-center border transition flex-shrink-0"
-                    style={{ borderColor: `${grupo.cor}40`, color: grupo.cor, background: 'var(--color-surface)' }}>
-                    <Plus size={13} strokeWidth={2.5}/>
-                  </button>
+                  {podeGerenciar && (
+                    <button
+                      onClick={() => setModal(grupo.categoriaId
+                        ? { modo: 'criar', categoriaId: grupo.categoriaId }
+                        : { modo: 'criar', categoria: grupo.categoriaKey })}
+                      title={`Novo serviço em ${grupo.label}`}
+                      className="w-7 h-7 rounded-xl flex items-center justify-center border transition flex-shrink-0"
+                      style={{ borderColor: `${grupo.cor}40`, color: grupo.cor, background: 'var(--color-surface)' }}>
+                      <Plus size={13} strokeWidth={2.5}/>
+                    </button>
+                  )}
                 </div>
 
                 {/* Cards — colapsa com animação suave */}
@@ -823,6 +838,7 @@ export default function ServicosPage() {
                           <ServicoCard
                             servico={s}
                             resolvida={resolverCategoriaServico(s.categoria, s.categoria_id, categorias)}
+                            podeGerenciar={podeGerenciar}
                             onToggle={() => toggleAtivo(s)}
                             onEdit={() => setModal({ modo: 'editar', servico: s })}
                             excluindo={excluindoId === s.id}
