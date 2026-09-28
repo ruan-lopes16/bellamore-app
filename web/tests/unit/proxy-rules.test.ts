@@ -40,6 +40,7 @@ describe('proxy auth rules', () => {
     expect(isProtectedAppPath('/api/cron/lembretes')).toBe(false);
     expect(isProtectedAppPath('/login')).toBe(false);
     expect(isProtectedAppPath('/cadastro')).toBe(false);
+    expect(isProtectedAppPath('/esqueci-senha')).toBe(false);
     expect(isProtectedAppPath('/auth/callback')).toBe(false);
     expect(isProtectedAppPath('/offline')).toBe(false);
     expect(isProtectedAppPath('/')).toBe(false);

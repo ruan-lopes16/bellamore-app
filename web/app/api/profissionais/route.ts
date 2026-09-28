@@ -22,21 +22,34 @@ function errorMessage(error: unknown, fallback = 'Erro interno.') {
 
 export async function POST(req: NextRequest) {
   try {
-    const { empresaId, nome, telefone, email, percentual_comissao, role } = await req.json();
+    const { empresaId, nome, telefone, email, senha, percentual_comissao, role } = await req.json();
 
-    if (!empresaId || !nome) {
-      return NextResponse.json({ error: 'Nome e empresa são obrigatórios.' }, { status: 400 });
+    if (!empresaId || !nome?.trim() || !email?.trim() || !senha) {
+      return NextResponse.json({ error: 'Nome, e-mail, senha e empresa são obrigatórios.' }, { status: 400 });
+    }
+    if (String(senha).length < 6) {
+      return NextResponse.json({ error: 'A senha deve ter pelo menos 6 caracteres.' }, { status: 400 });
     }
 
-    // Verifica que o usuário logado é membro ativo dessa empresa
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Verifica quem está chamando: cookie de sessão (web) ou Bearer token (mobile)
+    const adminClient = createAdminClient();
+    const bearerToken = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
 
-    const { data: membroReq } = await supabase
+    let requesterId: string | undefined;
+    if (bearerToken) {
+      const { data: { user: bearerUser } } = await adminClient.auth.getUser(bearerToken);
+      requesterId = bearerUser?.id;
+    } else {
+      const supabase = await createClient();
+      const { data: { user: cookieUser } } = await supabase.auth.getUser();
+      requesterId = cookieUser?.id;
+    }
+    if (!requesterId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { data: membroReq } = await adminClient
       .from('empresa_membros')
       .select('empresa_id, role')
-      .eq('user_id', user.id)
+      .eq('user_id', requesterId)
       .eq('empresa_id', empresaId)
       .eq('ativo', true)
       .single();
@@ -44,25 +57,25 @@ export async function POST(req: NextRequest) {
 
     const roleSolicitado: 'gestor' | 'profissional' = role === 'gestor' ? 'gestor' : 'profissional';
     if (!podeAtribuirRole(membroReq.role as 'owner' | 'gestor' | 'profissional', roleSolicitado)) {
-      return NextResponse.json({ error: 'Você não pode convidar alguém com esse papel.' }, { status: 403 });
+      return NextResponse.json({ error: 'Você não pode atribuir esse papel.' }, { status: 403 });
     }
 
-    const adminClient = createAdminClient();
-    const emailFinal = email?.trim().toLowerCase() || `prof.${crypto.randomUUID()}@interno.app`;
+    const emailFinal = email.trim().toLowerCase();
 
     let userId: string | null = null;
+    let status: 'adicionado' | 'criado';
 
-    // 1. Tenta criar a conta de auth
+    // 1. Tenta criar a conta de auth já com a senha definida
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email:         emailFinal,
-      password:      crypto.randomUUID(),
+      password:      senha,
       email_confirm: true,
       user_metadata: { nome: nome.trim() },
     });
 
     if (authError) {
       if (authError.message.toLowerCase().includes('already')) {
-        // Busca na tabela pública (mais eficiente que listUsers com paginação)
+        // Já existe conta com esse e-mail — só vincula à empresa, não mexe na senha dela.
         const { data: existing } = await adminClient
           .from('users')
           .select('id')
@@ -72,11 +85,13 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'Usuário já existe, mas não foi possível localizá-lo.' }, { status: 400 });
         }
         userId = existing.id;
+        status = 'adicionado';
       } else {
         return NextResponse.json({ error: authError.message }, { status: 400 });
       }
     } else {
       userId = authData.user.id;
+      status = 'criado';
     }
 
     // 2. Garante perfil em public.users
@@ -113,7 +128,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: membroError.message }, { status: 400 });
     }
 
-    return NextResponse.json({ membro });
+    return NextResponse.json({ status, membro });
   } catch (err: unknown) {
     return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }

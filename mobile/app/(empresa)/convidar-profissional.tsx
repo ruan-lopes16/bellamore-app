@@ -7,7 +7,8 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { ChevronLeft, Mail, User, Phone } from 'lucide-react-native';
+import { ChevronLeft, Mail, User, Phone, Eye, EyeOff, Sparkles, Copy, Check, Lock } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -33,23 +34,33 @@ const C = {
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
 
+function gerarSenha() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 10; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
 // ── Campo ─────────────────────────────────────────────────────
 
 function Campo({
   label, icon, value, onChange, placeholder,
-  keyboardType = 'default', secureTextEntry = false,
+  keyboardType = 'default', secureTextEntry = false, rightIcon,
 }: {
   label: string; icon: React.ReactNode;
   value: string; onChange: (v: string) => void;
   placeholder: string;
   keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'decimal-pad';
   secureTextEntry?: boolean;
+  rightIcon?: React.ReactNode;
 }) {
   return (
     <View style={{ marginBottom: 16 }}>
-      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>
-        {label}
-      </Text>
+      {label ? (
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>
+          {label}
+        </Text>
+      ) : null}
       <View style={{
         backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
         borderRadius: 12, paddingHorizontal: 14, height: 48,
@@ -65,6 +76,7 @@ function Campo({
           autoCapitalize={keyboardType === 'email-address' ? 'none' : 'words'}
           style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }}
         />
+        {rightIcon}
       </View>
     </View>
   );
@@ -77,11 +89,16 @@ export default function ConvidarProfissional() {
   const { empresaAtiva, isOwner } = useAuthStore();
   const qc = useQueryClient();
 
-  const [email,    setEmail]    = useState('');
-  const [nome,     setNome]     = useState('');
-  const [telefone, setTelefone] = useState('');
-  const [enviando, setEnviando] = useState(false);
+  const [email,      setEmail]      = useState('');
+  const [nome,       setNome]       = useState('');
+  const [telefone,   setTelefone]   = useState('');
+  const [modoAcesso, setModoAcesso] = useState<'convite' | 'senha'>('convite');
+  const [senha,      setSenha]      = useState('');
+  const [verSenha,   setVerSenha]   = useState(false);
+  const [enviando,   setEnviando]   = useState(false);
   const [role, setRole] = useState<'gestor' | 'profissional'>('profissional');
+  const [credenciais, setCredenciais] = useState<{ email: string; senha: string } | null>(null);
+  const [copiado, setCopiado] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -92,7 +109,8 @@ export default function ConvidarProfissional() {
   if (!fontsLoaded) return null;
 
   const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const podeEnviar  = emailValido && nome.trim().length > 1;
+  const podeEnviar  = emailValido && nome.trim().length > 1
+    && (modoAcesso === 'convite' || senha.length >= 6);
 
   async function convidar() {
     if (!podeEnviar || !empresaAtiva) return;
@@ -103,13 +121,14 @@ export default function ConvidarProfissional() {
 
     if (!session || !apiUrl) {
       setEnviando(false);
-      Alert.alert('Erro', 'Não foi possível enviar o convite. Tente novamente mais tarde.');
+      Alert.alert('Erro', 'Não foi possível salvar. Tente novamente mais tarde.');
       return;
     }
 
+    const usarConvite = modoAcesso === 'convite';
     let resposta: Response;
     try {
-      resposta = await fetch(`${apiUrl}/api/convites`, {
+      resposta = await fetch(`${apiUrl}/api/${usarConvite ? 'convites' : 'profissionais'}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,12 +139,13 @@ export default function ConvidarProfissional() {
           nome:      nome.trim(),
           telefone:  telefone.trim() || undefined,
           email:     email.toLowerCase().trim(),
+          senha:     usarConvite ? undefined : senha,
           role,
         }),
       });
     } catch {
       setEnviando(false);
-      Alert.alert('Erro', 'Falha de conexão ao enviar o convite. Verifique sua internet.');
+      Alert.alert('Erro', 'Falha de conexão. Verifique sua internet.');
       return;
     }
 
@@ -133,14 +153,19 @@ export default function ConvidarProfissional() {
     setEnviando(false);
 
     if (!resposta.ok) {
-      Alert.alert('Erro', resultado.error ?? 'Não foi possível enviar o convite.');
+      Alert.alert('Erro', resultado.error ?? 'Não foi possível salvar.');
       return;
     }
 
     qc.invalidateQueries({ queryKey: ['equipe'] });
 
+    if (!usarConvite && resultado.status === 'criado') {
+      setCredenciais({ email: email.toLowerCase().trim(), senha });
+      return;
+    }
+
     if (resultado.status === 'adicionado') {
-      Alert.alert('Profissional adicionada!', `${nome} foi adicionada à sua equipe.`, [
+      Alert.alert('Profissional adicionada!', `${nome} já tinha conta e foi adicionada à sua equipe.`, [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } else {
@@ -150,6 +175,53 @@ export default function ConvidarProfissional() {
         [{ text: 'OK', onPress: () => router.back() }]
       );
     }
+  }
+
+  async function copiarCredenciais() {
+    if (!credenciais) return;
+    await Clipboard.setStringAsync(`E-mail: ${credenciais.email}\nSenha: ${credenciais.senha}`);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2000);
+  }
+
+  if (credenciais) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar barStyle="light-content" />
+        <LinearGradient colors={['#2C1654', '#3D1F72']} style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 24 }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: '#fff' }}>
+            Conta criada!
+          </Text>
+        </LinearGradient>
+        <View style={{ padding: 24 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text2, lineHeight: 20, marginBottom: 20 }}>
+            Repasse esses dados para {nome.trim()} acessar o app. Eles só aparecem aqui, uma vez —
+            não ficam salvos em nenhum outro lugar.
+          </Text>
+          <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 16, gap: 12, marginBottom: 20 }}>
+            <View>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>E-mail</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{credenciais.email}</Text>
+            </View>
+            <View>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Senha</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{credenciais.senha}</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={copiarCredenciais}
+            style={{ height: 48, borderRadius: 12, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+            {copiado ? <Check size={15} color={C.text2} /> : <Copy size={15} color={C.text2} />}
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text2 }}>
+              {copiado ? 'Copiado!' : 'Copiar e-mail e senha'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.back()}
+            style={{ backgroundColor: C.primary, borderRadius: 14, height: 54, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: '#fff' }}>Concluir</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   }
 
   return (
@@ -178,7 +250,7 @@ export default function ConvidarProfissional() {
               Como funciona
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text2, lineHeight: 18 }}>
-              Se a profissional já tem conta no app, ela será adicionada imediatamente. Se não tiver, receberá um link por e-mail para se cadastrar.
+              Se a profissional já tem conta no app, ela será adicionada imediatamente. Se não tiver, escolha abaixo como ela vai acessar.
             </Text>
           </View>
 
@@ -204,6 +276,69 @@ export default function ConvidarProfissional() {
             placeholder="(00) 00000-0000"
             keyboardType="phone-pad"
           />
+
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>
+              Como dar acesso
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity onPress={() => setModoAcesso('convite')}
+                style={{
+                  flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 1, paddingHorizontal: 4,
+                  borderColor: modoAcesso === 'convite' ? C.primary : C.border,
+                  backgroundColor: modoAcesso === 'convite' ? C.primarySoft : C.surface,
+                }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoAcesso === 'convite' ? C.primary : C.text2, textAlign: 'center' }}>
+                  Enviar convite
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setModoAcesso('senha')}
+                style={{
+                  flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 1, paddingHorizontal: 4,
+                  borderColor: modoAcesso === 'senha' ? C.primary : C.border,
+                  backgroundColor: modoAcesso === 'senha' ? C.primarySoft : C.surface,
+                }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoAcesso === 'senha' ? C.primary : C.text2, textAlign: 'center' }}>
+                  Definir senha agora
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 8, lineHeight: 16 }}>
+              {modoAcesso === 'convite'
+                ? 'Ela recebe um e-mail e cria a própria senha.'
+                : 'Você define a senha agora e repassa pra ela por fora (WhatsApp, pessoalmente).'}
+            </Text>
+          </View>
+
+          {modoAcesso === 'senha' && (
+            <View style={{ marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
+                  Senha *
+                </Text>
+                <TouchableOpacity onPress={() => { setSenha(gerarSenha()); setVerSenha(true); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Sparkles size={12} color={C.accent} strokeWidth={1.8} />
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.accent }}>Gerar senha</Text>
+                </TouchableOpacity>
+              </View>
+              <Campo
+                label=""
+                icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+                value={senha} onChange={setSenha}
+                placeholder="mínimo 6 caracteres"
+                secureTextEntry={!verSenha}
+                rightIcon={
+                  <TouchableOpacity onPress={() => setVerSenha(v => !v)}>
+                    {verSenha
+                      ? <EyeOff size={15} color={C.text3} strokeWidth={1.8} />
+                      : <Eye size={15} color={C.text3} strokeWidth={1.8} />}
+                  </TouchableOpacity>
+                }
+              />
+            </View>
+          )}
 
           {podeAtribuirRole(isOwner ? 'owner' : 'gestor', 'gestor') && (
             <View style={{ marginBottom: 16 }}>
