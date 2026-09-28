@@ -125,7 +125,6 @@ export default function NovaComandaScreen() {
   // fechamento, pra sobrescrever um vínculo que já existia no banco vindo da
   // Agenda); ausente da chave = nunca mexido, fechamento não toca na coluna.
   const [pacoteLinks, setPacoteLinks] = useState<Record<string, string | null>>({});
-  const [pacoteVenderPorAgendamento, setPacoteVenderPorAgendamento] = useState<Record<string, string>>({});
 
   const [etapa, setEtapa] = useState<Etapa>('lista');
   const [clienteSel, setClienteSel] = useState<ClienteComanda | null>(null);
@@ -163,7 +162,7 @@ export default function NovaComandaScreen() {
         .eq('empresa_id', empresaId)
         .gte('data_hora_inicio', startOfDay(hoje).toISOString())
         .lte('data_hora_inicio', endOfDay(hoje).toISOString())
-        .neq('status', 'cancelado')
+        .not('status', 'in', '("cancelado","faltou")')
         .order('data_hora_inicio'),
       supabase.from('servicos').select('id, nome, preco').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       supabase.from('produtos').select('id, nome, preco_venda').eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
@@ -250,7 +249,6 @@ export default function NovaComandaScreen() {
     setClienteSel(cliente);
     setDesconto('');
     setSplits([]);
-    setPacoteVenderPorAgendamento({});
 
     const linksIniciais: Record<string, string> = {};
     for (const ag of cliente.agendamentos) {
@@ -286,11 +284,6 @@ export default function NovaComandaScreen() {
 
   function vincularPacote(agendamentoId: string, pacoteClienteId: string) {
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: pacoteClienteId }));
-    setPacoteVenderPorAgendamento(prev => {
-      if (!(agendamentoId in prev)) return prev;
-      const { [agendamentoId]: _omit, ...resto } = prev;
-      return resto;
-    });
     setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
   }
 
@@ -304,28 +297,9 @@ export default function NovaComandaScreen() {
     // pacote de qualquer forma via trigger. `null` força o update individual
     // que sobrescreve a coluna.
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
-    setPacoteVenderPorAgendamento(prev => {
-      if (!(agendamentoId in prev)) return prev;
-      const { [agendamentoId]: _omit, ...resto } = prev;
-      return resto;
-    });
     const ag = agDia.find(a => a.id === agendamentoId);
     if (!ag) return;
     setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: ag.valor } : i));
-  }
-
-  function venderEVincularPacote(agendamentoId: string, pacoteCatalogoId: string) {
-    setPacoteVenderPorAgendamento(prev => ({ ...prev, [agendamentoId]: pacoteCatalogoId }));
-    // Mesmo raciocínio de `desvincularPacote`: `null` explícito, não apagar a
-    // chave — se este atendimento já chegou com um vínculo real no banco
-    // (Agenda) que por algum motivo não apareceu como "vinculado" na UI, o
-    // valor final gravado no fechamento é sempre sobrescrito pelo id da venda
-    // nova (laço de venda em `fecharComanda`); mas se essa venda for pulada
-    // (ex.: item removido da comanda antes de fechar), `null` garante que o
-    // update individual ainda rode e limpe a coluna, em vez de cair no update
-    // em lote e deixar o vínculo antigo sobreviver no banco.
-    setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
-    setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
   }
 
   const subtotal  = itens.reduce((s, i) => s + i.valor * i.quantidade, 0);
@@ -361,69 +335,11 @@ export default function NovaComandaScreen() {
     }
 
     const comandaId = comanda.id;
-    // Ids dos atendimentos que ainda estão na comanda agora — calculado ANTES
-    // do laço de venda de pacote abaixo porque um atendimento marcado pra
-    // "vender pacote novo" pode ter sido removido da comanda depois (botão
-    // Remover); sem esse filtro o laço venderia um pacote fantasma pra um
-    // item que não existe mais aqui.
+    // Ids dos atendimentos que ainda estão na comanda agora.
     const agIds = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
 
     if (agIds.length > 0) {
-      // Resolve pacotes NOVOS escolhidos no vínculo da comanda (cliente sem
-      // pacote elegível) — mesmo padrão do web: vende o pacote, registra a
-      // receita da venda, e usa o id resultante como o vínculo final da
-      // sessão.
       const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
-      for (const [agendamentoId, pacoteCatalogoId] of Object.entries(pacoteVenderPorAgendamento)) {
-        // Item removido da comanda depois de marcado pra vender pacote —
-        // nada a vender, nada a vincular. Silencioso (não é erro do usuário).
-        if (!agIds.includes(agendamentoId)) continue;
-        // Walk-in sem cadastro não pode receber pacote (pacote_clientes/vendas
-        // exigem cliente_id) — o item já foi zerado na comanda (venderEVincularPacote),
-        // então deixar passar em silêncio daria o serviço de graça. Aborta com erro.
-        if (clienteSel.id === '__sem__') {
-          Alert.alert('Erro', 'Venda de pacote exige cliente cadastrado.');
-          setFechando(false);
-          return;
-        }
-        const pacote = pacotesCat.find(p => p.id === pacoteCatalogoId);
-        if (!pacote) {
-          Alert.alert('Erro', 'Pacote selecionado não encontrado.');
-          setFechando(false);
-          return;
-        }
-        const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
-          empresa_id:    empresaId,
-          pacote_id:     pacote.id,
-          cliente_id:    clienteSel.id,
-          data_inicio:   format(new Date(), 'yyyy-MM-dd'),
-          data_validade: pacote.validade_dias != null
-            ? format(addDays(new Date(), pacote.validade_dias), 'yyyy-MM-dd')
-            : null,
-          valor_pago:    pacote.preco,
-          status:        'ativo',
-        }).select('id').single();
-        if (errVenda || !novaVenda) { Alert.alert('Erro', errVenda?.message ?? 'Erro ao vender pacote'); setFechando(false); return; }
-        pacoteLinksFinal[agendamentoId] = novaVenda.id;
-        const { error: errVenda2 } = await supabase.from('vendas').insert({
-          empresa_id:  empresaId,
-          cliente_id:  clienteSel.id,
-          valor_total: pacote.preco,
-          desconto:    0,
-          observacao:  `Venda de pacote: ${pacote.nome}`,
-        });
-        if (errVenda2) { Alert.alert('Erro', errVenda2.message); setFechando(false); return; }
-        // Move o vínculo de "a vender" pra "já vinculado" no estado — se um
-        // passo mais adiante falhar e o usuário tocar em "Fechar comanda" de
-        // novo, este laço não deve vender um SEGUNDO pacote pro mesmo
-        // atendimento. (O mapa local `pacoteLinksFinal` acima já cobre esta
-        // mesma chamada; isto aqui é só pra uma eventual nova tentativa.)
-        setPacoteVenderPorAgendamento(prev => {
-          const { [agendamentoId]: _omit, ...rest } = prev;
-          return rest;
-        });
-        setPacoteLinks(prev => ({ ...prev, [agendamentoId]: novaVenda.id }));
-      }
 
       // Marcar agendamentos como concluídos + gravar o vínculo de pacote (se
       // houver) no MESMO update do status — o trigger fn_registrar_uso_pacote
@@ -805,13 +721,12 @@ export default function NovaComandaScreen() {
                 {item.tipo === 'agendamento' && item.agendamento_id && (() => {
                   const agendamentoId = item.agendamento_id!;
                   const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === pacoteLinks[agendamentoId]);
-                  const pacoteParaVender = pacotesCat.find(p => p.id === pacoteVenderPorAgendamento[agendamentoId]);
-                  if (pacoteVinculado || pacoteParaVender) {
+                  if (pacoteVinculado) {
                     return (
                       <TouchableOpacity onPress={() => desvincularPacote(agendamentoId)}
                         style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.green, flex: 1 }} numberOfLines={1}>
-                          {pacoteVinculado ? `Sessão de pacote — ${pacoteVinculado.nome}` : `Novo pacote — ${pacoteParaVender!.nome}`}
+                          Sessão de pacote — {pacoteVinculado.nome}
                         </Text>
                         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text4 }}>Desvincular</Text>
                       </TouchableOpacity>
@@ -819,25 +734,18 @@ export default function NovaComandaScreen() {
                   }
                   const servicoId = item.servico_id;
                   const elegiveis = servicoId ? pacotesClienteAtivos.filter(p => p.servicos.some(s => s.servico_id === servicoId)) : [];
-                  // "Vender pacote novo" exige cliente cadastrado (a venda grava
-                  // cliente_id em pacote_clientes/vendas) — não oferecer pra walk-in
-                  // (clienteSel.id === '__sem__'), senão a comanda zera o preço do
-                  // atendimento e fecha de graça sem nada ter sido vendido de fato.
-                  const podeVenderNovo = !!clienteSel && clienteSel.id !== '__sem__';
-                  if (elegiveis.length === 0 && (pacotesCat.length === 0 || !podeVenderNovo)) return null;
-                  const opcoes = elegiveis.length > 0 ? elegiveis : (podeVenderNovo ? pacotesCat : []);
-                  if (opcoes.length === 0) return null;
+                  if (elegiveis.length === 0) return null;
                   return (
                     <View style={{ marginTop: 8, gap: 4 }}>
-                      {opcoes.map((p: any) => (
+                      {elegiveis.map((p: any) => (
                         <TouchableOpacity key={p.id}
-                          onPress={() => elegiveis.length > 0 ? vincularPacote(agendamentoId, p.id) : venderEVincularPacote(agendamentoId, p.id)}
+                          onPress={() => vincularPacote(agendamentoId, p.id)}
                           style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
                           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text }} numberOfLines={1}>
-                            {elegiveis.length > 0 ? `Vincular: ${p.nome}` : `Vender pacote: ${p.nome}`}
+                            Vincular: {p.nome}
                           </Text>
                           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 }}>
-                            {elegiveis.length > 0 ? (p.restantes == null ? 'ilimitado' : `${p.restantes} rest.`) : fmtBRL(p.preco)}
+                            {p.restantes == null ? 'ilimitado' : `${p.restantes} rest.`}
                           </Text>
                         </TouchableOpacity>
                       ))}

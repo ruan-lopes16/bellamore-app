@@ -5,7 +5,7 @@
  * Frente de caixa — Comanda de atendimento.
  *
  * ## Fluxo
- * 1. Página carrega agendamentos do dia (exceto cancelados e já concluídos)
+ * 1. Página carrega agendamentos do dia (exceto cancelados, faltas e já concluídos)
  * 2. Painel esquerdo lista clientes agrupados por horário de atendimento
  * 3. Ao selecionar um cliente, o painel direito abre a comanda com:
  *    - Todos os agendamentos do cliente no dia como itens de serviço
@@ -211,8 +211,6 @@ export default function ComandaPage() {
   // persistidos. `null` = desvinculado explicitamente (precisa limpar a coluna no banco ao
   // fechar), distinto de "chave ausente" (agendamento nunca teve vínculo tocado nesta sessão).
   const [pacoteLinks, setPacoteLinks] = useState<Record<string, string | null>>({});
-  // Pacotes NOVOS a vender do catálogo (agendamento_id -> pacotes.id), pra quando o cliente não tem nenhum elegível
-  const [pacoteVenderPorAgendamento, setPacoteVenderPorAgendamento] = useState<Record<string, string>>({});
   // Backlog de atendimentos já ocorridos (qualquer dia) sem comanda_id — não
   // depende do dia selecionado, para avisar mesmo de dias que o usuário não
   // está vendo agora.
@@ -288,7 +286,7 @@ export default function ComandaPage() {
         .eq('empresa_id', empresaId)
         .gte('data_hora_inicio', startOfDay(dataComanda).toISOString())
         .lte('data_hora_inicio', endOfDay(dataComanda).toISOString())
-        .neq('status', 'cancelado')
+        .not('status', 'in', '("cancelado","faltou")')
         .order('data_hora_inicio'),
 
       // Catálogos
@@ -359,7 +357,7 @@ export default function ComandaPage() {
       .from('agendamentos')
       .select('data_hora_inicio')
       .eq('empresa_id', empId)
-      .neq('status', 'cancelado')
+      .not('status', 'in', '("cancelado","faltou")')
       .gte('data_hora_inicio', startOfMonth(mes).toISOString())
       .lte('data_hora_inicio', endOfMonth(mes).toISOString());
     const map = new Map<string, number>();
@@ -438,7 +436,6 @@ export default function ComandaPage() {
     setErro('');
     setDescontoPct('');
     setSplits([]);
-    setPacoteVenderPorAgendamento({});
 
     // Atendimentos já vinculados a um pacote na Agenda (ou numa comanda
     // anterior desta sessão) entram já cobertos — é o que resolve, sem
@@ -511,7 +508,6 @@ export default function ComandaPage() {
       if (ag.pacote_cliente_id) linksExistentes[ag.id] = ag.pacote_cliente_id;
     }
     setPacoteLinks(linksExistentes);
-    setPacoteVenderPorAgendamento({});
 
     const agItems: ComandaItem[] = cliente.agendamentos.flatMap(ag => {
       const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
@@ -746,11 +742,6 @@ export default function ComandaPage() {
   /** Vincula um atendimento a uma sessão de um pacote já ativo do cliente — zera o(s) item(ns) daquele atendimento. */
   function vincularPacote(agendamentoId: string, pacoteClienteId: string) {
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: pacoteClienteId }));
-    setPacoteVenderPorAgendamento(prev => {
-      if (!(agendamentoId in prev)) return prev;
-      const { [agendamentoId]: _omit, ...resto } = prev;
-      return resto;
-    });
     setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
   }
 
@@ -765,11 +756,6 @@ export default function ComandaPage() {
    */
   function desvincularPacote(agendamentoId: string) {
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
-    setPacoteVenderPorAgendamento(prev => {
-      if (!(agendamentoId in prev)) return prev;
-      const { [agendamentoId]: _omit, ...resto } = prev;
-      return resto;
-    });
     const ag = agDia.find(a => a.id === agendamentoId);
     setItens(prev => prev.map(i => {
       if (i.agendamento_id !== agendamentoId || !ag) return i;
@@ -781,16 +767,6 @@ export default function ComandaPage() {
     }));
   }
 
-  /** Cliente sem pacote elegível pro serviço — marca pra vender um pacote novo do catálogo ao fechar, e já zera o item (a venda de fato acontece em fecharComanda). */
-  function venderEVincularPacote(agendamentoId: string, pacoteCatalogoId: string) {
-    setPacoteVenderPorAgendamento(prev => ({ ...prev, [agendamentoId]: pacoteCatalogoId }));
-    setPacoteLinks(prev => {
-      if (!(agendamentoId in prev)) return prev;
-      const { [agendamentoId]: _omit, ...resto } = prev;
-      return resto;
-    });
-    setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: 0 } : i));
-  }
   function atualizarValor(u: string, v: string) {
     const n = parseFloat(v.replace(',', '.'));
     setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: isNaN(n) ? i.valor : n } : i));
@@ -862,70 +838,9 @@ export default function ComandaPage() {
 
     const comandaId = comanda.id;
 
-    // Ids dos atendimentos que ainda estão na comanda agora — calculado ANTES
-    // do laço de venda de pacote abaixo porque um atendimento marcado pra
-    // "vender pacote novo" pode ter sido removido da comanda depois (botão
-    // Remover); sem esse filtro o laço venderia um pacote fantasma pra um
-    // item que não existe mais aqui.
+    // Ids dos atendimentos que ainda estão na comanda agora.
     const agIds = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
-
-    // 1b. Resolve pacotes NOVOS escolhidos no vínculo da comanda (cliente
-    //     sem pacote elegível) — mesmo padrão que a Agenda já usa em
-    //     executarSalvar: vende o pacote, registra a receita da venda, e usa
-    //     o id resultante como o vínculo final da sessão.
-    // `null` (desvinculado nesta sessão) flui intacto pro UPDATE se nenhuma venda
-    // sobrescrever a entrada — é exatamente essa a limpeza que precisa acontecer no banco.
     const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
-    for (const [agendamentoId, pacoteCatalogoId] of Object.entries(pacoteVenderPorAgendamento)) {
-      // Item removido da comanda depois de marcado pra vender pacote — nada
-      // a vender, nada a vincular. Silencioso (não é erro do usuário).
-      if (!agIds.includes(agendamentoId)) continue;
-      // Walk-in sem cadastro não pode receber pacote (pacote_clientes/vendas
-      // exigem cliente_id) — a comanda já fechou o item em R$0 (Task 4), então
-      // deixar passar em silêncio daria o serviço de graça. Aborta com erro.
-      if (clienteSel.id === '__sem__') {
-        setErro('Venda de pacote exige cliente cadastrado.');
-        setFechando(false);
-        return;
-      }
-      const pacote = pacotesCat.find(p => p.id === pacoteCatalogoId);
-      if (!pacote) {
-        setErro('Pacote selecionado não encontrado.');
-        setFechando(false);
-        return;
-      }
-      const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
-        empresa_id:    empresaId,
-        pacote_id:     pacote.id,
-        cliente_id:    clienteSel.id,
-        data_inicio:   format(new Date(), 'yyyy-MM-dd'),
-        data_validade: pacote.validade_dias != null
-          ? format(addDays(new Date(), pacote.validade_dias), 'yyyy-MM-dd')
-          : null,
-        valor_pago:    pacote.preco,
-        status:        'ativo',
-      }).select('id').single();
-      if (errVenda || !novaVenda) { setErro(errVenda?.message ?? 'Erro ao vender pacote'); setFechando(false); return; }
-      pacoteLinksFinal[agendamentoId] = novaVenda.id;
-      const { error: errVenda2 } = await supabase.from('vendas').insert({
-        empresa_id:  empresaId,
-        cliente_id:  clienteSel.id,
-        valor_total: pacote.preco,
-        desconto:    0,
-        observacao:  `Venda de pacote: ${pacote.nome}`,
-      });
-      if (errVenda2) { setErro(errVenda2.message); setFechando(false); return; }
-      // Move o vínculo de "a vender" pra "já vinculado" no estado — se um
-      // passo mais adiante falhar e o usuário clicar em "Fechar comanda" de
-      // novo, este laço não deve vender um SEGUNDO pacote pro mesmo
-      // atendimento. (O mapa local `pacoteLinksFinal` acima já cobre esta
-      // mesma chamada; isto aqui é só para uma eventual nova tentativa.)
-      setPacoteVenderPorAgendamento(prev => {
-        const { [agendamentoId]: _omit, ...rest } = prev;
-        return rest;
-      });
-      setPacoteLinks(prev => ({ ...prev, [agendamentoId]: novaVenda.id }));
-    }
 
     // 2. Marcar agendamentos como concluídos + gravar o valor cobrado (e o
     //    vínculo de pacote, se houver) no mesmo UPDATE do status — pra o
@@ -1514,12 +1429,11 @@ export default function ComandaPage() {
                          item === itens.find(i => i.agendamento_id === item.agendamento_id) && (() => {
                           const agendamentoId = item.agendamento_id!;
                           const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === pacoteLinks[agendamentoId]);
-                          const pacoteParaVender = pacotesCat.find(p => p.id === pacoteVenderPorAgendamento[agendamentoId]);
-                          if (pacoteVinculado || pacoteParaVender) {
+                          if (pacoteVinculado) {
                             return (
                               <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-green-soft border border-green/20 px-3 py-2">
                                 <span className="text-xs font-semibold text-green truncate">
-                                  {pacoteVinculado ? `Sessão de pacote — ${pacoteVinculado.nome}` : `Novo pacote — ${pacoteParaVender!.nome}`}
+                                  Sessão de pacote — {pacoteVinculado.nome}
                                 </span>
                                 {/* Desvincular também fica fora de escopo em edição: restaura o
                                     valor localmente, mas editarComanda() nunca grava
@@ -1537,38 +1451,26 @@ export default function ComandaPage() {
                               </div>
                             );
                           }
-                          // Vincular/vender pacote novo fica fora de escopo ao editar uma
+                          // Vincular pacote existente fica fora de escopo ao editar uma
                           // comanda já fechada: persistirValoresAgendamento() é chamado sem
                           // vínculo nenhum nesse fluxo (editarComanda), então zerar o item
-                          // aqui gravaria R$0 sem nunca registrar a venda nem o vínculo —
-                          // perda de receita silenciosa. O badge acima continua mostrando o
-                          // vínculo já existente; só o seletor de criar um vínculo novo some.
+                          // aqui gravaria R$0 sem nunca registrar o vínculo — perda de receita
+                          // silenciosa. O badge acima continua mostrando o vínculo já
+                          // existente; só o seletor de criar um vínculo novo some.
                           if (comandaExistenteId) return null;
                           const servicoId = item.servico_id;
                           const elegiveis = servicoId
                             ? pacotesClienteAtivos.filter(p => p.servicos.some(s => s.servico_id === servicoId))
                             : [];
-                          // "Vender pacote novo" exige cliente cadastrado (a venda grava
-                          // cliente_id em pacote_clientes/vendas) — não oferecer pra walk-in.
-                          const podeVenderNovo = clienteSel.id !== '__sem__';
-                          if (elegiveis.length === 0 && (pacotesCat.length === 0 || !podeVenderNovo)) return null;
+                          if (elegiveis.length === 0) return null;
                           return (
                             <div className="mt-2">
-                              {elegiveis.length > 0 ? (
-                                <SearchSelect
-                                  options={elegiveis.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
-                                  value=""
-                                  onChange={id => vincularPacote(agendamentoId, id)}
-                                  placeholder="Vincular a sessão de pacote..."
-                                />
-                              ) : podeVenderNovo ? (
-                                <SearchSelect
-                                  options={pacotesCat.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
-                                  value=""
-                                  onChange={id => venderEVincularPacote(agendamentoId, id)}
-                                  placeholder="Cliente não tem pacote — vender pacote novo..."
-                                />
-                              ) : null}
+                              <SearchSelect
+                                options={elegiveis.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
+                                value=""
+                                onChange={id => vincularPacote(agendamentoId, id)}
+                                placeholder="Vincular a sessão de pacote..."
+                              />
                             </div>
                           );
                         })()}
