@@ -1997,6 +1997,11 @@ export default function AgendaPage() {
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
   const [meuRole,   setMeuRole]   = useState<string>('profissional');
   const [meuUserId, setMeuUserId] = useState<string>('');
+  // Profissional cuja agenda está sendo exibida — sempre a própria pra quem
+  // é profissional (só ela mesma existe na lista pra escolher); pra
+  // gestão, começa nela mesma e pode trocar pelo seletor no header. Nunca
+  // existe modo "todas ao mesmo tempo" — sempre exatamente uma selecionada.
+  const [profFiltro, setProfFiltro] = useState<string>('');
   const [modal,       setModal]      = useState(false);
   const [modalBloq,   setModalBloq]  = useState(false);
   const [modalParams, setModalParams] = useState<{ hora?: string; profId?: string }>({});
@@ -2035,6 +2040,7 @@ export default function AgendaPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
       setMeuUserId(user.id);
+      setProfFiltro(user.id);
       setMeuRole((membro?.role as string) ?? 'profissional');
       if (membro?.empresa_id) {
         const souGestao = membro.role === 'owner' || membro.role === 'gestor';
@@ -2065,7 +2071,6 @@ export default function AgendaPage() {
     setLoading(true);
     const iniDia = startOfDay(data).toISOString();
     const fimDia = endOfDay(data).toISOString();
-    const souGestao = meuRole === 'owner' || meuRole === 'gestor';
 
     let queryAgs = supabase
       .from('agendamentos')
@@ -2079,7 +2084,7 @@ export default function AgendaPage() {
       .lte('data_hora_inicio', fimDia)
       .neq('status', 'cancelado')
       .order('data_hora_inicio');
-    if (!souGestao && meuUserId) queryAgs = queryAgs.eq('profissional_id', meuUserId);
+    if (profFiltro) queryAgs = queryAgs.eq('profissional_id', profFiltro);
 
     const [{ data: rows }, { data: blRows }] = await Promise.all([
       queryAgs,
@@ -2094,24 +2099,26 @@ export default function AgendaPage() {
     setAgs((rows ?? []) as unknown as Ag[]);
     setBloqueios((blRows ?? []) as Bloqueio[]);
     setLoading(false);
-  }, [meuRole, meuUserId]);
+  }, [profFiltro]);
 
   // Busca contagem por dia para visão mensal
   const fetchMes = useCallback(async (mes: Date, empId: string) => {
-    const { data: rows } = await supabase
+    let query = supabase
       .from('agendamentos')
       .select('data_hora_inicio')
       .eq('empresa_id', empId)
       .neq('status', 'cancelado')
       .gte('data_hora_inicio', startOfMonth(mes).toISOString())
       .lte('data_hora_inicio', endOfMonth(mes).toISOString());
+    if (profFiltro) query = query.eq('profissional_id', profFiltro);
+    const { data: rows } = await query;
     const map = new Map<string, number>();
     ((rows ?? []) as { data_hora_inicio: string }[]).forEach(r => {
       const k = format(parseISO(r.data_hora_inicio), 'yyyy-MM-dd');
       map.set(k, (map.get(k) ?? 0) + 1);
     });
     setAgsMes(map);
-  }, []);
+  }, [profFiltro]);
 
   // Bloqueios pendentes de aprovação (só a gestão enxerga / faz polling)
   const recarregarPendentes = useCallback(async () => {
@@ -2154,7 +2161,7 @@ export default function AgendaPage() {
     if (!empresaId) return;
     fetchDia(dataSel, empresaId);
     if (view === 'mes') fetchMes(dataSel, empresaId);
-  }, [dataSel, empresaId, view]);
+  }, [dataSel, empresaId, view, fetchDia, fetchMes]);
 
   /** Move a seleção um dia por vez; realoca a faixa da semana quando o dia sai da semana visível */
   function navDia(dir: number) {
@@ -2275,6 +2282,16 @@ export default function AgendaPage() {
                 className="transition">{label}</button>
             ))}
           </div>
+          {ehGestao && profissionaisEmpresa.length > 1 && (
+            <div className="bm-mobile-action-wide" style={{ minWidth: 200 }}>
+              <SearchSelect
+                options={profissionaisEmpresa.map(p => ({ value: p.id, label: p.nome }))}
+                value={profFiltro}
+                onChange={setProfFiltro}
+                placeholder="Ver agenda de..."
+              />
+            </div>
+          )}
           <ExportButton
             variant="mobileHeader"
             className="bm-mobile-header-export"
@@ -2351,7 +2368,7 @@ export default function AgendaPage() {
         <TimelineView
           ags={agsVisiveis}
           bloqueios={bloqueios}
-          profissionaisEmpresa={profissionaisEmpresa}
+          profissionaisEmpresa={profissionaisEmpresa.filter(p => p.id === profFiltro)}
           loading={loading}
           empresaId={empresaId ?? ''}
           categoriasCustom={categoriasCustom}
