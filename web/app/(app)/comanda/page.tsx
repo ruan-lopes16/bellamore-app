@@ -746,13 +746,13 @@ export default function ComandaPage() {
   }
 
   /**
-   * Desfaz o vínculo (existente ou "vender pacote novo") — restaura o valor de tabela do
-   * atendimento. Quando o agendamento já chegou na comanda com `pacote_cliente_id` gravado no
-   * banco (vínculo feito lá na Agenda), simplesmente REMOVER a chave de `pacoteLinks` não basta:
-   * `agruparValoresPorAgendamento` trataria como "nunca mencionado" e não escreveria nada no
-   * UPDATE, deixando o vínculo antigo — e o trigger de consumo de sessão — intactos no banco. Por
-   * isso grava `null` explícito, que persistirValoresAgendamento agora sabe distinguir de
-   * "ausente" e grava como limpeza real da coluna.
+   * Desfaz o vínculo — restaura o valor de tabela do atendimento. Quando o agendamento já
+   * chegou na comanda com `pacote_cliente_id` gravado no banco (vínculo feito lá na Agenda),
+   * simplesmente REMOVER a chave de `pacoteLinks` não basta: `agruparValoresPorAgendamento`
+   * trataria como "nunca mencionado" e não escreveria nada no UPDATE, deixando o vínculo
+   * antigo — e o trigger de consumo de sessão — intactos no banco. Por isso grava `null`
+   * explícito, que persistirValoresAgendamento agora sabe distinguir de "ausente" e grava
+   * como limpeza real da coluna.
    */
   function desvincularPacote(agendamentoId: string) {
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));

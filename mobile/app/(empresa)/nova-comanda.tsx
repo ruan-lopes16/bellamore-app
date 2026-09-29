@@ -438,18 +438,20 @@ export default function NovaComandaScreen() {
         }));
       });
       if (novasVendas.length > 0) {
-        await supabase.from('pacote_clientes').insert(novasVendas);
+        const { error: errPac } = await supabase.from('pacote_clientes').insert(novasVendas);
+        if (errPac) { Alert.alert('Erro', errPac.message); setFechando(false); return; }
         // Registra a venda do pacote como faturamento (uma vez, no ato).
         // As sessões consumidas depois NÃO contam como receita.
         const totalPacotes = novasVendas.reduce((s, v) => s + Number(v.valor_pago ?? 0), 0);
         if (totalPacotes > 0) {
-          await supabase.from('vendas').insert({
+          const { error: errVenda } = await supabase.from('vendas').insert({
             empresa_id:  empresaId,
             cliente_id:  clienteSel.id,
             valor_total: totalPacotes,
             desconto:    0,
             observacao:  `Pacote(s) via comanda`,
           });
+          if (errVenda) { Alert.alert('Erro', errVenda.message); setFechando(false); return; }
         }
       }
     }
