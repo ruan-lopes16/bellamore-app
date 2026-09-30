@@ -53,11 +53,16 @@ export default function VerificarEmail() {
       Alert.alert('Atenção', 'Volte e faça o cadastro novamente.');
       return;
     }
+    const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+    if (!apiUrl) {
+      Alert.alert('Erro', 'App sem URL da API configurada (EXPO_PUBLIC_API_URL). Avise o suporte.');
+      return;
+    }
     setReenviando(true);
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email,
-      options: { emailRedirectTo: `${process.env.EXPO_PUBLIC_API_URL}/auth/callback` },
+      options: { emailRedirectTo: `${apiUrl}/auth/callback` },
     });
     setReenviando(false);
     if (error) Alert.alert('Erro', error.message);

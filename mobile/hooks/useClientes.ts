@@ -81,6 +81,7 @@ export function useClientes(filtro: FiltroClientes = 'todas', busca = '') {
           .eq('status', 'concluido')
           .not('cliente_id', 'is', null)
           .order('data_hora_inicio')
+          .order('id')
           .range(from, to) as any,
       );
 
@@ -214,6 +215,7 @@ export function useClienteDetalhe(clienteId: string) {
             .eq('empresa_id', empresaId!)
             .eq('cliente_id', clienteId)
             .order('data_hora_inicio', { ascending: false })
+            .order('id')
             .range(from, to) as any
         ),
         // Servicos lancados direto na comanda (cliente sem hora marcada) — o web

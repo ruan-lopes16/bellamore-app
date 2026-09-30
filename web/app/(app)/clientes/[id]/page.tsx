@@ -16,9 +16,12 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { buscarTodasPaginas } from '@shared/paginacao';
-import { montarAniversario, partesAniversario, diasNoMes, idadeCliente } from '@shared/clientes';
 import {
-  ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese,
+  aniversarioParaGravar, nomeClienteValido, parseEndereco, serializarEndereco,
+  partesAniversario, diasNoMes, idadeCliente,
+} from '@shared/clientes';
+import {
+  ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES, TEXTO_DECLARACAO, type AnamneseRespostas,
 } from '@shared/anamnese';
 import {
@@ -38,15 +41,6 @@ function nascPartes(data?: string | null): { nascMes: string; nascDia: string } 
 
 function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
-}
-
-function parseEndereco(raw?: string): Endereco {
-  if (!raw) return { logradouro: '', numero: '', bairro: '', complemento: '' };
-  try {
-    const p = JSON.parse(raw);
-    if (p.logradouro !== undefined) return { complemento: '', ...p };
-  } catch {}
-  return { logradouro: raw, numero: '', bairro: '', complemento: '' };
 }
 
 function DisplayRow({ label, value, placeholder = '—' }: {
@@ -534,10 +528,10 @@ export default function ClientePerfilPage() {
   );
 
   // ── Info edit ──────────────────────────────────────────────
-  type InfoRascunho = { nome: string; telefone: string; email: string; nascMes: string; nascDia: string } & Endereco;
+  type InfoRascunho = { nome: string; telefone: string; email: string; nascMes: string; nascDia: string; obs: string } & Endereco;
   const [editInfo,      setEditInfo]      = useState(false);
   const [rascunhoInfo,  setRascunhoInfo]  = useState<InfoRascunho>({
-    nome: '', telefone: '', email: '', nascMes: '', nascDia: '',
+    nome: '', telefone: '', email: '', nascMes: '', nascDia: '', obs: '',
     logradouro: '', numero: '', bairro: '', complemento: '',
   });
   const [salvandoInfo, setSalvandoInfo] = useState(false);
@@ -643,7 +637,7 @@ export default function ClientePerfilPage() {
     const end = parseEndereco(cliente.endereco);
     setRascunhoInfo({
       nome: cliente.nome, telefone: cliente.telefone ?? '',
-      email: cliente.email ?? '', ...nascPartes(cliente.data_nascimento),
+      email: cliente.email ?? '', ...nascPartes(cliente.data_nascimento), obs: cliente.observacoes ?? '',
       logradouro: end.logradouro, numero: end.numero,
       bairro: end.bairro, complemento: end.complemento,
     });
@@ -653,7 +647,7 @@ export default function ClientePerfilPage() {
     const end = parseEndereco(c.endereco);
     setRascunhoInfo({
       nome: c.nome, telefone: c.telefone ?? '',
-      email: c.email ?? '', ...nascPartes(c.data_nascimento),
+      email: c.email ?? '', ...nascPartes(c.data_nascimento), obs: c.observacoes ?? '',
       logradouro: end.logradouro, numero: end.numero,
       bairro: end.bairro, complemento: end.complemento,
     });
@@ -743,32 +737,29 @@ export default function ClientePerfilPage() {
   }, [abaAtiva]);
 
   async function salvarInfo() {
-    if (!rascunhoInfo.nome.trim()) return;
+    if (!nomeClienteValido(rascunhoInfo.nome)) return;
     const { nascMes, nascDia } = rascunhoInfo;
     if (!!nascMes !== !!nascDia) { setErroInfo('Escolha o mês e o dia do aniversário, ou deixe os dois em branco.'); return; }
     setErroInfo('');
     // Mês/dia inalterados: mantém a data original (preserva um ano real, se houver).
-    const orig = nascPartes(cliente?.data_nascimento);
-    const data_nascimento = (cliente?.data_nascimento && orig.nascMes === nascMes && orig.nascDia === nascDia)
-      ? cliente.data_nascimento
-      : montarAniversario(nascMes, nascDia);
+    const data_nascimento = aniversarioParaGravar(cliente?.data_nascimento, nascMes, nascDia);
+    const enderecoJson = serializarEndereco({
+      logradouro: rascunhoInfo.logradouro, numero: rascunhoInfo.numero,
+      bairro: rascunhoInfo.bairro, complemento: rascunhoInfo.complemento,
+    });
+    const observacoes = rascunhoInfo.obs.trim() || null;
     setSalvandoInfo(true);
-    const temEndereco = rascunhoInfo.logradouro || rascunhoInfo.numero || rascunhoInfo.bairro;
-    const enderecoJson = temEndereco
-      ? JSON.stringify({
-          logradouro: rascunhoInfo.logradouro,
-          numero: rascunhoInfo.numero,
-          bairro: rascunhoInfo.bairro,
-          complemento: rascunhoInfo.complemento,
-        })
-      : null;
-    await supabase.from('clientes').update({
+    const { data: atualizadas, error } = await supabase.from('clientes').update({
       nome: rascunhoInfo.nome.trim(),
       telefone: rascunhoInfo.telefone.trim() || null,
       email: rascunhoInfo.email.trim() || null,
       data_nascimento,
       endereco: enderecoJson,
-    }).eq('id', id);
+      observacoes,
+    }).eq('id', id).select('id');
+    setSalvandoInfo(false);
+    if (error) { setErroInfo(error.message); return; }
+    if (!atualizadas || atualizadas.length === 0) { setErroInfo('Sem permissão para editar esta cliente.'); return; }
     setCliente(prev => prev ? {
       ...prev,
       nome: rascunhoInfo.nome.trim(),
@@ -776,8 +767,8 @@ export default function ClientePerfilPage() {
       email: rascunhoInfo.email.trim() || undefined,
       data_nascimento: data_nascimento ?? undefined,
       endereco: enderecoJson ?? undefined,
+      observacoes: observacoes ?? undefined,
     } : prev);
-    setSalvandoInfo(false);
     setEditInfo(false);
   }
 
@@ -911,7 +902,7 @@ export default function ClientePerfilPage() {
   const idade = idadeCliente(cliente.data_nascimento);
 
   const enderecoAtual = parseEndereco(cliente.endereco);
-  const temEndereco   = !!(enderecoAtual.logradouro || enderecoAtual.bairro);
+  const temEndereco   = Object.values(enderecoAtual).some(Boolean);
 
   return (
     <div className="bm-page">
@@ -1073,6 +1064,13 @@ export default function ClientePerfilPage() {
                         onChange={e => setRascunhoInfo(r => ({ ...r, email: e.target.value }))}
                         placeholder="opcional" className={inputClass}/>
                     </div>
+                    <div>
+                      <label className={labelClass}>Observações internas</label>
+                      <textarea value={rascunhoInfo.obs} rows={3}
+                        onChange={e => setRascunhoInfo(r => ({ ...r, obs: e.target.value }))}
+                        placeholder="Ex: preferências, restrições, como nos conheceu…"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none"/>
+                    </div>
 
                     <div className="border-t border-border pt-5">
                       <p className="text-xs font-semibold text-text-3 uppercase tracking-wide mb-3 flex items-center gap-1.5">
@@ -1117,7 +1115,7 @@ export default function ClientePerfilPage() {
                         className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
                         Cancelar
                       </button>
-                      <button onClick={salvarInfo} disabled={salvandoInfo || !rascunhoInfo.nome.trim()}
+                      <button onClick={salvarInfo} disabled={salvandoInfo || !nomeClienteValido(rascunhoInfo.nome)}
                         className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
                         {salvandoInfo ? 'Salvando...' : 'Salvar'}
                       </button>
@@ -1135,6 +1133,7 @@ export default function ClientePerfilPage() {
                         placeholder="Não informada"/>
                     </div>
                     <DisplayRow label="E-mail" value={cliente.email} placeholder="Não informado"/>
+                    <DisplayRow label="Observações internas" value={cliente.observacoes} placeholder="Nenhuma"/>
 
                     <div className="border-t border-border pt-5">
                       <p className="text-xs font-semibold text-text-3 uppercase tracking-wide mb-3 flex items-center gap-1.5">
@@ -1384,7 +1383,9 @@ export default function ClientePerfilPage() {
                               onClick={() => setRascunho(r => ({ ...r, [key]: { ...r[key], resposta: v } }))}
                               className={`px-5 py-1.5 rounded-lg text-sm font-medium border transition ${
                                 rascunho[key].resposta === v
-                                  ? v === 'sim' ? 'bg-red-soft border-red/30 text-red' : 'bg-green-soft border-green/30 text-green'
+                                  ? v === 'sim'
+                                    ? (ehRestricao(key) ? 'bg-red-soft border-red/30 text-red' : 'bg-primary/10 border-primary/30 text-primary')
+                                    : 'bg-green-soft border-green/30 text-green'
                                   : 'bg-bg border-border text-text-3 hover:border-accent'
                               }`}>
                               {v === 'sim' ? 'Sim' : 'Não'}
@@ -1478,7 +1479,9 @@ export default function ClientePerfilPage() {
                           ) : (
                             <>
                               <span className={`text-sm font-semibold w-fit px-2.5 py-0.5 rounded-lg ${
-                                item.resposta === 'sim' ? 'bg-red-soft text-red' : 'bg-green-soft text-green'
+                                item.resposta === 'sim'
+                                  ? (ehRestricao(key) ? 'bg-red-soft text-red' : 'bg-bg text-text-2 border border-border')
+                                  : 'bg-green-soft text-green'
                               }`}>
                                 {item.resposta === 'sim' ? 'Sim' : 'Não'}
                               </span>

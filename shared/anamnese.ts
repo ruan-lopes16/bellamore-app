@@ -126,11 +126,16 @@ const ROTULO_RESTRICAO: Record<ChaveSimNao, string> = {
   autoimune: 'Doença autoimune', procedimento_anterior: 'Procedimento anterior',
 };
 
+/** Perguntas sim/não cuja resposta "Sim" é restrição (destaque vermelho em web e mobile). */
+export function ehRestricao(key: string): boolean {
+  return key === 'alergias' || key === 'problemas_saude' || key === 'medicamentos' || key === 'autoimune';
+}
+
 /** Restrições a destacar no perfil (alerta). Procedimento anterior não é restrição. */
 export function restricoesAnamnese(a: AnamneseRespostas): string[] {
   const out: string[] = [];
   for (const k of ['alergias', 'problemas_saude', 'medicamentos', 'autoimune'] as const) {
-    if (a[k].resposta === 'sim') out.push(a[k].detalhe ? `${ROTULO_RESTRICAO[k]}: ${a[k].detalhe}` : ROTULO_RESTRICAO[k]);
+    if (ehRestricao(k) && a[k].resposta === 'sim') out.push(a[k].detalhe ? `${ROTULO_RESTRICAO[k]}: ${a[k].detalhe}` : ROTULO_RESTRICAO[k]);
   }
   if (a.gestante === 'gestante') out.push('Gestante');
   if (a.gestante === 'lactante') out.push('Lactante');

@@ -9,7 +9,9 @@
 -- desde a 031 (cliente_id aponta para public.clientes, não para auth.users).
 --
 -- Esta migration:
---  1. recria as policies (ver/inserir/atualizar) para membros da empresa;
+--  1. recria a FK cliente_id com ON DELETE CASCADE (LGPD: apagar a cliente apaga a ficha)
+--     e as policies (ver/inserir/atualizar) para membros da empresa; INSERT/UPDATE
+--     exigem também que cliente_id seja de uma cliente da própria empresa;
 --  2. copia, linha a linha (bloco DO), as fichas de clientes.observacoes para
 --     anamnese_fichas.respostas (formato antigo do web; o app normaliza na leitura
 --     via shared/anamnese.ts). Linhas com texto livre/JSON inválido são puladas;
@@ -23,18 +25,26 @@
 
 alter table public.anamnese_fichas enable row level security;
 
+alter table public.anamnese_fichas drop constraint if exists anamnese_fichas_cliente_id_fkey;
+alter table public.anamnese_fichas add constraint anamnese_fichas_cliente_id_fkey
+  foreign key (cliente_id) references public.clientes(id) on delete cascade;
+
 drop policy if exists "anamnese: ver" on public.anamnese_fichas;
 create policy "anamnese: ver" on public.anamnese_fichas
   for select using (empresa_id in (select minha_empresas()));
 
 drop policy if exists "anamnese: inserir" on public.anamnese_fichas;
 create policy "anamnese: inserir" on public.anamnese_fichas
-  for insert with check (empresa_id in (select minha_empresas()));
+  for insert with check (
+    empresa_id in (select minha_empresas())
+    and cliente_id in (select id from public.clientes where empresa_id in (select minha_empresas())));
 
 drop policy if exists "anamnese: atualizar" on public.anamnese_fichas;
 create policy "anamnese: atualizar" on public.anamnese_fichas
   for update using (empresa_id in (select minha_empresas()))
-  with check (empresa_id in (select minha_empresas()));
+  with check (
+    empresa_id in (select minha_empresas())
+    and cliente_id in (select id from public.clientes where empresa_id in (select minha_empresas())));
 
 -- 2+3. Migra cada ficha de clientes.observacoes e, SÓ se esta execução de fato a
 -- copiou, limpa o campo. Linha a linha: observacoes em texto livre ou JSON

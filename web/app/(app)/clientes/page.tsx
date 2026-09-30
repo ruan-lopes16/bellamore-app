@@ -10,7 +10,7 @@ import { format, startOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { maskPhone } from '@/lib/masks';
-import { montarAniversario, diasNoMes } from '@shared/clientes';
+import { montarAniversario, diasNoMes, nomeClienteValido } from '@shared/clientes';
 import { avancarComEnter } from '@/lib/formNav';
 import { ExportButton } from '@/components/ExportButton';
 
@@ -40,12 +40,14 @@ function NovoClienteModal({ empresaId, onClose }: {
   const [email,    setEmail]    = useState('');
   const [nascMes,  setNascMes]  = useState('');
   const [nascDia,  setNascDia]  = useState('');
+  const [obs,      setObs]      = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
   const [sucesso,  setSucesso]  = useState<{ nome: string; id: string } | null>(null);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro('');
+    if (!nomeClienteValido(nome)) { setErro('O nome é obrigatório (mínimo 2 caracteres).'); return; }
     if (!!nascMes !== !!nascDia) { setErro('Escolha o mês e o dia do aniversário, ou deixe os dois em branco.'); return; }
     setSalvando(true);
     const data_nascimento = montarAniversario(nascMes, nascDia);
@@ -54,6 +56,7 @@ function NovoClienteModal({ empresaId, onClose }: {
       telefone: telefone.trim() || null,
       email: email.trim() || null,
       data_nascimento,
+      observacoes: obs.trim() || null,
     }).select().single();
     setSalvando(false);
     if (error) { setErro(error.message); return; }
@@ -126,13 +129,20 @@ function NovoClienteModal({ empresaId, onClose }: {
               </select>
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Observações internas (opcional)</label>
+            <textarea value={obs} rows={3}
+              onChange={e => setObs(e.target.value)}
+              placeholder="Ex: preferências, restrições, como nos conheceu…"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none"/>
+          </div>
           {erro && <p className="text-red text-sm">{erro}</p>}
           <p className="text-xs text-text-4 -mt-1">
             Após cadastrar, você será direcionado para completar o perfil e preencher a anamnese.
           </p>
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
-            <button type="submit" disabled={salvando || !nome.trim()} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
+            <button type="submit" disabled={salvando || !nomeClienteValido(nome)} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-50">
               {salvando ? 'Cadastrando...' : 'Cadastrar'}
             </button>
           </div>

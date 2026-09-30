@@ -33,7 +33,7 @@ import { toWhatsApp } from '@shared/mascaras';
 import { idadeCliente, formatarAniversario, parseEndereco } from '@shared/clientes';
 import { supabase } from '@/lib/supabase';
 import {
-  normalizarAnamnese, restricoesAnamnese, anamnesePreenchida,
+  normalizarAnamnese, restricoesAnamnese, anamnesePreenchida, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
 } from '@shared/anamnese';
 
@@ -684,7 +684,7 @@ export default function ClientePerfil() {
                       const r = fichaAnamnese[p.key];
                       const texto = r.resposta === 'sim' ? (r.detalhe ? `Sim — ${r.detalhe}` : 'Sim')
                         : r.resposta === 'nao' ? 'Não' : 'Não respondido';
-                      const alerta = r.resposta === 'sim' && p.key !== 'procedimento_anterior';
+                      const alerta = r.resposta === 'sim' && ehRestricao(p.key);
                       return (
                         <AnamneseRow
                           key={p.key} pergunta={p.label} resposta={texto}

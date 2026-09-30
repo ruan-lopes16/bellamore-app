@@ -26,7 +26,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
-import { montarAniversario, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
+import { montarAniversario, nomeClienteValido, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ export default function NovoCliente() {
   if (!fontsLoaded) return null;
 
   async function salvar() {
-    if (nome.trim().length <= 1) {
+    if (!nomeClienteValido(nome)) {
       Alert.alert('Atenção', 'O nome é obrigatório.');
       return;
     }
@@ -152,7 +152,7 @@ export default function NovoCliente() {
     router.replace(`/(empresa)/cliente/${data.id}/anamnese` as any);
   }
 
-  const podeSalvar = nome.trim().length > 1;
+  const podeSalvar = nomeClienteValido(nome);
 
   return (
     <KeyboardAvoidingView

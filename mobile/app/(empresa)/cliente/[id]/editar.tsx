@@ -24,7 +24,7 @@ import { useClienteDetalhe } from '@/hooks/useClientes';
 import { useAuthStore } from '@/stores/authStore';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
-import { montarAniversario, partesAniversario, parseEndereco, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
+import { aniversarioParaGravar, nomeClienteValido, partesAniversario, parseEndereco, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ export default function EditarCliente() {
   if (!fontsLoaded || !cliente) return null;
 
   async function salvar() {
-    if (nome.trim().length <= 1) { Alert.alert('Atenção', 'O nome é obrigatório.'); return; }
+    if (!nomeClienteValido(nome)) { Alert.alert('Atenção', 'O nome é obrigatório.'); return; }
     if (!empresaAtiva) return;
     if (!!nascMes !== !!nascDia) {
       Alert.alert('Aniversário', 'Escolha o mês e o dia do aniversário, ou deixe os dois em branco.');
@@ -111,7 +111,7 @@ export default function EditarCliente() {
 
     const { data, error } = await supabase.from('clientes').update({
       nome: nome.trim(), telefone: telefone.trim() || null, email: email.trim() || null,
-      data_nascimento: montarAniversario(nascMes, nascDia),
+      data_nascimento: aniversarioParaGravar(cliente?.data_nascimento, nascMes, nascDia),
       endereco: serializarEndereco(endereco), observacoes: obs.trim() || null,
     }).eq('id', id).eq('empresa_id', empresaAtiva.id).select('id');
     setSalvando(false);

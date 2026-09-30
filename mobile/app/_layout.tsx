@@ -26,6 +26,9 @@ export default function RootLayout() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!session) {
+          // Sessão expirada/encerrada: zera o estado local, senão o efeito de
+          // redirecionamento (user/roleAtivo antigos) joga de volta para a home.
+          useAuthStore.getState().limparSessao();
           router.replace('/(auth)/login');
         } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
           // TOKEN_REFRESHED (a cada ~1h) e USER_UPDATED (trocar senha) NÃO

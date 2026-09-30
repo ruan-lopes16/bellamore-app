@@ -29,7 +29,7 @@ describe('aniversário nos formulários de cliente', () => {
       expect(readFileSync(f, 'utf8'), f).not.toMatch(/`1900-/);
     }
   });
-  it('cadastro rápido do mobile exige nome com mais de 1 caractere', () => {
-    expect(ler('mobile/app/(empresa)/novo-agendamento.tsx')).toMatch(/novoClienteNome\.trim\(\)\.length\s*>\s*1/);
+  it('cadastro rápido do mobile usa a regra única de nome (nomeClienteValido)', () => {
+    expect(ler('mobile/app/(empresa)/novo-agendamento.tsx')).toMatch(/nomeClienteValido\(novoClienteNome\)/);
   });
 });

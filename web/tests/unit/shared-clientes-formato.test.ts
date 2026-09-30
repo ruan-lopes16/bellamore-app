@@ -4,7 +4,7 @@ import { join } from 'path';
 import { maskPhone, toWhatsApp, digits } from '@shared/mascaras';
 import {
   parseEndereco, serializarEndereco, montarAniversario, partesAniversario, diasNoMes,
-  idadeCliente, formatarAniversario,
+  idadeCliente, formatarAniversario, aniversarioParaGravar, nomeClienteValido,
 } from '@shared/clientes';
 
 describe('shared/mascaras', () => {
@@ -75,5 +75,37 @@ describe('shared/clientes — aniversário (formato 1900-MM-DD)', () => {
   it('formata dd/MM sem deslocar fuso', () => {
     expect(formatarAniversario('1900-03-07')).toBe('07/03');
     expect(formatarAniversario(undefined)).toBe('');
+  });
+});
+
+describe('aniversarioParaGravar', () => {
+  it('mantém a data original (ano real) quando mês/dia não mudam', () => {
+    expect(aniversarioParaGravar('1990-12-25', '12', '25')).toBe('1990-12-25');
+    expect(aniversarioParaGravar('1990-12-25', '12', '25')).toBe('1990-12-25');
+    expect(aniversarioParaGravar('1990-03-07', '3', '7')).toBe('1990-03-07');
+  });
+  it('mudou o dia: monta o placeholder 1904', () => {
+    expect(aniversarioParaGravar('1990-12-25', '12', '26')).toBe('1904-12-26');
+  });
+  it('sem original: monta 1904; limpo: null', () => {
+    expect(aniversarioParaGravar(null, '2', '29')).toBe('1904-02-29');
+    expect(aniversarioParaGravar('1990-12-25', '', '')).toBeNull();
+  });
+});
+
+describe('nomeClienteValido', () => {
+  it('exige ao menos 2 caracteres sem contar espaços nas pontas', () => {
+    expect(nomeClienteValido('')).toBe(false);
+    expect(nomeClienteValido(' a ')).toBe(false);
+    expect(nomeClienteValido('Al')).toBe(true);
+    expect(nomeClienteValido('  Ana ')).toBe(true);
+  });
+});
+
+describe('parseEndereco com campos nulos', () => {
+  it('coage null/ausente para string vazia (não quebra .trim())', () => {
+    const e = parseEndereco('{"logradouro":"A","numero":null}');
+    expect(e).toEqual({ logradouro: 'A', numero: '', bairro: '', complemento: '' });
+    expect(serializarEndereco(e)).not.toBeNull();
   });
 });

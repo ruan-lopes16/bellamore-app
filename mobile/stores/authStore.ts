@@ -10,11 +10,13 @@ interface AuthStore extends AuthState {
   semEmpresa: boolean;
   selecionarEmpresa: (empresa: Empresa, role: PerfilRole, isOwner: boolean) => void;
   sair: () => Promise<void>;
+  /** Zera o estado local de sessão (sem chamar o Supabase) — usado quando a sessão expira. */
+  limparSessao: () => void;
   // empresas e papéis disponíveis para o usuário
   empresasDisponiveis: { empresa: Empresa; role: PerfilRole; isOwner: boolean }[];
 }
 
-export const useAuthStore = create<AuthStore>((set) => ({
+export const useAuthStore = create<AuthStore>((set, get) => ({
   user: null,
   empresaAtiva: null,
   roleAtivo: null,
@@ -82,8 +84,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set({ empresaAtiva: empresa, roleAtivo: role, isOwner });
   },
 
-  sair: async () => {
-    await supabase.auth.signOut();
+  limparSessao: () => {
     set({
       user: null,
       empresaAtiva: null,
@@ -92,5 +93,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
       empresasDisponiveis: [],
       semEmpresa: false,
     });
+  },
+
+  sair: async () => {
+    await supabase.auth.signOut();
+    get().limparSessao();
   },
 }));

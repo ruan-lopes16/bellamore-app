@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
-  ANAMNESE_VAZIA, normalizarAnamnese, restricoesAnamnese, anamnesePreenchida,
+  ANAMNESE_VAZIA, normalizarAnamnese, restricoesAnamnese, anamnesePreenchida, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
 } from '@shared/anamnese';
 
@@ -71,6 +71,14 @@ it('perguntas cobrem a união dos campos de web e mobile', () => {
   expect(PERGUNTAS_OPCOES.map(p => p.key)).toEqual(['gestante', 'tipo_pele', 'sensibilidade_olhos']);
 });
 
+describe('ehRestricao', () => {
+  it('só alergias, problemas de saúde, medicamentos e autoimune são restrição', () => {
+    for (const k of ['alergias', 'problemas_saude', 'medicamentos', 'autoimune']) expect(ehRestricao(k)).toBe(true);
+    expect(ehRestricao('procedimento_anterior')).toBe(false);
+    expect(ehRestricao('qualquer')).toBe(false);
+  });
+});
+
 describe('migration 080', () => {
   const sql = readFileSync(join(__dirname, '..', '..', '..', 'supabase', 'migrations', '080_anamnese_fichas_fonte_unica.sql'), 'utf8');
   it('cria policies de SELECT/INSERT/UPDATE idempotentes para membros da empresa', () => {
@@ -80,6 +88,12 @@ describe('migration 080', () => {
     }
     expect(sql).toMatch(/empresa_id in \(select minha_empresas\(\)\)/);
     expect(sql).not.toMatch(/cliente_id\s*=\s*auth\.uid\(\)/);
+  });
+  it('FK cliente_id com on delete cascade e policies conferem a empresa da cliente', () => {
+    expect(sql).toMatch(/drop constraint if exists anamnese_fichas_cliente_id_fkey/);
+    expect(sql).toMatch(/foreign key \(cliente_id\) references public\.clientes\(id\) on delete cascade/);
+    const checks = sql.match(/cliente_id in \(select id from public\.clientes where empresa_id in \(select minha_empresas\(\)\)\)/g) ?? [];
+    expect(checks.length).toBe(2);
   });
   it('migra fichas de clientes.observacoes com on conflict e limpa só as migradas', () => {
     expect(sql).toMatch(/insert into public\.anamnese_fichas/i);

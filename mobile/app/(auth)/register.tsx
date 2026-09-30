@@ -119,6 +119,11 @@ export default function Register() {
       Alert.alert('Atenção', 'As senhas não coincidem.');
       return;
     }
+    const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+    if (!apiUrl) {
+      Alert.alert('Erro', 'App sem URL da API configurada (EXPO_PUBLIC_API_URL). Avise o suporte.');
+      return;
+    }
     setLoading(true);
 
     // O perfil em `users` é criado pelo trigger handle_new_user (nome vem do metadata).
@@ -127,7 +132,7 @@ export default function Register() {
       password: senha,
       options: {
         data: { nome: nome.trim() },
-        emailRedirectTo: `${process.env.EXPO_PUBLIC_API_URL}/auth/callback`,
+        emailRedirectTo: `${apiUrl}/auth/callback`,
       },
     });
     setLoading(false);

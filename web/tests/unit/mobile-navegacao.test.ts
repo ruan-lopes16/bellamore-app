@@ -42,6 +42,16 @@ describe('navegação do app nativo', () => {
     expect(src).toContain('INITIAL_SESSION');
   });
 
+  it('sessão expirada limpa o estado local antes de ir para o login', () => {
+    const src = ler('mobile/app/_layout.tsx');
+    const i = src.indexOf('if (!session)');
+    expect(i).toBeGreaterThan(-1);
+    const bloco = src.slice(i, src.indexOf('else if', i));
+    expect(bloco).toContain('limparSessao()');
+    expect(bloco.indexOf('limparSessao')).toBeLessThan(bloco.indexOf("router.replace('/(auth)/login')"));
+    expect(ler('mobile/stores/authStore.ts')).toMatch(/limparSessao: \(\) =>/);
+  });
+
   it('papel desconhecido falha fechado (profissional), nunca gestor', () => {
     for (const arq of ['mobile/app/(empresa)/_layout.tsx', 'mobile/app/(empresa)/mais.tsx', 'mobile/app/(empresa)/dashboard.tsx']) {
       expect(ler(arq)).not.toMatch(/roleAtivo \?\? 'gestor'/);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StatusBar, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
@@ -23,7 +23,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { useClienteDetalhe } from '@/hooks/useClientes';
 import {
-  ANAMNESE_VAZIA, normalizarAnamnese, PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
+  ANAMNESE_VAZIA, normalizarAnamnese, ehRestricao, PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
   TEXTO_DECLARACAO, type AnamneseRespostas,
 } from '@shared/anamnese';
 
@@ -89,9 +89,14 @@ export default function Anamnese() {
     PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold,
   });
 
+  // Inicializa o formulário UMA vez com a ficha carregada: um refetch em segundo
+  // plano não pode apagar o que a pessoa já está preenchendo.
+  const iniciado = useRef(false);
   useEffect(() => {
-    setRespostas(normalizarAnamnese(cliente?.anamnese?.respostas));
-  }, [cliente?.anamnese]);
+    if (!cliente || iniciado.current) return;
+    iniciado.current = true;
+    setRespostas(normalizarAnamnese(cliente.anamnese?.respostas));
+  }, [cliente]);
 
   if (!fontsLoaded || !cliente) return null;
 
@@ -153,7 +158,7 @@ export default function Anamnese() {
             return (
               <View key={p.key} style={{ marginBottom: 20 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                  {r.resposta === 'sim' && p.key !== 'procedimento_anterior' && (
+                  {r.resposta === 'sim' && ehRestricao(p.key) && (
                     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.red }} />
                   )}
                   <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{p.label}</Text>

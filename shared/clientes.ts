@@ -18,7 +18,12 @@ export function parseEndereco(raw?: string | null): EnderecoCliente {
   if (!raw) return { ...ENDERECO_VAZIO };
   try {
     const p = JSON.parse(raw);
-    if (p && typeof p === 'object' && p.logradouro !== undefined) return { ...ENDERECO_VAZIO, ...p };
+    if (p && typeof p === 'object' && p.logradouro !== undefined) {
+      return {
+        logradouro: String(p.logradouro ?? ''), numero: String(p.numero ?? ''),
+        bairro: String(p.bairro ?? ''), complemento: String(p.complemento ?? ''),
+      };
+    }
   } catch { /* texto livre */ }
   return { ...ENDERECO_VAZIO, logradouro: raw };
 }
@@ -72,4 +77,20 @@ export function idadeCliente(data?: string | null, hoje: Date = new Date()): num
 export function formatarAniversario(data?: string | null): string {
   const { mes, dia } = partesAniversario(data);
   return mes && dia ? `${dia}/${mes}` : '';
+}
+
+/**
+ * Valor de `data_nascimento` a gravar numa edição: mantém `original` (inclusive um
+ * ano real) quando mês/dia escolhidos são os mesmos; senão monta o placeholder 1904;
+ * `null` se mês/dia foram limpos ou são inválidos.
+ */
+export function aniversarioParaGravar(original: string | null | undefined, mes: string, dia: string): string | null {
+  const o = partesAniversario(original);
+  if (original && mes && dia && Number(o.mes) === Number(mes) && Number(o.dia) === Number(dia)) return original;
+  return montarAniversario(mes, dia);
+}
+
+/** Regra única de nome da cliente (web e mobile): ao menos 2 caracteres sem contar espaços nas pontas. */
+export function nomeClienteValido(nome: string): boolean {
+  return nome.trim().length >= 2;
 }

@@ -36,6 +36,7 @@ import { supabase } from '@/lib/supabase';
 import SuccessCheck from '@/components/SuccessCheck';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { maskPhone } from '@shared/mascaras';
+import { nomeClienteValido } from '@shared/clientes';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -254,7 +255,7 @@ export default function NovoAgendamento() {
   }
 
   async function salvarNovoCliente() {
-    if (novoClienteNome.trim().length <= 1 || !empresaAtiva?.id) return;
+    if (!nomeClienteValido(novoClienteNome) || !empresaAtiva?.id) return;
     setSalvandoCliente(true);
 
     const { data: nova, error: errNova } = await supabase.from('clientes').insert({
@@ -1106,11 +1107,11 @@ export default function NovoAgendamento() {
               </View>
               <TouchableOpacity
                 onPress={salvarNovoCliente}
-                disabled={novoClienteNome.trim().length <= 1 || salvandoCliente}
+                disabled={!nomeClienteValido(novoClienteNome) || salvandoCliente}
                 activeOpacity={0.85}
               >
                 <LinearGradient
-                  colors={novoClienteNome.trim().length > 1 ? ['#2C1654', '#4A2480'] : ['#C4BAD4', '#C4BAD4']}
+                  colors={nomeClienteValido(novoClienteNome) ? ['#2C1654', '#4A2480'] : ['#C4BAD4', '#C4BAD4']}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={{ borderRadius: 14, paddingVertical: 15, alignItems: 'center' }}
                 >
