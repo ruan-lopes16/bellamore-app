@@ -1,13 +1,3 @@
-import { endOfMonth, format, startOfMonth } from 'date-fns';
-
-export function getMonthQueryBounds(month: Date) {
-  const start = startOfMonth(month);
-  const end = endOfMonth(month);
-
-  return {
-    startIso: start.toISOString(),
-    endIso: end.toISOString(),
-    startDate: format(start, 'yyyy-MM-dd'),
-    endDate: format(end, 'yyyy-MM-dd'),
-  };
-}
+// Temporário: a implementação mora em @shared/periodos (limites em Brasília,
+// iguais no web e no mobile). Apagado na Task 5 da Fase 2A.
+export { getMonthQueryBounds } from '@shared/periodos';

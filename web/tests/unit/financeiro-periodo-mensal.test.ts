@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getMonthQueryBounds } from '../../lib/financeiro/periodo-mensal';
+import { getMonthQueryBounds } from '@shared/periodos';
 
 describe('intervalo mensal do financeiro', () => {
   it('mantem janeiro limitado a 31/01 nas colunas do tipo date', () => {
