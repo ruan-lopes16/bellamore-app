@@ -31,6 +31,7 @@ import { supabase } from '@/lib/supabase';
 import SuccessCheck from '@/components/SuccessCheck';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { marcarAgendamentosFechados } from '@shared/comanda';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -325,6 +326,20 @@ export default function NovaComandaScreen() {
     if (!clienteSel || !empresaId || fechando) return;
     setFechando(true);
 
+    // Barra fechamento duplicado: se algum atendimento desta comanda já ganhou
+    // comanda (outro aparelho, lista desatualizada), criar outra geraria
+    // pagamento em dobro. Confere no banco, não na lista local.
+    const agIdsNaComanda = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
+    if (agIdsNaComanda.length > 0) {
+      const { data: jaFechados, error: errCheck } = await supabase.from('agendamentos')
+        .select('id').in('id', agIdsNaComanda).not('comanda_id', 'is', null);
+      if (errCheck) { Alert.alert('Erro', errCheck.message); setFechando(false); return; }
+      if (jaFechados && jaFechados.length > 0) {
+        Alert.alert('Comanda já fechada', 'Este atendimento já teve a comanda fechada. Volte e abra a tela de novo para ver a comanda existente.');
+        setFechando(false); return;
+      }
+    }
+
     const { data: comanda, error: errComanda } = await supabase
       .from('comandas').insert({
         empresa_id: empresaId,
@@ -366,15 +381,27 @@ export default function NovaComandaScreen() {
       const agIdsComPacote = agIds.filter(id => pacoteLinksFinal[id] !== undefined);
 
       if (agIdsSemPacote.length > 0) {
-        const { error } = await supabase.from('agendamentos')
-          .update({ status: 'concluido', comanda_id: comandaId }).in('id', agIdsSemPacote).eq('empresa_id', empresaId);
+        // `.select('id')` + contagem: um UPDATE barrado por RLS devolve
+        // sucesso com 0 linhas, e a comanda ficaria criada sem vínculo.
+        const { data, error } = await supabase.from('agendamentos')
+          .update({ status: 'concluido', comanda_id: comandaId }).in('id', agIdsSemPacote).eq('empresa_id', empresaId)
+          .select('id');
         if (error) { Alert.alert('Erro', error.message); setFechando(false); return; }
+        if ((data ?? []).length !== agIdsSemPacote.length) {
+          Alert.alert('Erro', 'Não foi possível vincular o atendimento à comanda. Verifique sua permissão.');
+          setFechando(false); return;
+        }
       }
       for (const agendamentoId of agIdsComPacote) {
-        const { error } = await supabase.from('agendamentos')
+        const { data, error } = await supabase.from('agendamentos')
           .update({ status: 'concluido', comanda_id: comandaId, pacote_cliente_id: pacoteLinksFinal[agendamentoId] })
-          .eq('id', agendamentoId).eq('empresa_id', empresaId);
+          .eq('id', agendamentoId).eq('empresa_id', empresaId)
+          .select('id');
         if (error) { Alert.alert('Erro', error.message); setFechando(false); return; }
+        if (!data || data.length === 0) {
+          Alert.alert('Erro', 'Não foi possível vincular o atendimento à comanda. Verifique sua permissão.');
+          setFechando(false); return;
+        }
       }
     }
 
@@ -476,7 +503,8 @@ export default function NovaComandaScreen() {
     }
 
     setFechando(false);
-    setAgDia(prev => prev.map(ag => agIds.includes(ag.id) ? { ...ag, status: 'concluido' } : ag));
+    // status E comanda_id — senão o atendimento continua listado como aberto.
+    setAgDia(prev => marcarAgendamentosFechados(prev, agIds, comandaId));
     setProximoCliente(proximoClienteAberto(clienteSel.id));
     setSucessoData({
       nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
