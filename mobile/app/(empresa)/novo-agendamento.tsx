@@ -35,6 +35,7 @@ import { useClientes } from '@/hooks/useClientes';
 import { supabase } from '@/lib/supabase';
 import SuccessCheck from '@/components/SuccessCheck';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { maskPhone } from '@shared/mascaras';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -256,37 +257,16 @@ export default function NovoAgendamento() {
     if (!novoClienteNome.trim() || !empresaAtiva?.id) return;
     setSalvandoCliente(true);
 
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .insert({
-        id: crypto.randomUUID(),
-        nome: novoClienteNome.trim(),
-        telefone: novoClienteTelefone.trim() || null,
-      })
-      .select('id, nome, telefone')
-      .single();
-
-    if (userError || !userData) {
-      setSalvandoCliente(false);
-      Alert.alert('Erro', userError?.message ?? 'Não foi possível cadastrar a cliente.');
-      return;
-    }
-
-    const { error: membroError } = await supabase.from('empresa_membros').insert({
+    const { data: nova, error: errNova } = await supabase.from('clientes').insert({
       empresa_id: empresaAtiva.id,
-      user_id:    userData.id,
-      role:       'cliente',
-    });
-
+      nome: novoClienteNome.trim(),
+      telefone: novoClienteTelefone.trim() || null,
+    }).select('id, nome, telefone').single();
     setSalvandoCliente(false);
-
-    if (membroError) {
-      Alert.alert('Erro ao vincular', membroError.message);
-      return;
-    }
+    if (errNova || !nova) { Alert.alert('Erro', errNova?.message ?? 'Não foi possível cadastrar a cliente.'); return; }
 
     queryClient.invalidateQueries({ queryKey: ['clientes'] });
-    setClienteSelecionado({ id: userData.id, nome: userData.nome, telefone: userData.telefone });
+    setClienteSelecionado({ id: nova.id, nome: nova.nome, telefone: nova.telefone });
     setCriandoCliente(false);
     setNovoClienteNome('');
     setNovoClienteTelefone('');
@@ -1113,7 +1093,8 @@ export default function NovoAgendamento() {
               }}>
                 <TextInput
                   value={novoClienteTelefone}
-                  onChangeText={setNovoClienteTelefone}
+                  onChangeText={(v) => setNovoClienteTelefone(maskPhone(v))}
+                  maxLength={15}
                   placeholder="Telefone (opcional)"
                   placeholderTextColor={C.text4}
                   keyboardType="phone-pad"

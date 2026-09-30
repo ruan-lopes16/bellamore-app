@@ -28,5 +28,9 @@ describe('sem área nem papel de cliente final', () => {
     });
   }
 
-  it.todo("nenhum código do mobile grava empresa_membros com role 'cliente' (ativado na Task 7)");
+  it("nenhum código do mobile grava empresa_membros com role 'cliente'", () => {
+    for (const arq of ['mobile/app/(empresa)/novo-cliente.tsx', 'mobile/app/(empresa)/novo-agendamento.tsx', 'mobile/hooks/useClientes.ts']) {
+      expect(ler(arq)).not.toMatch(/role['"]?\s*[:,=]\s*'cliente'/);
+    }
+  });
 });

@@ -11,7 +11,7 @@ import { MotiView } from 'moti';
 import {
   ChevronLeft, Phone, MessageCircle, CalendarPlus,
   MoreHorizontal, Edit3, AlertTriangle, Camera,
-  Archive, Trash2, X,
+  Archive, Trash2, X, MapPin, FileText,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -24,11 +24,13 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { format, differenceInDays, differenceInYears } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useClienteDetalhe, type ClienteTag } from '@/hooks/useClientes';
 import { descreverServicos } from '@shared/atendimento-detalhe';
+import { toWhatsApp } from '@shared/mascaras';
+import { idadeCliente, formatarAniversario, parseEndereco } from '@shared/clientes';
 import { supabase } from '@/lib/supabase';
 import {
   normalizarAnamnese, restricoesAnamnese, anamnesePreenchida,
@@ -239,9 +241,10 @@ export default function ClientePerfil() {
 
   const [c1, c2] = avatarColors(cliente.nome ?? '');
 
-  const idadeLabel = cliente.data_nascimento
-    ? `${differenceInYears(new Date(), new Date(cliente.data_nascimento))} anos`
-    : null;
+  const idade = idadeCliente(cliente.data_nascimento);
+  const idadeLabel = idade !== null ? `${idade} anos` : null;
+  const end = parseEndereco(cliente.endereco);
+  const enderecoLinha = [end.logradouro, end.numero].filter(Boolean).join(', ');
 
   // Ficha no formato canônico (aceita também os formatos antigos) — igual ao web
   const fichaAnamnese = normalizarAnamnese(cliente.anamnese?.respostas);
@@ -329,7 +332,7 @@ export default function ClientePerfil() {
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
             {[
               { icon: <Phone size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => cliente.telefone && Linking.openURL(`tel:${cliente.telefone}`) },
-              { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => cliente.telefone && Linking.openURL(`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`) },
+              { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => cliente.telefone && Linking.openURL(`https://wa.me/${toWhatsApp(cliente.telefone ?? '')}`) },
               { icon: <CalendarPlus size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Agendar', onPress: () => router.push(`/(empresa)/novo-agendamento?clienteId=${id}` as any) },
               { icon: <MoreHorizontal size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mais', onPress: () => setModalRemover(true) },
             ].map((a) => (
@@ -455,17 +458,20 @@ export default function ClientePerfil() {
               <InfoRow icon={<Edit3 size={13} color={C.primary} strokeWidth={2} />} label="Nome completo" value={cliente.nome ?? '—'} iconBg={C.primarySoft} iconColor={C.primary} />
               {cliente.telefone && <InfoRow icon={<Phone size={13} color={C.green} strokeWidth={2} />} label="Telefone" value={cliente.telefone} iconBg={C.greenSoft} iconColor={C.green} />}
               {cliente.email && <InfoRow icon={<MessageCircle size={13} color={C.rose} strokeWidth={2} />} label="E-mail" value={cliente.email} iconBg={C.roseSoft} iconColor={C.rose} />}
-              {cliente.data_nascimento && (
+              {formatarAniversario(cliente.data_nascimento) !== '' && (
                 <InfoRow
                   icon={<CalendarPlus size={13} color={C.amber} strokeWidth={2} />}
                   label="Data de nascimento"
-                  value={`${format(new Date(cliente.data_nascimento), "d 'de' MMMM", { locale: ptBR })}${idadeLabel ? ` · ${idadeLabel}` : ''}`}
+                  value={`${formatarAniversario(cliente.data_nascimento)}${idadeLabel ? ` · ${idadeLabel}` : ''}`}
                   iconBg={C.amberSoft} iconColor={C.amber}
                 />
               )}
               {/* Remove border from last item */}
               <View style={{ borderBottomWidth: 0 }}>
-                {cliente.endereco && <InfoRow icon={<Phone size={13} color={C.accent} strokeWidth={2} />} label="Endereço" value={cliente.endereco} iconBg={C.primarySoft} iconColor={C.accent} />}
+                {enderecoLinha !== '' && <InfoRow icon={<MapPin size={13} color={C.accent} strokeWidth={2} />} label="Endereço" value={enderecoLinha} iconBg={C.primarySoft} iconColor={C.accent} />}
+                {end.bairro !== '' && <InfoRow icon={<MapPin size={13} color={C.accent} strokeWidth={2} />} label="Bairro" value={end.bairro} iconBg={C.primarySoft} iconColor={C.accent} />}
+                {end.complemento !== '' && <InfoRow icon={<MapPin size={13} color={C.accent} strokeWidth={2} />} label="Complemento" value={end.complemento} iconBg={C.primarySoft} iconColor={C.accent} />}
+                {cliente.observacoes && <InfoRow icon={<FileText size={13} color={C.text3} strokeWidth={2} />} label="Observações internas" value={cliente.observacoes} iconBg={C.primarySoft} iconColor={C.text3} />}
               </View>
             </View>
 
