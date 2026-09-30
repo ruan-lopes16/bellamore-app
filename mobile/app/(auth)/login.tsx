@@ -108,7 +108,7 @@ export default function Login() {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
     setLoading(false);
-    if (error) Alert.alert('Erro ao entrar', error.message);
+    if (error) Alert.alert('Erro', 'E-mail ou senha incorretos.');
     // Redirecionamento via onAuthStateChange no _layout
   }
 

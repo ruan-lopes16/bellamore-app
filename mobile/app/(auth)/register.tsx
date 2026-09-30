@@ -4,11 +4,11 @@ import {
   KeyboardAvoidingView, Platform, Alert,
   ActivityIndicator, StatusBar, ScrollView,
 } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { Eye, EyeOff, Mail, Lock, User, Phone } from 'lucide-react-native';
+import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react-native';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -89,9 +89,10 @@ export default function Register() {
   const insets = useSafeAreaInsets();
   const [nome, setNome]            = useState('');
   const [email, setEmail]          = useState('');
-  const [telefone, setTelefone]    = useState('');
   const [senha, setSenha]          = useState('');
+  const [confirmar, setConfirmar]  = useState('');
   const [mostrarSenha, setMostrar] = useState(false);
+  const [mostrarConfirmar, setMostrarConfirmar] = useState(false);
   const [loading, setLoading]      = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -114,22 +115,34 @@ export default function Register() {
       Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.');
       return;
     }
+    if (senha !== confirmar) {
+      Alert.alert('Atenção', 'As senhas não coincidem.');
+      return;
+    }
     setLoading(true);
 
-    const { data, error } = await supabase.auth.signUp({ email, password: senha });
-    if (error || !data.user) {
-      setLoading(false);
-      Alert.alert('Erro ao cadastrar', error?.message ?? 'Tente novamente.');
+    // O perfil em `users` é criado pelo trigger handle_new_user (nome vem do metadata).
+    const { error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password: senha,
+      options: {
+        data: { nome: nome.trim() },
+        emailRedirectTo: `${process.env.EXPO_PUBLIC_API_URL}/auth/callback`,
+      },
+    });
+    setLoading(false);
+
+    if (error) {
+      Alert.alert(
+        'Erro ao cadastrar',
+        error.message.includes('not allowed') || error.message.includes('disabled')
+          ? 'Cadastros estão desativados. Entre em contato com o administrador.'
+          : error.message
+      );
       return;
     }
 
-    const { error: profileError } = await supabase
-      .from('users')
-      .insert({ id: data.user.id, nome, telefone, email });
-
-    setLoading(false);
-    if (profileError) Alert.alert('Erro ao salvar perfil', profileError.message);
-    // Redirecionamento via onAuthStateChange no _layout
+    router.replace({ pathname: '/(auth)/verificar-email', params: { email: email.trim() } } as any);
   }
 
   return (
@@ -180,7 +193,7 @@ export default function Register() {
               fontFamily: 'PlusJakartaSans_400Regular',
               fontSize: 13, color: 'rgba(255,255,255,0.5)',
             }}>
-              Preencha seus dados para começar
+              Acesso mediante convite do administrador
             </Text>
           </MotiView>
         </LinearGradient>
@@ -214,15 +227,6 @@ export default function Register() {
           />
 
           <Campo
-            label="Telefone"
-            value={telefone}
-            onChangeText={setTelefone}
-            placeholder="(00) 00000-0000"
-            keyboardType="phone-pad"
-            icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />}
-          />
-
-          <Campo
             label="Senha"
             value={senha}
             onChangeText={setSenha}
@@ -238,6 +242,28 @@ export default function Register() {
               </TouchableOpacity>
             }
           />
+
+          <Campo
+            label="Confirmar senha"
+            value={confirmar}
+            onChangeText={setConfirmar}
+            placeholder="Repita a senha"
+            secureTextEntry={!mostrarConfirmar}
+            icon={<Lock size={16} color={C.text4} strokeWidth={1.8} />}
+            rightIcon={
+              <TouchableOpacity onPress={() => setMostrarConfirmar(!mostrarConfirmar)}>
+                {mostrarConfirmar
+                  ? <EyeOff size={16} color={C.text4} strokeWidth={1.8} />
+                  : <Eye   size={16} color={C.text4} strokeWidth={1.8} />
+                }
+              </TouchableOpacity>
+            }
+          />
+          {confirmar && senha !== confirmar ? (
+            <Text style={{ color: '#C0392B', fontSize: 12, marginTop: -8, marginBottom: 12 }}>
+              As senhas não coincidem
+            </Text>
+          ) : null}
 
           <TouchableOpacity
             onPress={cadastrar}

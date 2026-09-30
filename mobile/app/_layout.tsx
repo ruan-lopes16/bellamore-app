@@ -17,7 +17,7 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
-  const { carregarSessao, roleAtivo, isOwner, user } = useAuthStore();
+  const { carregarSessao, roleAtivo, isOwner, user, semEmpresa } = useAuthStore();
   const notifListener = useRef<Notifications.Subscription>();
   const responseListener = useRef<Notifications.Subscription>();
 
@@ -40,12 +40,14 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    // Redireciona quando o perfil carrega
+    // Redireciona quando identidade/papel mudam (depende de user?.id, não do objeto
+    // `user`: um SIGNED_IN repetido não deve mandar o usuário de volta à home).
+    if (user && semEmpresa) { router.replace('/criar-empresa' as any); return; }
     if (user && roleAtivo) {
       const rota = rotaInicial(isOwner ? 'owner' : roleAtivo);
       router.replace(rota as any);
     }
-  }, [user, roleAtivo, isOwner]);
+  }, [user?.id, roleAtivo, isOwner, semEmpresa]);
 
   useEffect(() => {
     if (!user) return;
