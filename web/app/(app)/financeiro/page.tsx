@@ -1006,6 +1006,7 @@ export default function FinanceiroPage() {
   // Dados
   const [kpis,    setKpis]    = useState<KpisFinanceiros>(KPIS_ZERADOS);
   const [kpisAnt, setKpisAnt] = useState<KpisFinanceiros>(KPIS_ZERADOS);
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
   const [topServicos,   setTopServicos]   = useState<TopServico[]>([]);
   const [metodos,       setMetodos]       = useState<MetodoPag[]>([]);
   const [despesas,      setDespesas]      = useState<Despesa[]>([]);
@@ -1060,6 +1061,7 @@ export default function FinanceiroPage() {
     const chaves6 = Array.from({ length: 6 }, (_, i) => somarMeses(chave, i - 5));
     const ini = periodo.startIso;
     const fim = periodo.endIso;
+    setErroCarga(null);
 
     try {
       const [dados, despLista, recMesAnt, taxasLista, reservaLista, retiradasDados] = await Promise.all([
@@ -1100,6 +1102,12 @@ export default function FinanceiroPage() {
           : Promise.resolve({ rows: [] as RetiradaSociaRow[], devs: [] as RetiradaSociaDevolucaoRow[] }),
       ]);
 
+      // Erro em qualquer consulta direta aborta a carga: sem isso, despesas do mês
+      // viram [] e o auto-lançamento proporia duplicar todas as recorrentes.
+      for (const r of [despLista, recMesAnt, taxasLista, reservaLista]) {
+        if (r.error) throw r.error;
+      }
+
       const doMes = recortarDados(dados, periodo);
       setKpis(calcularKpisFinanceiros(dados, periodo));
       setKpisAnt(calcularKpisFinanceiros(dados, limitesMes(somarMeses(chave, -1))));
@@ -1125,7 +1133,13 @@ export default function FinanceiroPage() {
       setRetiradasTodas(retiradasDados.rows as RetiradaSocia[]);
       setRetiradasDevs(retiradasDados.devs as RetiradaSociaDevolucao[]);
     } catch (e) {
-      alert(`Erro ao carregar o financeiro: ${(e as Error).message}`);
+      // Não deixa números do mês anterior na tela: zera tudo que depende do mês.
+      setKpis(KPIS_ZERADOS); setKpisAnt(KPIS_ZERADOS);
+      setTopServicos([]); setMetodos([]); setEvolucao([]);
+      setDespesas([]); setTaxasCancelamento([]); setTaxasReserva([]);
+      setRecorrentesParaLancar([]); setHistoricoMensal([]);
+      setRetiradasTodas([]); setRetiradasDevs([]);
+      setErroCarga((e as Error).message || 'erro desconhecido');
     }
     setLoading(false);
   }
@@ -1133,7 +1147,7 @@ export default function FinanceiroPage() {
   function recarregar() { if (empresaId) carregar(empresaId, mesRef); }
 
   async function lancarRecorrentes() {
-    if (!empresaId || recorrentesParaLancar.length === 0) return;
+    if (!empresaId || erroCarga || recorrentesParaLancar.length === 0) return;
     setLancandoRec(true);
     await supabase.from('despesas').insert(
       recorrentesParaLancar.map(r => ({
@@ -1268,6 +1282,12 @@ export default function FinanceiroPage() {
         onPreviousMonth={() => setMesRef(m => subMonths(m, 1))}
         onNextMonth={() => setMesRef(m => addMonths(m, 1))}
       />
+
+      {erroCarga && (
+        <div role="alert" className="mb-4 px-4 py-3 rounded-xl border border-red/30 bg-red/5 text-sm text-red">
+          Não foi possível carregar o financeiro deste mês: {erroCarga}
+        </div>
+      )}
 
       {/* KPIs */}
       {loading ? (
@@ -1441,7 +1461,7 @@ export default function FinanceiroPage() {
           </div>
 
           {/* Banner: despesas recorrentes não lançadas */}
-          {!loading && recorrentesParaLancar.length > 0 && (
+          {!loading && !erroCarga && recorrentesParaLancar.length > 0 && (
             <div className="flex items-center gap-3 px-5 py-3 bg-amber-soft border-b border-amber/20">
               <RefreshCw size={14} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
               <p className="text-xs text-amber font-semibold flex-1">

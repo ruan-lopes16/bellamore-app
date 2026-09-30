@@ -32,4 +32,15 @@ describe('web Financeiro usa os números únicos de shared', () => {
   it('periodo-mensal.ts saiu (limites vêm de @shared/periodos)', () => {
     expect(existsSync(join(raiz, 'web/lib/financeiro/periodo-mensal.ts'))).toBe(false);
   });
+  it('checa .error das consultas diretas e zera o estado na falha', () => {
+    expect(src).toContain('[despLista, recMesAnt, taxasLista, reservaLista]');
+    expect(src).toContain('if (r.error) throw r.error;');
+    const catchBloco = src.slice(src.indexOf('} catch (e) {'));
+    expect(catchBloco.slice(0, 700)).toContain('setKpis(KPIS_ZERADOS)');
+    expect(src).toContain('Não foi possível carregar o financeiro deste mês');
+  });
+  it('lançar recorrentes depende da ausência do erro de carga', () => {
+    expect(src).toContain('!loading && !erroCarga && recorrentesParaLancar.length > 0');
+    expect(src).toContain('if (!empresaId || erroCarga ||');
+  });
 });
