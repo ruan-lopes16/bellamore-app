@@ -10,15 +10,16 @@
 --
 -- Esta migration:
 --  1. recria as policies (ver/inserir/atualizar) para membros da empresa;
---  2. copia as fichas de clientes.observacoes para anamnese_fichas.respostas
---     (formato antigo do web; o app normaliza na leitura via shared/anamnese.ts);
---  3. limpa clientes.observacoes SÓ nas linhas migradas — o campo volta a ser
---     "observações internas" em texto livre.
+--  2. copia, linha a linha (bloco DO), as fichas de clientes.observacoes para
+--     anamnese_fichas.respostas (formato antigo do web; o app normaliza na leitura
+--     via shared/anamnese.ts). Linhas com texto livre/JSON inválido são puladas;
+--  3. limpa clientes.observacoes SÓ quando esta execução inseriu a ficha (nunca
+--     se ela já existia): o campo volta a ser "observações internas" em texto livre.
 -- Idempotente: pode rodar mais de uma vez.
 --
--- Rollback do passo 3 (se precisar): as fichas continuam em anamnese_fichas;
+-- Rollback do passo 3 (se precisar; restaura o JSON como texto só nas fichas de formato web):
 --   update public.clientes c set observacoes = f.respostas::text
---   from public.anamnese_fichas f where f.cliente_id = c.id and c.observacoes is null;
+--   from public.anamnese_fichas f where f.cliente_id = c.id and c.observacoes is null and f.respostas ? 'alergias';
 
 alter table public.anamnese_fichas enable row level security;
 
@@ -35,26 +36,48 @@ create policy "anamnese: atualizar" on public.anamnese_fichas
   for update using (empresa_id in (select minha_empresas()))
   with check (empresa_id in (select minha_empresas()));
 
--- 2. Migra as fichas que o web guardava em clientes.observacoes.
-insert into public.anamnese_fichas (empresa_id, cliente_id, respostas, created_at, updated_at)
-select c.empresa_id,
-       c.id,
-       c.observacoes::jsonb,
-       coalesce((c.observacoes::jsonb ->> 'salvo_em')::timestamptz, now()),
-       coalesce((c.observacoes::jsonb ->> 'salvo_em')::timestamptz, now())
-from public.clientes c
-where c.observacoes is not null
-  and c.observacoes ~ '^\s*\{'
-  and (c.observacoes::jsonb ? 'alergias')
-on conflict (empresa_id, cliente_id) do nothing;
+-- 2+3. Migra cada ficha de clientes.observacoes e, SÓ se esta execução de fato a
+-- copiou, limpa o campo. Linha a linha: observacoes em texto livre ou JSON
+-- malformado é ignorada (não aborta a migration), e uma ficha que já existia em
+-- anamnese_fichas (on conflict do nothing) NÃO tem o observacoes apagado.
+do $$
+declare
+  r record;
+  j jsonb;
+  ts timestamptz;
+  nova_id uuid;
+begin
+  for r in
+    select id, empresa_id, observacoes
+      from public.clientes
+     where observacoes ~ '^\s*\{'
+  loop
+    begin
+      j := r.observacoes::jsonb;
+    exception when others then
+      continue;
+    end;
 
--- 3. Libera clientes.observacoes nas linhas já migradas.
-update public.clientes
-   set observacoes = null
- where observacoes is not null
-   and observacoes ~ '^\s*\{'
-   and (observacoes::jsonb ? 'alergias')
-   and exists (select 1 from public.anamnese_fichas f
-                where f.cliente_id = clientes.id and f.empresa_id = clientes.empresa_id);
+    if j is null or jsonb_typeof(j) <> 'object' or not (j ? 'alergias') then
+      continue;
+    end if;
+
+    begin
+      ts := coalesce((j ->> 'salvo_em')::timestamptz, now());
+    exception when others then
+      ts := now();
+    end;
+
+    nova_id := null;
+    insert into public.anamnese_fichas (empresa_id, cliente_id, respostas, created_at, updated_at)
+    values (r.empresa_id, r.id, j, ts, ts)
+    on conflict (empresa_id, cliente_id) do nothing
+    returning id into nova_id;
+
+    if nova_id is not null then
+      update public.clientes set observacoes = null where id = r.id;
+    end if;
+  end loop;
+end $$;
 
 notify pgrst, 'reload schema';

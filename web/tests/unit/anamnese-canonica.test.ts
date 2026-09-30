@@ -86,6 +86,13 @@ describe('migration 080', () => {
     expect(sql).toMatch(/on conflict \(empresa_id, cliente_id\) do nothing/i);
     expect(sql).toMatch(/update public\.clientes\s+set observacoes = null/i);
   });
+  it('so limpa observacoes quando a copia realmente aconteceu e tolera linhas invalidas', () => {
+    expect(sql).toContain('exception when others');
+    expect(sql).toContain('returning id into');
+    const iRet = sql.indexOf('returning id into');
+    const iUpd = sql.indexOf('update public.clientes set observacoes = null');
+    expect(iUpd).toBeGreaterThan(iRet);
+  });
   it('recarrega o schema do PostgREST', () => {
     expect(sql.trim().endsWith("notify pgrst, 'reload schema';")).toBe(true);
   });
