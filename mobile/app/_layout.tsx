@@ -25,10 +25,13 @@ export default function RootLayout() {
     // Escuta mudanças de sessão (login / logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (session) {
-          await carregarSessao();
-        } else {
+        if (!session) {
           router.replace('/(auth)/login');
+        } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+          // TOKEN_REFRESHED (a cada ~1h) e USER_UPDATED (trocar senha) NÃO
+          // recarregam: recarregar recriava `user`, disparava o redirect para a
+          // rota inicial e desfazia a troca de empresa.
+          await carregarSessao({ manterEmpresaId: useAuthStore.getState().empresaAtiva?.id });
         }
         SplashScreen.hideAsync();
       }

@@ -102,7 +102,7 @@ const C = {
 export default function Dashboard() {
   const insets = useSafeAreaInsets();
   const { user, empresaAtiva, isOwner, roleAtivo } = useAuthStore();
-  const role = isOwner ? 'owner' : (roleAtivo ?? 'gestor');
+  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
   const podeVerEstoque = temPermissao(role, 'gerenciar_estoque');
 
   const {
