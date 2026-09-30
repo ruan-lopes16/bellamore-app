@@ -25,6 +25,7 @@
  */
 import {
   type Limites, contemInstante, contemData, chaveMesBRT, mesesDoIntervalo, mesesInteirosDoIntervalo,
+  limitesDias, limitesMes, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto,
 } from './periodos';
 import { type FinanceiroFechamentoRow, getFechamentoForMonth } from './fechamentos-mensais';
 import {
@@ -257,4 +258,207 @@ export function listarRetiradasDoPeriodo<T extends Pick<RetiradaSociaRow, 'data'
   return rows
     .filter(r => contemData(l, r.data) || contemData(l, r.convertido_em))
     .sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+}
+
+// ── Séries ─────────────────────────────────────────────────────────
+
+export type PontoEvolucao = {
+  chave: string; rotulo: string;
+  bruto: number; comissoes: number; despesas: number; taxasCartao: number; lucro: number;
+};
+
+/** Evolução mês a mês (gráfico do Financeiro). Cada ponto = calcularKpisFinanceiros do mês. */
+export function evolucaoMensal(dados: DadosFinanceiros, chaves: string[]): PontoEvolucao[] {
+  return chaves.map(chave => {
+    const k = calcularKpisFinanceiros(dados, limitesMes(chave));
+    return {
+      chave, rotulo: rotuloMesCurto(chave),
+      bruto: k.bruto, comissoes: k.comissoes, despesas: k.despesas, taxasCartao: k.taxasCartao, lucro: k.lucro,
+    };
+  });
+}
+
+export type PontoSerie = { chave: string; rotulo: string; valor: number };
+
+const ddmm = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
+
+/**
+ * Faturamento bruto do período em buckets: até 10 dias → por dia; até 45 dias
+ * → por semana (domingo a sábado, recortada ao período); acima → por mês.
+ * Cada bucket usa calcularKpisFinanceiros (inclui vendas e taxas; fechamento
+ * importado só em mês inteiro).
+ */
+export function serieFaturamento(dados: DadosFinanceiros, l: Limites): PontoSerie[] {
+  const dias = diasEntre(l.startDate, l.endDate) + 1;
+  const bruto = (ini: string, fim: string) => calcularKpisFinanceiros(dados, limitesDias(ini, fim)).bruto;
+  const pontos: PontoSerie[] = [];
+
+  if (dias <= 10) {
+    for (let i = 0; i < dias; i++) {
+      const dia = somarDias(l.startDate, i);
+      pontos.push({ chave: dia, rotulo: ddmm(dia), valor: bruto(dia, dia) });
+    }
+    return pontos;
+  }
+
+  if (dias <= 45) {
+    let ini = l.startDate;
+    while (ini <= l.endDate) {
+      const sabado = somarDias(ini, 6 - diaDaSemana(ini));
+      const fim = sabado < l.endDate ? sabado : l.endDate;
+      pontos.push({ chave: ini, rotulo: ddmm(ini), valor: bruto(ini, fim) });
+      ini = somarDias(fim, 1);
+    }
+    return pontos;
+  }
+
+  for (const k of mesesDoIntervalo(l)) {
+    const primeiro = `${k}-01`;
+    const ultimo = ultimoDiaDoMes(k);
+    const ini = primeiro > l.startDate ? primeiro : l.startDate;
+    const fim = ultimo < l.endDate ? ultimo : l.endDate;
+    pontos.push({ chave: k, rotulo: rotuloMesCurto(k), valor: bruto(ini, fim) });
+  }
+  return pontos;
+}
+
+/** Bruto acumulado dia a dia, do início dos limites até `ateDia` (sparkline do Dashboard). */
+export function receitaAcumuladaPorDia(dados: DadosFinanceiros, l: Limites, ateDia: string): number[] {
+  const fim = ateDia < l.endDate ? ateDia : l.endDate;
+  const out: number[] = [];
+  let acumulado = 0;
+  for (let dia = l.startDate; dia <= fim; dia = somarDias(dia, 1)) {
+    acumulado += calcularKpisFinanceiros(dados, limitesDias(dia, dia)).bruto;
+    out.push(arredondar(acumulado));
+  }
+  return out;
+}
+
+// ── Rankings ───────────────────────────────────────────────────────
+
+export type ItemRanking = { chave: string; nome: string; quantidade: number; receita: number; percentual: number };
+
+const NOME_PADRAO = { servico: 'Serviço', profissional: 'Profissional', cliente: 'Cliente' } as const;
+
+/**
+ * Ranking dos atendimentos CONCLUÍDOS já recortados ao período. Quantidade
+ * conta todos (inclusive sessão de pacote); receita soma só os faturáveis.
+ * Ordena por receita e depois quantidade; `percentual` é relativo ao 1º.
+ */
+export function rankingAtendimentos(
+  ags: AgendamentoFinRow[],
+  por: 'servico' | 'profissional' | 'cliente',
+): ItemRanking[] {
+  const mapa = new Map<string, { nome: string; quantidade: number; receita: number }>();
+  for (const a of ags) {
+    if (a.status !== 'concluido') continue;
+    const chave = (por === 'servico' ? a.servico_id : por === 'profissional' ? a.profissional_id : a.cliente_id) ?? '__sem__';
+    const nome = (por === 'servico' ? a.servico?.nome : por === 'profissional' ? a.profissional?.nome : a.cliente?.nome)
+      ?? NOME_PADRAO[por];
+    const item = mapa.get(chave) ?? { nome, quantidade: 0, receita: 0 };
+    item.quantidade += 1;
+    if (!a.pacote_cliente_id) item.receita += num(a.valor);
+    mapa.set(chave, item);
+  }
+  const lista = [...mapa.entries()]
+    .map(([chave, v]) => ({ chave, nome: v.nome, quantidade: v.quantidade, receita: arredondar(v.receita), percentual: 0 }))
+    .sort((a, b) => b.receita - a.receita || b.quantidade - a.quantidade);
+  const max = lista[0]?.receita ?? 0;
+  return lista.map(i => ({ ...i, percentual: max > 0 ? (i.receita / max) * 100 : 0 }));
+}
+
+export type ResumoMetodo = { metodo: string; valor: number; quantidade: number; percentual: number };
+
+/** Formas de pagamento (pagamentos pagos já recortados ao período). */
+export function resumoMetodosPagamento(pags: PagamentoFinRow[]): ResumoMetodo[] {
+  const mapa: Record<string, { valor: number; quantidade: number }> = {};
+  for (const p of pags) {
+    const m = (mapa[p.metodo] ??= { valor: 0, quantidade: 0 });
+    m.valor += num(p.valor);
+    m.quantidade += 1;
+  }
+  const total = Object.values(mapa).reduce((s, m) => s + m.valor, 0);
+  return Object.entries(mapa)
+    .map(([metodo, m]) => ({
+      metodo, valor: arredondar(m.valor), quantidade: m.quantidade,
+      percentual: total > 0 ? Math.round((m.valor / total) * 100) : 0,
+    }))
+    .sort((a, b) => b.valor - a.valor);
+}
+
+// ── Clientes ───────────────────────────────────────────────────────
+
+/** Clientes com atendimento concluído (com ou sem pacote) nas linhas recebidas. */
+export function clientesAtendidosNoPeriodo(ags: Pick<AgendamentoFinRow, 'status' | 'cliente_id'>[]): string[] {
+  const ids = new Set<string>();
+  for (const a of ags) if (a.status === 'concluido' && a.cliente_id) ids.add(a.cliente_id);
+  return [...ids];
+}
+
+export type MetricasRetorno = { atendidas: number; retornaram: number; novas: number; pctRetorno: number };
+
+/**
+ * "Retornou" = cliente atendida no período que também tinha atendimento
+ * concluído ANTES do período (`comHistoricoAntes`, de
+ * carregarClientesComHistoricoAntes). Regra única web + mobile.
+ */
+export function metricasRetorno(
+  ags: Pick<AgendamentoFinRow, 'status' | 'cliente_id'>[],
+  comHistoricoAntes: Iterable<string>,
+): MetricasRetorno {
+  const antes = new Set(comHistoricoAntes);
+  const ids = clientesAtendidosNoPeriodo(ags);
+  const retornaram = ids.filter(id => antes.has(id)).length;
+  return {
+    atendidas: ids.length,
+    retornaram,
+    novas: ids.length - retornaram,
+    pctRetorno: ids.length > 0 ? Math.round((retornaram / ids.length) * 100) : 0,
+  };
+}
+
+// ── Comissões ──────────────────────────────────────────────────────
+
+/** Alerta do Dashboard: TODAS as comissões pendentes, de qualquer mês. */
+export function resumoComissoesPendentes(rows: { valor_comissao: Valor }[]): { quantidade: number; total: number } {
+  return {
+    quantidade: rows.length,
+    total: arredondar(rows.reduce((s, c) => s + num(c.valor_comissao), 0)),
+  };
+}
+
+export type ResumoComissoesProfissional = {
+  /** Σ valor_servico (preço cobrado, não a comissão). */
+  faturamentoBruto: number;
+  comissaoTotal: number;
+  comissaoPaga: number;
+  comissaoPendente: number;
+  atendimentos: number;
+  /** Comissão média por atendimento (arredondada ao real). */
+  comissaoMedia: number;
+};
+
+/** Resumo das comissões da própria profissional (linhas já recortadas ao período). */
+export function resumoComissoesProfissional(
+  rows: { valor_servico: Valor; valor_comissao: Valor; status: string }[],
+): ResumoComissoesProfissional {
+  const total = rows.reduce((s, c) => s + num(c.valor_comissao), 0);
+  const pago = rows.filter(c => c.status === 'pago').reduce((s, c) => s + num(c.valor_comissao), 0);
+  return {
+    faturamentoBruto: arredondar(rows.reduce((s, c) => s + num(c.valor_servico), 0)),
+    comissaoTotal: arredondar(total),
+    comissaoPaga: arredondar(pago),
+    comissaoPendente: arredondar(total - pago),
+    atendimentos: rows.length,
+    comissaoMedia: rows.length > 0 ? Math.round(total / rows.length) : 0,
+  };
+}
+
+/** "Fat. hoje" da profissional: valor previsto do dia, sem cancelados, faltas nem sessões de pacote. */
+export function faturamentoPrevistoDia(
+  ags: { valor: Valor; status: string; pacote_cliente_id: string | null }[],
+): number {
+  return arredondar(ags
+    .filter(a => a.status !== 'cancelado' && a.status !== 'faltou' && !a.pacote_cliente_id)
+    .reduce((s, a) => s + num(a.valor), 0));
 }
