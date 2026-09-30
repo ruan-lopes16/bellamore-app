@@ -2,7 +2,7 @@
 // TIPOS BASE — App Estética
 // ============================================================
 
-export type PerfilRole = 'gestor' | 'profissional' | 'cliente';
+export type PerfilRole = 'gestor' | 'profissional';
 
 export type AgendamentoStatus =
   | 'agendado'

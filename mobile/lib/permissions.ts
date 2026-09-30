@@ -68,7 +68,6 @@ const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
     'fechar_comanda',
     'ver_servicos',
   ],
-  cliente: [],
 };
 
 export function temPermissao(
@@ -86,8 +85,6 @@ export function rotaInicial(role: PerfilRole | 'owner'): string {
       return '/(empresa)/dashboard';
     case 'profissional':
       return '/(profissional)/inicio';
-    case 'cliente':
-      return '/(cliente)/inicio';
     default:
       return '/(auth)/login';
   }

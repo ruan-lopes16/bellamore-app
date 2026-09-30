@@ -30,7 +30,7 @@ import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
 import { useProfissionais } from '@/hooks/useAgenda';
-import { useServicosEmpresa } from '@/hooks/useCliente';
+import { useServicosEmpresa } from '@/hooks/useServicosEmpresa';
 import { useClientes } from '@/hooks/useClientes';
 import { supabase } from '@/lib/supabase';
 import SuccessCheck from '@/components/SuccessCheck';

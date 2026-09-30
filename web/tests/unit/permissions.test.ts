@@ -63,14 +63,6 @@ describe('temPermissao', () => {
     });
   });
 
-  describe('cliente', () => {
-    it('não tem nenhuma permissão', () => {
-      expect(temPermissao('cliente', 'ver_financeiro_sensivel')).toBe(false);
-      expect(temPermissao('cliente', 'ver_proprios_agendamentos')).toBe(false);
-      expect(temPermissao('cliente', 'ver_anamnese')).toBe(false);
-      expect(temPermissao('cliente', 'fechar_comanda')).toBe(false);
-    });
-  });
 });
 
 describe('rotaInicial', () => {
@@ -83,9 +75,6 @@ describe('rotaInicial', () => {
     expect(rotaInicial('profissional')).toBe('/dashboard');
   });
 
-  it('cliente vai ao início', () => {
-    expect(rotaInicial('cliente')).toBe('/inicio');
-  });
 });
 
 describe('podeAtribuirRole', () => {
