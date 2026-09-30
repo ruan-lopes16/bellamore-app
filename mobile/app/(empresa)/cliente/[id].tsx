@@ -30,6 +30,10 @@ import { ptBR } from 'date-fns/locale';
 import { useClienteDetalhe, type ClienteTag } from '@/hooks/useClientes';
 import { descreverServicos } from '@shared/atendimento-detalhe';
 import { supabase } from '@/lib/supabase';
+import {
+  normalizarAnamnese, restricoesAnamnese, anamnesePreenchida,
+  PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
+} from '@shared/anamnese';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -239,21 +243,10 @@ export default function ClientePerfil() {
     ? `${differenceInYears(new Date(), new Date(cliente.data_nascimento))} anos`
     : null;
 
-  const anamnese = cliente.anamnese?.respostas as Record<string, string> | undefined;
-
-  // Respostas da anamnese com classificação
-  const anamneseItens = anamnese ? [
-    { pergunta: 'Possui alguma alergia?',       key: 'alergia',        tipo: anamnese['alergia'] && anamnese['alergia'] !== 'Não' ? 'alerta' : 'ok' },
-    { pergunta: 'Usa medicamentos?',            key: 'medicamentos',   tipo: anamnese['medicamentos'] && anamnese['medicamentos'] !== 'Não' ? 'alerta' : 'ok' },
-    { pergunta: 'Tipo de pele',                 key: 'tipo_pele',      tipo: 'neutro' },
-    { pergunta: 'Gestante ou lactante?',        key: 'gestante',       tipo: anamnese['gestante'] === 'Sim' ? 'alerta' : 'ok' },
-    { pergunta: 'Sensibilidade nos olhos?',     key: 'sensibilidade',  tipo: anamnese['sensibilidade'] === 'Nenhuma' ? 'ok' : 'neutro' },
-    { pergunta: 'Doenças autoimunes?',          key: 'autoimune',      tipo: anamnese['autoimune'] && anamnese['autoimune'] !== 'Não' ? 'alerta' : 'ok' },
-    { pergunta: 'Já fez procedimento anterior?', key: 'procedimento_anterior', tipo: 'neutro' },
-    { pergunta: 'Observações adicionais',       key: 'observacoes',    tipo: 'neutro' },
-  ] as const : [];
-
-  const temAlertas = anamneseItens.some((i) => i.tipo === 'alerta' && anamnese?.[i.key] && anamnese[i.key] !== 'Não');
+  // Ficha no formato canônico (aceita também os formatos antigos) — igual ao web
+  const fichaAnamnese = normalizarAnamnese(cliente.anamnese?.respostas);
+  const restricoes = restricoesAnamnese(fichaAnamnese);
+  const temAnamnese = anamnesePreenchida(fichaAnamnese);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -477,7 +470,7 @@ export default function ClientePerfil() {
             </View>
 
             {/* Alerta se tiver alertas na anamnese */}
-            {temAlertas && anamnese && (
+            {restricoes.length > 0 && (
               <TouchableOpacity
                 onPress={() => setAba('anamnese')}
                 style={{
@@ -499,7 +492,7 @@ export default function ClientePerfil() {
                     Atenção: restrições na anamnese
                   </Text>
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
-                    Toque para ver a ficha completa
+                    {restricoes.join(' · ')}
                   </Text>
                 </View>
                 <ChevronLeft size={14} color={C.amber} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
@@ -643,7 +636,7 @@ export default function ClientePerfil() {
         {aba === 'anamnese' && (
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300 }}>
             <View style={{ paddingHorizontal: 24 }}>
-              {!anamnese ? (
+              {!temAnamnese ? (
                 <View style={{
                   backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
                   borderRadius: 16, padding: 24, alignItems: 'center', gap: 12,
@@ -681,15 +674,32 @@ export default function ClientePerfil() {
                     borderRadius: 18, overflow: 'hidden',
                     shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
                   }}>
-                    {anamneseItens.map((item, i) => (
-                      <View key={item.key} style={{ borderBottomWidth: i < anamneseItens.length - 1 ? 1 : 0, borderBottomColor: C.border }}>
+                    {PERGUNTAS_SIM_NAO.map((p) => {
+                      const r = fichaAnamnese[p.key];
+                      const texto = r.resposta === 'sim' ? (r.detalhe ? `Sim — ${r.detalhe}` : 'Sim')
+                        : r.resposta === 'nao' ? 'Não' : 'Não respondido';
+                      const alerta = r.resposta === 'sim' && p.key !== 'procedimento_anterior';
+                      return (
                         <AnamneseRow
-                          pergunta={item.pergunta}
-                          resposta={anamnese[item.key] ?? '—'}
-                          tipo={item.tipo as 'alerta' | 'ok' | 'neutro'}
+                          key={p.key} pergunta={p.label} resposta={texto}
+                          tipo={alerta ? 'alerta' : r.resposta === 'nao' ? 'ok' : 'neutro'}
                         />
-                      </View>
-                    ))}
+                      );
+                    })}
+                    {PERGUNTAS_OPCOES.map((p) => {
+                      const rotulo = p.opcoes.find((o) => o.valor === fichaAnamnese[p.key])?.rotulo;
+                      return (
+                        <AnamneseRow key={p.key} pergunta={p.label} resposta={rotulo ?? 'Não respondido'} tipo="neutro" />
+                      );
+                    })}
+                    {!!fichaAnamnese.info_adicionais && (
+                      <AnamneseRow pergunta="Informações adicionais" resposta={fichaAnamnese.info_adicionais} tipo="neutro" />
+                    )}
+                    <AnamneseRow
+                      pergunta="Declaração"
+                      resposta={fichaAnamnese.declaracao_aceita ? 'Declaração aceita' : 'Declaração não aceita'}
+                      tipo={fichaAnamnese.declaracao_aceita ? 'ok' : 'neutro'}
+                    />
                   </View>
                 </>
               )}

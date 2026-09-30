@@ -239,7 +239,8 @@ export interface AnamneseFicha {
   empresa_id: string;
   cliente_id: string;
   profissional_id?: string;
-  respostas: Record<string, string>;
+  /** Formato canônico em shared/anamnese.ts — sempre passar por normalizarAnamnese. */
+  respostas: unknown;
   created_at: string;
   updated_at: string;
 }

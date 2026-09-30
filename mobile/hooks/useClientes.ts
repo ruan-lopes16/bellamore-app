@@ -18,6 +18,8 @@ export interface ClienteResumo extends Cliente {
 
 export interface ClienteDetalhe extends ClienteResumo {
   anamnese?: AnamneseFicha;
+  /** Mensagem de erro se a ficha de anamnese falhou ao carregar (não permitir edição). */
+  erroAnamnese?: string;
   historico?: (Agendamento & {
     servico: { nome: string };
     profissional: { nome: string };
@@ -253,7 +255,8 @@ export function useClienteDetalhe(clienteId: string) {
       const user = userRes.data;
       if (!user) return null;
       const agendamentos = agLinhas;
-      const anamnese = anamneseRes.data;
+      const anamnese = anamneseRes.data ?? undefined;
+      const erroAnamnese = anamneseRes.error?.message;
 
       // Extras de comanda (servico lancado sem hora marcada) tambem sao visita —
       // e a lista nao e mais truncada, entao os totais batem com os do web.
@@ -280,6 +283,7 @@ export function useClienteDetalhe(clienteId: string) {
         tags: calcularTags(linhasDeVisita.length, totalGasto, ultimaVisita),
         historico: historicoCompleto,
         anamnese,
+        erroAnamnese,
         taxasCancelamento: (taxasRes.data ?? []) as TaxaCancelamento[],
         taxasReserva: (reservaRes.data ?? []) as TaxaReserva[],
       } as ClienteDetalhe;
