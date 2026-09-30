@@ -84,7 +84,7 @@ function useAgendamento(id: string) {
         .from('agendamentos')
         .select(`
           *,
-          cliente:users!agendamentos_cliente_id_fkey(id, nome, telefone, foto_url),
+          cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           servico:servicos(id, nome, duracao_minutos, categoria, preco),
           empresa:empresas(nome)
         `)

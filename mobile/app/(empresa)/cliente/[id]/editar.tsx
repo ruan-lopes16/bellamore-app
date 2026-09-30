@@ -6,7 +6,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChevronLeft, User, Phone, Mail, Calendar, MapPin } from 'lucide-react-native';
+import { ChevronLeft, User, Phone, Mail, MapPin, FileText } from 'lucide-react-native';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -21,6 +21,10 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabase';
 import { useClienteDetalhe } from '@/hooks/useClientes';
+import { useAuthStore } from '@/stores/authStore';
+import AniversarioChips from '@/components/AniversarioChips';
+import { maskPhone } from '@shared/mascaras';
+import { aniversarioParaGravar, nomeClienteValido, partesAniversario, parseEndereco, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -30,10 +34,10 @@ const C = {
   text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
 };
 
-function Campo({ label, icon, value, onChangeText, placeholder, keyboardType, autoCapitalize }: {
+function Campo({ label, icon, value, onChangeText, placeholder, keyboardType, autoCapitalize, maxLength, multiline }: {
   label: string; icon: React.ReactNode; value: string;
   onChangeText: (v: string) => void; placeholder: string;
-  keyboardType?: any; autoCapitalize?: any;
+  keyboardType?: any; autoCapitalize?: any; maxLength?: number; multiline?: boolean;
 }) {
   return (
     <View style={{ marginBottom: 14 }}>
@@ -49,7 +53,9 @@ function Campo({ label, icon, value, onChangeText, placeholder, keyboardType, au
           placeholderTextColor={C.text4}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize ?? 'none'}
-          style={{ flex: 1, paddingVertical: 14, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text }}
+          maxLength={maxLength}
+          multiline={multiline}
+          style={{ flex: 1, paddingVertical: 14, minHeight: multiline ? 72 : undefined, textAlignVertical: multiline ? 'top' : 'center', fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text }}
         />
       </View>
     </View>
@@ -60,14 +66,17 @@ export default function EditarCliente() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
+  const { empresaAtiva } = useAuthStore();
 
   const { data: cliente } = useClienteDetalhe(id);
 
   const [nome, setNome]         = useState('');
   const [telefone, setTelefone] = useState('');
   const [email, setEmail]       = useState('');
-  const [nasc, setNasc]         = useState('');
-  const [endereco, setEndereco] = useState('');
+  const [nascMes, setNascMes]   = useState('');
+  const [nascDia, setNascDia]   = useState('');
+  const [endereco, setEndereco] = useState<EnderecoCliente>({ logradouro: '', numero: '', bairro: '', complemento: '' });
+  const [obs, setObs]           = useState('');
   const [salvando, setSalvando] = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -79,49 +88,38 @@ export default function EditarCliente() {
   useEffect(() => {
     if (cliente) {
       setNome(cliente.nome ?? '');
-      setTelefone(cliente.telefone ?? '');
+      setTelefone(maskPhone(cliente.telefone ?? ''));
       setEmail(cliente.email ?? '');
-      setEndereco(cliente.endereco ?? '');
-      if (cliente.data_nascimento) {
-        const [y, m, d] = cliente.data_nascimento.split('-');
-        setNasc(`${d}/${m}/${y}`);
-      }
+      setEndereco(parseEndereco(cliente.endereco));
+      const { mes, dia } = partesAniversario(cliente.data_nascimento);
+      setNascMes(mes ? String(Number(mes)) : '');
+      setNascDia(dia ? String(Number(dia)) : '');
+      setObs(cliente.observacoes ?? '');
     }
   }, [cliente]);
 
   if (!fontsLoaded || !cliente) return null;
 
-  function mascaraData(v: string) {
-    const n = v.replace(/\D/g, '').slice(0, 8);
-    if (n.length <= 2) return n;
-    if (n.length <= 4) return `${n.slice(0, 2)}/${n.slice(2)}`;
-    return `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`;
-  }
-
-  function dataParaBanco(v: string): string | null {
-    const p = v.split('/');
-    if (p.length !== 3 || p[2].length !== 4) return null;
-    return `${p[2]}-${p[1]}-${p[0]}`;
-  }
-
   async function salvar() {
-    if (!nome.trim()) { Alert.alert('Atenção', 'O nome é obrigatório.'); return; }
+    if (!nomeClienteValido(nome)) { Alert.alert('Atenção', 'O nome é obrigatório.'); return; }
+    if (!empresaAtiva) return;
+    if (!!nascMes !== !!nascDia) {
+      Alert.alert('Aniversário', 'Escolha o mês e o dia do aniversário, ou deixe os dois em branco.');
+      return;
+    }
     setSalvando(true);
 
-    const { error } = await supabase.from('users').update({
-      nome:            nome.trim(),
-      telefone:        telefone.trim() || null,
-      email:           email.trim() || null,
-      data_nascimento: dataParaBanco(nasc),
-      endereco:        endereco.trim() || null,
-    }).eq('id', id);
-
+    const { data, error } = await supabase.from('clientes').update({
+      nome: nome.trim(), telefone: telefone.trim() || null, email: email.trim() || null,
+      data_nascimento: aniversarioParaGravar(cliente?.data_nascimento, nascMes, nascDia),
+      endereco: serializarEndereco(endereco), observacoes: obs.trim() || null,
+    }).eq('id', id).eq('empresa_id', empresaAtiva.id).select('id');
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
-
-    qc.invalidateQueries({ queryKey: ['cliente-detalhe', undefined, id] });
+    if (!data || data.length === 0) { Alert.alert('Erro', 'Sem permissão para editar esta cliente.'); return; }
+    qc.invalidateQueries({ queryKey: ['cliente-detalhe', empresaAtiva.id, id] });
     qc.invalidateQueries({ queryKey: ['clientes'] });
-    Alert.alert('Salvo!', 'Dados atualizados.', [{ text: 'OK', onPress: () => router.back() }]);
+    router.back();
   }
 
   return (
@@ -138,10 +136,14 @@ export default function EditarCliente() {
 
         <View style={{ padding: 24 }}>
           <Campo label="Nome completo *" value={nome} onChangeText={setNome} placeholder="Nome da cliente" autoCapitalize="words" icon={<User size={16} color={C.text4} strokeWidth={1.8} />} />
-          <Campo label="Telefone / WhatsApp" value={telefone} onChangeText={setTelefone} placeholder="(00) 00000-0000" keyboardType="phone-pad" icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />} />
+          <Campo label="Telefone / WhatsApp" value={telefone} onChangeText={(v) => setTelefone(maskPhone(v))} maxLength={15} placeholder="(00) 00000-0000" keyboardType="phone-pad" icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />} />
           <Campo label="E-mail" value={email} onChangeText={setEmail} placeholder="email@exemplo.com" keyboardType="email-address" icon={<Mail size={16} color={C.text4} strokeWidth={1.8} />} />
-          <Campo label="Data de nascimento" value={nasc} onChangeText={(v) => setNasc(mascaraData(v))} placeholder="DD/MM/AAAA" keyboardType="numeric" icon={<Calendar size={16} color={C.text4} strokeWidth={1.8} />} />
-          <Campo label="Endereço" value={endereco} onChangeText={setEndereco} placeholder="Rua, número · Bairro" autoCapitalize="words" icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />} />
+          <AniversarioChips mes={nascMes} dia={nascDia} onMes={setNascMes} onDia={setNascDia} />
+          <Campo label="Logradouro" value={endereco.logradouro} onChangeText={(v) => setEndereco((e) => ({ ...e, logradouro: v }))} placeholder="Rua, avenida…" autoCapitalize="words" icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />} />
+          <Campo label="Número" value={endereco.numero} onChangeText={(v) => setEndereco((e) => ({ ...e, numero: v }))} placeholder="Nº" keyboardType="numbers-and-punctuation" icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />} />
+          <Campo label="Bairro" value={endereco.bairro} onChangeText={(v) => setEndereco((e) => ({ ...e, bairro: v }))} placeholder="Bairro" autoCapitalize="words" icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />} />
+          <Campo label="Complemento" value={endereco.complemento} onChangeText={(v) => setEndereco((e) => ({ ...e, complemento: v }))} placeholder="Apto, sala…" autoCapitalize="words" icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />} />
+          <Campo label="Observações internas" value={obs} onChangeText={setObs} placeholder="Ex: preferências, como nos conheceu…" autoCapitalize="sentences" multiline icon={<FileText size={16} color={C.text4} strokeWidth={1.8} />} />
         </View>
       </ScrollView>
 

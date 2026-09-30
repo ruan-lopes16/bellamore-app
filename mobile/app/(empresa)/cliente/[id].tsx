@@ -11,7 +11,7 @@ import { MotiView } from 'moti';
 import {
   ChevronLeft, Phone, MessageCircle, CalendarPlus,
   MoreHorizontal, Edit3, AlertTriangle, Camera,
-  Archive, Trash2, X,
+  Archive, Trash2, X, MapPin, FileText,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -24,12 +24,18 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { format, differenceInDays, differenceInYears } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useClienteDetalhe, type ClienteTag } from '@/hooks/useClientes';
 import { descreverServicos } from '@shared/atendimento-detalhe';
+import { toWhatsApp } from '@shared/mascaras';
+import { idadeCliente, formatarAniversario, parseEndereco } from '@shared/clientes';
 import { supabase } from '@/lib/supabase';
+import {
+  normalizarAnamnese, restricoesAnamnese, anamnesePreenchida, ehRestricao,
+  PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
+} from '@shared/anamnese';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -220,29 +226,30 @@ export default function ClientePerfil() {
     PlusJakartaSans_700Bold,
   });
 
-  if (!fontsLoaded || isLoading || !cliente) return null;
+  if (!fontsLoaded || isLoading) return null;
+
+  if (!cliente) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 15, color: C.text }}>Cliente não encontrada.</Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primary }}>Voltar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const [c1, c2] = avatarColors(cliente.nome ?? '');
 
-  const idadeLabel = cliente.data_nascimento
-    ? `${differenceInYears(new Date(), new Date(cliente.data_nascimento))} anos`
-    : null;
+  const idade = idadeCliente(cliente.data_nascimento);
+  const idadeLabel = idade !== null ? `${idade} anos` : null;
+  const end = parseEndereco(cliente.endereco);
+  const enderecoLinha = [end.logradouro, end.numero].filter(Boolean).join(', ');
 
-  const anamnese = cliente.anamnese?.respostas as Record<string, string> | undefined;
-
-  // Respostas da anamnese com classificação
-  const anamneseItens = anamnese ? [
-    { pergunta: 'Possui alguma alergia?',       key: 'alergia',        tipo: anamnese['alergia'] && anamnese['alergia'] !== 'Não' ? 'alerta' : 'ok' },
-    { pergunta: 'Usa medicamentos?',            key: 'medicamentos',   tipo: anamnese['medicamentos'] && anamnese['medicamentos'] !== 'Não' ? 'alerta' : 'ok' },
-    { pergunta: 'Tipo de pele',                 key: 'tipo_pele',      tipo: 'neutro' },
-    { pergunta: 'Gestante ou lactante?',        key: 'gestante',       tipo: anamnese['gestante'] === 'Sim' ? 'alerta' : 'ok' },
-    { pergunta: 'Sensibilidade nos olhos?',     key: 'sensibilidade',  tipo: anamnese['sensibilidade'] === 'Nenhuma' ? 'ok' : 'neutro' },
-    { pergunta: 'Doenças autoimunes?',          key: 'autoimune',      tipo: anamnese['autoimune'] && anamnese['autoimune'] !== 'Não' ? 'alerta' : 'ok' },
-    { pergunta: 'Já fez procedimento anterior?', key: 'procedimento_anterior', tipo: 'neutro' },
-    { pergunta: 'Observações adicionais',       key: 'observacoes',    tipo: 'neutro' },
-  ] as const : [];
-
-  const temAlertas = anamneseItens.some((i) => i.tipo === 'alerta' && anamnese?.[i.key] && anamnese[i.key] !== 'Não');
+  // Ficha no formato canônico (aceita também os formatos antigos) — igual ao web
+  const fichaAnamnese = normalizarAnamnese(cliente.anamnese?.respostas);
+  const restricoes = restricoesAnamnese(fichaAnamnese);
+  const temAnamnese = anamnesePreenchida(fichaAnamnese);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -325,7 +332,7 @@ export default function ClientePerfil() {
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
             {[
               { icon: <Phone size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => cliente.telefone && Linking.openURL(`tel:${cliente.telefone}`) },
-              { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => cliente.telefone && Linking.openURL(`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`) },
+              { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => cliente.telefone && Linking.openURL(`https://wa.me/${toWhatsApp(cliente.telefone ?? '')}`) },
               { icon: <CalendarPlus size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Agendar', onPress: () => router.push(`/(empresa)/novo-agendamento?clienteId=${id}` as any) },
               { icon: <MoreHorizontal size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mais', onPress: () => setModalRemover(true) },
             ].map((a) => (
@@ -451,22 +458,25 @@ export default function ClientePerfil() {
               <InfoRow icon={<Edit3 size={13} color={C.primary} strokeWidth={2} />} label="Nome completo" value={cliente.nome ?? '—'} iconBg={C.primarySoft} iconColor={C.primary} />
               {cliente.telefone && <InfoRow icon={<Phone size={13} color={C.green} strokeWidth={2} />} label="Telefone" value={cliente.telefone} iconBg={C.greenSoft} iconColor={C.green} />}
               {cliente.email && <InfoRow icon={<MessageCircle size={13} color={C.rose} strokeWidth={2} />} label="E-mail" value={cliente.email} iconBg={C.roseSoft} iconColor={C.rose} />}
-              {cliente.data_nascimento && (
+              {formatarAniversario(cliente.data_nascimento) !== '' && (
                 <InfoRow
                   icon={<CalendarPlus size={13} color={C.amber} strokeWidth={2} />}
                   label="Data de nascimento"
-                  value={`${format(new Date(cliente.data_nascimento), "d 'de' MMMM", { locale: ptBR })}${idadeLabel ? ` · ${idadeLabel}` : ''}`}
+                  value={`${formatarAniversario(cliente.data_nascimento)}${idadeLabel ? ` · ${idadeLabel}` : ''}`}
                   iconBg={C.amberSoft} iconColor={C.amber}
                 />
               )}
               {/* Remove border from last item */}
               <View style={{ borderBottomWidth: 0 }}>
-                {cliente.endereco && <InfoRow icon={<Phone size={13} color={C.accent} strokeWidth={2} />} label="Endereço" value={cliente.endereco} iconBg={C.primarySoft} iconColor={C.accent} />}
+                {enderecoLinha !== '' && <InfoRow icon={<MapPin size={13} color={C.accent} strokeWidth={2} />} label="Endereço" value={enderecoLinha} iconBg={C.primarySoft} iconColor={C.accent} />}
+                {end.bairro !== '' && <InfoRow icon={<MapPin size={13} color={C.accent} strokeWidth={2} />} label="Bairro" value={end.bairro} iconBg={C.primarySoft} iconColor={C.accent} />}
+                {end.complemento !== '' && <InfoRow icon={<MapPin size={13} color={C.accent} strokeWidth={2} />} label="Complemento" value={end.complemento} iconBg={C.primarySoft} iconColor={C.accent} />}
+                {cliente.observacoes && <InfoRow icon={<FileText size={13} color={C.text3} strokeWidth={2} />} label="Observações internas" value={cliente.observacoes} iconBg={C.primarySoft} iconColor={C.text3} />}
               </View>
             </View>
 
             {/* Alerta se tiver alertas na anamnese */}
-            {temAlertas && anamnese && (
+            {restricoes.length > 0 && (
               <TouchableOpacity
                 onPress={() => setAba('anamnese')}
                 style={{
@@ -488,7 +498,7 @@ export default function ClientePerfil() {
                     Atenção: restrições na anamnese
                   </Text>
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
-                    Toque para ver a ficha completa
+                    {restricoes.join(' · ')}
                   </Text>
                 </View>
                 <ChevronLeft size={14} color={C.amber} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
@@ -632,7 +642,7 @@ export default function ClientePerfil() {
         {aba === 'anamnese' && (
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300 }}>
             <View style={{ paddingHorizontal: 24 }}>
-              {!anamnese ? (
+              {!temAnamnese ? (
                 <View style={{
                   backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
                   borderRadius: 16, padding: 24, alignItems: 'center', gap: 12,
@@ -670,15 +680,32 @@ export default function ClientePerfil() {
                     borderRadius: 18, overflow: 'hidden',
                     shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
                   }}>
-                    {anamneseItens.map((item, i) => (
-                      <View key={item.key} style={{ borderBottomWidth: i < anamneseItens.length - 1 ? 1 : 0, borderBottomColor: C.border }}>
+                    {PERGUNTAS_SIM_NAO.map((p) => {
+                      const r = fichaAnamnese[p.key];
+                      const texto = r.resposta === 'sim' ? (r.detalhe ? `Sim — ${r.detalhe}` : 'Sim')
+                        : r.resposta === 'nao' ? 'Não' : 'Não respondido';
+                      const alerta = r.resposta === 'sim' && ehRestricao(p.key);
+                      return (
                         <AnamneseRow
-                          pergunta={item.pergunta}
-                          resposta={anamnese[item.key] ?? '—'}
-                          tipo={item.tipo as 'alerta' | 'ok' | 'neutro'}
+                          key={p.key} pergunta={p.label} resposta={texto}
+                          tipo={alerta ? 'alerta' : r.resposta === 'nao' ? 'ok' : 'neutro'}
                         />
-                      </View>
-                    ))}
+                      );
+                    })}
+                    {PERGUNTAS_OPCOES.map((p) => {
+                      const rotulo = p.opcoes.find((o) => o.valor === fichaAnamnese[p.key])?.rotulo;
+                      return (
+                        <AnamneseRow key={p.key} pergunta={p.label} resposta={rotulo ?? 'Não respondido'} tipo="neutro" />
+                      );
+                    })}
+                    {!!fichaAnamnese.info_adicionais && (
+                      <AnamneseRow pergunta="Informações adicionais" resposta={fichaAnamnese.info_adicionais} tipo="neutro" />
+                    )}
+                    <AnamneseRow
+                      pergunta="Declaração"
+                      resposta={fichaAnamnese.declaracao_aceita ? 'Declaração aceita' : 'Declaração não aceita'}
+                      tipo={fichaAnamnese.declaracao_aceita ? 'ok' : 'neutro'}
+                    />
                   </View>
                 </>
               )}

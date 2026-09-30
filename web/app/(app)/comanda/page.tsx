@@ -52,7 +52,7 @@ import { ptBR } from 'date-fns/locale';
 import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
 import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
-import { agruparValoresPorAgendamento } from '@shared/comanda';
+import { agruparValoresPorAgendamento, marcarAgendamentosFechados } from '@shared/comanda';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 
 const supabase = createClient();
@@ -819,6 +819,21 @@ export default function ComandaPage() {
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
     setFechando(true); setErro('');
 
+    // 0. Barra fechamento duplicado: se algum atendimento desta comanda já
+    //    ganhou comanda (outra aba, outro aparelho, lista desatualizada),
+    //    criar outra geraria pagamento em dobro. Confere no banco, não na
+    //    lista local.
+    const agIdsNaComanda = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
+    if (agIdsNaComanda.length > 0) {
+      const { data: jaFechados, error: errCheck } = await supabase.from('agendamentos')
+        .select('id').in('id', agIdsNaComanda).not('comanda_id', 'is', null);
+      if (errCheck) { setErro(errCheck.message); setFechando(false); return; }
+      if (jaFechados && jaFechados.length > 0) {
+        setErro('Este atendimento já teve a comanda fechada. Recarregue a página para ver a comanda existente.');
+        setFechando(false); return;
+      }
+    }
+
     // 1. Criar comanda no banco
     const { data: comanda, error: errComanda } = await supabase
       .from('comandas').insert({
@@ -986,10 +1001,9 @@ export default function ComandaPage() {
 
     setFechando(false);
 
-    // Atualiza lista local — marca ags como concluídos
-    setAgDia(prev => prev.map(ag =>
-      agIds.includes(ag.id) ? { ...ag, status: 'concluido' } : ag
-    ));
+    // Atualiza lista local — status E comanda_id, senão o atendimento
+    // continua aparecendo como comanda aberta (ver marcarAgendamentosFechados).
+    setAgDia(prev => marcarAgendamentosFechados(prev, agIds, comandaId));
 
     // Mostra tela de sucesso com checkmark animado (design Bellamore)
     const nomeCliente = clienteSel.nome;

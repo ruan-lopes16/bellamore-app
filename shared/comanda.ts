@@ -90,3 +90,23 @@ export function agruparValoresPorAgendamento(
 
   return [...porAgendamento.values()];
 }
+
+/**
+ * Reflete, na lista local de atendimentos do dia, o fechamento de uma
+ * comanda: grava `status = 'concluido'` **e** `comanda_id` nos atendimentos
+ * que entraram nela.
+ *
+ * Os dois campos são obrigatórios porque a tela considera a comanda aberta
+ * enquanto `status !== 'concluido' || !comanda_id`. Atualizar só o status
+ * deixava o atendimento recém-fechado ainda listado como aberto, e fechá-lo de
+ * novo criava uma segunda comanda com pagamento em dobro (bug de 2026-09-28).
+ * Devolve uma lista nova; itens fora de `agIds` são mantidos por referência.
+ */
+export function marcarAgendamentosFechados<T extends { id: string; status: string; comanda_id: string | null }>(
+  ags: T[],
+  agIds: string[],
+  comandaId: string,
+): T[] {
+  const ids = new Set(agIds);
+  return ags.map(ag => (ids.has(ag.id) ? { ...ag, status: 'concluido', comanda_id: comandaId } : ag));
+}

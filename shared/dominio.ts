@@ -5,7 +5,7 @@ export type ComissaoStatus   = 'pendente' | 'pago';
 export type DespesaStatus    = 'pendente' | 'pago';
 export type ComandaStatus    = 'aberta' | 'fechada';
 export type MovimentoTipo    = 'entrada' | 'saida' | 'ajuste';
-export type PerfilRole       = 'gestor' | 'profissional' | 'cliente';
+export type PerfilRole       = 'gestor' | 'profissional';
 
 export const AGENDAMENTO_LABEL: Record<AgendamentoStatus, string> = {
   agendado:  'Agendado',

@@ -2,7 +2,7 @@
 // TIPOS BASE — App Estética
 // ============================================================
 
-export type PerfilRole = 'gestor' | 'profissional' | 'cliente';
+export type PerfilRole = 'gestor' | 'profissional';
 
 export type AgendamentoStatus =
   | 'agendado'
@@ -108,8 +108,22 @@ export interface Agendamento {
   created_at: string;
   // joins opcionais
   profissional?: User;
-  cliente?: User;
+  cliente?: Pick<Cliente, 'id' | 'nome'> & Partial<Cliente>;
   servico?: Servico;
+}
+
+/** Cliente do estabelecimento (`public.clientes`) — não é um usuário do app. */
+export interface Cliente {
+  id: string;
+  empresa_id: string;
+  nome: string;
+  telefone: string | null;
+  email: string | null;
+  data_nascimento: string | null;
+  observacoes: string | null;
+  endereco: string | null;
+  ativo: boolean;
+  created_at: string;
 }
 
 export interface Comanda {
@@ -225,7 +239,8 @@ export interface AnamneseFicha {
   empresa_id: string;
   cliente_id: string;
   profissional_id?: string;
-  respostas: Record<string, string>;
+  /** Formato canônico em shared/anamnese.ts — sempre passar por normalizarAnamnese. */
+  respostas: unknown;
   created_at: string;
   updated_at: string;
 }

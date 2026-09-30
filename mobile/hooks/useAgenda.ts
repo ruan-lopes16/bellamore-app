@@ -105,7 +105,7 @@ export function useAgendamentoDia(dia: Date, profissionalFiltro?: string) {
         .from('agendamentos')
         .select(`
           *,
-          cliente:users!agendamentos_cliente_id_fkey(id, nome, telefone, foto_url),
+          cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome, foto_url),
           servico:servicos(id, nome, duracao_minutos, categoria, categoria_id),
           agendamento_servicos(ordem, servico:servicos(nome))

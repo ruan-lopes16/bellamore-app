@@ -16,6 +16,8 @@ export default function ProfissionalLayout() {
       <Tabs.Screen name="pacotes"       options={{ title: 'Pacotes',      tabBarIcon: () => null }} />
       <Tabs.Screen name="comissoes"     options={{ title: 'Comissões',    tabBarIcon: () => null }} />
       <Tabs.Screen name="configuracoes" options={{ title: 'Ajustes',      tabBarIcon: () => null }} />
+      {/* Rota que não é aba */}
+      <Tabs.Screen name="agendamento/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

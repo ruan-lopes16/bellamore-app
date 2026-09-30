@@ -5,21 +5,26 @@ import type { PerfilRole } from '@/types';
 
 interface AuthStore extends AuthState {
   // actions
-  carregarSessao: () => Promise<void>;
+  carregarSessao: (opts?: { manterEmpresaId?: string }) => Promise<void>;
+  /** Logado, mas sem nenhuma empresa (owner ou membro). */
+  semEmpresa: boolean;
   selecionarEmpresa: (empresa: Empresa, role: PerfilRole, isOwner: boolean) => void;
   sair: () => Promise<void>;
+  /** Zera o estado local de sessão (sem chamar o Supabase) — usado quando a sessão expira. */
+  limparSessao: () => void;
   // empresas e papéis disponíveis para o usuário
   empresasDisponiveis: { empresa: Empresa; role: PerfilRole; isOwner: boolean }[];
 }
 
-export const useAuthStore = create<AuthStore>((set) => ({
+export const useAuthStore = create<AuthStore>((set, get) => ({
   user: null,
   empresaAtiva: null,
   roleAtivo: null,
   isOwner: false,
   empresasDisponiveis: [],
+  semEmpresa: false,
 
-  carregarSessao: async () => {
+  carregarSessao: async (opts) => {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) return;
 
@@ -59,15 +64,19 @@ export const useAuthStore = create<AuthStore>((set) => ({
       }
     });
 
-    // Seleciona a primeira empresa por padrão
-    const primeira = disponíveis[0];
+    // Mantém a empresa ativa se ainda estiver disponível; senão, a primeira
+    const manter = opts?.manterEmpresaId
+      ? disponíveis.find((d) => d.empresa.id === opts.manterEmpresaId)
+      : undefined;
+    const escolhida = manter ?? disponíveis[0];
 
     set({
       user: userProfile,
       empresasDisponiveis: disponíveis,
-      empresaAtiva: primeira?.empresa ?? null,
-      roleAtivo: primeira?.isOwner ? 'gestor' : (primeira?.role ?? null),
-      isOwner: primeira?.isOwner ?? false,
+      empresaAtiva: escolhida?.empresa ?? null,
+      roleAtivo: escolhida?.isOwner ? 'gestor' : (escolhida?.role ?? null),
+      isOwner: escolhida?.isOwner ?? false,
+      semEmpresa: disponíveis.length === 0,
     });
   },
 
@@ -75,14 +84,19 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set({ empresaAtiva: empresa, roleAtivo: role, isOwner });
   },
 
-  sair: async () => {
-    await supabase.auth.signOut();
+  limparSessao: () => {
     set({
       user: null,
       empresaAtiva: null,
       roleAtivo: null,
       isOwner: false,
       empresasDisponiveis: [],
+      semEmpresa: false,
     });
+  },
+
+  sair: async () => {
+    await supabase.auth.signOut();
+    get().limparSessao();
   },
 }));

@@ -1,0 +1,111 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { maskPhone, toWhatsApp, digits } from '@shared/mascaras';
+import {
+  parseEndereco, serializarEndereco, montarAniversario, partesAniversario, diasNoMes,
+  idadeCliente, formatarAniversario, aniversarioParaGravar, nomeClienteValido,
+} from '@shared/clientes';
+
+describe('shared/mascaras', () => {
+  it('maskPhone formata celular e fixo', () => {
+    expect(maskPhone('11987654321')).toBe('(11) 98765-4321');
+    expect(maskPhone('1133334444')).toBe('(11) 3333-4444');
+  });
+  it('toWhatsApp não duplica o DDI 55', () => {
+    expect(toWhatsApp('(34) 99178-0000')).toBe('5534991780000');
+    expect(toWhatsApp('+55 34 99178-0000')).toBe('5534991780000');
+  });
+  it('web/lib/masks reexporta de shared (fonte única)', () => {
+    const src = readFileSync(join(__dirname, '..', '..', 'lib', 'masks.ts'), 'utf8');
+    expect(src).toContain("from '@shared/mascaras'");
+    expect(src).not.toMatch(/export function maskPhone/);
+    expect(digits('a1b2')).toBe('12');
+  });
+});
+
+describe('shared/clientes — endereço', () => {
+  it('lê JSON do web', () => {
+    expect(parseEndereco('{"logradouro":"Rua A","numero":"10","bairro":"Centro"}'))
+      .toEqual({ logradouro: 'Rua A', numero: '10', bairro: 'Centro', complemento: '' });
+  });
+  it('texto livre legado vira logradouro', () => {
+    expect(parseEndereco('Rua B, 5')).toEqual({ logradouro: 'Rua B, 5', numero: '', bairro: '', complemento: '' });
+  });
+  it('vazio e nulo', () => {
+    expect(parseEndereco(null)).toEqual({ logradouro: '', numero: '', bairro: '', complemento: '' });
+  });
+  it('serializa só quando há conteúdo', () => {
+    expect(serializarEndereco({ logradouro: '', numero: '', bairro: '', complemento: '' })).toBeNull();
+    expect(JSON.parse(serializarEndereco({ logradouro: ' Rua A ', numero: '1', bairro: '', complemento: '' })!))
+      .toEqual({ logradouro: 'Rua A', numero: '1', bairro: '', complemento: '' });
+  });
+});
+
+describe('shared/clientes — aniversário (formato 1900-MM-DD)', () => {
+  it('monta só com mês e dia', () => {
+    expect(montarAniversario('3', '7')).toBe('1904-03-07');
+    expect(montarAniversario('', '7')).toBeNull();
+  });
+  it('aceita 29/02 (ano fictício 1904 é bissexto) e rejeita dias impossíveis', () => {
+    expect(montarAniversario('2', '29')).toBe('1904-02-29');
+    expect(montarAniversario('4', '31')).toBeNull();
+  });
+  it('dias por mês (fevereiro = 29; vazio/inválido = 31)', () => {
+    expect(diasNoMes('2')).toBe(29);
+    expect(diasNoMes('02')).toBe(29);
+    expect(diasNoMes('4')).toBe(30);
+    expect(diasNoMes('')).toBe(31);
+    expect(diasNoMes('13')).toBe(31);
+  });
+  it('idade continua null para o ano fictício 1904', () => {
+    expect(idadeCliente('1904-02-29')).toBeNull();
+  });
+  it('partes de uma data gravada', () => {
+    expect(partesAniversario('1900-03-07')).toEqual({ mes: '03', dia: '07' });
+    expect(partesAniversario('1990-12-25')).toEqual({ mes: '12', dia: '25' });
+    expect(partesAniversario(null)).toEqual({ mes: '', dia: '' });
+  });
+  it('idade só quando o ano é real (> 1905)', () => {
+    const hoje = new Date(2026, 8, 29);
+    expect(idadeCliente('1900-03-07', hoje)).toBeNull();
+    expect(idadeCliente('1990-12-25', hoje)).toBe(35);
+    expect(idadeCliente('1990-09-29', hoje)).toBe(36);
+  });
+  it('formata dd/MM sem deslocar fuso', () => {
+    expect(formatarAniversario('1900-03-07')).toBe('07/03');
+    expect(formatarAniversario(undefined)).toBe('');
+  });
+});
+
+describe('aniversarioParaGravar', () => {
+  it('mantém a data original (ano real) quando mês/dia não mudam', () => {
+    expect(aniversarioParaGravar('1990-12-25', '12', '25')).toBe('1990-12-25');
+    expect(aniversarioParaGravar('1990-12-25', '12', '25')).toBe('1990-12-25');
+    expect(aniversarioParaGravar('1990-03-07', '3', '7')).toBe('1990-03-07');
+  });
+  it('mudou o dia: monta o placeholder 1904', () => {
+    expect(aniversarioParaGravar('1990-12-25', '12', '26')).toBe('1904-12-26');
+  });
+  it('sem original: monta 1904; limpo: null', () => {
+    expect(aniversarioParaGravar(null, '2', '29')).toBe('1904-02-29');
+    expect(aniversarioParaGravar('1990-12-25', '', '')).toBeNull();
+  });
+});
+
+describe('nomeClienteValido', () => {
+  it('exige ao menos 2 caracteres sem contar espaços nas pontas', () => {
+    expect(nomeClienteValido('')).toBe(false);
+    expect(nomeClienteValido(' a ')).toBe(false);
+    expect(nomeClienteValido('Al')).toBe(true);
+    expect(nomeClienteValido('  Ana ')).toBe(true);
+  });
+});
+
+describe('parseEndereco com campos nulos', () => {
+  it('coage null/ausente para string vazia (não quebra .trim())', () => {
+    const e = parseEndereco('{"logradouro":"A","numero":null}');
+    expect(e).toEqual({ logradouro: 'A', numero: '', bairro: '', complemento: '' });
+    expect(serializarEndereco(e)).not.toBeNull();
+  });
+});

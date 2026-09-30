@@ -90,7 +90,7 @@ function MenuItem({
 export default function Mais() {
   const insets = useSafeAreaInsets();
   const { user, empresaAtiva, roleAtivo, isOwner, sair, selecionarEmpresa, empresasDisponiveis } = useAuthStore();
-  const role = isOwner ? 'owner' : (roleAtivo ?? 'gestor');
+  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
 
   const AVATAR_BG = ['#2C1654', '#0D7E5F', '#B45309', '#7C3AED', '#C0392B'];
 

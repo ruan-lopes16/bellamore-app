@@ -38,7 +38,6 @@ const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
     'gerenciar_vendas',
   ],
   profissional: ['ver_proprios_agendamentos', 'ver_propria_comissao', 'ver_anamnese', 'fechar_comanda', 'ver_servicos'],
-  cliente: [],
 };
 
 export function temPermissao(role: PerfilRole | 'owner', permissao: Permissao): boolean {
@@ -50,7 +49,6 @@ export function rotaInicial(role: PerfilRole | 'owner'): string {
     case 'owner':
     case 'gestor':
     case 'profissional': return '/dashboard';
-    case 'cliente':     return '/inicio';
     default:            return '/login';
   }
 }

@@ -4,11 +4,12 @@ import {
   StatusBar, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
-  ChevronLeft, User, Phone, Mail, Calendar, MapPin, FileText,
+  ChevronLeft, User, Phone, Mail, MapPin, FileText,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -23,7 +24,9 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
-import SuccessCheck from '@/components/SuccessCheck';
+import AniversarioChips from '@/components/AniversarioChips';
+import { maskPhone } from '@shared/mascaras';
+import { montarAniversario, nomeClienteValido, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -41,7 +44,7 @@ const C = {
 
 function Campo({
   label, value, onChangeText, placeholder,
-  keyboardType, autoCapitalize, icon, multiline, obrigatorio,
+  keyboardType, autoCapitalize, icon, multiline, obrigatorio, maxLength,
 }: {
   label: string; value: string;
   onChangeText: (v: string) => void;
@@ -51,6 +54,7 @@ function Campo({
   icon: React.ReactNode;
   multiline?: boolean;
   obrigatorio?: boolean;
+  maxLength?: number;
 }) {
   return (
     <View style={{ marginBottom: 14 }}>
@@ -77,6 +81,7 @@ function Campo({
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize ?? 'none'}
           multiline={multiline}
+          maxLength={maxLength}
           numberOfLines={multiline ? 3 : 1}
           style={{
             flex: 1,
@@ -98,15 +103,16 @@ function Campo({
 export default function NovoCliente() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
+  const qc = useQueryClient();
 
   const [nome, setNome]           = useState('');
   const [telefone, setTelefone]   = useState('');
   const [email, setEmail]         = useState('');
-  const [nascimento, setNasc]     = useState('');
-  const [endereco, setEndereco]   = useState('');
+  const [nascMes, setNascMes]   = useState('');
+  const [nascDia, setNascDia]   = useState('');
+  const [endereco, setEndereco] = useState<EnderecoCliente>({ logradouro: '', numero: '', bairro: '', complemento: '' });
   const [obs, setObs]             = useState('');
   const [salvando, setSalvando]   = useState(false);
-  const [sucesso, setSucesso]     = useState<{ nome: string; id: string } | null>(null);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -118,98 +124,35 @@ export default function NovoCliente() {
 
   if (!fontsLoaded) return null;
 
-  // Máscara simples de data DD/MM/AAAA
-  function mascaraData(v: string) {
-    const n = v.replace(/\D/g, '').slice(0, 8);
-    if (n.length <= 2) return n;
-    if (n.length <= 4) return `${n.slice(0, 2)}/${n.slice(2)}`;
-    return `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`;
-  }
-
-  // Converte DD/MM/AAAA → AAAA-MM-DD para o banco
-  function dataParaBanco(v: string): string | null {
-    const p = v.split('/');
-    if (p.length !== 3 || p[2].length !== 4) return null;
-    return `${p[2]}-${p[1]}-${p[0]}`;
-  }
-
   async function salvar() {
-    if (!nome.trim()) {
+    if (!nomeClienteValido(nome)) {
       Alert.alert('Atenção', 'O nome é obrigatório.');
       return;
     }
     if (!empresaAtiva) return;
+    if (!!nascMes !== !!nascDia) {
+      Alert.alert('Aniversário', 'Escolha o mês e o dia do aniversário, ou deixe os dois em branco.');
+      return;
+    }
 
     setSalvando(true);
-
-    // 1. Cria o usuário no auth (magic link / convite) — aqui usamos inserção direta
-    //    na tabela users sem auth (perfil manual para clientes cadastrados pela empresa)
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .insert({
-        id: crypto.randomUUID(),
-        nome: nome.trim(),
-        telefone: telefone.trim() || null,
-        email: email.trim() || null,
-        data_nascimento: dataParaBanco(nascimento),
-        endereco: endereco.trim() || null,
-      })
-      .select('id')
-      .single();
-
-    if (userError || !userData) {
-      setSalvando(false);
-      Alert.alert('Erro', userError?.message ?? 'Não foi possível criar o perfil.');
-      return;
-    }
-
-    // 2. Vincula como membro da empresa com role 'cliente'
-    const { error: membroError } = await supabase.from('empresa_membros').insert({
-      empresa_id: empresaAtiva.id,
-      user_id:    userData.id,
-      role:       'cliente',
-    });
-
+    const { data, error } = await supabase.from('clientes').insert({
+      empresa_id:      empresaAtiva.id,
+      nome:            nome.trim(),
+      telefone:        telefone.trim() || null,
+      email:           email.trim() || null,
+      data_nascimento: montarAniversario(nascMes, nascDia),
+      endereco:        serializarEndereco(endereco),
+      observacoes:     obs.trim() || null,
+    }).select('id, nome').single();
     setSalvando(false);
-
-    if (membroError) {
-      Alert.alert('Erro ao vincular', membroError.message);
-      return;
-    }
-
-    setSucesso({ nome: nome.trim(), id: userData.id });
+    if (error || !data) { Alert.alert('Erro', error?.message ?? 'Não foi possível cadastrar.'); return; }
+    qc.invalidateQueries({ queryKey: ['clientes'] });
+    qc.invalidateQueries({ queryKey: ['clientes-stats'] });
+    router.replace(`/(empresa)/cliente/${data.id}/anamnese` as any);
   }
 
-  const podeSalvar = nome.trim().length > 1;
-
-  if (sucesso) {
-    return (
-      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: insets.top }}>
-        <StatusBar barStyle="dark-content" />
-        <SuccessCheck size={72} />
-        <MotiView from={{ translateY: 12, opacity: 0 }} animate={{ translateY: 0, opacity: 1 }}
-          transition={{ type: 'timing', duration: 350, delay: 150 }}
-          style={{ alignItems: 'center', marginTop: 16 }}>
-          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, textAlign: 'center' }}>
-            Cliente cadastrada!
-          </Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text3, textAlign: 'center', marginTop: 6 }}>
-            {sucesso.nome}
-          </Text>
-        </MotiView>
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 28, width: '100%' }}>
-          <TouchableOpacity onPress={() => router.back()} activeOpacity={0.8}
-            style={{ flex: 1, borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text2 }}>Voltar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.replace(`/(empresa)/cliente/${sucesso.id}` as any)} activeOpacity={0.8}
-            style={{ flex: 1, backgroundColor: C.primary, borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>Ver perfil</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
+  const podeSalvar = nomeClienteValido(nome);
 
   return (
     <KeyboardAvoidingView
@@ -272,7 +215,7 @@ export default function NovoCliente() {
             icon={<User size={16} color={C.text4} strokeWidth={1.8} />}
           />
           <Campo
-            label="Telefone / WhatsApp" value={telefone} onChangeText={setTelefone}
+            label="Telefone / WhatsApp" value={telefone} onChangeText={(v) => setTelefone(maskPhone(v))} maxLength={15}
             placeholder="(00) 00000-0000" keyboardType="phone-pad"
             icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />}
           />
@@ -281,15 +224,29 @@ export default function NovoCliente() {
             placeholder="email@exemplo.com" keyboardType="email-address"
             icon={<Mail size={16} color={C.text4} strokeWidth={1.8} />}
           />
+          <AniversarioChips mes={nascMes} dia={nascDia} onMes={setNascMes} onDia={setNascDia} />
           <Campo
-            label="Data de nascimento" value={nascimento}
-            onChangeText={(v) => setNasc(mascaraData(v))}
-            placeholder="DD/MM/AAAA" keyboardType="numeric"
-            icon={<Calendar size={16} color={C.text4} strokeWidth={1.8} />}
+            label="Logradouro" value={endereco.logradouro}
+            onChangeText={(v) => setEndereco((e) => ({ ...e, logradouro: v }))}
+            placeholder="Rua, avenida…" autoCapitalize="words"
+            icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />}
           />
           <Campo
-            label="Endereço" value={endereco} onChangeText={setEndereco}
-            placeholder="Rua, número · Bairro · Cidade" autoCapitalize="words"
+            label="Número" value={endereco.numero}
+            onChangeText={(v) => setEndereco((e) => ({ ...e, numero: v }))}
+            placeholder="Nº" keyboardType="numbers-and-punctuation"
+            icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />}
+          />
+          <Campo
+            label="Bairro" value={endereco.bairro}
+            onChangeText={(v) => setEndereco((e) => ({ ...e, bairro: v }))}
+            placeholder="Bairro" autoCapitalize="words"
+            icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />}
+          />
+          <Campo
+            label="Complemento" value={endereco.complemento}
+            onChangeText={(v) => setEndereco((e) => ({ ...e, complemento: v }))}
+            placeholder="Apto, sala…" autoCapitalize="words"
             icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />}
           />
 
@@ -321,7 +278,7 @@ export default function NovoCliente() {
               fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11,
               color: C.primary, lineHeight: 16, flex: 1,
             }}>
-              A ficha de anamnese pode ser preenchida depois, diretamente no perfil da cliente.
+              Depois de cadastrar, você segue direto para a ficha de anamnese.
             </Text>
           </View>
         </MotiView>

@@ -1,4 +1,4 @@
-export type PerfilRole = 'gestor' | 'profissional' | 'cliente';
+export type PerfilRole = 'gestor' | 'profissional';
 
 export type AgendamentoStatus = 'agendado' | 'confirmado' | 'concluido' | 'cancelado' | 'faltou';
 export type PagamentoMetodo   = 'dinheiro' | 'pix' | 'credito' | 'debito' | 'cortesia';

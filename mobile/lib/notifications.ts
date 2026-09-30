@@ -89,17 +89,15 @@ export async function agendarLembretesLocais(
 }
 
 // Mapa de tipo de notificação → rota de destino ao tocar
-export function rotaParaNotificacao(
-  tipo?: string,
-  role?: string
-): string {
-  const base = role === 'profissional' ? '/(profissional)' : '/(empresa)';
+export function rotaParaNotificacao(tipo?: string, role?: string): string {
+  const profissional = role === 'profissional';
   switch (tipo) {
-    case 'agendamento':    return `${base}/agenda`;
-    case 'comissao':       return `${base}/comissoes`;
-    case 'pagamento':      return `${base}/financeiro`;
-    case 'estoque_baixo':  return `/(empresa)/estoque`;
-    case 'cliente_sumido': return `/(empresa)/clientes`;
-    default:               return `${base}/notificacoes`;
+    case 'agendamento':    return profissional ? '/(profissional)/agenda' : '/(empresa)/agenda';
+    case 'comissao':       return profissional ? '/(profissional)/comissoes' : '/(empresa)/comissoes';
+    case 'pagamento':      return profissional ? '/(profissional)/comissoes' : '/(empresa)/financeiro';
+    case 'estoque_baixo':  return profissional ? '/(profissional)/inicio' : '/(empresa)/estoque';
+    case 'cliente_sumido': return profissional ? '/(profissional)/inicio' : '/(empresa)/clientes';
+    // A tela de Notificações da profissional entra na fase Papéis; até lá, o Início.
+    default:               return profissional ? '/(profissional)/inicio' : '/(empresa)/notificacoes';
   }
 }

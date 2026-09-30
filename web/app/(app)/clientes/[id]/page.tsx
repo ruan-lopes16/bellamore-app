@@ -6,7 +6,7 @@ import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin,
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente, TaxaCancelamento, TaxaReserva } from '@/types';
-import { format, differenceInYears, differenceInDays, addMinutes, parseISO } from 'date-fns';
+import { format, differenceInDays, addMinutes, parseISO } from 'date-fns';
 import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { avancarComEnter } from '@/lib/formNav';
 import { ptBR } from 'date-fns/locale';
@@ -17,6 +17,14 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import {
+  aniversarioParaGravar, nomeClienteValido, parseEndereco, serializarEndereco,
+  partesAniversario, diasNoMes, idadeCliente,
+} from '@shared/clientes';
+import {
+  ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese, ehRestricao,
+  PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES, TEXTO_DECLARACAO, type AnamneseRespostas,
+} from '@shared/anamnese';
+import {
   descreverServicos, listarServicos, montarDetalheAtendimento,
   type DetalheAtendimento,
 } from '@shared/atendimento-detalhe';
@@ -25,17 +33,14 @@ const supabase = createClient();
 
 type Endereco = { logradouro: string; numero: string; bairro: string; complemento: string };
 
-function iniciais(nome: string) {
-  return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
+/** Mês/dia do aniversário como strings sem zero à esquerda ("3", "7"), para o rascunho do formulário. */
+function nascPartes(data?: string | null): { nascMes: string; nascDia: string } {
+  const { mes, dia } = partesAniversario(data);
+  return { nascMes: mes ? String(Number(mes)) : '', nascDia: dia ? String(Number(dia)) : '' };
 }
 
-function parseEndereco(raw?: string): Endereco {
-  if (!raw) return { logradouro: '', numero: '', bairro: '', complemento: '' };
-  try {
-    const p = JSON.parse(raw);
-    if (p.logradouro !== undefined) return { complemento: '', ...p };
-  } catch {}
-  return { logradouro: raw, numero: '', bairro: '', complemento: '' };
+function iniciais(nome: string) {
+  return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
 }
 
 function DisplayRow({ label, value, placeholder = '—' }: {
@@ -523,30 +528,21 @@ export default function ClientePerfilPage() {
   );
 
   // ── Info edit ──────────────────────────────────────────────
-  type InfoRascunho = { nome: string; telefone: string; email: string; data_nascimento: string } & Endereco;
+  type InfoRascunho = { nome: string; telefone: string; email: string; nascMes: string; nascDia: string; obs: string } & Endereco;
   const [editInfo,      setEditInfo]      = useState(false);
   const [rascunhoInfo,  setRascunhoInfo]  = useState<InfoRascunho>({
-    nome: '', telefone: '', email: '', data_nascimento: '',
+    nome: '', telefone: '', email: '', nascMes: '', nascDia: '', obs: '',
     logradouro: '', numero: '', bairro: '', complemento: '',
   });
   const [salvandoInfo, setSalvandoInfo] = useState(false);
+  const [erroInfo,      setErroInfo]      = useState('');
 
   // ── Anamnese ────────────────────────────────────────────────
-  type AnamneseItem = { resposta: 'sim' | 'nao' | ''; detalhe: string };
-  type Anamnese = {
-    alergias: AnamneseItem; problemas_saude: AnamneseItem;
-    medicamentos: AnamneseItem; gravida_amamentando: AnamneseItem;
-    info_adicionais: string; declaracao_aceita: boolean; salvo_em?: string;
-  };
-  const ITEM: AnamneseItem = { resposta: '', detalhe: '' };
-  const VAZIA: Anamnese = {
-    alergias: { ...ITEM }, problemas_saude: { ...ITEM },
-    medicamentos: { ...ITEM }, gravida_amamentando: { ...ITEM },
-    info_adicionais: '', declaracao_aceita: false,
-  };
-  const [anamnese,   setAnamnese]   = useState<Anamnese>(VAZIA);
+  const [anamnese,   setAnamnese]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
   const [editAn,     setEditAn]     = useState(searchParams.get('editar') === '1' && searchParams.get('aba') === 'anamnese');
-  const [rascunho,   setRascunho]   = useState<Anamnese>(VAZIA);
+  const [rascunho,   setRascunho]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
+  const [erroAn,     setErroAn]     = useState('');
+  const [erroCargaAn, setErroCargaAn] = useState('');
   const [salvandoAn, setSalvandoAn] = useState(false);
 
   // ── Histórico ───────────────────────────────────────────────
@@ -576,8 +572,9 @@ export default function ClientePerfilPage() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: clienteData }, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
+      const [{ data: clienteData }, rFicha, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
+        supabase.from('anamnese_fichas').select('respostas').eq('cliente_id', id).maybeSingle(),
         buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null;
           agendamento_servicos: { ordem: number; servico: { nome: string } | null }[] | null }>((from, to) =>
           supabase.from('agendamentos')
@@ -600,6 +597,10 @@ export default function ClientePerfilPage() {
       ]);
 
       setCliente(clienteData as Cliente);
+      // Falha ao carregar não pode virar "ficha vazia": o usuário sobrescreveria uma ficha real.
+      setErroCargaAn(rFicha.error ? rFicha.error.message : '');
+      const ficha = normalizarAnamnese(rFicha.data?.respostas);
+      setAnamnese(ficha); setRascunho(ficha);
       setLoading(false);
 
       const rows = [
@@ -632,19 +633,11 @@ export default function ClientePerfilPage() {
 
   useEffect(() => {
     if (!cliente) return;
-    // anamnese
-    try {
-      const p = JSON.parse(cliente.observacoes ?? '{}');
-      if (p.alergias !== undefined) {
-        setAnamnese({ ...VAZIA, ...p });
-        setRascunho({ ...VAZIA, ...p });
-      }
-    } catch {}
     // rascunho de info
     const end = parseEndereco(cliente.endereco);
     setRascunhoInfo({
       nome: cliente.nome, telefone: cliente.telefone ?? '',
-      email: cliente.email ?? '', data_nascimento: cliente.data_nascimento ?? '',
+      email: cliente.email ?? '', ...nascPartes(cliente.data_nascimento), obs: cliente.observacoes ?? '',
       logradouro: end.logradouro, numero: end.numero,
       bairro: end.bairro, complemento: end.complemento,
     });
@@ -654,7 +647,7 @@ export default function ClientePerfilPage() {
     const end = parseEndereco(c.endereco);
     setRascunhoInfo({
       nome: c.nome, telefone: c.telefone ?? '',
-      email: c.email ?? '', data_nascimento: c.data_nascimento ?? '',
+      email: c.email ?? '', ...nascPartes(c.data_nascimento), obs: c.observacoes ?? '',
       logradouro: end.logradouro, numero: end.numero,
       bairro: end.bairro, complemento: end.complemento,
     });
@@ -744,33 +737,38 @@ export default function ClientePerfilPage() {
   }, [abaAtiva]);
 
   async function salvarInfo() {
-    if (!rascunhoInfo.nome.trim()) return;
+    if (!nomeClienteValido(rascunhoInfo.nome)) return;
+    const { nascMes, nascDia } = rascunhoInfo;
+    if (!!nascMes !== !!nascDia) { setErroInfo('Escolha o mês e o dia do aniversário, ou deixe os dois em branco.'); return; }
+    setErroInfo('');
+    // Mês/dia inalterados: mantém a data original (preserva um ano real, se houver).
+    const data_nascimento = aniversarioParaGravar(cliente?.data_nascimento, nascMes, nascDia);
+    const enderecoJson = serializarEndereco({
+      logradouro: rascunhoInfo.logradouro, numero: rascunhoInfo.numero,
+      bairro: rascunhoInfo.bairro, complemento: rascunhoInfo.complemento,
+    });
+    const observacoes = rascunhoInfo.obs.trim() || null;
     setSalvandoInfo(true);
-    const temEndereco = rascunhoInfo.logradouro || rascunhoInfo.numero || rascunhoInfo.bairro;
-    const enderecoJson = temEndereco
-      ? JSON.stringify({
-          logradouro: rascunhoInfo.logradouro,
-          numero: rascunhoInfo.numero,
-          bairro: rascunhoInfo.bairro,
-          complemento: rascunhoInfo.complemento,
-        })
-      : null;
-    await supabase.from('clientes').update({
+    const { data: atualizadas, error } = await supabase.from('clientes').update({
       nome: rascunhoInfo.nome.trim(),
       telefone: rascunhoInfo.telefone.trim() || null,
       email: rascunhoInfo.email.trim() || null,
-      data_nascimento: rascunhoInfo.data_nascimento || null,
+      data_nascimento,
       endereco: enderecoJson,
-    }).eq('id', id);
+      observacoes,
+    }).eq('id', id).select('id');
+    setSalvandoInfo(false);
+    if (error) { setErroInfo(error.message); return; }
+    if (!atualizadas || atualizadas.length === 0) { setErroInfo('Sem permissão para editar esta cliente.'); return; }
     setCliente(prev => prev ? {
       ...prev,
       nome: rascunhoInfo.nome.trim(),
       telefone: rascunhoInfo.telefone.trim() || undefined,
       email: rascunhoInfo.email.trim() || undefined,
-      data_nascimento: rascunhoInfo.data_nascimento || undefined,
+      data_nascimento: data_nascimento ?? undefined,
       endereco: enderecoJson ?? undefined,
+      observacoes: observacoes ?? undefined,
     } : prev);
-    setSalvandoInfo(false);
     setEditInfo(false);
   }
 
@@ -901,20 +899,10 @@ export default function ClientePerfilPage() {
   );
   if (!cliente) return <div className="text-center py-16 text-text-3">Cliente não encontrado.</div>;
 
-  const anoNasc = cliente.data_nascimento ? parseInt(cliente.data_nascimento.slice(0, 4)) : null;
-  const idade = (cliente.data_nascimento && anoNasc && anoNasc > 1905)
-    ? differenceInYears(new Date(), new Date(cliente.data_nascimento + 'T00:00:00'))
-    : null;
+  const idade = idadeCliente(cliente.data_nascimento);
 
   const enderecoAtual = parseEndereco(cliente.endereco);
-  const temEndereco   = !!(enderecoAtual.logradouro || enderecoAtual.bairro);
-
-  const PERGUNTAS = [
-    { key: 'alergias'            as const, label: 'Possui alguma alergia?',       ph: 'Ex: látex, parabenos...'      },
-    { key: 'problemas_saude'     as const, label: 'Tem algum problema de saúde?', ph: 'Ex: hipertensão, diabetes...' },
-    { key: 'medicamentos'        as const, label: 'Faz uso de medicamentos?',     ph: 'Ex: anticoagulantes...'       },
-    { key: 'gravida_amamentando' as const, label: 'Está grávida ou amamentando?', ph: 'Informações adicionais...'    },
-  ];
+  const temEndereco   = Object.values(enderecoAtual).some(Boolean);
 
   return (
     <div className="bm-page">
@@ -1048,29 +1036,23 @@ export default function ClientePerfilPage() {
                         <label className={labelClass}>Data de nascimento</label>
                         <div className="flex gap-2">
                           <select
-                            value={rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(5, 7) : ''}
+                            value={rascunhoInfo.nascMes}
                             onChange={e => {
                               const m = e.target.value;
-                              const d = rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(8, 10) : '01';
-                              setRascunhoInfo(r => ({ ...r, data_nascimento: m ? `1900-${m}-${d || '01'}` : '' }));
+                              setRascunhoInfo(r => ({ ...r, nascMes: m, nascDia: r.nascDia && Number(r.nascDia) > diasNoMes(m) ? '' : r.nascDia }));
                             }}
                             className={inputClass}>
                             <option value="">Mês</option>
-                            {[['01','Janeiro'],['02','Fevereiro'],['03','Março'],['04','Abril'],['05','Maio'],['06','Junho'],
-                              ['07','Julho'],['08','Agosto'],['09','Setembro'],['10','Outubro'],['11','Novembro'],['12','Dezembro']
-                            ].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                            {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+                              .map((l, i) => <option key={i + 1} value={String(i + 1)}>{l}</option>)}
                           </select>
                           <select
-                            value={rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(8, 10) : ''}
-                            onChange={e => {
-                              const d = e.target.value;
-                              const m = rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(5, 7) : '01';
-                              setRascunhoInfo(r => ({ ...r, data_nascimento: d ? `1900-${m || '01'}-${d}` : '' }));
-                            }}
+                            value={rascunhoInfo.nascDia}
+                            onChange={e => setRascunhoInfo(r => ({ ...r, nascDia: e.target.value }))}
                             className={inputClass}>
                             <option value="">Dia</option>
-                            {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map(d => (
-                              <option key={d} value={d}>{Number(d)}</option>
+                            {Array.from({ length: diasNoMes(rascunhoInfo.nascMes) }, (_, i) => String(i + 1)).map(d => (
+                              <option key={d} value={d}>{d}</option>
                             ))}
                           </select>
                         </div>
@@ -1081,6 +1063,13 @@ export default function ClientePerfilPage() {
                       <input value={rascunhoInfo.email} type="email"
                         onChange={e => setRascunhoInfo(r => ({ ...r, email: e.target.value }))}
                         placeholder="opcional" className={inputClass}/>
+                    </div>
+                    <div>
+                      <label className={labelClass}>Observações internas</label>
+                      <textarea value={rascunhoInfo.obs} rows={3}
+                        onChange={e => setRascunhoInfo(r => ({ ...r, obs: e.target.value }))}
+                        placeholder="Ex: preferências, restrições, como nos conheceu…"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none"/>
                     </div>
 
                     <div className="border-t border-border pt-5">
@@ -1120,12 +1109,13 @@ export default function ClientePerfilPage() {
                       </div>
                     </div>
 
+                    {erroInfo && <p className="text-red text-sm">{erroInfo}</p>}
                     <div className="flex gap-3 pt-1">
-                      <button onClick={() => { resetRascunhoInfo(cliente); setEditInfo(false); }}
+                      <button onClick={() => { resetRascunhoInfo(cliente); setErroInfo(''); setEditInfo(false); }}
                         className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
                         Cancelar
                       </button>
-                      <button onClick={salvarInfo} disabled={salvandoInfo || !rascunhoInfo.nome.trim()}
+                      <button onClick={salvarInfo} disabled={salvandoInfo || !nomeClienteValido(rascunhoInfo.nome)}
                         className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
                         {salvandoInfo ? 'Salvando...' : 'Salvar'}
                       </button>
@@ -1143,6 +1133,7 @@ export default function ClientePerfilPage() {
                         placeholder="Não informada"/>
                     </div>
                     <DisplayRow label="E-mail" value={cliente.email} placeholder="Não informado"/>
+                    <DisplayRow label="Observações internas" value={cliente.observacoes} placeholder="Nenhuma"/>
 
                     <div className="border-t border-border pt-5">
                       <p className="text-xs font-semibold text-text-3 uppercase tracking-wide mb-3 flex items-center gap-1.5">
@@ -1363,13 +1354,13 @@ export default function ClientePerfilPage() {
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div>
                   <p className="font-semibold text-text text-sm">Ficha de anamnese</p>
-                  {anamnese.salvo_em && (
+                  {anamnesePreenchida(anamnese) && (
                     <p className="text-xs text-text-4 mt-0.5">
-                      Preenchida em {format(new Date(anamnese.salvo_em), 'dd/MM/yyyy')}
+                      Preenchida em {format(new Date(anamnese.salvo_em!), 'dd/MM/yyyy')}
                     </p>
                   )}
                 </div>
-                {!editAn && (
+                {!editAn && !erroCargaAn && (
                   <button onClick={() => { setRascunho({ ...anamnese }); setEditAn(true); }}
                     className="flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline">
                     <Edit3 size={12}/> Editar
@@ -1378,9 +1369,12 @@ export default function ClientePerfilPage() {
               </div>
 
               <div className="p-5 flex flex-col gap-5">
-                {editAn ? (
+                {erroCargaAn && (
+                  <p className="text-red text-sm">Não foi possível carregar a ficha de anamnese: {erroCargaAn}</p>
+                )}
+                {editAn && !erroCargaAn ? (
                   <>
-                    {PERGUNTAS.map(({ key, label, ph }) => (
+                    {PERGUNTAS_SIM_NAO.map(({ key, label, placeholder: ph }) => (
                       <div key={key} className="flex flex-col gap-2">
                         <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">{label}</label>
                         <div className="flex gap-2">
@@ -1389,7 +1383,9 @@ export default function ClientePerfilPage() {
                               onClick={() => setRascunho(r => ({ ...r, [key]: { ...r[key], resposta: v } }))}
                               className={`px-5 py-1.5 rounded-lg text-sm font-medium border transition ${
                                 rascunho[key].resposta === v
-                                  ? v === 'sim' ? 'bg-red-soft border-red/30 text-red' : 'bg-green-soft border-green/30 text-green'
+                                  ? v === 'sim'
+                                    ? (ehRestricao(key) ? 'bg-red-soft border-red/30 text-red' : 'bg-primary/10 border-primary/30 text-primary')
+                                    : 'bg-green-soft border-green/30 text-green'
                                   : 'bg-bg border-border text-text-3 hover:border-accent'
                               }`}>
                               {v === 'sim' ? 'Sim' : 'Não'}
@@ -1402,6 +1398,23 @@ export default function ClientePerfilPage() {
                             rows={2} placeholder={ph}
                             className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none"/>
                         )}
+                      </div>
+                    ))}
+
+                    {PERGUNTAS_OPCOES.map(p => (
+                      <div key={p.key} className="flex flex-col gap-2">
+                        <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">{p.label}</label>
+                        <div className="flex flex-wrap gap-2">
+                          {p.opcoes.map(o => (
+                            <button key={o.valor} type="button"
+                              onClick={() => setRascunho(r => ({ ...r, [p.key]: o.valor }))}
+                              className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition ${
+                                rascunho[p.key] === o.valor ? 'bg-primary-soft border-primary/30 text-primary' : 'bg-bg border-border text-text-3 hover:border-accent'
+                              }`}>
+                              {o.rotulo}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     ))}
 
@@ -1419,25 +1432,34 @@ export default function ClientePerfilPage() {
                           onChange={e => setRascunho(r => ({ ...r, declaracao_aceita: e.target.checked }))}
                           className="mt-0.5 accent-primary flex-shrink-0 w-4 h-4"/>
                         <span className="text-xs text-text-2 leading-relaxed">
-                          Declaro que as informações acima são verdadeiras e autorizo seu uso para fins da realização do procedimento estético.
+                          {TEXTO_DECLARACAO}
                         </span>
                       </label>
                     </div>
 
+                    {erroAn && <p className="text-red text-sm">{erroAn}</p>}
                     <div className="flex gap-3">
-                      <button onClick={() => setEditAn(false)}
+                      <button onClick={() => { setEditAn(false); setErroAn(''); }}
                         className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
                         Cancelar
                       </button>
-                      <button disabled={salvandoAn || !rascunho.declaracao_aceita}
+                      <button disabled={salvandoAn || !empresaId || !rascunho.declaracao_aceita}
                         title={!rascunho.declaracao_aceita ? 'Cliente precisa aceitar a declaração antes de salvar' : undefined}
                         onClick={async () => {
-                          setSalvandoAn(true);
-                          const dados = { ...rascunho, salvo_em: new Date().toISOString() };
-                          await supabase.from('clientes').update({ observacoes: JSON.stringify(dados) }).eq('id', id);
-                          setCliente(prev => prev ? { ...prev, observacoes: JSON.stringify(dados) } : prev);
-                          setAnamnese(dados);
+                          if (!empresaId) return;
+                          setSalvandoAn(true); setErroAn('');
+                          const { data: { user } } = await supabase.auth.getUser();
+                          const dados: AnamneseRespostas = { ...rascunho, salvo_em: new Date().toISOString() };
+                          const { data, error } = await supabase.from('anamnese_fichas')
+                            .upsert({
+                              empresa_id: empresaId, cliente_id: id, respostas: dados,
+                              profissional_id: user?.id ?? null, updated_at: new Date().toISOString(),
+                            }, { onConflict: 'empresa_id,cliente_id' })
+                            .select('id');
                           setSalvandoAn(false);
+                          if (error) { setErroAn(error.message); return; }
+                          if (!data || data.length === 0) { setErroAn('Sem permissão para salvar a ficha.'); return; }
+                          setAnamnese(dados);
                           setEditAn(false);
                         }}
                         className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
@@ -1447,7 +1469,7 @@ export default function ClientePerfilPage() {
                   </>
                 ) : (
                   <>
-                    {PERGUNTAS.map(({ key, label }) => {
+                    {PERGUNTAS_SIM_NAO.map(({ key, label }) => {
                       const item = anamnese[key];
                       return (
                         <div key={key} className="flex flex-col gap-1">
@@ -1457,7 +1479,9 @@ export default function ClientePerfilPage() {
                           ) : (
                             <>
                               <span className={`text-sm font-semibold w-fit px-2.5 py-0.5 rounded-lg ${
-                                item.resposta === 'sim' ? 'bg-red-soft text-red' : 'bg-green-soft text-green'
+                                item.resposta === 'sim'
+                                  ? (ehRestricao(key) ? 'bg-red-soft text-red' : 'bg-bg text-text-2 border border-border')
+                                  : 'bg-green-soft text-green'
                               }`}>
                                 {item.resposta === 'sim' ? 'Sim' : 'Não'}
                               </span>
@@ -1466,6 +1490,18 @@ export default function ClientePerfilPage() {
                               )}
                             </>
                           )}
+                        </div>
+                      );
+                    })}
+
+                    {PERGUNTAS_OPCOES.map(p => {
+                      const rotulo = p.opcoes.find(o => o.valor === anamnese[p.key])?.rotulo;
+                      return (
+                        <div key={p.key} className="flex flex-col gap-1">
+                          <p className="text-xs font-semibold text-text-3 uppercase tracking-wide">{p.label}</p>
+                          {rotulo
+                            ? <p className="text-sm text-text-2 font-semibold">{rotulo}</p>
+                            : <p className="text-sm text-text-4 italic">Não respondido</p>}
                         </div>
                       );
                     })}
@@ -1483,7 +1519,7 @@ export default function ClientePerfilPage() {
                       <ShieldCheck size={16} className={`flex-shrink-0 mt-0.5 ${anamnese.declaracao_aceita ? 'text-green' : 'text-text-4'}`} strokeWidth={2}/>
                       <div>
                         <p className="text-xs leading-relaxed text-text-2">
-                          Declaro que as informações acima são verdadeiras e autorizo seu uso para fins da realização do procedimento estético.
+                          {TEXTO_DECLARACAO}
                         </p>
                         <p className={`text-xs mt-1 font-semibold ${anamnese.declaracao_aceita ? 'text-green' : 'text-text-4'}`}>
                           {anamnese.declaracao_aceita ? '✓ Declaração aceita' : 'Declaração não aceita'}
@@ -1491,7 +1527,7 @@ export default function ClientePerfilPage() {
                       </div>
                     </div>
 
-                    {!anamnese.salvo_em && (
+                    {!anamnesePreenchida(anamnese) && !erroCargaAn && (
                       <button onClick={() => { setRascunho({ ...anamnese }); setEditAn(true); }}
                         className="text-accent text-sm font-semibold hover:underline self-start">
                         + Preencher ficha
@@ -1565,19 +1601,26 @@ export default function ClientePerfilPage() {
           </div>
 
           {/* Status anamnese */}
-          <div className={`border rounded-2xl p-4 shadow-sm ${anamnese.salvo_em ? 'bg-green-soft border-green/20' : 'bg-amber-soft border-amber/20'}`}>
+          <div className={`border rounded-2xl p-4 shadow-sm ${anamnesePreenchida(anamnese) ? 'bg-green-soft border-green/20' : 'bg-amber-soft border-amber/20'}`}>
             <div className="flex items-center gap-2 mb-1">
-              <ShieldCheck size={14} className={anamnese.salvo_em ? 'text-green' : 'text-amber'} strokeWidth={2}/>
-              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: anamnese.salvo_em ? '#0D7E5F' : '#B45309' }}>
+              <ShieldCheck size={14} className={anamnesePreenchida(anamnese) ? 'text-green' : 'text-amber'} strokeWidth={2}/>
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: anamnesePreenchida(anamnese) ? '#0D7E5F' : '#B45309' }}>
                 Anamnese
               </p>
             </div>
-            <p className="text-xs" style={{ color: anamnese.salvo_em ? '#065F46' : '#92400E' }}>
-              {anamnese.salvo_em
-                ? `Preenchida em ${format(new Date(anamnese.salvo_em), 'dd/MM/yyyy')}`
+            <p className="text-xs" style={{ color: anamnesePreenchida(anamnese) ? '#065F46' : '#92400E' }}>
+              {anamnesePreenchida(anamnese)
+                ? `Preenchida em ${format(new Date(anamnese.salvo_em!), 'dd/MM/yyyy')}`
                 : 'Ficha ainda não preenchida'}
             </p>
-            {!anamnese.salvo_em && (
+            {restricoesAnamnese(anamnese).length > 0 && (
+              <ul className="mt-2 flex flex-col gap-0.5">
+                {restricoesAnamnese(anamnese).map(r => (
+                  <li key={r} className="text-xs font-semibold text-red">⚠ {r}</li>
+                ))}
+              </ul>
+            )}
+            {!anamnesePreenchida(anamnese) && !erroCargaAn && (
               <button onClick={() => { setAbaAtiva('anamnese'); setRascunho({ ...anamnese }); setEditAn(true); }}
                 className="text-xs font-semibold text-amber mt-2 hover:underline">
                 Preencher agora →
