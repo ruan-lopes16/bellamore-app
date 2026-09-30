@@ -23,6 +23,8 @@ Legenda de arquivos: W = `web/app/(app)/…`; M = `mobile/app/(empresa)/…`; MP
 
 ## P0 — Quebras estruturais (o app nativo não funciona sem isto)
 
+> **Status (2026-09-30): entregue** pela Fase 1 (`docs/superpowers/plans/2026-09-29-paridade-fase1-fundacao.md`). Itens 1, 2, 3, 5 e 6 estão concluídos. Do item 4, ficam pendentes `/(profissional)/novo-agendamento` (fase Agenda) e `/(empresa)/editar-profissional/[id]` (fase Equipe). As rotas de notificação foram corrigidas. Aceitar convite e redefinir senha seguem pelo link do web nas duas plataformas até o app ser publicado.
+
 1. **Entidade "cliente" errada no mobile.** O mobile trata cliente como `users` + `empresa_membros(role='cliente')`, mas desde a migration 031 todas as FKs (`agendamentos`, `anamnese_fichas`, `taxas_reserva`, `pacote_clientes`, `comandas.clientes_id`) apontam para `public.clientes`. Situação em produção:
    - **Verificado em produção (2026-09-29):** o embed `cliente:users!agendamentos_cliente_id_fkey` **dá erro**; com `clientes!` funciona.
    - Há **0** membros com `role='cliente'`.

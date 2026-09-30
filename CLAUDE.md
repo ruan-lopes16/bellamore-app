@@ -633,6 +633,69 @@ automaticamente, preservando o comportamento antigo pra esse caminho específico
 
 ---
 
+### Sessão 2026-09-29/30 — Comandas em dobro + auditoria de paridade total + Paridade Fase 1 (fundação)
+
+*Escopo:*
+
+*(1) Bug de produção: comanda fechada continuava "aberta" e era cobrada em dobro. A lista local*
+*gravava `status` mas não `comanda_id`. Corrigido em web e mobile, com checagem no banco antes*
+*de criar a comanda.*
+
+*(2) Pedido do dono: "igualar TUDO sem exceção" entre web e mobile. 6 auditorias de leitura*
+*completa geraram o inventário de mais de 200 divergências*
+*(`docs/superpowers/specs/2026-09-29-paridade-total-web-mobile-inventario.md`).*
+
+*(3) Fase 1 (fundação), executada via subagent-driven-development, com 10 tasks mais revisão*
+*final de branch:*
+*- remoção completa da área e do papel de cliente final (decisão do dono);*
+*- mobile passa a usar `public.clientes`: o embed `users!agendamentos_cliente_id_fkey` dava erro*
+*  em produção e derrubava agenda, dashboard e área da profissional do app;*
+*- anamnese com fonte única em `anamnese_fichas`, formato canônico em `shared/anamnese.ts` e*
+*  migration 080;*
+*- cadastro e edição de cliente no mobile no formato do web;*
+*- navegação e sessão do app;*
+*- onboarding do app (cadastro, verificar e-mail, criar empresa).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; mobile caiu de 9 para 8 erros pré-existentes (corrigido `C.text2` em novo-cliente), nenhum novo |
+| UX / Padrões    | 9.0  | Máscaras, aniversário, endereço, nome e restrição de anamnese viraram regra única em `shared/` (`mascaras.ts`, `clientes.ts`, `anamnese.ts`), consumida pelas duas plataformas |
+| Segurança       | 9.0  | Migration 080: RLS de INSERT/UPDATE em `anamnese_fichas`, antes só SELECT (o mobile nunca conseguia gravar), com checagem de `cliente_id` da mesma empresa. FK passa a `on delete cascade`, para que excluir a cliente não deixe dado de saúde órfão (LGPD) |
+| Documentação    | 9.0  | Spec (inventário) + plano da fase 1; JSDoc pt-BR nos helpers novos; cabeçalho da 080 com rollback |
+| Arquitetura     | 9.5  | Regras extraídas para `shared/` em vez de corrigidas duas vezes; migration da anamnese por linha em PL/pgSQL (JSON inválido é ignorado e `observacoes` só é limpo se a cópia de fato ocorreu) |
+| Performance     | 8.5  | Agregação de clientes paginada, com desempate `.order('id')`; `.in()` com todos os ids em `useClientesStats` fica para a fase de performance |
+| Visual (UI)     | —    | Sem conta de teste para login local e app nativo não publicado — não executado |
+| **Completude**  | 8.5  | P0 entregue, exceto 2 rotas do mobile que ainda não existem (`(profissional)/novo-agendamento` e `(empresa)/editar-profissional/[id]`), que ficam para as fases Agenda e Equipe |
+| **Proatividade**| 9.5  | Achados que ninguém pediu: 29/02 impossível com ano 1900 (ano fictício passou a 1904, bissexto); aniversário "pela metade" gravando dia 01 em silêncio no web; login travado após sessão expirada; ficha de anamnese órfã ao excluir cliente |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.1 / 10` → **A+**
+
+**Decisões do dono (29/09):**
+- Sem área da cliente final.
+- Configurações: perfil liberado para todos; dados da empresa só a dona.
+- Segmentação de clientes: juntar as regras do web e do mobile.
+- A equipe usa web + PWA. O app Expo ainda não foi publicado, mas é tratado como em produção.
+
+**Pendências para produção (ordem importa):**
+1. Backup antes de tudo: `select id, empresa_id, observacoes from public.clientes where observacoes is not null;` (exportar CSV; esperado 9 linhas com JSON).
+2. Merge + deploy do web (Vercel **Ready**).
+3. **Logo em seguida**, rodar `080_anamnese_fichas_fonte_unica.sql` no SQL Editor. Se o 080 rodar antes do deploy, as 9 fichas somem da tela no web antigo. Entre o deploy e o 080, a aba "Observações internas" do web mostra o JSON antigo cru.
+4. Conferir:
+   ```sql
+   select count(*) from public.anamnese_fichas;                                   -- 9
+   select count(*) from public.clientes where observacoes ~ '^\s*\{';             -- 0
+   select policyname, cmd from pg_policies where tablename = 'anamnese_fichas';   -- ver/inserir/atualizar
+   select confdeltype from pg_constraint where conname = 'anamnese_fichas_cliente_id_fkey';  -- 'c'
+   ```
+5. No dia seguinte (PWAs com JS antigo), repetir a 2ª consulta. Se aparecer linha, rodar o 080 de novo (é idempotente).
+6. Empresas "Teste QA" e "AC Beauty Academy" duplicada (sem nenhum dado vinculado): `delete from public.empresas where id in ('2c7c7874-0e82-4526-a8b2-869c352b7905','f9066170-85a2-4924-ace4-9f8dfc647910');`
+7. Duplicatas de comanda (25/06 vazias, 25/09 venda de pacote indevida, 28/09 dobradas): SQL de limpeza a ser entregue na próxima sessão.
+
+**Próximas fases de paridade** (ver inventário): P1 dinheiro (`shared/kpis-financeiros.ts`, comanda/PDV, estoque, equipe/comissões) → P2 Agenda → Clientes (segmentação unificada) → Serviços/Pacotes → Configurações/Notificações/Papéis.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
