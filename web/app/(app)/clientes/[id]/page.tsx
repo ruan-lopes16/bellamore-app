@@ -17,6 +17,10 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import {
+  ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese,
+  PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES, TEXTO_DECLARACAO, type AnamneseRespostas,
+} from '@shared/anamnese';
+import {
   descreverServicos, listarServicos, montarDetalheAtendimento,
   type DetalheAtendimento,
 } from '@shared/atendimento-detalhe';
@@ -532,21 +536,11 @@ export default function ClientePerfilPage() {
   const [salvandoInfo, setSalvandoInfo] = useState(false);
 
   // ── Anamnese ────────────────────────────────────────────────
-  type AnamneseItem = { resposta: 'sim' | 'nao' | ''; detalhe: string };
-  type Anamnese = {
-    alergias: AnamneseItem; problemas_saude: AnamneseItem;
-    medicamentos: AnamneseItem; gravida_amamentando: AnamneseItem;
-    info_adicionais: string; declaracao_aceita: boolean; salvo_em?: string;
-  };
-  const ITEM: AnamneseItem = { resposta: '', detalhe: '' };
-  const VAZIA: Anamnese = {
-    alergias: { ...ITEM }, problemas_saude: { ...ITEM },
-    medicamentos: { ...ITEM }, gravida_amamentando: { ...ITEM },
-    info_adicionais: '', declaracao_aceita: false,
-  };
-  const [anamnese,   setAnamnese]   = useState<Anamnese>(VAZIA);
+  const [anamnese,   setAnamnese]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
   const [editAn,     setEditAn]     = useState(searchParams.get('editar') === '1' && searchParams.get('aba') === 'anamnese');
-  const [rascunho,   setRascunho]   = useState<Anamnese>(VAZIA);
+  const [rascunho,   setRascunho]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
+  const [erroAn,     setErroAn]     = useState('');
+  const [erroCargaAn, setErroCargaAn] = useState('');
   const [salvandoAn, setSalvandoAn] = useState(false);
 
   // ── Histórico ───────────────────────────────────────────────
@@ -576,8 +570,9 @@ export default function ClientePerfilPage() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: clienteData }, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
+      const [{ data: clienteData }, rFicha, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
+        supabase.from('anamnese_fichas').select('respostas').eq('cliente_id', id).maybeSingle(),
         buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null;
           agendamento_servicos: { ordem: number; servico: { nome: string } | null }[] | null }>((from, to) =>
           supabase.from('agendamentos')
@@ -600,6 +595,10 @@ export default function ClientePerfilPage() {
       ]);
 
       setCliente(clienteData as Cliente);
+      // Falha ao carregar não pode virar "ficha vazia": o usuário sobrescreveria uma ficha real.
+      setErroCargaAn(rFicha.error ? rFicha.error.message : '');
+      const ficha = normalizarAnamnese(rFicha.data?.respostas);
+      setAnamnese(ficha); setRascunho(ficha);
       setLoading(false);
 
       const rows = [
@@ -632,14 +631,6 @@ export default function ClientePerfilPage() {
 
   useEffect(() => {
     if (!cliente) return;
-    // anamnese
-    try {
-      const p = JSON.parse(cliente.observacoes ?? '{}');
-      if (p.alergias !== undefined) {
-        setAnamnese({ ...VAZIA, ...p });
-        setRascunho({ ...VAZIA, ...p });
-      }
-    } catch {}
     // rascunho de info
     const end = parseEndereco(cliente.endereco);
     setRascunhoInfo({
@@ -908,13 +899,6 @@ export default function ClientePerfilPage() {
 
   const enderecoAtual = parseEndereco(cliente.endereco);
   const temEndereco   = !!(enderecoAtual.logradouro || enderecoAtual.bairro);
-
-  const PERGUNTAS = [
-    { key: 'alergias'            as const, label: 'Possui alguma alergia?',       ph: 'Ex: látex, parabenos...'      },
-    { key: 'problemas_saude'     as const, label: 'Tem algum problema de saúde?', ph: 'Ex: hipertensão, diabetes...' },
-    { key: 'medicamentos'        as const, label: 'Faz uso de medicamentos?',     ph: 'Ex: anticoagulantes...'       },
-    { key: 'gravida_amamentando' as const, label: 'Está grávida ou amamentando?', ph: 'Informações adicionais...'    },
-  ];
 
   return (
     <div className="bm-page">
@@ -1363,13 +1347,13 @@ export default function ClientePerfilPage() {
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div>
                   <p className="font-semibold text-text text-sm">Ficha de anamnese</p>
-                  {anamnese.salvo_em && (
+                  {anamnesePreenchida(anamnese) && (
                     <p className="text-xs text-text-4 mt-0.5">
-                      Preenchida em {format(new Date(anamnese.salvo_em), 'dd/MM/yyyy')}
+                      Preenchida em {format(new Date(anamnese.salvo_em!), 'dd/MM/yyyy')}
                     </p>
                   )}
                 </div>
-                {!editAn && (
+                {!editAn && !erroCargaAn && (
                   <button onClick={() => { setRascunho({ ...anamnese }); setEditAn(true); }}
                     className="flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline">
                     <Edit3 size={12}/> Editar
@@ -1378,9 +1362,12 @@ export default function ClientePerfilPage() {
               </div>
 
               <div className="p-5 flex flex-col gap-5">
-                {editAn ? (
+                {erroCargaAn && (
+                  <p className="text-red text-sm">Não foi possível carregar a ficha de anamnese: {erroCargaAn}</p>
+                )}
+                {editAn && !erroCargaAn ? (
                   <>
-                    {PERGUNTAS.map(({ key, label, ph }) => (
+                    {PERGUNTAS_SIM_NAO.map(({ key, label, placeholder: ph }) => (
                       <div key={key} className="flex flex-col gap-2">
                         <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">{label}</label>
                         <div className="flex gap-2">
@@ -1405,6 +1392,23 @@ export default function ClientePerfilPage() {
                       </div>
                     ))}
 
+                    {PERGUNTAS_OPCOES.map(p => (
+                      <div key={p.key} className="flex flex-col gap-2">
+                        <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide">{p.label}</label>
+                        <div className="flex flex-wrap gap-2">
+                          {p.opcoes.map(o => (
+                            <button key={o.valor} type="button"
+                              onClick={() => setRascunho(r => ({ ...r, [p.key]: o.valor }))}
+                              className={`px-4 py-1.5 rounded-lg text-sm font-medium border transition ${
+                                rascunho[p.key] === o.valor ? 'bg-primary-soft border-primary/30 text-primary' : 'bg-bg border-border text-text-3 hover:border-accent'
+                              }`}>
+                              {o.rotulo}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+
                     <div>
                       <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Informações adicionais</label>
                       <textarea value={rascunho.info_adicionais}
@@ -1419,25 +1423,34 @@ export default function ClientePerfilPage() {
                           onChange={e => setRascunho(r => ({ ...r, declaracao_aceita: e.target.checked }))}
                           className="mt-0.5 accent-primary flex-shrink-0 w-4 h-4"/>
                         <span className="text-xs text-text-2 leading-relaxed">
-                          Declaro que as informações acima são verdadeiras e autorizo seu uso para fins da realização do procedimento estético.
+                          {TEXTO_DECLARACAO}
                         </span>
                       </label>
                     </div>
 
+                    {erroAn && <p className="text-red text-sm">{erroAn}</p>}
                     <div className="flex gap-3">
-                      <button onClick={() => setEditAn(false)}
+                      <button onClick={() => { setEditAn(false); setErroAn(''); }}
                         className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
                         Cancelar
                       </button>
-                      <button disabled={salvandoAn || !rascunho.declaracao_aceita}
+                      <button disabled={salvandoAn || !empresaId || !rascunho.declaracao_aceita}
                         title={!rascunho.declaracao_aceita ? 'Cliente precisa aceitar a declaração antes de salvar' : undefined}
                         onClick={async () => {
-                          setSalvandoAn(true);
-                          const dados = { ...rascunho, salvo_em: new Date().toISOString() };
-                          await supabase.from('clientes').update({ observacoes: JSON.stringify(dados) }).eq('id', id);
-                          setCliente(prev => prev ? { ...prev, observacoes: JSON.stringify(dados) } : prev);
-                          setAnamnese(dados);
+                          if (!empresaId) return;
+                          setSalvandoAn(true); setErroAn('');
+                          const { data: { user } } = await supabase.auth.getUser();
+                          const dados: AnamneseRespostas = { ...rascunho, salvo_em: new Date().toISOString() };
+                          const { data, error } = await supabase.from('anamnese_fichas')
+                            .upsert({
+                              empresa_id: empresaId, cliente_id: id, respostas: dados,
+                              profissional_id: user?.id ?? null, updated_at: new Date().toISOString(),
+                            }, { onConflict: 'empresa_id,cliente_id' })
+                            .select('id');
                           setSalvandoAn(false);
+                          if (error) { setErroAn(error.message); return; }
+                          if (!data || data.length === 0) { setErroAn('Sem permissão para salvar a ficha.'); return; }
+                          setAnamnese(dados);
                           setEditAn(false);
                         }}
                         className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
@@ -1447,7 +1460,7 @@ export default function ClientePerfilPage() {
                   </>
                 ) : (
                   <>
-                    {PERGUNTAS.map(({ key, label }) => {
+                    {PERGUNTAS_SIM_NAO.map(({ key, label }) => {
                       const item = anamnese[key];
                       return (
                         <div key={key} className="flex flex-col gap-1">
@@ -1470,6 +1483,18 @@ export default function ClientePerfilPage() {
                       );
                     })}
 
+                    {PERGUNTAS_OPCOES.map(p => {
+                      const rotulo = p.opcoes.find(o => o.valor === anamnese[p.key])?.rotulo;
+                      return (
+                        <div key={p.key} className="flex flex-col gap-1">
+                          <p className="text-xs font-semibold text-text-3 uppercase tracking-wide">{p.label}</p>
+                          {rotulo
+                            ? <p className="text-sm text-text-2 font-semibold">{rotulo}</p>
+                            : <p className="text-sm text-text-4 italic">Não respondido</p>}
+                        </div>
+                      );
+                    })}
+
                     {anamnese.info_adicionais && (
                       <div>
                         <p className="text-xs font-semibold text-text-3 uppercase tracking-wide mb-1">Informações adicionais</p>
@@ -1483,7 +1508,7 @@ export default function ClientePerfilPage() {
                       <ShieldCheck size={16} className={`flex-shrink-0 mt-0.5 ${anamnese.declaracao_aceita ? 'text-green' : 'text-text-4'}`} strokeWidth={2}/>
                       <div>
                         <p className="text-xs leading-relaxed text-text-2">
-                          Declaro que as informações acima são verdadeiras e autorizo seu uso para fins da realização do procedimento estético.
+                          {TEXTO_DECLARACAO}
                         </p>
                         <p className={`text-xs mt-1 font-semibold ${anamnese.declaracao_aceita ? 'text-green' : 'text-text-4'}`}>
                           {anamnese.declaracao_aceita ? '✓ Declaração aceita' : 'Declaração não aceita'}
@@ -1491,7 +1516,7 @@ export default function ClientePerfilPage() {
                       </div>
                     </div>
 
-                    {!anamnese.salvo_em && (
+                    {!anamnesePreenchida(anamnese) && !erroCargaAn && (
                       <button onClick={() => { setRascunho({ ...anamnese }); setEditAn(true); }}
                         className="text-accent text-sm font-semibold hover:underline self-start">
                         + Preencher ficha
@@ -1565,19 +1590,26 @@ export default function ClientePerfilPage() {
           </div>
 
           {/* Status anamnese */}
-          <div className={`border rounded-2xl p-4 shadow-sm ${anamnese.salvo_em ? 'bg-green-soft border-green/20' : 'bg-amber-soft border-amber/20'}`}>
+          <div className={`border rounded-2xl p-4 shadow-sm ${anamnesePreenchida(anamnese) ? 'bg-green-soft border-green/20' : 'bg-amber-soft border-amber/20'}`}>
             <div className="flex items-center gap-2 mb-1">
-              <ShieldCheck size={14} className={anamnese.salvo_em ? 'text-green' : 'text-amber'} strokeWidth={2}/>
-              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: anamnese.salvo_em ? '#0D7E5F' : '#B45309' }}>
+              <ShieldCheck size={14} className={anamnesePreenchida(anamnese) ? 'text-green' : 'text-amber'} strokeWidth={2}/>
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: anamnesePreenchida(anamnese) ? '#0D7E5F' : '#B45309' }}>
                 Anamnese
               </p>
             </div>
-            <p className="text-xs" style={{ color: anamnese.salvo_em ? '#065F46' : '#92400E' }}>
-              {anamnese.salvo_em
-                ? `Preenchida em ${format(new Date(anamnese.salvo_em), 'dd/MM/yyyy')}`
+            <p className="text-xs" style={{ color: anamnesePreenchida(anamnese) ? '#065F46' : '#92400E' }}>
+              {anamnesePreenchida(anamnese)
+                ? `Preenchida em ${format(new Date(anamnese.salvo_em!), 'dd/MM/yyyy')}`
                 : 'Ficha ainda não preenchida'}
             </p>
-            {!anamnese.salvo_em && (
+            {restricoesAnamnese(anamnese).length > 0 && (
+              <ul className="mt-2 flex flex-col gap-0.5">
+                {restricoesAnamnese(anamnese).map(r => (
+                  <li key={r} className="text-xs font-semibold text-red">⚠ {r}</li>
+                ))}
+              </ul>
+            )}
+            {!anamnesePreenchida(anamnese) && !erroCargaAn && (
               <button onClick={() => { setAbaAtiva('anamnese'); setRascunho({ ...anamnese }); setEditAn(true); }}
                 className="text-xs font-semibold text-amber mt-2 hover:underline">
                 Preencher agora →
