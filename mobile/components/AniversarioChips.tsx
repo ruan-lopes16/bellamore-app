@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { diasNoMes } from '@shared/clientes';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -29,7 +30,7 @@ export default function AniversarioChips({ mes, dia, onMes, onDia }: {
           const v = String(i + 1);
           const ativo = mes === v;
           return (
-            <TouchableOpacity key={v} onPress={() => onMes(ativo ? '' : v)} style={chip(ativo)} activeOpacity={0.8}>
+            <TouchableOpacity key={v} onPress={() => { onMes(ativo ? '' : v); if (!ativo && dia && Number(dia) > diasNoMes(v)) onDia(''); }} style={chip(ativo)} activeOpacity={0.8}>
               <Text style={txt(ativo)}>{nome}</Text>
             </TouchableOpacity>
           );
@@ -37,7 +38,7 @@ export default function AniversarioChips({ mes, dia, onMes, onDia }: {
       </ScrollView>
       <Text style={rotulo}>Aniversário (dia)</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {Array.from({ length: 31 }, (_, i) => String(i + 1)).map((v) => {
+        {Array.from({ length: diasNoMes(mes) }, (_, i) => String(i + 1)).map((v) => {
           const ativo = dia === v;
           return (
             <TouchableOpacity key={v} onPress={() => onDia(ativo ? '' : v)} style={chip(ativo)} activeOpacity={0.8}>

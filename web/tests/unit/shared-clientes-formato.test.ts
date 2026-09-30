@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { maskPhone, toWhatsApp, digits } from '@shared/mascaras';
 import {
-  parseEndereco, serializarEndereco, montarAniversario, partesAniversario,
+  parseEndereco, serializarEndereco, montarAniversario, partesAniversario, diasNoMes,
   idadeCliente, formatarAniversario,
 } from '@shared/clientes';
 
@@ -44,8 +44,22 @@ describe('shared/clientes — endereço', () => {
 
 describe('shared/clientes — aniversário (formato 1900-MM-DD)', () => {
   it('monta só com mês e dia', () => {
-    expect(montarAniversario('3', '7')).toBe('1900-03-07');
+    expect(montarAniversario('3', '7')).toBe('1904-03-07');
     expect(montarAniversario('', '7')).toBeNull();
+  });
+  it('aceita 29/02 (ano fictício 1904 é bissexto) e rejeita dias impossíveis', () => {
+    expect(montarAniversario('2', '29')).toBe('1904-02-29');
+    expect(montarAniversario('4', '31')).toBeNull();
+  });
+  it('dias por mês (fevereiro = 29; vazio/inválido = 31)', () => {
+    expect(diasNoMes('2')).toBe(29);
+    expect(diasNoMes('02')).toBe(29);
+    expect(diasNoMes('4')).toBe(30);
+    expect(diasNoMes('')).toBe(31);
+    expect(diasNoMes('13')).toBe(31);
+  });
+  it('idade continua null para o ano fictício 1904', () => {
+    expect(idadeCliente('1904-02-29')).toBeNull();
   });
   it('partes de uma data gravada', () => {
     expect(partesAniversario('1900-03-07')).toEqual({ mes: '03', dia: '07' });

@@ -6,7 +6,7 @@ import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin,
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente, TaxaCancelamento, TaxaReserva } from '@/types';
-import { format, differenceInYears, differenceInDays, addMinutes, parseISO } from 'date-fns';
+import { format, differenceInDays, addMinutes, parseISO } from 'date-fns';
 import { maskPhone, toWhatsApp } from '@/lib/masks';
 import { avancarComEnter } from '@/lib/formNav';
 import { ptBR } from 'date-fns/locale';
@@ -16,6 +16,7 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { buscarTodasPaginas } from '@shared/paginacao';
+import { montarAniversario, partesAniversario, diasNoMes, idadeCliente } from '@shared/clientes';
 import {
   ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES, TEXTO_DECLARACAO, type AnamneseRespostas,
@@ -28,6 +29,12 @@ import {
 const supabase = createClient();
 
 type Endereco = { logradouro: string; numero: string; bairro: string; complemento: string };
+
+/** Mês/dia do aniversário como strings sem zero à esquerda ("3", "7"), para o rascunho do formulário. */
+function nascPartes(data?: string | null): { nascMes: string; nascDia: string } {
+  const { mes, dia } = partesAniversario(data);
+  return { nascMes: mes ? String(Number(mes)) : '', nascDia: dia ? String(Number(dia)) : '' };
+}
 
 function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
@@ -527,13 +534,14 @@ export default function ClientePerfilPage() {
   );
 
   // ── Info edit ──────────────────────────────────────────────
-  type InfoRascunho = { nome: string; telefone: string; email: string; data_nascimento: string } & Endereco;
+  type InfoRascunho = { nome: string; telefone: string; email: string; nascMes: string; nascDia: string } & Endereco;
   const [editInfo,      setEditInfo]      = useState(false);
   const [rascunhoInfo,  setRascunhoInfo]  = useState<InfoRascunho>({
-    nome: '', telefone: '', email: '', data_nascimento: '',
+    nome: '', telefone: '', email: '', nascMes: '', nascDia: '',
     logradouro: '', numero: '', bairro: '', complemento: '',
   });
   const [salvandoInfo, setSalvandoInfo] = useState(false);
+  const [erroInfo,      setErroInfo]      = useState('');
 
   // ── Anamnese ────────────────────────────────────────────────
   const [anamnese,   setAnamnese]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
@@ -635,7 +643,7 @@ export default function ClientePerfilPage() {
     const end = parseEndereco(cliente.endereco);
     setRascunhoInfo({
       nome: cliente.nome, telefone: cliente.telefone ?? '',
-      email: cliente.email ?? '', data_nascimento: cliente.data_nascimento ?? '',
+      email: cliente.email ?? '', ...nascPartes(cliente.data_nascimento),
       logradouro: end.logradouro, numero: end.numero,
       bairro: end.bairro, complemento: end.complemento,
     });
@@ -645,7 +653,7 @@ export default function ClientePerfilPage() {
     const end = parseEndereco(c.endereco);
     setRascunhoInfo({
       nome: c.nome, telefone: c.telefone ?? '',
-      email: c.email ?? '', data_nascimento: c.data_nascimento ?? '',
+      email: c.email ?? '', ...nascPartes(c.data_nascimento),
       logradouro: end.logradouro, numero: end.numero,
       bairro: end.bairro, complemento: end.complemento,
     });
@@ -736,6 +744,14 @@ export default function ClientePerfilPage() {
 
   async function salvarInfo() {
     if (!rascunhoInfo.nome.trim()) return;
+    const { nascMes, nascDia } = rascunhoInfo;
+    if (!!nascMes !== !!nascDia) { setErroInfo('Escolha o mês e o dia do aniversário, ou deixe os dois em branco.'); return; }
+    setErroInfo('');
+    // Mês/dia inalterados: mantém a data original (preserva um ano real, se houver).
+    const orig = nascPartes(cliente?.data_nascimento);
+    const data_nascimento = (cliente?.data_nascimento && orig.nascMes === nascMes && orig.nascDia === nascDia)
+      ? cliente.data_nascimento
+      : montarAniversario(nascMes, nascDia);
     setSalvandoInfo(true);
     const temEndereco = rascunhoInfo.logradouro || rascunhoInfo.numero || rascunhoInfo.bairro;
     const enderecoJson = temEndereco
@@ -750,7 +766,7 @@ export default function ClientePerfilPage() {
       nome: rascunhoInfo.nome.trim(),
       telefone: rascunhoInfo.telefone.trim() || null,
       email: rascunhoInfo.email.trim() || null,
-      data_nascimento: rascunhoInfo.data_nascimento || null,
+      data_nascimento,
       endereco: enderecoJson,
     }).eq('id', id);
     setCliente(prev => prev ? {
@@ -758,7 +774,7 @@ export default function ClientePerfilPage() {
       nome: rascunhoInfo.nome.trim(),
       telefone: rascunhoInfo.telefone.trim() || undefined,
       email: rascunhoInfo.email.trim() || undefined,
-      data_nascimento: rascunhoInfo.data_nascimento || undefined,
+      data_nascimento: data_nascimento ?? undefined,
       endereco: enderecoJson ?? undefined,
     } : prev);
     setSalvandoInfo(false);
@@ -892,10 +908,7 @@ export default function ClientePerfilPage() {
   );
   if (!cliente) return <div className="text-center py-16 text-text-3">Cliente não encontrado.</div>;
 
-  const anoNasc = cliente.data_nascimento ? parseInt(cliente.data_nascimento.slice(0, 4)) : null;
-  const idade = (cliente.data_nascimento && anoNasc && anoNasc > 1905)
-    ? differenceInYears(new Date(), new Date(cliente.data_nascimento + 'T00:00:00'))
-    : null;
+  const idade = idadeCliente(cliente.data_nascimento);
 
   const enderecoAtual = parseEndereco(cliente.endereco);
   const temEndereco   = !!(enderecoAtual.logradouro || enderecoAtual.bairro);
@@ -1032,29 +1045,23 @@ export default function ClientePerfilPage() {
                         <label className={labelClass}>Data de nascimento</label>
                         <div className="flex gap-2">
                           <select
-                            value={rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(5, 7) : ''}
+                            value={rascunhoInfo.nascMes}
                             onChange={e => {
                               const m = e.target.value;
-                              const d = rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(8, 10) : '01';
-                              setRascunhoInfo(r => ({ ...r, data_nascimento: m ? `1900-${m}-${d || '01'}` : '' }));
+                              setRascunhoInfo(r => ({ ...r, nascMes: m, nascDia: r.nascDia && Number(r.nascDia) > diasNoMes(m) ? '' : r.nascDia }));
                             }}
                             className={inputClass}>
                             <option value="">Mês</option>
-                            {[['01','Janeiro'],['02','Fevereiro'],['03','Março'],['04','Abril'],['05','Maio'],['06','Junho'],
-                              ['07','Julho'],['08','Agosto'],['09','Setembro'],['10','Outubro'],['11','Novembro'],['12','Dezembro']
-                            ].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                            {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+                              .map((l, i) => <option key={i + 1} value={String(i + 1)}>{l}</option>)}
                           </select>
                           <select
-                            value={rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(8, 10) : ''}
-                            onChange={e => {
-                              const d = e.target.value;
-                              const m = rascunhoInfo.data_nascimento ? rascunhoInfo.data_nascimento.slice(5, 7) : '01';
-                              setRascunhoInfo(r => ({ ...r, data_nascimento: d ? `1900-${m || '01'}-${d}` : '' }));
-                            }}
+                            value={rascunhoInfo.nascDia}
+                            onChange={e => setRascunhoInfo(r => ({ ...r, nascDia: e.target.value }))}
                             className={inputClass}>
                             <option value="">Dia</option>
-                            {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map(d => (
-                              <option key={d} value={d}>{Number(d)}</option>
+                            {Array.from({ length: diasNoMes(rascunhoInfo.nascMes) }, (_, i) => String(i + 1)).map(d => (
+                              <option key={d} value={d}>{d}</option>
                             ))}
                           </select>
                         </div>
@@ -1104,8 +1111,9 @@ export default function ClientePerfilPage() {
                       </div>
                     </div>
 
+                    {erroInfo && <p className="text-red text-sm">{erroInfo}</p>}
                     <div className="flex gap-3 pt-1">
-                      <button onClick={() => { resetRascunhoInfo(cliente); setEditInfo(false); }}
+                      <button onClick={() => { resetRascunhoInfo(cliente); setErroInfo(''); setEditInfo(false); }}
                         className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
                         Cancelar
                       </button>

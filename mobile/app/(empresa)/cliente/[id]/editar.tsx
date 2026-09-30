@@ -103,6 +103,10 @@ export default function EditarCliente() {
   async function salvar() {
     if (nome.trim().length <= 1) { Alert.alert('Atenção', 'O nome é obrigatório.'); return; }
     if (!empresaAtiva) return;
+    if (!!nascMes !== !!nascDia) {
+      Alert.alert('Aniversário', 'Escolha o mês e o dia do aniversário, ou deixe os dois em branco.');
+      return;
+    }
     setSalvando(true);
 
     const { data, error } = await supabase.from('clientes').update({

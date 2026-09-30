@@ -10,6 +10,7 @@ import { format, startOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { maskPhone } from '@/lib/masks';
+import { montarAniversario, diasNoMes } from '@shared/clientes';
 import { avancarComEnter } from '@/lib/formNav';
 import { ExportButton } from '@/components/ExportButton';
 
@@ -44,10 +45,10 @@ function NovoClienteModal({ empresaId, onClose }: {
   const [sucesso,  setSucesso]  = useState<{ nome: string; id: string } | null>(null);
 
   async function salvar(e: React.FormEvent) {
-    e.preventDefault(); setErro(''); setSalvando(true);
-    const data_nascimento = (nascMes && nascDia)
-      ? `1900-${nascMes.padStart(2, '0')}-${nascDia.padStart(2, '0')}`
-      : null;
+    e.preventDefault(); setErro('');
+    if (!!nascMes !== !!nascDia) { setErro('Escolha o mês e o dia do aniversário, ou deixe os dois em branco.'); return; }
+    setSalvando(true);
+    const data_nascimento = montarAniversario(nascMes, nascDia);
     const { data, error } = await supabase.from('clientes').insert({
       empresa_id: empresaId, nome: nome.trim(),
       telefone: telefone.trim() || null,
@@ -111,7 +112,7 @@ function NovoClienteModal({ empresaId, onClose }: {
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Aniversário (opcional)</label>
             <div className="grid grid-cols-2 gap-2">
-              <select value={nascMes} onChange={e => setNascMes(e.target.value)} className={inputClass}>
+              <select value={nascMes} onChange={e => { const m = e.target.value; setNascMes(m); if (nascDia && Number(nascDia) > diasNoMes(m)) setNascDia(''); }} className={inputClass}>
                 <option value="">Mês</option>
                 {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((m, i) => (
                   <option key={i+1} value={String(i+1).padStart(2,'0')}>{m}</option>
@@ -119,7 +120,7 @@ function NovoClienteModal({ empresaId, onClose }: {
               </select>
               <select value={nascDia} onChange={e => setNascDia(e.target.value)} className={inputClass}>
                 <option value="">Dia</option>
-                {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                {Array.from({ length: diasNoMes(nascMes) }, (_, i) => i + 1).map(d => (
                   <option key={d} value={String(d).padStart(2,'0')}>{d}</option>
                 ))}
               </select>

@@ -2,8 +2,9 @@
  * @file clientes.ts
  * Formato de dados da cliente, igual em web e mobile. É o formato que está em
  * produção desde a migration 006 (tabela `public.clientes`):
- * - `data_nascimento` = '1900-MM-DD' quando só dia/mês são conhecidos (o
- *   cadastro pede só aniversário); um ano real (> 1905) permite calcular idade.
+ * - `data_nascimento` = '1904-MM-DD' (novos) ou '1900-MM-DD' (legado) quando só
+ *   dia/mês são conhecidos (o cadastro pede só aniversário); um ano real (> 1905)
+ *   permite calcular idade. 1904 é bissexto, então aceita 29/02.
  * - `endereco` = JSON {logradouro, numero, bairro, complemento}. Texto livre
  *   antigo é tratado como logradouro.
  */
@@ -31,10 +32,22 @@ export function serializarEndereco(e: EnderecoCliente): string | null {
   return Object.values(limpo).some(Boolean) ? JSON.stringify(limpo) : null;
 }
 
-/** Monta '1900-MM-DD' a partir de mês e dia (strings "1".."12" / "1".."31"). */
+/** Ano fictício de aniversário sem ano: bissexto (aceita 29/02) e ≤ 1905 (idadeCliente devolve null). */
+export const ANO_ANIVERSARIO_SEM_ANO = 1904;
+
+const DIAS_POR_MES = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/** Quantos dias o mês ("1".."12" ou "01".."12") pode ter (fevereiro = 29). Vazio/inválido = 31. */
+export function diasNoMes(mes: string): number {
+  const n = Number(mes);
+  return Number.isInteger(n) && n >= 1 && n <= 12 ? DIAS_POR_MES[n - 1] : 31;
+}
+
+/** Monta '1904-MM-DD' a partir de mês e dia; `null` se faltar um ou o dia não existir no mês. */
 export function montarAniversario(mes: string, dia: string): string | null {
   if (!mes || !dia) return null;
-  return `1900-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
+  if (Number(dia) > diasNoMes(mes)) return null;
+  return `${ANO_ANIVERSARIO_SEM_ANO}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
 }
 
 /** Extrai mês e dia de uma data 'AAAA-MM-DD' gravada. */
