@@ -71,7 +71,7 @@ export const TEXTO_DECLARACAO =
   'Declaro que as informações acima são verdadeiras e autorizo seu uso para fins da realização do procedimento estético.';
 
 function semAcento(s: string): string {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
 function simNao(v: unknown): RespostaSimNao {
