@@ -220,7 +220,18 @@ export default function ClientePerfil() {
     PlusJakartaSans_700Bold,
   });
 
-  if (!fontsLoaded || isLoading || !cliente) return null;
+  if (!fontsLoaded || isLoading) return null;
+
+  if (!cliente) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 15, color: C.text }}>Cliente não encontrada.</Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primary }}>Voltar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const [c1, c2] = avatarColors(cliente.nome ?? '');
 

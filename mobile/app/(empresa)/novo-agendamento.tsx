@@ -146,7 +146,7 @@ export default function NovoAgendamento() {
   }, []);
 
   // Estado do formulário
-  const [clienteSelecionado, setClienteSelecionado] = useState<{ id: string; nome: string; telefone?: string } | null>(null);
+  const [clienteSelecionado, setClienteSelecionado] = useState<{ id: string; nome: string; telefone?: string | null } | null>(null);
   const [servicoSelecionado, setServicoSelecionado] = useState<{ id: string; nome: string; preco: number; duracao_minutos: number } | null>(null);
   const [profSelecionado, setProfSelecionado]       = useState<{ id: string; nome: string } | null>(null);
   const [dataSelecionada, setDataSelecionada]       = useState<Date>(horaInicial);

@@ -108,8 +108,22 @@ export interface Agendamento {
   created_at: string;
   // joins opcionais
   profissional?: User;
-  cliente?: User;
+  cliente?: Pick<Cliente, 'id' | 'nome'> & Partial<Cliente>;
   servico?: Servico;
+}
+
+/** Cliente do estabelecimento (`public.clientes`) — não é um usuário do app. */
+export interface Cliente {
+  id: string;
+  empresa_id: string;
+  nome: string;
+  telefone: string | null;
+  email: string | null;
+  data_nascimento: string | null;
+  observacoes: string | null;
+  endereco: string | null;
+  ativo: boolean;
+  created_at: string;
 }
 
 export interface Comanda {

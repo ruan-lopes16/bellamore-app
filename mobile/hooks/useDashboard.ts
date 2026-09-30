@@ -28,7 +28,7 @@ export function useDashboard() {
         .from('agendamentos')
         .select(`
           *,
-          cliente:users!agendamentos_cliente_id_fkey(id, nome, foto_url),
+          cliente:clientes!agendamentos_cliente_id_fkey(id, nome),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
           servico:servicos(id, nome, duracao_minutos)
         `)

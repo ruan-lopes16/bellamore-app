@@ -49,7 +49,7 @@ export function useAgendaProfissional(dia: Date) {
         .from('agendamentos')
         .select(`
           *,
-          cliente:users!agendamentos_cliente_id_fkey(id, nome, telefone, foto_url),
+          cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome, foto_url),
           servico:servicos(id, nome, duracao_minutos, categoria)
         `)
@@ -142,7 +142,7 @@ export function useComissoesProfissional(mesRef: Date, filtro: 'todas' | 'penden
           *,
           agendamento:agendamentos(
             data_hora_inicio, valor,
-            cliente:users!agendamentos_cliente_id_fkey(nome),
+            cliente:clientes!agendamentos_cliente_id_fkey(nome),
             servico:servicos(nome)
           )
         `)
@@ -362,7 +362,7 @@ export function useClientesReconquistaProfissional() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('agendamentos')
-        .select('cliente_id, data_hora_inicio, cliente:users!agendamentos_cliente_id_fkey(id, nome)')
+        .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(id, nome)')
         .eq('empresa_id', empresaId!).eq('profissional_id', userId!).eq('status', 'concluido')
         .order('data_hora_inicio', { ascending: false })
         .limit(2000);
