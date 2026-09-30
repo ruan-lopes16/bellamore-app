@@ -8,6 +8,17 @@
 
 Legenda de arquivos: W = `web/app/(app)/…`; M = `mobile/app/(empresa)/…`; MP = `mobile/app/(profissional)/…`.
 
+## Decisões do dono (2026-09-29)
+- **Contexto:** a equipe usa web desktop + PWA; o app Expo ainda não foi publicado, mas deve ser tratado como em produção. Não há dados gravados pelo app nativo, então as mudanças de modelo de dados no mobile não precisam de backfill.
+- **Área da cliente final: REMOVER por completo.** Cliente não terá login nem acesso. Isso inclui:
+  - o grupo `mobile/app/(cliente)`;
+  - `useCliente.ts`;
+  - o papel `cliente` em permissões e em `rotaInicial` (web e mobile);
+  - o cadastro aberto de conta.
+- **Configurações:** o perfil próprio (dados, senha, notificações, push) fica liberado para todos os papéis. Os dados da empresa só a dona edita. A gestora também edita as taxas.
+- **Segmentação de clientes:** juntar as duas regras (segmentos do web + tags do mobile) numa função única em `shared/`.
+- Demais itens marcados "DECISÃO" seguem a recomendação da auditoria e serão confirmados no plano da fase correspondente.
+
 ---
 
 ## P0 — Quebras estruturais (o app nativo não funciona sem isto)
