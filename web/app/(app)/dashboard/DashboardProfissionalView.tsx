@@ -39,7 +39,7 @@ export default async function DashboardProfissionalView({
   const limHoje  = limitesDias(hojeStr, hojeStr);
   const limMes   = limitesMes(hojeStr.slice(0, 7));
 
-  const [{ data: agendaHoje, error: erroAgenda }, { data: comissoesMes, error: erroComissoes }, { data: membro }, { data: historico }] = await Promise.all([
+  const [{ data: agendaHoje, error: erroAgenda }, { data: comissoesMes, error: erroComissoes }, { data: membro, error: erroMembro }, { data: historico, error: erroHistorico }] = await Promise.all([
     supabase.from('agendamentos')
       .select('id, data_hora_inicio, status, valor, pacote_cliente_id, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
@@ -62,6 +62,8 @@ export default async function DashboardProfissionalView({
   // Nunca mostrar zeros no lugar dos números: o erro vai para o error boundary.
   if (erroAgenda) throw erroAgenda;
   if (erroComissoes) throw erroComissoes;
+  if (erroMembro) throw erroMembro;
+  if (erroHistorico) throw erroHistorico;
 
   const metaMensalPessoal = membro?.meta_mensal_pessoal != null ? Number(membro.meta_mensal_pessoal) : null;
 

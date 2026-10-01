@@ -22,6 +22,7 @@ import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
 import { SmoothTabs } from '@/components/SmoothTabs';
+import { SecretText } from '@/components/Secret';
 import {
   useComissoesProfissional, useResumoComissoes,
   type ComissaoItem,
@@ -84,7 +85,7 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
           {/* Cálculo transparente */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>
-              {formatBRL(item.valor_servico)}
+              <SecretText>{formatBRL(item.valor_servico)}</SecretText>
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>×</Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.accent }}>
@@ -92,7 +93,7 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>=</Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.green, letterSpacing: -0.5 }}>
-              {formatBRL(item.valor_comissao)}
+              <SecretText>{formatBRL(item.valor_comissao)}</SecretText>
             </Text>
           </View>
 
@@ -127,7 +128,10 @@ export default function Comissoes() {
   const isHoje = isSameMonth(mesRef, new Date());
 
   const { data: comissoes = [], isLoading, refetch } = useComissoesProfissional(mesRef, filtro);
-  const { data: resumo } = useResumoComissoes(mesRef);
+  const { data: resumo, isError: erroResumo, error: errResumo, refetch: refetchResumo } = useResumoComissoes(mesRef);
+  // Nunca mostrar R$ 0 no lugar dos números quando a consulta falha.
+  const fmtRes = (n: number) => (erroResumo ? '—' : formatBRL(n));
+  const numRes = (n: number) => (erroResumo ? '—' : String(n));
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -195,7 +199,7 @@ export default function Comissoes() {
                 {format(mesRef, 'MMMM yyyy', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
-                {resumo?.atendimentos ?? 0} atendimentos
+                {numRes(resumo?.atendimentos ?? 0)} atendimentos
               </Text>
             </View>
             <TouchableOpacity
@@ -206,6 +210,22 @@ export default function Comissoes() {
             </TouchableOpacity>
           </View>
         </MotiView>
+
+        {/* Erro ao carregar: nunca mostrar zeros no lugar dos números */}
+        {erroResumo && (
+          <TouchableOpacity
+            onPress={() => refetchResumo()}
+            activeOpacity={0.8}
+            style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#C0392B', borderRadius: 14, padding: 12 }}
+          >
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C0392B', marginBottom: 2 }}>
+              Não foi possível carregar suas comissões
+            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text2 }}>
+              {errResumo?.message ?? 'Falha ao buscar os dados'} · Tentar de novo
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* ── Hero total ── */}
         <MotiView
@@ -223,19 +243,19 @@ export default function Comissoes() {
               Total de comissões · {format(mesRef, 'MMMM', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 36, color: '#fff', letterSpacing: -1, lineHeight: 40, marginBottom: 12 }}>
-              {formatBRL(resumo?.total ?? 0)}
+              <SecretText>{fmtRes(resumo?.total ?? 0)}</SecretText>
             </Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 20, paddingVertical: 4, paddingHorizontal: 10 }}>
                 <TrendingUp size={10} color="#6EE7B7" strokeWidth={2.5} />
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: '#6EE7B7' }}>
-                  {formatBRL(resumo?.pago ?? 0)} recebido
+                  <SecretText>{fmtRes(resumo?.pago ?? 0)}</SecretText> recebido
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 20, paddingVertical: 4, paddingHorizontal: 10 }}>
                 <Clock size={10} color="#FCD34D" strokeWidth={2.5} />
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: '#FCD34D' }}>
-                  {formatBRL(resumo?.pendente ?? 0)} a receber
+                  <SecretText>{fmtRes(resumo?.pendente ?? 0)}</SecretText> a receber
                 </Text>
               </View>
             </View>
@@ -250,10 +270,10 @@ export default function Comissoes() {
           style={{ marginHorizontal: 24, marginBottom: 20, flexDirection: 'row', gap: 8 }}
         >
           {[
-            { label: 'Atendimentos', value: String(resumo?.atendimentos ?? 0), color: C.primary },
-            { label: 'Ticket médio', value: formatBRL(resumo?.ticketMedio ?? 0), color: C.primary },
-            { label: 'Já recebido', value: formatBRL(resumo?.pago ?? 0), color: C.green, pill: 'pago' },
-            { label: 'Pendente', value: formatBRL(resumo?.pendente ?? 0), color: C.amber, pill: 'pendente' },
+            { label: 'Atendimentos', value: numRes(resumo?.atendimentos ?? 0), color: C.primary },
+            { label: 'Ticket médio', value: fmtRes(resumo?.ticketMedio ?? 0), color: C.primary },
+            { label: 'Já recebido', value: fmtRes(resumo?.pago ?? 0), color: C.green, pill: 'pago' },
+            { label: 'Pendente', value: fmtRes(resumo?.pendente ?? 0), color: C.amber, pill: 'pendente' },
           ].map((k) => (
             <View key={k.label} style={{
               flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,

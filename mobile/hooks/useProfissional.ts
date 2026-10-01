@@ -40,15 +40,18 @@ export interface ResumoComissoes {
 // ── Agenda da profissional (dia) ─────────────────────────────
 
 export function useAgendaProfissional(dia: Date) {
-  const { user } = useAuthStore();
+  const { user, empresaAtiva } = useAuthStore();
   const userId = user?.id;
+  const empresaId = empresaAtiva?.id;
   const chave = format(dia, 'yyyy-MM-dd');
 
   return useQuery({
-    queryKey: ['prof-agenda', userId, chave],
-    enabled: !!userId,
+    queryKey: ['prof-agenda', userId, empresaId, chave],
+    enabled: !!userId && !!empresaId,
     staleTime: 1000 * 30,
     queryFn: async () => {
+      // Dia exibido (calendário local) → limites em Brasília, igual ao web.
+      const lim = limitesDias(chave, chave);
       const { data, error } = await supabase
         .from('agendamentos')
         .select(`
@@ -57,9 +60,10 @@ export function useAgendaProfissional(dia: Date) {
           profissional:users!agendamentos_profissional_id_fkey(id, nome, foto_url),
           servico:servicos(id, nome, duracao_minutos, categoria)
         `)
+        .eq('empresa_id', empresaId!)
         .eq('profissional_id', userId!)
-        .gte('data_hora_inicio', startOfDay(dia).toISOString())
-        .lte('data_hora_inicio', endOfDay(dia).toISOString())
+        .gte('data_hora_inicio', lim.startIso)
+        .lte('data_hora_inicio', lim.endIso)
         .neq('status', 'cancelado')
         .order('data_hora_inicio', { ascending: true });
 

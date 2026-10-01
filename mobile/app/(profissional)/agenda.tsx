@@ -277,7 +277,7 @@ export default function AgendaProfissional() {
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {[
                 { value: erroKpis ? '—' : String(kpis?.total ?? 0),            label: 'Hoje',         color: '#fff' },
-                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0),   label: 'Comissão hoje', color: '#6EE7B7' },
+                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0),   label: 'Comissão do dia', color: '#6EE7B7' },
                 { value: erroKpis ? '—' : formatBRL(kpis?.totalPendente ?? 0), label: 'A receber',    color: '#FCD34D' },
               ].map((k) => (
                 <View key={k.label} style={{
@@ -357,7 +357,7 @@ export default function AgendaProfissional() {
             }}>
               {[
                 { value: erroKpis ? '—' : String(kpis?.total ?? 0), label: 'Atendimentos', color: C.primary },
-                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0), label: 'Comissão hoje', color: C.green },
+                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0), label: 'Comissão do dia', color: C.green },
                 { value: `${agendamentos.reduce((s, a) => s + (a.servico?.duracao_minutos ?? 0), 0)}min`, label: 'Tempo total', color: C.text },
               ].map((s, i, arr) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center', position: 'relative' }}>

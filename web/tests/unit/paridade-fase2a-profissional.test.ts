@@ -6,6 +6,7 @@ const raiz = join(__dirname, '..', '..', '..');
 const web = readFileSync(join(raiz, 'web/app/(app)/dashboard/DashboardProfissionalView.tsx'), 'utf8');
 const hook = readFileSync(join(raiz, 'mobile/hooks/useProfissional.ts'), 'utf8');
 const agenda = readFileSync(join(raiz, 'mobile/app/(profissional)/agenda.tsx'), 'utf8');
+const comissoes = readFileSync(join(raiz, 'mobile/app/(profissional)/comissoes.tsx'), 'utf8');
 const inicio = readFileSync(join(raiz, 'mobile/app/(profissional)/inicio.tsx'), 'utf8');
 
 describe('dinheiro da profissional igual nas duas plataformas', () => {
@@ -40,5 +41,24 @@ describe('dinheiro da profissional igual nas duas plataformas', () => {
     expect(inicio).toContain('isError');
     expect(inicio).toContain('SecretText');
     expect(agenda).toContain('SecretText');
+  });
+  it('agenda da profissional filtra pela empresa ativa e usa limites de Brasília', () => {
+    const trecho = hook.slice(hook.indexOf('export function useAgendaProfissional'), hook.indexOf('// ── KPIs do dia'));
+    expect(trecho).toContain(".eq('empresa_id', empresaId!)");
+    expect(trecho).toContain('limitesDias(chave, chave)');
+    expect(trecho).toContain("['prof-agenda', userId, empresaId, chave]");
+    expect(trecho).toContain('if (error) throw error');
+  });
+  it('tela de comissões da profissional mostra erro e protege valores', () => {
+    expect(comissoes).toContain('isError: erroResumo');
+    expect(comissoes).toContain('SecretText');
+    expect(comissoes).toContain('Tentar de novo');
+  });
+  it('consultas web de meta e histórico checam o erro', () => {
+    expect(web).toContain('if (erroMembro) throw erroMembro');
+    expect(web).toContain('if (erroHistorico) throw erroHistorico');
+  });
+  it('rótulo de comissão do dia não diz "hoje" em dia navegado', () => {
+    expect(agenda).not.toContain("label: 'Comissão hoje'");
   });
 });

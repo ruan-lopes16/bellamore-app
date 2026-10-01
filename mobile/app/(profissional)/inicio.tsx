@@ -114,12 +114,12 @@ export default function Inicio() {
   const { empresaAtiva } = useAuthStore();
   const hoje = new Date();
 
-  const { data: agendaHoje, isLoading: loadingAgenda, refetch: refetchAgenda } = useAgendaProfissional(hoje);
+  const { data: agendaHoje, isLoading: loadingAgenda, refetch: refetchAgenda, isError: erroAgenda, error: errAgenda } = useAgendaProfissional(hoje);
   const { data: kpisDia, refetch: refetchKpis, isError: erroKpis, error: errKpis } = useKpisDiaProfissional(hoje);
   const { data: resumoMes, refetch: refetchResumo, isError: erroResumo, error: errResumo } = useResumoComissoes(hoje);
   // Nunca mostrar zeros no lugar dos números quando a consulta falha.
-  const isError = erroKpis || erroResumo;
-  const erro = errKpis ?? errResumo;
+  const isError = erroKpis || erroResumo || erroAgenda;
+  const erro = errKpis ?? errResumo ?? errAgenda;
   const { data: meta, refetch: refetchMeta } = useMetaPessoal();
   const { data: reconquista, refetch: refetchReconquista } = useClientesReconquistaProfissional();
 
@@ -179,7 +179,7 @@ export default function Inicio() {
         {/* KPIs */}
         <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 16, flexWrap: 'wrap' }}>
           {[
-            { value: String(ags.length),                          label: 'Agenda hoje',       color: C.accent },
+            { value: erroAgenda ? '—' : String(ags.length),                          label: 'Agenda hoje',       color: C.accent },
             { value: fmtBRL(kpisDia?.receitaDia ?? 0),              label: 'Fat. hoje',         color: C.primary },
             { value: fmtBRL(resumoMes?.faturamentoBruto ?? 0),      label: 'Fat. bruto do mês', color: C.primary },
             { value: fmtBRL(resumoMes?.total ?? 0), label: 'Comissão do mês', color: C.green },
