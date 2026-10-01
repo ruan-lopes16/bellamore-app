@@ -25,6 +25,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
+import { SecretText } from '@/components/Secret';
 import {
   useAgendaProfissional, useKpisDiaProfissional, useDiasProfissional,
   useBloqueiosProfissionalDia, useCriarBloqueioProfissional,
@@ -75,12 +76,11 @@ function formatBRL(v: number) {
 
 // ── Card de agendamento da profissional ──────────────────────
 
-function AgendamentoCard({ ag, percentual, index }: {
-  ag: AgendamentoCompleto; percentual: number; index: number;
+function AgendamentoCard({ ag, index }: {
+  ag: AgendamentoCompleto; index: number;
 }) {
   const cfg       = CATEGORIA_CONFIG[ag.categoria];
   const statusCfg = STATUS_CONFIG[ag.status] ?? STATUS_CONFIG.agendado;
-  const comissao  = ag.valor * (percentual / 100);
 
   return (
     <MotiView
@@ -119,21 +119,12 @@ function AgendamentoCard({ ag, percentual, index }: {
           {ag.servico?.nome}
         </Text>
 
-        {/* Linha 3: comissão + valor + status */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          {/* Cálculo da comissão */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3 }}>
-              Minha comissão ({percentual}%):
-            </Text>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.green }}>
-              {formatBRL(comissao)}
-            </Text>
-          </View>
-
+        {/* Linha 3: valor + status. A comissão real vem da tabela comissoes
+            (gerada na conclusão) — nunca valor × percentual atual. */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
-              {formatBRL(ag.valor)}
+              <SecretText>{formatBRL(ag.valor)}</SecretText>
             </Text>
             <View style={{ backgroundColor: statusCfg.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: statusCfg.color, textTransform: 'uppercase' }}>
@@ -192,7 +183,7 @@ export default function AgendaProfissional() {
   );
 
   const { data: agendamentos = [], isLoading, refetch } = useAgendaProfissional(diaSelecionado);
-  const { data: kpis } = useKpisDiaProfissional(diaSelecionado);
+  const { data: kpis, isError: erroKpis, error: errKpis, refetch: refetchKpis } = useKpisDiaProfissional(diaSelecionado);
   const { data: diasComAg } = useDiasProfissional(mesRef);
   const { data: bloqueios = [] } = useBloqueiosProfissionalDia(diaSelecionado);
   const criarBloqueio = useCriarBloqueioProfissional();
@@ -211,8 +202,6 @@ export default function AgendaProfissional() {
   const onRefresh = useCallback(() => refetch(), [refetch]);
 
   if (!fontsLoaded) return null;
-
-  const percentual = kpis?.percentual ?? 0;
 
   const agPorHora: Record<number, AgendamentoCompleto[]> = {};
   agendamentos.forEach((ag) => {
@@ -287,9 +276,9 @@ export default function AgendaProfissional() {
             {/* KPIs do dia */}
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {[
-                { value: String(kpis?.total ?? 0),              label: 'Hoje',         color: '#fff' },
-                { value: formatBRL(kpis?.comissaoDia ?? 0),     label: 'Comissão hoje', color: '#6EE7B7' },
-                { value: formatBRL(kpis?.totalPendente ?? 0),   label: 'A receber',    color: '#FCD34D' },
+                { value: erroKpis ? '—' : String(kpis?.total ?? 0),            label: 'Hoje',         color: '#fff' },
+                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0),   label: 'Comissão hoje', color: '#6EE7B7' },
+                { value: erroKpis ? '—' : formatBRL(kpis?.totalPendente ?? 0), label: 'A receber',    color: '#FCD34D' },
               ].map((k) => (
                 <View key={k.label} style={{
                   flex: 1,
@@ -298,7 +287,7 @@ export default function AgendaProfissional() {
                   borderRadius: 12, padding: 10,
                 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, lineHeight: 18, marginBottom: 3 }}>
-                    {k.value}
+                    <SecretText>{k.value}</SecretText>
                   </Text>
                   <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
                     {k.label}
@@ -306,6 +295,13 @@ export default function AgendaProfissional() {
                 </View>
               ))}
             </View>
+            {erroKpis && (
+              <TouchableOpacity onPress={() => refetchKpis()} activeOpacity={0.8} style={{ marginTop: 10 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: '#FCA5A5' }}>
+                  Não foi possível carregar os números do dia ({errKpis?.message ?? 'erro'}). Toque para tentar de novo.
+                </Text>
+              </TouchableOpacity>
+            )}
           </LinearGradient>
 
           {/* Strip semanal */}
@@ -360,12 +356,12 @@ export default function AgendaProfissional() {
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
             }}>
               {[
-                { value: String(kpis?.total ?? 0), label: 'Atendimentos', color: C.primary },
-                { value: formatBRL(kpis?.comissaoDia ?? 0), label: 'Comissão prev.', color: C.green },
+                { value: erroKpis ? '—' : String(kpis?.total ?? 0), label: 'Atendimentos', color: C.primary },
+                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0), label: 'Comissão hoje', color: C.green },
                 { value: `${agendamentos.reduce((s, a) => s + (a.servico?.duracao_minutos ?? 0), 0)}min`, label: 'Tempo total', color: C.text },
               ].map((s, i, arr) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center', position: 'relative' }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>{s.value}</Text>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}><SecretText>{s.value}</SecretText></Text>
                   <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 8, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2 }}>{s.label}</Text>
                   {i < arr.length - 1 && <View style={{ position: 'absolute', right: 0, top: '10%', bottom: '10%', width: 1, backgroundColor: C.border }} />}
                 </View>
@@ -409,7 +405,7 @@ export default function AgendaProfissional() {
                 <View style={{ flex: 1 }}>
                   <View style={{ height: 1, backgroundColor: '#D8D0C8', marginBottom: 6 }} />
                   {ags.length > 0
-                    ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} percentual={percentual} index={i} />)
+                    ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
                     : (bloqueiosPorHora[hora]?.length ? null : (
                         <SlotVazio
                           hora={hora}

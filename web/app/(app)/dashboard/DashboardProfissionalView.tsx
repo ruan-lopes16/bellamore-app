@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { CalendarDays, Wallet, BadgeDollarSign, AlertTriangle, UserX } from 'lucide-react';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import type { AppContext } from '@/lib/auth/server-context';
 import MetaPessoalCard from './MetaPessoalCard';
+import { hojeBRT, limitesDias, limitesMes } from '@shared/periodos';
+import { resumoComissoesProfissional, faturamentoPrevistoDia } from '@shared/kpis-financeiros';
 import { classificarClientesReconquista, type VisitaClienteProfissional } from '@shared/dashboard-profissional';
 
 function fmt(v: number) {
@@ -21,7 +23,8 @@ const STATUS_LABEL: Record<string, string> = {
  * Dashboard pessoal da profissional — números dela, não da empresa.
  * "Fat. bruto do mês" soma valor_servico (preço do serviço, não a
  * comissão) das próprias comissões do mês — mesma tabela que a tela de
- * Comissões já usa, sem query nova pesada.
+ * Comissões já usa, sem query nova pesada. Resumos em @shared/kpis-financeiros
+ * (as mesmas funções do app mobile) e datas em Brasília via @shared/periodos.
  */
 export default async function DashboardProfissionalView({
   supabase, empresaId, userId,
@@ -30,29 +33,23 @@ export default async function DashboardProfissionalView({
   empresaId: string;
   userId: string;
 }) {
-  // Brazil is UTC-3 (sem DST desde 2019).
-  const hoje     = new Date(Date.now() - 3 * 60 * 60 * 1000);
-  const diaLabel = format(hoje, "EEEE, d 'de' MMMM", { locale: ptBR });
-  const brYear   = hoje.getUTCFullYear();
-  const brMonth  = hoje.getUTCMonth();
-  const brDate   = hoje.getUTCDate();
-  const inicioHoje = new Date(Date.UTC(brYear, brMonth, brDate, 3, 0, 0, 0)).toISOString();
-  const fimHoje    = new Date(Date.UTC(brYear, brMonth, brDate + 1, 3, 0, 0, 0) - 1).toISOString();
-  const mesRef   = new Date(brYear, brMonth, 1);
-  const inicioMes = startOfMonth(mesRef).toISOString();
-  const fimMes     = endOfMonth(mesRef).toISOString();
+  // Datas em Brasília (o servidor roda em UTC) — @shared/periodos.
+  const hojeStr  = hojeBRT();
+  const diaLabel = format(new Date(`${hojeStr}T12:00:00`), "EEEE, d 'de' MMMM", { locale: ptBR });
+  const limHoje  = limitesDias(hojeStr, hojeStr);
+  const limMes   = limitesMes(hojeStr.slice(0, 7));
 
-  const [{ data: agendaHoje }, { data: comissoesMes }, { data: membro }, { data: historico }] = await Promise.all([
+  const [{ data: agendaHoje, error: erroAgenda }, { data: comissoesMes, error: erroComissoes }, { data: membro }, { data: historico }] = await Promise.all([
     supabase.from('agendamentos')
-      .select('id, data_hora_inicio, status, valor, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
+      .select('id, data_hora_inicio, status, valor, pacote_cliente_id, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
-      .gte('data_hora_inicio', inicioHoje).lte('data_hora_inicio', fimHoje)
+      .gte('data_hora_inicio', limHoje.startIso).lte('data_hora_inicio', limHoje.endIso)
       .neq('status', 'cancelado')
       .order('data_hora_inicio'),
     supabase.from('comissoes')
       .select('valor_servico, valor_comissao, status')
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
-      .gte('created_at', inicioMes).lte('created_at', fimMes),
+      .gte('created_at', limMes.startIso).lte('created_at', limMes.endIso),
     supabase.from('empresa_membros').select('meta_mensal_pessoal')
       .eq('empresa_id', empresaId).eq('user_id', userId).single(),
     supabase.from('agendamentos')
@@ -61,6 +58,10 @@ export default async function DashboardProfissionalView({
       .order('data_hora_inicio', { ascending: false })
       .limit(2000),
   ]);
+
+  // Nunca mostrar zeros no lugar dos números: o erro vai para o error boundary.
+  if (erroAgenda) throw erroAgenda;
+  if (erroComissoes) throw erroComissoes;
 
   const metaMensalPessoal = membro?.meta_mensal_pessoal != null ? Number(membro.meta_mensal_pessoal) : null;
 
@@ -83,14 +84,13 @@ export default async function DashboardProfissionalView({
   }
   const { emRisco, naoRetornou } = classificarClientesReconquista(Array.from(visitasPorCliente.values()));
 
-  const ags     = (agendaHoje ?? []) as any[];
-  const fatHoje = ags.reduce((s, a) => s + Number(a.valor), 0);
-
-  const comMes              = comissoesMes ?? [];
-  const faturamentoBrutoMes = comMes.reduce((s, c) => s + Number(c.valor_servico), 0);
-  const comissaoPagaMes     = comMes.filter(c => c.status === 'pago').reduce((s, c) => s + Number(c.valor_comissao), 0);
-  const comissaoPendenteMes = comMes.filter(c => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
-  const atendimentosMes     = comMes.length;
+  const ags       = (agendaHoje ?? []) as any[];
+  // Previsto do dia: sem cancelados, faltas nem sessões de pacote (mesma regra do app).
+  const fatHoje   = faturamentoPrevistoDia(ags);
+  const resumoMes = resumoComissoesProfissional(comissoesMes ?? []);
+  const faturamentoBrutoMes = resumoMes.faturamentoBruto;
+  const comissaoPendenteMes = resumoMes.comissaoPendente;
+  const atendimentosMes     = resumoMes.atendimentos;
 
   return (
     <div className="bm-page">
@@ -112,7 +112,7 @@ export default async function DashboardProfissionalView({
           { label: 'Agenda hoje',       value: String(ags.length), sub: `${ags.filter(a => a.status === 'concluido').length} concluído(s)`, icon: CalendarDays, color: 'var(--color-accent)' },
           { label: 'Fat. hoje',         value: fmt(fatHoje),               sub: 'Meus atendimentos',                                          icon: Wallet,       color: 'var(--color-primary)' },
           { label: 'Fat. bruto do mês', value: fmt(faturamentoBrutoMes),   sub: `${atendimentosMes} atendimento(s)`,                          icon: Wallet,       color: 'var(--color-primary)' },
-          { label: 'Comissão do mês',   value: fmt(comissaoPagaMes + comissaoPendenteMes), sub: comissaoPendenteMes > 0 ? `${fmt(comissaoPendenteMes)} pendente` : 'Em dia', icon: BadgeDollarSign, color: 'var(--color-amber)' },
+          { label: 'Comissão do mês',   value: fmt(resumoMes.comissaoTotal), sub: comissaoPendenteMes > 0 ? `${fmt(comissaoPendenteMes)} pendente` : 'Em dia', icon: BadgeDollarSign, color: 'var(--color-amber)' },
         ].map(({ label, value, sub, icon: Icon, color }, i) => (
           <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>

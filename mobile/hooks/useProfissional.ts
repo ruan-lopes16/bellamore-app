@@ -1,8 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { startOfDay, endOfDay, startOfMonth, endOfMonth, format, differenceInDays } from 'date-fns';
+import { startOfDay, endOfDay, format, differenceInDays } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { resolverCategoria, type AgendamentoCompleto, type BloqueioAgenda } from '@/hooks/useAgenda';
+import { limitesDias, limitesMes } from '@shared/periodos';
+import {
+  resumoComissoesProfissional, faturamentoPrevistoDia, resumoComissoesPendentes,
+} from '@shared/kpis-financeiros';
 import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bloqueios';
 import { classificarClientesReconquista, type VisitaClienteProfissional } from '@shared/dashboard-profissional';
 
@@ -82,43 +86,40 @@ export function useKpisDiaProfissional(dia: Date) {
     enabled: !!userId && !!empresaId,
     staleTime: 1000 * 60,
     queryFn: async () => {
-      // Percentual de comissão da profissional nessa empresa
-      const { data: membro } = await supabase
-        .from('empresa_membros')
-        .select('percentual_comissao')
-        .eq('user_id', userId!)
-        .eq('empresa_id', empresaId!)
-        .single();
+      // Dia exibido (calendário local) → limites em Brasília.
+      const lim = limitesDias(chave, chave);
+      const [agsRes, comDiaRes, pendRes] = await Promise.all([
+        supabase.from('agendamentos')
+          .select('valor, status, pacote_cliente_id')
+          .eq('empresa_id', empresaId!)
+          .eq('profissional_id', userId!)
+          .gte('data_hora_inicio', lim.startIso)
+          .lte('data_hora_inicio', lim.endIso)
+          .neq('status', 'cancelado'),
+        // Comissão do dia = comissões GERADAS hoje (tabela comissoes), nunca percentual × valor.
+        supabase.from('comissoes')
+          .select('valor_servico, valor_comissao, status')
+          .eq('empresa_id', empresaId!)
+          .eq('profissional_id', userId!)
+          .gte('created_at', lim.startIso)
+          .lte('created_at', lim.endIso),
+        supabase.from('comissoes')
+          .select('valor_comissao')
+          .eq('empresa_id', empresaId!)
+          .eq('profissional_id', userId!)
+          .eq('status', 'pendente'),
+      ]);
+      if (agsRes.error) throw agsRes.error;
+      if (comDiaRes.error) throw comDiaRes.error;
+      if (pendRes.error) throw pendRes.error;
 
-      const percentual = membro?.percentual_comissao ?? 0;
-
-      // Agendamentos do dia
-      const { data: ags } = await supabase
-        .from('agendamentos')
-        .select('valor, status')
-        .eq('profissional_id', userId!)
-        .gte('data_hora_inicio', startOfDay(dia).toISOString())
-        .lte('data_hora_inicio', endOfDay(dia).toISOString())
-        .neq('status', 'cancelado');
-
-      const total = ags?.length ?? 0;
-      const receitaDia = (ags ?? []).reduce((s, a) => s + Number(a.valor), 0);
-      const comissaoDia = receitaDia * (percentual / 100);
-
-      // Comissões pendentes totais
-      const { data: pendentes } = await supabase
-        .from('comissoes')
-        .select('valor_comissao')
-        .eq('profissional_id', userId!)
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'pendente');
-
-      const totalPendente = (pendentes ?? []).reduce((s, c) => s + Number(c.valor_comissao), 0);
-
-      // Tempo total do dia
-      const tempoTotal = (ags ?? []).reduce((s, _) => s + 0, 0); // calculado separado se necessário
-
-      return { total, comissaoDia, totalPendente, percentual, receitaDia };
+      const ags = agsRes.data ?? [];
+      return {
+        total: ags.length,
+        receitaDia: faturamentoPrevistoDia(ags),
+        comissaoDia: resumoComissoesProfissional(comDiaRes.data ?? []).comissaoTotal,
+        totalPendente: resumoComissoesPendentes(pendRes.data ?? []).total,
+      };
     },
   });
 }
@@ -148,8 +149,8 @@ export function useComissoesProfissional(mesRef: Date, filtro: 'todas' | 'penden
         `)
         .eq('profissional_id', userId!)
         .eq('empresa_id', empresaId!)
-        .gte('created_at', startOfMonth(mesRef).toISOString())
-        .lte('created_at', endOfMonth(mesRef).toISOString())
+        .gte('created_at', limitesMes(chave).startIso)
+        .lte('created_at', limitesMes(chave).endIso)
         .order('created_at', { ascending: false });
 
       if (filtro !== 'todas') {
@@ -177,7 +178,7 @@ export function useComissoesProfissional(mesRef: Date, filtro: 'todas' | 'penden
 
 // ── Resumo de comissões do mês ───────────────────────────────
 
-export function useResumoComissoes(mesRef: Date): { data: ResumoComissoes | null; isLoading: boolean; refetch: () => void } {
+export function useResumoComissoes(mesRef: Date): { data: ResumoComissoes | null; isLoading: boolean; isError: boolean; error: Error | null; refetch: () => void } {
   const { user, empresaAtiva } = useAuthStore();
   const userId    = user?.id;
   const empresaId = empresaAtiva?.id;
@@ -188,27 +189,24 @@ export function useResumoComissoes(mesRef: Date): { data: ResumoComissoes | null
     enabled: !!userId && !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('comissoes')
         .select('valor_servico, valor_comissao, status')
         .eq('profissional_id', userId!)
         .eq('empresa_id', empresaId!)
-        .gte('created_at', startOfMonth(mesRef).toISOString())
-        .lte('created_at', endOfMonth(mesRef).toISOString());
+        .gte('created_at', limitesMes(chave).startIso)
+        .lte('created_at', limitesMes(chave).endIso);
+      if (error) throw error;
 
-      const items = data ?? [];
-      const total            = items.reduce((s, c) => s + Number(c.valor_comissao), 0);
-      const pago             = items.filter((c) => c.status === 'pago').reduce((s, c) => s + Number(c.valor_comissao), 0);
-      const pendente          = items.filter((c) => c.status === 'pendente').reduce((s, c) => s + Number(c.valor_comissao), 0);
-      const atendimentos      = items.length;
-      const ticketMedio       = atendimentos > 0 ? Math.round(total / atendimentos) : 0;
-      const faturamentoBruto  = items.reduce((s, c) => s + Number(c.valor_servico), 0);
-
-      return { total, pago, pendente, atendimentos, ticketMedio, faturamentoBruto } as ResumoComissoes;
+      const r = resumoComissoesProfissional(data ?? []);
+      return {
+        total: r.comissaoTotal, pago: r.comissaoPaga, pendente: r.comissaoPendente,
+        atendimentos: r.atendimentos, ticketMedio: r.comissaoMedia, faturamentoBruto: r.faturamentoBruto,
+      } as ResumoComissoes;
     },
   });
 
-  return { data: query.data ?? null, isLoading: query.isLoading, refetch: query.refetch };
+  return { data: query.data ?? null, isLoading: query.isLoading, isError: query.isError, error: query.error as Error | null, refetch: query.refetch };
 }
 
 // ── Dias com agendamentos da profissional (dots) ─────────────
