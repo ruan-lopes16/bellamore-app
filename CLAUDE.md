@@ -799,6 +799,12 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - Clientes inativos do Dashboard web: `.limit(3000)` sem paginação.
 - Paridade de Comanda/PDV, Estoque e Equipe.
 
+**Revisão final da branch (opus):** nada Critical; as 6 telas calculam os mesmos números com as mesmas funções. Corrigido antes do PR (commit 4b381e3):
+- Relatórios web: "Pagar" comissão não atualizava o card "X pendentes" (regressão da fase) e, em sucesso parcial, revertia também as linhas pagas.
+- App: fechar comanda, mudar status, pagar comissão/taxa/despesa não atualizava os números das outras telas. Agora `mobile/lib/invalidarFinanceiro.ts` invalida todas as chaves financeiras.
+- Financeiro e Relatórios web: resposta atrasada podia mostrar números de outro mês sob o rótulo atual (contador de requisição). A 1ª carga da dona podia perder as retiradas (`isOwner` agora espera ser resolvido).
+- Zeros enganosos: o Dashboard do app mostra "—" em erro/carregamento; o Export do Relatórios web fica desligado com erro; "Sumidas" ignora agendamento sem cliente e mostra "—" enquanto carrega; período personalizado do app rejeita datas impossíveis (31/02).
+
 ---
 
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
