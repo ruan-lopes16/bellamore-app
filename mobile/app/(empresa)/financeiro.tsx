@@ -32,6 +32,7 @@ import {
 import { addMonths, subMonths, format, isSameMonth, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useQueryClient } from '@tanstack/react-query';
+import { variacaoPercentual } from '@shared/kpis-financeiros';
 
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
@@ -90,11 +91,6 @@ function formatBRL(value: number, compact = false) {
     style: 'currency', currency: 'BRL',
     minimumFractionDigits: 0, maximumFractionDigits: 0,
   }).format(value);
-}
-
-function deltaPercent(atual: number, anterior: number): number | null {
-  if (anterior === 0) return null;
-  return Math.round(((atual - anterior) / anterior) * 100);
 }
 
 // ── Gráfico de barras SVG ────────────────────────────────────
@@ -943,8 +939,10 @@ function ModalEditarDespesa({
   async function excluir() {
     if (!item) return;
     setExcluindo(true);
-    await supabase.from('despesas').delete().eq('id', item.id);
+    const { data, error } = await supabase.from('despesas').delete().eq('id', item.id).select('id');
     setExcluindo(false);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    if (!data || data.length === 0) { Alert.alert('Sem permissão', 'Só gestores podem excluir despesas.'); return; }
     onSalvo();
     onClose();
   }
@@ -1347,7 +1345,7 @@ export default function Financeiro() {
 
   const qc = useQueryClient();
   const {
-    resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, refetch,
+    resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, isError, erroKpis, refetch,
     isOwner, retiradas, retiradasDevs, aDonaDeve, retiradasPeriodo,
   } = useFinanceiro(mesRef);
   const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
@@ -1358,7 +1356,7 @@ export default function Financeiro() {
   function aposMarcarPago() {
     qc.invalidateQueries({ queryKey: ['fin-resumo'] });
     qc.invalidateQueries({ queryKey: ['fin-despesas'] });
-    qc.invalidateQueries({ queryKey: ['fin-evolucao'] });
+    qc.invalidateQueries({ queryKey: ['fin-despesas-historico'] });
   }
 
   async function marcarTaxaPaga(item: TaxaCancelamento, metodo: PagamentoMetodo | null) {
@@ -1379,6 +1377,7 @@ export default function Financeiro() {
     }
     setConfirmarTaxaCanc(null);
     qc.invalidateQueries({ queryKey: ['fin-taxas-cancelamento'] });
+    qc.invalidateQueries({ queryKey: ['fin-resumo'] });   // receita/KPIs mudam ao pagar a taxa
   }
 
   async function marcarReservaPaga(item: TaxaReserva, metodo: PagamentoMetodo | null) {
@@ -1398,6 +1397,7 @@ export default function Financeiro() {
     }
     setConfirmarTaxaReserva(null);
     qc.invalidateQueries({ queryKey: ['fin-taxas-reserva'] });
+    qc.invalidateQueries({ queryKey: ['fin-resumo'] });   // receita/KPIs mudam ao pagar a taxa
   }
 
   const [fontsLoaded] = useFonts({
@@ -1413,8 +1413,9 @@ export default function Financeiro() {
 
   if (!fontsLoaded) return null;
 
-  const deltaReceita = resumo ? deltaPercent(resumo.receita, resumo.receitaAnterior) : null;
-  const deltaGastos  = resumo ? deltaPercent(resumo.gastos,  resumo.gastosAnterior)  : null;
+  const deltaReceita   = resumo ? variacaoPercentual(resumo.receita,   resumo.receitaAnterior)   : null;
+  const deltaGastos    = resumo ? variacaoPercentual(resumo.gastos,    resumo.gastosAnterior)    : null;
+  const deltaComissoes = resumo ? variacaoPercentual(resumo.comissoes, resumo.comissoesAnterior) : null;
 
   // Barra proporcional de métodos
   const totalMetodos = metodos.reduce((s, m) => s + m.valor, 0);
@@ -1509,6 +1510,22 @@ export default function Financeiro() {
           </View>
         </MotiView>
 
+        {/* ── Erro ao carregar: nunca mostrar zeros no lugar dos números ── */}
+        {isError && (
+          <TouchableOpacity
+            onPress={() => refetch()}
+            activeOpacity={0.8}
+            style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.red, borderRadius: 14, padding: 12 }}
+          >
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red, marginBottom: 2 }}>
+              Não foi possível carregar o financeiro
+            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text2 }}>
+              {(erroKpis as Error | null)?.message ?? 'Falha ao buscar alguns dados'} · Toque para tentar de novo
+            </Text>
+          </TouchableOpacity>
+        )}
+
         {/* ── Resumo ── */}
         <MotiView
           from={{ opacity: 0, translateY: 6 }}
@@ -1519,7 +1536,7 @@ export default function Financeiro() {
           {[
             {
               label: 'Receita',
-              value: formatBRL(resumo?.receita ?? 0),
+              value: resumo ? formatBRL(resumo.receita) : '—',
               delta: deltaReceita,
               color: C.green,
               bg: C.greenSoft,
@@ -1527,7 +1544,7 @@ export default function Financeiro() {
             },
             {
               label: 'Gastos',
-              value: formatBRL(resumo?.gastos ?? 0),
+              value: resumo ? formatBRL(resumo.gastos) : '—',
               delta: deltaGastos,
               color: C.red,
               bg: C.redSoft,
@@ -1536,11 +1553,11 @@ export default function Financeiro() {
             },
             {
               label: 'Lucro',
-              value: formatBRL(resumo?.lucro ?? 0),
+              value: resumo ? formatBRL(resumo.lucro) : '—',
               delta: null,
               color: C.primary,
               bg: C.primarySoft,
-              sub: isOwner && retiradasPeriodo > 0 ? `Após retiradas ${formatBRL((resumo?.lucro ?? 0) - retiradasPeriodo)}` : null,
+              sub: resumo && isOwner && retiradasPeriodo > 0 ? `Após retiradas ${formatBRL(resumo?.aposRetiradas ?? 0)}` : null,
             },
           ].map((s) => (
             <View key={s.label} style={{
@@ -1575,6 +1592,51 @@ export default function Financeiro() {
             </View>
           ))}
         </MotiView>
+
+        {/* ── Taxa de cartão, líquido e comissões (mesmos números do web) ── */}
+        {resumo && (
+        <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', gap: 8 }}>
+          {[
+            { label: 'Taxas de cartão',    value: resumo?.taxasCartao ?? 0,      delta: null as number | null, color: C.red,     invertDelta: false },
+            { label: 'Líquido após taxas', value: resumo?.liquidoAposTaxas ?? 0, delta: null as number | null, color: C.primary, invertDelta: false },
+            { label: 'Comissões',          value: resumo?.comissoes ?? 0,        delta: deltaComissoes,        color: C.amber,   invertDelta: true },
+          ].map((s) => (
+            <View key={s.label} style={{
+              flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+              borderRadius: 16, padding: 14,
+              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+            }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                {s.label}
+              </Text>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: s.color, letterSpacing: -0.5, lineHeight: 20, marginBottom: 5 }}>
+                {formatBRL(s.value)}
+              </SecretText>
+              {s.delta !== null && (
+                <Text style={{
+                  fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
+                  color: (s.invertDelta ? s.delta < 0 : s.delta >= 0) ? C.green : C.red,
+                }}>
+                  {s.delta >= 0 ? '+' : ''}{s.delta}%
+                </Text>
+              )}
+            </View>
+          ))}
+        </View>
+        )}
+        {((resumo?.taxasCancelamento ?? 0) > 0 || (resumo?.taxasReserva ?? 0) > 0) && (
+          <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', gap: 8 }}>
+            {[
+              { label: 'Taxas de cancelamento', value: resumo?.taxasCancelamento ?? 0 },
+              { label: 'Taxas de reserva',      value: resumo?.taxasReserva ?? 0 },
+            ].filter(t => t.value > 0).map(t => (
+              <View key={t.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{t.label}</Text>
+                <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.accent }}>{formatBRL(t.value)}</SecretText>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* ── Evolução mensal ── */}
         <MotiView
@@ -1958,10 +2020,7 @@ export default function Financeiro() {
       <ModalEditarDespesa
         item={despesaParaEditar}
         onClose={() => setDespesaParaEditar(null)}
-        onSalvo={() => {
-          qc.invalidateQueries({ queryKey: ['fin-resumo'] });
-          qc.invalidateQueries({ queryKey: ['fin-despesas'] });
-        }}
+        onSalvo={aposMarcarPago}
       />
 
       {/* Modal confirmar taxa de cancelamento */}

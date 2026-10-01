@@ -1,29 +1,45 @@
+/**
+ * @file useFinanceiro.ts
+ * Dados do Financeiro do app. Os números vêm de @shared/kpis-financeiros sobre
+ * as linhas de @shared/kpis-financeiros-consultas — exatamente as mesmas
+ * funções do Financeiro web. Receita NÃO vem de `pagamentos` (só taxa de
+ * cartão e formas de pagamento). Mês em Brasília (@shared/periodos).
+ */
 import { useQuery } from '@tanstack/react-query';
-import {
-  startOfMonth, endOfMonth, subMonths, format,
-} from 'date-fns';
+import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
 import type { OcorrenciaHistorico } from '@shared/despesas';
+import { limitesMes, somarMeses, uniaoLimites } from '@shared/periodos';
 import {
-  type FinanceiroFechamentoRow,
-  getFechamentoForMonth,
-  somarPeriodoComFechamentos,
-} from '@shared/fechamentos-mensais';
+  calcularKpisFinanceiros, recortarDados, evolucaoMensal, rankingAtendimentos,
+  resumoMetodosPagamento, retiradasDoPeriodo, listarRetiradasDoPeriodo, resultadoAposRetiradas,
+  DADOS_VAZIOS,
+} from '@shared/kpis-financeiros';
 import {
-  somaDevolucoesPorRetirada, retiradasNoPeriodo, saldoDevedorTotal,
-  type RetiradaSociaRow, type RetiradaSociaDevolucaoRow,
-} from '@shared/retiradas-socia';
+  carregarDadosFinanceiros, carregarRetiradas, filtroDespesasDoMes,
+} from '@shared/kpis-financeiros-consultas';
+import { somaDevolucoesPorRetirada, saldoDevedorTotal } from '@shared/retiradas-socia';
 
 // ── Tipos ────────────────────────────────────────────────────
 
 export interface ResumoMes {
+  /** Faturamento bruto (mesmo número do web). */
   receita: number;
-  gastos: number;
-  lucro: number;
   receitaAnterior: number;
+  taxasCartao: number;
+  liquidoAposTaxas: number;
+  comissoes: number;
+  comissoesAnterior: number;
+  gastos: number;
   gastosAnterior: number;
+  lucro: number;
+  /** Lucro − retiradas da dona no mês (só faz sentido para a dona). */
+  aposRetiradas: number;
+  taxasCancelamento: number;
+  taxasReserva: number;
+  mesesComFechamento: string[];
 }
 
 export interface MetodoPagamento {
@@ -59,7 +75,7 @@ export interface DespesaItem {
 }
 
 export interface EvolucaoMes {
-  mes: string;       // 'Jan', 'Fev' …
+  mes: string;       // 'jan', 'fev' … (rotuloMesCurto)
   receita: number;
   gastos: number;
 }
@@ -70,298 +86,165 @@ export function useFinanceiro(mesRef: Date) {
   const { empresaAtiva, isOwner } = useAuthStore();
   const empresaId = empresaAtiva?.id;
 
-  const inicio = startOfMonth(mesRef).toISOString();
-  const fim    = endOfMonth(mesRef).toISOString();
-  const inicioAnterior = startOfMonth(subMonths(mesRef, 1)).toISOString();
-  const fimAnterior    = endOfMonth(subMonths(mesRef, 1)).toISOString();
-  const chave          = format(mesRef, 'yyyy-MM');
+  const chave   = format(mesRef, 'yyyy-MM');           // mês que a tela mostra
+  const periodo = limitesMes(chave);                   // limites em Brasília
+  const chaves6 = Array.from({ length: 6 }, (_, i) => somarMeses(chave, i - 5));
 
-  // ── Resumo receita / gastos ──────────────────────────────
-  const resumo = useQuery<ResumoMes>({
+  // KPIs do mês, do anterior e os 6 meses do gráfico: uma busca só.
+  // (a chave 'fin-resumo' é a que as telas já invalidam após salvar)
+  const dadosQ = useQuery({
     queryKey: ['fin-resumo', empresaId, chave],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
-    queryFn: async () => {
-      const [
-        pagMes, pagAnt, despMes, despAnt, taxasPagasMes, taxasPagasAnt,
-        reservasPagasMes, reservasPagasAnt, fechamentosRes,
-      ] = await Promise.all([
-        supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', inicio).lte('created_at', fim),
-        supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', inicioAnterior).lte('created_at', fimAnterior),
-        supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', inicio.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
-        supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', inicioAnterior.slice(0,10)).lte('data_pagamento', fimAnterior.slice(0,10)),
-        supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicio).lte('paga_em', fim),
-        supabase.from('taxas_cancelamento').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
-        supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).not('paga_em', 'is', null).gte('paga_em', inicio).lte('paga_em', fim),
-        supabase.from('taxas_reserva').select('valor').eq('empresa_id', empresaId!).not('paga_em', 'is', null).gte('paga_em', inicioAnterior).lte('paga_em', fimAnterior),
-        // Fechamentos importados do mês exibido e do anterior (financeiro_ajustes_mensais):
-        // meses históricos lançados só com o número de faturamento, sem pagamento por trás.
-        supabase.from('financeiro_ajustes_mensais').select('mes, receita_bruta, comissao_paga')
-          .eq('empresa_id', empresaId!)
-          .gte('mes', format(startOfMonth(subMonths(mesRef, 1)), 'yyyy-MM-dd'))
-          .lte('mes', format(startOfMonth(mesRef), 'yyyy-MM-dd')),
-      ]);
-
-      const brutoTaxasMes    = (taxasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-      const brutoTaxasAnt    = (taxasPagasAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-      const brutoReservasMes = (reservasPagasMes.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-      const brutoReservasAnt = (reservasPagasAnt.data ?? []).reduce((s, t) => s + Number(t.valor), 0);
-      const receitaLive         = (pagMes.data ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasMes + brutoReservasMes;
-      const receitaAnteriorLive = (pagAnt.data ?? []).reduce((s, p) => s + Number(p.valor), 0) + brutoTaxasAnt + brutoReservasAnt;
-      const gastos           = (despMes.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
-      const gastosAnterior   = (despAnt.data ?? []).reduce((s, d) => s + Number(d.valor), 0);
-
-      // Mês coberto por importação: a receita_bruta do fechamento substitui o
-      // cálculo ao vivo daquele mês (mesma regra do Financeiro web). Sem isso o
-      // resumo mostra receita zerada / lucro muito negativo nesses meses.
-      const fechamentos = (fechamentosRes.data ?? []) as FinanceiroFechamentoRow[];
-      const chaveAnterior = format(subMonths(mesRef, 1), 'yyyy-MM');
-      const receita = somarPeriodoComFechamentos(
-        { receita: { [chave]: receitaLive }, comissoes: {}, taxasCartao: {} },
-        fechamentos, [chave],
-      ).bruto;
-      const receitaAnterior = somarPeriodoComFechamentos(
-        { receita: { [chaveAnterior]: receitaAnteriorLive }, comissoes: {}, taxasCartao: {} },
-        fechamentos, [chaveAnterior],
-      ).bruto;
-
-      return { receita, gastos, lucro: receita - gastos, receitaAnterior, gastosAnterior };
-    },
+    queryFn: () => carregarDadosFinanceiros(supabase, empresaId!, uniaoLimites(limitesMes(chaves6[0]), periodo)),
   });
 
-  // ── Métodos de pagamento ─────────────────────────────────
-  const metodos = useQuery<MetodoPagamento[]>({
-    queryKey: ['fin-metodos', empresaId, chave],
-    enabled: !!empresaId,
-    staleTime: 1000 * 60 * 5,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('pagamentos')
-        .select('metodo, valor')
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'pago')
-        .gte('created_at', inicio)
-        .lte('created_at', fim);
-
-      const map: Record<string, { valor: number; quantidade: number }> = {};
-      (data ?? []).forEach((p) => {
-        if (!map[p.metodo]) map[p.metodo] = { valor: 0, quantidade: 0 };
-        map[p.metodo].valor     += Number(p.valor);
-        map[p.metodo].quantidade += 1;
-      });
-
-      const total = Object.values(map).reduce((s, m) => s + m.valor, 0);
-
-      return Object.entries(map)
-        .map(([metodo, m]) => ({
-          metodo: metodo as PagamentoMetodo,
-          valor: m.valor,
-          quantidade: m.quantidade,
-          percentual: total > 0 ? Math.round((m.valor / total) * 100) : 0,
-        }))
-        .sort((a, b) => b.valor - a.valor);
-    },
-  });
-
-  // ── Top serviços ─────────────────────────────────────────
-  const topServicos = useQuery<TopServico[]>({
-    queryKey: ['fin-servicos', empresaId, chave],
-    enabled: !!empresaId,
-    staleTime: 1000 * 60 * 5,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('agendamentos')
-        .select('servico_id, valor, servico:servicos(nome)')
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'concluido')
-        .gte('data_hora_inicio', inicio)
-        .lte('data_hora_inicio', fim);
-
-      const map: Record<string, { nome: string; qtd: number; receita: number }> = {};
-      (data ?? []).forEach((a: any) => {
-        const id   = a.servico_id;
-        const nome = a.servico?.nome ?? 'Serviço';
-        if (!map[id]) map[id] = { nome, qtd: 0, receita: 0 };
-        map[id].qtd     += 1;
-        map[id].receita += Number(a.valor);
-      });
-
-      const lista = Object.entries(map)
-        .map(([id, s]) => ({ servico_id: id, nome: s.nome, quantidade: s.qtd, receita: s.receita, percentual: 0 }))
-        .sort((a, b) => b.receita - a.receita)
-        .slice(0, 5);
-
-      const max = lista[0]?.receita ?? 1;
-      return lista.map((s) => ({ ...s, percentual: Math.round((s.receita / max) * 100) }));
-    },
-  });
-
-  // ── Despesas do mês ──────────────────────────────────────
+  // ── Despesas do mês (vencimento OU pagamento no mês — mesmo filtro do web)
   const despesas = useQuery<DespesaItem[]>({
     queryKey: ['fin-despesas', empresaId, chave],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('despesas')
         .select('*')
         .eq('empresa_id', empresaId!)
-        .or(`data_vencimento.gte.${inicio.slice(0,10)},data_pagamento.gte.${inicio.slice(0,10)}`)
-        .lte('data_vencimento', fim.slice(0,10))
+        .or(filtroDespesasDoMes(periodo))
         .order('data_vencimento', { ascending: true });
-
+      if (error) throw error;
       return (data ?? []) as DespesaItem[];
     },
   });
 
-  // ── Histórico de despesas recorrentes mensais (para contagem derivada) ──
+  // ── Histórico de despesas recorrentes mensais (para contagem derivada)
   const despesasHistorico = useQuery<OcorrenciaHistorico[]>({
     queryKey: ['fin-despesas-historico', empresaId, chave],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('despesas')
         .select('descricao, categoria, data_vencimento, recorrencia_ate')
         .eq('empresa_id', empresaId!)
         .eq('recorrente', true)
         .eq('periodicidade', 'mensal')
-        .lt('data_vencimento', inicio.slice(0, 10))
+        .lt('data_vencimento', periodo.startDate)
         .order('data_vencimento', { ascending: true });
-
+      if (error) throw error;
       return (data ?? []) as OcorrenciaHistorico[];
     },
   });
 
-  // ── Taxas de cancelamento do mês ─────────────────────────
+  // ── Taxas de cancelamento do mês
   const taxasCancelamento = useQuery<(TaxaCancelamento & { cliente: { nome: string } | null })[]>({
     queryKey: ['fin-taxas-cancelamento', empresaId, chave],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('taxas_cancelamento')
         .select('*, cliente:clientes(nome)')
         .eq('empresa_id', empresaId!)
         .neq('status', 'cancelada')
-        .gte('created_at', inicio).lte('created_at', fim)
+        .gte('created_at', periodo.startIso).lte('created_at', periodo.endIso)
         .order('status').order('created_at');
-
+      if (error) throw error;
       return (data ?? []) as (TaxaCancelamento & { cliente: { nome: string } | null })[];
     },
   });
 
-  // ── Taxas de reserva do mês ──────────────────────────────
+  // ── Taxas de reserva do mês
   const taxasReserva = useQuery<(TaxaReserva & { cliente: { nome: string } | null })[]>({
     queryKey: ['fin-taxas-reserva', empresaId, chave],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('taxas_reserva')
         .select('*, cliente:clientes(nome)')
         .eq('empresa_id', empresaId!)
         .neq('status', 'cancelada')   // encerradas ao concluir o atendimento (migration 061)
-        .gte('created_at', inicio).lte('created_at', fim)
+        .gte('created_at', periodo.startIso).lte('created_at', periodo.endIso)
         .order('status').order('created_at');
-
+      if (error) throw error;
       return (data ?? []) as (TaxaReserva & { cliente: { nome: string } | null })[];
     },
   });
 
-  // ── Evolução últimos 6 meses ─────────────────────────────
-  const evolucao = useQuery<EvolucaoMes[]>({
-    queryKey: ['fin-evolucao', empresaId, chave],
-    enabled: !!empresaId,
-    staleTime: 1000 * 60 * 10,
-    queryFn: async () => {
-      const meses = Array.from({ length: 6 }, (_, i) => subMonths(mesRef, 5 - i));
-
-      // Fechamentos importados que caiam nos 6 meses do gráfico.
-      const fechRes = await supabase.from('financeiro_ajustes_mensais')
-        .select('mes, receita_bruta, comissao_paga')
-        .eq('empresa_id', empresaId!)
-        .gte('mes', format(startOfMonth(meses[0]), 'yyyy-MM-dd'))
-        .lte('mes', format(startOfMonth(meses[5]), 'yyyy-MM-dd'));
-      const fechamentos = (fechRes.data ?? []) as FinanceiroFechamentoRow[];
-
-      const resultados = await Promise.all(
-        meses.map(async (m) => {
-          const ini = startOfMonth(m).toISOString();
-          const fim = endOfMonth(m).toISOString();
-          const [pag, desp] = await Promise.all([
-            supabase.from('pagamentos').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('created_at', ini).lte('created_at', fim),
-            supabase.from('despesas').select('valor').eq('empresa_id', empresaId!).eq('status', 'pago').gte('data_pagamento', ini.slice(0,10)).lte('data_pagamento', fim.slice(0,10)),
-          ]);
-          const receitaLive = (pag.data ?? []).reduce((s, p) => s + Number(p.valor), 0);
-          const fechamento = getFechamentoForMonth(fechamentos, format(m, 'yyyy-MM'));
-          return {
-            mes: format(m, 'MMM', { locale: { code: 'pt-BR' } as any }),
-            receita: fechamento?.receitaBruta ?? receitaLive,
-            gastos:  (desp.data ?? []).reduce((s, d) => s + Number(d.valor), 0),
-          };
-        })
-      );
-
-      return resultados;
-    },
-  });
-
-  // ── Retiradas/empréstimos da dona (owner-only, isOwner vem do authStore) ──
-  const retiradasQ = useQuery<{ rows: RetiradaSociaRow[]; devs: RetiradaSociaDevolucaoRow[] }>({
-    queryKey: ['fin-retiradas', empresaId, chave],
+  // ── Retiradas/empréstimos da dona (owner-only): TODAS, o saldo é histórico
+  const retiradasQ = useQuery({
+    queryKey: ['fin-retiradas', empresaId],
     enabled: !!empresaId && isOwner,
     staleTime: 1000 * 60 * 5,
-    queryFn: async () => {
-      const di = inicio.slice(0, 10);
-      const df = fim.slice(0, 10);
-      const [rRet, rDev] = await Promise.all([
-        supabase.from('retiradas_socia')
-          .select('id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at')
-          .eq('empresa_id', empresaId!)
-          .or(`and(data.gte.${di},data.lte.${df}),and(convertido_em.gte.${di},convertido_em.lte.${df})`)
-          .order('data', { ascending: false }),
-        supabase.from('retiradas_socia_devolucoes')
-          .select('id,retirada_id,valor,data,metodo').eq('empresa_id', empresaId!),
-      ]);
-      return {
-        rows: (rRet.data ?? []) as RetiradaSociaRow[],
-        devs: (rDev.data ?? []) as RetiradaSociaDevolucaoRow[],
-      };
-    },
+    queryFn: () => carregarRetiradas(supabase, empresaId!),
   });
-  const retiradas     = retiradasQ.data?.rows ?? [];
-  const retiradasDevs  = retiradasQ.data?.devs ?? [];
-  const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
-  const aDonaDeve       = saldoDevedorTotal(retiradas, devPorRetirada);
-  const retiradasPeriodo = retiradasNoPeriodo(retiradas, devPorRetirada, inicio.slice(0, 10), fim.slice(0, 10));
 
-  const isLoading = resumo.isLoading || metodos.isLoading || topServicos.isLoading;
+  // ── Números (mesmas funções do web)
+  const dados   = dadosQ.data ?? DADOS_VAZIOS;
+  const kpis    = calcularKpisFinanceiros(dados, periodo);
+  const kpisAnt = calcularKpisFinanceiros(dados, limitesMes(somarMeses(chave, -1)));
+  const doMes   = recortarDados(dados, periodo);
+
+  const todasRetiradas   = retiradasQ.data?.rows ?? [];
+  const retiradasDevs    = retiradasQ.data?.devs ?? [];
+  const retiradas        = listarRetiradasDoPeriodo(todasRetiradas, periodo);
+  const aDonaDeve        = saldoDevedorTotal(todasRetiradas, somaDevolucoesPorRetirada(retiradasDevs));
+  const retiradasPeriodo = retiradasDoPeriodo(todasRetiradas, retiradasDevs, periodo);
+
+  // Falha na busca dos KPIs: a tela mostra erro, nunca zeros nem números velhos.
+  const erroKpis = dadosQ.isError ? dadosQ.error : null;
+
+  const resumo: ResumoMes | undefined = dadosQ.data && !erroKpis ? {
+    receita: kpis.bruto,
+    receitaAnterior: kpisAnt.bruto,
+    taxasCartao: kpis.taxasCartao,
+    liquidoAposTaxas: kpis.liquidoAposTaxas,
+    comissoes: kpis.comissoes,
+    comissoesAnterior: kpisAnt.comissoes,
+    gastos: kpis.despesas,
+    gastosAnterior: kpisAnt.despesas,
+    lucro: kpis.lucro,
+    aposRetiradas: resultadoAposRetiradas(kpis.lucro, retiradasPeriodo),
+    taxasCancelamento: kpis.receitaTaxasCancelamento,
+    taxasReserva: kpis.receitaTaxasReserva,
+    mesesComFechamento: kpis.mesesComFechamento,
+  } : undefined;
+
+  const metodos: MetodoPagamento[] = resumoMetodosPagamento(doMes.pagamentos)
+    .map(m => ({ ...m, metodo: m.metodo as PagamentoMetodo }));
+
+  const topServicos: TopServico[] = rankingAtendimentos(doMes.agendamentos, 'servico').slice(0, 5)
+    .map(s => ({ servico_id: s.chave, nome: s.nome, quantidade: s.quantidade, receita: s.receita, percentual: Math.round(s.percentual) }));
+
+  const evolucao: EvolucaoMes[] = dadosQ.data && !erroKpis
+    ? evolucaoMensal(dados, chaves6).map(p => ({ mes: p.rotulo, receita: p.bruto, gastos: p.despesas }))
+    : [];
 
   return {
-    resumo:            resumo.data,
-    metodos:           metodos.data ?? [],
-    topServicos:       topServicos.data ?? [],
+    resumo,
+    metodos,
+    topServicos,
     despesas:          despesas.data ?? [],
     despesasHistorico: despesasHistorico.data ?? [],
     taxasCancelamento: taxasCancelamento.data ?? [],
     taxasReserva:      taxasReserva.data ?? [],
-    evolucao:          evolucao.data ?? [],
+    evolucao,
     isOwner,
     retiradas,
     retiradasDevs,
     aDonaDeve,
     retiradasPeriodo,
-    isLoading,
+    isLoading: dadosQ.isLoading,
+    /** Alguma consulta que alimenta a tela falhou (KPIs, despesas, taxas ou retiradas). */
+    isError: !!erroKpis || despesas.isError || despesasHistorico.isError || taxasCancelamento.isError || taxasReserva.isError || retiradasQ.isError,
+    /** Erro da consulta dos KPIs (números do topo e gráfico), ou null. */
+    erroKpis: erroKpis as Error | null,
     refetch: () => {
-      resumo.refetch();
-      metodos.refetch();
-      topServicos.refetch();
+      dadosQ.refetch();
       despesas.refetch();
       despesasHistorico.refetch();
       taxasCancelamento.refetch();
       taxasReserva.refetch();
-      evolucao.refetch();
       retiradasQ.refetch();
     },
   };

@@ -178,7 +178,7 @@ export default function NovaDespesa() {
 
     qc.invalidateQueries({ queryKey: ['fin-resumo'] });
     qc.invalidateQueries({ queryKey: ['fin-despesas'] });
-    qc.invalidateQueries({ queryKey: ['fin-evolucao'] });
+    qc.invalidateQueries({ queryKey: ['fin-despesas-historico'] });
     Alert.alert('Despesa registrada!', descricao, [
       { text: 'OK', onPress: () => router.back() },
     ]);
