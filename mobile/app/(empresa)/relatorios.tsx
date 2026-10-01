@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   RefreshControl, StatusBar, TextInput,
@@ -12,10 +12,6 @@ import {
   Users, UserCheck, Clock, ChevronLeft, ChevronRight, XCircle,
 } from 'lucide-react-native';
 import {
-  format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameWeek, startOfMonth,
-  addYears, subYears, isSameYear,
-} from 'date-fns';
-import {
   useFonts,
   Fraunces_600SemiBold,
   Fraunces_700Bold,
@@ -27,10 +23,11 @@ import {
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 
+import { useRelatorios, type ServicoRelatorio, type ProfissionalRelatorio } from '@/hooks/useRelatorios';
 import {
-  useRelatorios, type Periodo,
-  type ServicoRelatorio, type ProfissionalRelatorio,
-} from '@/hooks/useRelatorios';
+  PERIODOS_RELATORIO, ROTULO_COMPARACAO, rotuloDoPeriodo, hojeBRT, type PeriodoRelatorio,
+} from '@shared/periodos';
+import { variacaoPercentual } from '@shared/kpis-financeiros';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { CategoriaIcon } from '@/components/CategoriaIcon';
 import { SmoothTabs } from '@/components/SmoothTabs';
@@ -49,22 +46,6 @@ const C = {
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
 
-const PERIODOS: { key: Periodo; label: string }[] = [
-  { key: '7d',     label: 'Semana'       },
-  { key: '30d',    label: 'Mês'          },
-  { key: '90d',    label: 'Trimestre'    },
-  { key: '1y',     label: 'Ano'          },
-  { key: 'custom', label: 'Personalizado' },
-];
-
-const PERIODO_LABEL: Record<Periodo, string> = {
-  '7d':     'vs semana anterior',
-  '30d':    'vs mês anterior',
-  '90d':    'vs trimestre anterior',
-  '1y':     'vs ano anterior',
-  'custom': 'vs período anterior',
-};
-
 /** Máscara DD/MM/AAAA aplicada ao digitar — mesmo padrão usado em nova-despesa.tsx */
 function mascaraData(v: string) {
   const n = v.replace(/\D/g, '').slice(0, 8);
@@ -73,27 +54,19 @@ function mascaraData(v: string) {
   return `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`;
 }
 
-/** Converte "DD/MM/AAAA" em Date; retorna null enquanto a digitação estiver incompleta */
-function parseDataBR(v: string): Date | null {
+/** 'DD/MM/AAAA' → 'yyyy-MM-dd'; null enquanto a digitação estiver incompleta. */
+function paraIsoBR(v: string): string | null {
   const p = v.split('/');
-  if (p.length !== 3 || p[2].length !== 4) return null;
-  const d = new Date(Number(p[2]), Number(p[1]) - 1, Number(p[0]));
-  return Number.isNaN(d.getTime()) ? null : d;
+  if (p.length !== 3 || p[0].length !== 2 || p[1].length !== 2 || p[2].length !== 4) return null;
+  const iso = `${p[2]}-${p[1]}-${p[0]}`;
+  return Number.isNaN(new Date(`${iso}T12:00:00`).getTime()) ? null : iso;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
 
+/** Moeda completa (sem abreviar "k"), igual ao web. */
 function formatBRL(value: number) {
-  if (value >= 1000) return `R$${(value / 1000).toFixed(1).replace('.', ',')}k`;
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function delta(atual: number, anterior: number) {
-  if (anterior === 0) return null;
-  return Math.round(((atual - anterior) / anterior) * 100);
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 }
 
 function initials(nome: string) {
@@ -245,31 +218,20 @@ function ProfissionalRow({ item, index, isLast }: { item: ProfissionalRelatorio;
 
 export default function Relatorios() {
   const insets = useSafeAreaInsets();
-  const [periodo, setPeriodo] = useState<Periodo>('30d');
-  // Data de referência da semana visualizada — só usada quando periodo === '7d'
-  const [semanaRef, setSemanaRef] = useState(new Date());
-  const semanaIni = startOfWeek(semanaRef, { weekStartsOn: 1 });
-  const semanaFim = endOfWeek(semanaRef, { weekStartsOn: 1 });
-  const semanaAtual = isSameWeek(semanaRef, new Date(), { weekStartsOn: 1 });
+  const [periodo, setPeriodo] = useState<PeriodoRelatorio>('mes');
+  const [semanaOffset, setSemanaOffset] = useState(0);   // só em 'semana'
+  const [anoOffset, setAnoOffset] = useState(0);         // só em 'ano'
+  const hoje = hojeBRT();
+  const [customIniStr, setCustomIniStr] = useState(() => `01/${hoje.slice(5, 7)}/${hoje.slice(0, 4)}`);
+  const [customFimStr, setCustomFimStr] = useState(() => `${hoje.slice(8, 10)}/${hoje.slice(5, 7)}/${hoje.slice(0, 4)}`);
+  const opcoes = useMemo(() => ({
+    semanaOffset,
+    anoOffset,
+    custom: { ini: paraIsoBR(customIniStr) ?? `${hoje.slice(0, 7)}-01`, fim: paraIsoBR(customFimStr) ?? hoje },
+  }), [semanaOffset, anoOffset, customIniStr, customFimStr, hoje]);
 
-  // Data de referência do ano visualizado — só usada quando periodo === '1y'
-  const [anoRef, setAnoRef] = useState(new Date());
-  const anoAtual = isSameYear(anoRef, new Date());
-
-  const refAtivo = periodo === '7d' ? semanaRef : periodo === '1y' ? anoRef : new Date();
-
-  // Intervalo personalizado (texto digitado com máscara) — só usado quando periodo === 'custom'
-  const [customIniStr, setCustomIniStr] = useState(() => format(startOfMonth(new Date()), 'dd/MM/yyyy'));
-  const [customFimStr, setCustomFimStr] = useState(() => format(new Date(), 'dd/MM/yyyy'));
-  const hoje = new Date();
-  let customFimEfetivo = parseDataBR(customFimStr) ?? hoje;
-  if (customFimEfetivo > hoje) customFimEfetivo = hoje;
-  let customIniEfetivo = parseDataBR(customIniStr) ?? startOfMonth(hoje);
-  if (customIniEfetivo > customFimEfetivo) customIniEfetivo = customFimEfetivo;
-
-  const { resumo, clientes, servicos, profissionais, isLoading, refetch } = useRelatorios(
-    periodo, refAtivo, { ini: customIniEfetivo, fim: customFimEfetivo },
-  );
+  const { resumo, clientes, servicos, profissionais, mesesComFechamento, atual, isLoading, isError, refetch } = useRelatorios(periodo, opcoes);
+  const rotuloAtual = rotuloDoPeriodo(periodo, atual);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -284,9 +246,9 @@ export default function Relatorios() {
 
   if (!fontsLoaded) return null;
 
-  const dFat   = resumo ? delta(resumo.faturamento, resumo.faturamentoAnterior) : null;
-  const dAtend = resumo ? delta(resumo.atendimentos, resumo.atendimentosAnterior) : null;
-  const dTicket = resumo ? delta(resumo.ticketMedio, resumo.ticketMedioAnterior) : null;
+  const dFat    = resumo ? variacaoPercentual(resumo.faturamento, resumo.faturamentoAnterior) : null;
+  const dAtend  = resumo ? variacaoPercentual(resumo.atendimentos, resumo.atendimentosAnterior) : null;
+  const dTicket = resumo ? variacaoPercentual(resumo.ticketMedio, resumo.ticketMedioAnterior) : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -332,20 +294,20 @@ export default function Relatorios() {
 
             {/* Seletor de período */}
             <SmoothTabs
-              variant="segmented"
-              tabs={PERIODOS}
+              variant="pill"
+              tabs={PERIODOS_RELATORIO}
               active={periodo}
               onChange={key => {
-                setPeriodo(key as Periodo);
-                if (key === '7d') setSemanaRef(new Date());
-                if (key === '1y') setAnoRef(new Date());
+                setPeriodo(key as PeriodoRelatorio);
+                if (key === 'semana') setSemanaOffset(0);
+                if (key === 'ano') setAnoOffset(0);
               }}
               activeColor="#fff"
               activeTextColor={C.primary}
               inactiveTextColor="rgba(255,255,255,0.5)"
               trackBg="rgba(255,255,255,0.1)"
               trackBorder="rgba(255,255,255,0.1)"
-              style={{ marginBottom: periodo === '7d' || periodo === 'custom' || periodo === '1y' ? 12 : 20 }}
+              style={{ marginBottom: periodo === 'semana' || periodo === 'custom' || periodo === 'ano' ? 12 : 20 }}
             />
 
             {/* Datas personalizadas — só no período "Personalizado" */}
@@ -378,40 +340,40 @@ export default function Relatorios() {
             )}
 
             {/* Navegação entre semanas — só no período "Semana" */}
-            {periodo === '7d' && (
+            {periodo === 'semana' && (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 20 }}>
                 <TouchableOpacity
-                  onPress={() => setSemanaRef(d => subWeeks(d, 1))}
+                  onPress={() => setSemanaOffset(o => o - 1)}
                   style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
                   <ChevronLeft size={14} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>
-                  {format(semanaIni, 'dd/MM')} – {format(semanaFim, 'dd/MM')}
+                  {rotuloAtual}
                 </Text>
                 <TouchableOpacity
-                  onPress={() => !semanaAtual && setSemanaRef(d => addWeeks(d, 1))}
-                  disabled={semanaAtual}
-                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: semanaAtual ? 0.3 : 1 }}>
+                  onPress={() => semanaOffset < 0 && setSemanaOffset(o => o + 1)}
+                  disabled={semanaOffset >= 0}
+                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: semanaOffset >= 0 ? 0.3 : 1 }}>
                   <ChevronRight size={14} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
               </View>
             )}
 
             {/* Navegação entre anos — só no período "Ano" */}
-            {periodo === '1y' && (
+            {periodo === 'ano' && (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 20 }}>
                 <TouchableOpacity
-                  onPress={() => setAnoRef(d => subYears(d, 1))}
+                  onPress={() => setAnoOffset(o => o - 1)}
                   style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
                   <ChevronLeft size={14} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>
-                  {format(anoRef, 'yyyy')}
+                  {rotuloAtual}
                 </Text>
                 <TouchableOpacity
-                  onPress={() => !anoAtual && setAnoRef(d => addYears(d, 1))}
-                  disabled={anoAtual}
-                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: anoAtual ? 0.3 : 1 }}>
+                  onPress={() => anoOffset < 0 && setAnoOffset(o => o + 1)}
+                  disabled={anoOffset >= 0}
+                  style={{ width: 28, height: 28, borderRadius: 9, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center', opacity: anoOffset >= 0 ? 0.3 : 1 }}>
                   <ChevronRight size={14} color="rgba(255,255,255,0.75)" />
                 </TouchableOpacity>
               </View>
@@ -444,12 +406,23 @@ export default function Relatorios() {
                   </Text>
                 </View>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
-                  {PERIODO_LABEL[periodo]}
+                  {ROTULO_COMPARACAO[periodo]}
                 </Text>
               </View>
             </View>
           </MotiView>
         </LinearGradient>
+
+        {isError && (
+          <View style={{ marginHorizontal: 24, marginTop: 16, backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.red, borderRadius: 14, padding: 14 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, marginBottom: 6 }}>
+              Não foi possível carregar os relatórios. Os números abaixo podem estar incompletos.
+            </Text>
+            <TouchableOpacity onPress={onRefresh}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red, textDecorationLine: 'underline' }}>Tentar de novo</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ── KPIs ── */}
         <MotiView
@@ -482,10 +455,7 @@ export default function Relatorios() {
             <KpiCard
               icon={<View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: C.roseSoft, alignItems: 'center', justifyContent: 'center' }}><RefreshCw size={13} color={C.rose} strokeWidth={1.8} /></View>}
               label="Taxa retorno"
-              valor={clientes && clientes.totalAtendidas > 0
-                ? `${Math.round((clientes.retornaram / clientes.totalAtendidas) * 100)}%`
-                : '—'
-              }
+              valor={clientes && clientes.totalAtendidas > 0 ? `${clientes.pctRetorno}%` : '—'}
               deltaVal={null}
             />
           </View>
@@ -509,6 +479,11 @@ export default function Relatorios() {
           <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
             Por Serviço
           </Text>
+          {mesesComFechamento.length > 0 && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginBottom: 10 }}>
+              Período inclui mês com fechamento importado — detalhamentos mostram só os lançamentos ao vivo.
+            </Text>
+          )}
           <View style={{
             backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
             borderRadius: 18, overflow: 'hidden',
