@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { CHAVES_FINANCEIRO, invalidarFinanceiro } from '../../../mobile/lib/invalidarFinanceiro';
+import { CHAVES_FINANCEIRO, invalidarFinanceiro } from '@shared/invalidacao-financeira';
 
 const raiz = join(__dirname, '..', '..', '..');
 const ler = (...p: string[]) => readFileSync(join(raiz, ...p), 'utf8').replace(/\r\n/g, '\n');
