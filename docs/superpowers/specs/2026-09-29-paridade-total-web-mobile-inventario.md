@@ -76,6 +76,8 @@ Legenda de arquivos: W = `web/app/(app)/…`; M = `mobile/app/(empresa)/…`; MP
   - Validar desconto acima do subtotal (hoje nenhum dos dois valida) → validar nos dois.
 
 ### Financeiro / Relatórios / Dashboard
+> **Status (2026-09-30): números entregues** pela Fase 2A (`docs/superpowers/plans/2026-09-30-paridade-fase2a-kpis-financeiros.md`) — fonte de receita, lucro, comissão da tabela, Brasília, fechamento no mobile, deltas, "Após retiradas", ticket médio, retorno de clientes, código morto. Telas/funções ainda ausentes no mobile ficam na Fase 2B.
+
 - **Fonte de receita diferente:**
   - Web: agendamentos concluídos sem pacote + `vendas` + taxas pagas.
   - Mobile: soma de `pagamentos`.

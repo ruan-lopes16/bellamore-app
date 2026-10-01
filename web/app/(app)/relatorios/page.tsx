@@ -5,28 +5,22 @@
  * Módulo de Relatórios — análise de desempenho por período selecionável.
  *
  * ## Métricas principais (calculadas client-side via useMemo)
- * - Faturamento Bruto  : Σ agendamentos.valor (status = 'concluido')
- * - Faturamento Líquido: Bruto − Comissões do período
- * - Lucro Real         : Líquido − Despesas do período
- * - Ticket Médio       : Bruto / nº de atendimentos concluídos
- * - Taxa Comparecimento: concluídos / (concluídos + faltou)
+ * Todos os números financeiros (bruto, taxas, comissões, despesas, lucro, ticket,
+ * comparecimento, deltas, séries, rankings, retorno de clientes) vêm das funções
+ * ÚNICAS de `shared/` — as mesmas do Financeiro, Dashboard e app mobile. Períodos e
+ * datas em Brasília via `shared/periodos`.
  *
- * ## Queries (single range, sem N+1)
- * 1. agendamentos (todos os status) + joins servicos / users / clientes — paginado
- * 2. despesas     (status = 'pago', filtro por data_pagamento — mesmo critério de financeiro/dashboard)
- * 3. comissoes    (filtro por created_at) — paginado
- * 4. estoque_movimentos saídas (filtro por created_at) — lazy, só ao abrir a aba Estoque
- * 5. avaliacoes   (filtro por created_at) — lazy, só ao abrir a aba Avaliações
- *
- * Paginação via `.range()` evita o limite padrão de 1000 linhas por
- * requisição do PostgREST truncar relatórios de empresas com muito
- * movimento no período selecionado.
+ * ## Queries (sem N+1)
+ * 1. carregarDadosFinanceiros — período + anterior numa busca só (paginada, com erro explícito)
+ * 2. comissoes (lista detalhada da aba Comissões, created_at) — paginado
+ * 3. estoque_movimentos saídas — lazy, só ao abrir a aba Estoque
+ * 4. avaliacoes — lazy, só ao abrir a aba Avaliações
  *
  * ## Rankings gerados
  * Serviços · Equipe · Top clientes · Insumos consumidos
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
   ChevronDown, ChevronLeft, ChevronRight, DollarSign, Target, Activity, User, Check, Star, CreditCard, XCircle,
@@ -38,26 +32,30 @@ import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { KpiCardSkeleton } from './RelatoriosSkeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
-import {
-  format, startOfMonth, endOfMonth, startOfYear, endOfYear,
-  subMonths, parseISO, eachMonthOfInterval, eachWeekOfInterval, eachDayOfInterval,
-  startOfWeek, endOfWeek, isSameDay, addWeeks, addYears, startOfDay, endOfDay, differenceInCalendarDays,
-} from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
-  type FinanceiroFechamentoRow,
-  getFechamentoForMonth,
-  somarPeriodoComFechamentos,
-} from '@/lib/financeiro/fechamentos-mensais';
-import { retiradasNoPeriodo, somaDevolucoesPorRetirada } from '@shared/retiradas-socia';
+  PERIODOS_RELATORIO, ROTULO_COMPARACAO, limitesDoPeriodo, rotuloDoPeriodo, uniaoLimites, hojeBRT,
+  type PeriodoRelatorio, type OpcoesPeriodo,
+} from '@shared/periodos';
+import {
+  calcularKpisFinanceiros, recortarDados, serieFaturamento, rankingAtendimentos, metricasRetorno,
+  clientesAtendidosNoPeriodo, variacaoPercentual, retiradasDoPeriodo,
+  resultadoAposRetiradas as calcularAposRetiradas, DADOS_VAZIOS,
+  type DadosFinanceiros, type ItemRanking,
+} from '@shared/kpis-financeiros';
+import {
+  carregarDadosFinanceiros, carregarClientesComHistoricoAntes, carregarRetiradas,
+} from '@shared/kpis-financeiros-consultas';
+import { buscarTodasPaginas } from '@shared/paginacao';
+import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
 import { Secret, PrivacyToggle } from '@/components/privacy';
-import type { RetiradaSocia, RetiradaSociaDevolucao } from '@/types';
 
 const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-type Periodo = 'semana' | 'mes' | 'mes_anterior' | 'trimestre' | 'semestre' | 'ano' | 'custom';
+type Periodo = PeriodoRelatorio;
 
 /** Dados brutos de um agendamento com joins resolvidos */
 type Ag = {
@@ -90,8 +88,6 @@ type Comissao = {
     cliente:  { nome: string } | null;
   } | null;
 };
-type Venda      = { valor_final: number; created_at: string };
-type TaxaPaga   = { valor: number; paga_em: string };
 type MovEstoque = {
   produto_id: string; quantidade: number;
   produto: { nome: string; preco_custo: number } | null;
@@ -111,16 +107,6 @@ type RankItem = { nome: string; valor: number; qtd: number; pct: number };
 type EstRankItem = { nome: string; qtd: number; custo: number; pct: number };
 
 // ── Constantes ────────────────────────────────────────────────
-
-const PERIODOS: { key: Periodo; label: string }[] = [
-  { key: 'semana',       label: 'Esta semana'  },
-  { key: 'mes',          label: 'Este mês'     },
-  { key: 'mes_anterior', label: 'Mês anterior' },
-  { key: 'trimestre',    label: '3 meses'      },
-  { key: 'semestre',     label: '6 meses'      },
-  { key: 'ano',          label: 'Este ano'     },
-  { key: 'custom',       label: 'Personalizado' },
-];
 
 const ABA_OPTS = [
   { key: 'financeiro' as const, label: 'Financeiro', icon: BarChart2  },
@@ -152,80 +138,15 @@ function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
 }
 
-/**
- * Converte enum de período em datas reais de início/fim e label legível.
- * Todos os períodos usam limites de mês completo para evitar dados parciais.
- */
-type PeriodoOpts = {
-  semanaOffset?: number;
-  anoOffset?: number;
-  custom?: { ini: string; fim: string };
-};
-
-function periodoParaDatas(p: Periodo, opts: PeriodoOpts = {}): { inicio: Date; fim: Date; labelPeriodo: string } {
-  const hoje = new Date();
-  switch (p) {
-    case 'custom': {
-      const ini   = opts.custom ? startOfDay(parseISO(opts.custom.ini)) : startOfMonth(hoje);
-      const fimC  = opts.custom ? endOfDay(parseISO(opts.custom.fim))   : hoje;
-      return {
-        inicio: ini, fim: fimC,
-        labelPeriodo: `${format(ini, 'dd/MM/yyyy')} – ${format(fimC, 'dd/MM/yyyy')}`,
-      };
-    }
-    case 'semana': {
-      const ref = addWeeks(hoje, opts.semanaOffset ?? 0);
-      const ini = startOfWeek(ref, { weekStartsOn: 0 });
-      const fimSem = endOfWeek(ref, { weekStartsOn: 0 });
-      return {
-        inicio: ini, fim: fimSem,
-        labelPeriodo: `${format(ini, 'dd/MM')} – ${format(fimSem, 'dd/MM')}`,
-      };
-    }
-    case 'mes':
-      return {
-        inicio: startOfMonth(hoje), fim: endOfMonth(hoje),
-        labelPeriodo: format(hoje, 'MMMM yyyy', { locale: ptBR }),
-      };
-    case 'mes_anterior': {
-      const m = subMonths(hoje, 1);
-      return {
-        inicio: startOfMonth(m), fim: endOfMonth(m),
-        labelPeriodo: format(m, 'MMMM yyyy', { locale: ptBR }),
-      };
-    }
-    case 'trimestre': {
-      const ini = subMonths(startOfMonth(hoje), 2);
-      return {
-        inicio: ini, fim: endOfMonth(hoje),
-        labelPeriodo: `${format(ini, 'MMM', { locale: ptBR })} – ${format(hoje, 'MMM yyyy', { locale: ptBR })}`,
-      };
-    }
-    case 'semestre': {
-      const ini = subMonths(startOfMonth(hoje), 5);
-      return {
-        inicio: ini, fim: endOfMonth(hoje),
-        labelPeriodo: `${format(ini, 'MMM', { locale: ptBR })} – ${format(hoje, 'MMM yyyy', { locale: ptBR })}`,
-      };
-    }
-    case 'ano': {
-      const ref = addYears(hoje, opts.anoOffset ?? 0);
-      return {
-        inicio: startOfYear(ref), fim: endOfYear(ref),
-        labelPeriodo: format(ref, 'yyyy'),
-      };
-    }
-  }
-}
-
 // ── Componentes auxiliares ────────────────────────────────────
 
 /** Card de KPI com ícone e valor */
 function KpiCard({
-  icon: Icon, label, value, sub, cor, loading,
+  icon: Icon, label, value, sub, cor, loading, delta = null, rotuloDelta,
 }: {
   icon: React.ElementType; label: string; value: string;
   sub?: string; cor: string; loading: boolean;
+  delta?: number | null; rotuloDelta?: string;
 }) {
   if (loading) return <KpiCardSkeleton />;
   return (
@@ -238,6 +159,11 @@ function KpiCard({
         <p className="text-base sm:text-lg font-bold text-text leading-tight truncate"><Secret>{value}</Secret></p>
         <p className="text-[11px] sm:text-xs text-text-3 leading-tight">{label}</p>
         {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}><Secret>{sub}</Secret></p>}
+        {delta !== null && (
+          <p className={`text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight ${delta >= 0 ? 'text-green' : 'text-red'}`}>
+            <Secret>{delta >= 0 ? '+' : ''}{delta}%</Secret> {rotuloDelta}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -330,37 +256,35 @@ export default function RelatoriosPage() {
   // Deslocamento em anos a partir de hoje — só usado quando periodo === 'ano'
   const [anoOffset, setAnoOffset] = useState(0);
   // Intervalo personalizado (yyyy-MM-dd) — só usado quando periodo === 'custom'
-  const [customIni, setCustomIni] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [customFim, setCustomFim] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [customIni, setCustomIni] = useState(() => hojeBRT().replace(/\d{2}$/, '01'));
+  const [customFim, setCustomFim] = useState(() => hojeBRT());
 
   function atualizarCustomIni(v: string) {
     setCustomIni(v);
     if (v > customFim) setCustomFim(v);
   }
   function atualizarCustomFim(v: string) {
-    const hojeStr = format(new Date(), 'yyyy-MM-dd');
+    const hojeStr = hojeBRT();
     const clamped = v > hojeStr ? hojeStr : v;
     setCustomFim(clamped);
     if (clamped < customIni) setCustomIni(clamped);
   }
 
   // ── Dados brutos carregados do Supabase
-  const [ags,        setAgs]        = useState<Ag[]>([]);
-  const [despesas,   setDespesas]   = useState<Despesa[]>([]);
+  const [dados, setDados] = useState<DadosFinanceiros>(DADOS_VAZIOS);
+  const [historicoClientes, setHistoricoClientes] = useState<Set<string>>(() => new Set());
+  // Falha na carga principal: mostra aviso e nenhum número (nunca valores zerados como se fossem reais).
+  const [erroCarga, setErroCarga] = useState('');
+  // Contadores de requisição: descartam respostas de cargas antigas (troca rápida de período).
+  const reqRef = useRef(0);
+  const reqRetiradasRef = useRef(0);
   const [comissoes,  setComissoes]  = useState<Comissao[]>([]);
   const [movs,       setMovs]       = useState<MovEstoque[]>([]);
-  const [vendas,     setVendas]     = useState<Venda[]>([]);
-  const [taxas,      setTaxas]      = useState<TaxaPaga[]>([]);
-  const [reserva,    setReserva]    = useState<TaxaPaga[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
-  const [pags,       setPags]       = useState<{ valor: number; valor_liquido: number | null; created_at: string }[]>([]);
-  // Fechamentos mensais importados (financeiro_ajustes_mensais) — meses históricos
-  // lançados só com o número de faturamento, sem agendamento/venda por trás.
-  const [fechamentos, setFechamentos] = useState<FinanceiroFechamentoRow[]>([]);
   // Retiradas/empréstimos da dona — só o owner enxerga (RLS + guarda de UI).
   const [isOwner, setIsOwner] = useState(false);
-  const [retiradasRows,     setRetiradasRows]     = useState<RetiradaSocia[]>([]);
-  const [retiradasDevsRows, setRetiradasDevsRows] = useState<RetiradaSociaDevolucao[]>([]);
+  const [retiradasRows,     setRetiradasRows]     = useState<RetiradaSociaRow[]>([]);
+  const [retiradasDevsRows, setRetiradasDevsRows] = useState<RetiradaSociaDevolucaoRow[]>([]);
 
   // Abas de baixo uso (Estoque/Avaliações) carregam sob demanda — evita buscar
   // dados que a maioria das visitas ao relatório nunca chega a abrir.
@@ -385,177 +309,86 @@ export default function RelatoriosPage() {
   }, []);
 
   /**
-   * Busca todas as páginas de uma query (o PostgREST limita a 1000 linhas por
-   * requisição por padrão) — evita truncar silenciosamente relatórios de
-   * empresas com muito movimento no período selecionado.
+   * Carrega o período e o anterior (deltas) numa busca só, pelas consultas
+   * únicas de shared. A lista detalhada de comissões (aba Comissões) continua
+   * aqui; os TOTAIS vêm de calcularKpisFinanceiros. Qualquer falha zera o estado
+   * e mostra aviso — nunca deixa números velhos ou zerados parecendo reais.
    */
-  async function buscarTodasPaginas<T>(
-    montarQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
-    tamanhoPagina = 1000,
-  ): Promise<T[]> {
-    const primeira = await montarQuery(0, tamanhoPagina - 1);
-    const todas: T[] = [...(primeira.data ?? [])];
-    if ((primeira.data?.length ?? 0) < tamanhoPagina) return todas;
-
-    // Há mais de uma página — busca em lotes paralelos em vez de sequencial
-    const LOTE = 4;
-    let from = tamanhoPagina;
-    for (;;) {
-      const resultados = await Promise.all(
-        Array.from({ length: LOTE }, (_, i) =>
-          montarQuery(from + i * tamanhoPagina, from + (i + 1) * tamanhoPagina - 1)
-        )
-      );
-      let completou = false;
-      for (const r of resultados) {
-        const linhas = r.data ?? [];
-        todas.push(...linhas);
-        if (linhas.length < tamanhoPagina) { completou = true; break; }
-      }
-      if (completou) break;
-      from += LOTE * tamanhoPagina;
-    }
-    return todas;
-  }
-
-  /**
-   * Carrega os dados do período em paralelo. Agendamentos e comissões são
-   * paginados (podem ultrapassar o limite padrão de linhas por requisição).
-   * Estoque e Avaliações ficam de fora — carregam sob demanda ao abrir a aba.
-   */
-  const carregar = useCallback(async (empId: string, per: Periodo, opts: PeriodoOpts) => {
+  const carregar = useCallback(async (empId: string, per: Periodo, opts: OpcoesPeriodo) => {
+    const req = ++reqRef.current;
     setLoading(true);
-    const { inicio, fim } = periodoParaDatas(per, opts);
-    const isoIni  = inicio.toISOString();
-    const isoFim  = fim.toISOString();
-    const dateIni = format(inicio, 'yyyy-MM-dd');
-    const dateFim = format(fim,    'yyyy-MM-dd');
-    const mesIni  = format(startOfMonth(inicio), 'yyyy-MM-dd');
-    const mesFim  = format(startOfMonth(fim),    'yyyy-MM-dd');
-
-    const [rAgs, rDesp, rCom, rVendas, rPags, rTaxas, rReserva, rFechamentos] = await Promise.all([
-      // 1. Agendamentos (todos os status) com joins de serviço, profissional e cliente
-      buscarTodasPaginas<Ag>((from, to) =>
-        supabase.from('agendamentos')
-          .select(`id, valor, status, data_hora_inicio, pacote_cliente_id, servico_id, profissional_id, cliente_id,
-            servico:servicos(nome),
-            profissional:users!agendamentos_profissional_id_fkey(nome),
-            cliente:clientes!agendamentos_cliente_id_fkey(nome)`)
-          .eq('empresa_id', empId)
-          .gte('data_hora_inicio', isoIni)
-          .lte('data_hora_inicio', isoFim)
-          .range(from, to)
-      ),
-
-      // 2. Despesas pagas no período (mesmo critério de financeiro/dashboard:
-      // status = 'pago' e filtro por data_pagamento, não data_vencimento —
-      // despesa pendente ainda não foi de fato gasta).
-      supabase.from('despesas')
-        .select('valor, categoria')
-        .eq('empresa_id', empId)
-        .eq('status', 'pago')
-        .gte('data_pagamento', dateIni)
-        .lte('data_pagamento', dateFim),
-
-      // 3. Comissões geradas no período (com detalhes para o relatório)
-      buscarTodasPaginas<Comissao>((from, to) =>
-        supabase.from('comissoes')
-          .select(`id, profissional_id, valor_comissao, status, percentual, created_at,
-            profissional:users!comissoes_profissional_id_fkey(nome),
-            agendamento:agendamentos(
-              data_hora_inicio, valor,
-              servico:servicos(nome),
-              cliente:clientes!agendamentos_cliente_id_fkey(nome)
-            )`)
-          .eq('empresa_id', empId)
-          .gte('created_at', isoIni)
-          .lte('created_at', isoFim)
-          .order('created_at')
-          .range(from, to)
-      ),
-
-      // 4. Vendas avulsas do período
-      supabase.from('vendas')
-        .select('valor_final, created_at')
-        .eq('empresa_id', empId)
-        .gte('created_at', isoIni)
-        .lte('created_at', isoFim),
-
-      // 5. Pagamentos do período (para cálculo de taxas de cartão, agrupadas por mês)
-      supabase.from('pagamentos')
-        .select('valor, valor_liquido, created_at')
-        .eq('empresa_id', empId)
-        .eq('status', 'pago')
-        .gte('created_at', isoIni)
-        .lte('created_at', isoFim),
-
-      // 6. Taxas de cancelamento pagas no período (somam ao faturamento bruto)
-      supabase.from('taxas_cancelamento')
-        .select('valor, paga_em')
-        .eq('empresa_id', empId)
-        .eq('status', 'pago')
-        .gte('paga_em', isoIni)
-        .lte('paga_em', isoFim),
-
-      // 7. Taxas de reserva pagas no período (somam ao faturamento bruto, inclui retidas apos pagas)
-      supabase.from('taxas_reserva')
-        .select('valor, paga_em')
-        .eq('empresa_id', empId)
-        .not('paga_em', 'is', null)
-        .gte('paga_em', isoIni)
-        .lte('paga_em', isoFim),
-
-      // 8. Fechamentos mensais importados que caem no período (meses históricos
-      // sem agendamento/venda por trás — só o número de faturamento). Sem isso,
-      // qualquer mês coberto só por importação aparece com faturamento zerado
-      // aqui, mesmo estando lançado corretamente no Financeiro.
-      supabase.from('financeiro_ajustes_mensais')
-        .select('mes, receita_bruta, comissao_paga')
-        .eq('empresa_id', empId)
-        .gte('mes', mesIni).lte('mes', mesFim),
-    ]);
-
-    setAgs(rAgs as unknown as Ag[]);
-    setDespesas((rDesp.data  ?? []) as Despesa[]);
-    setComissoes(rCom as unknown as Comissao[]);
-    setVendas((rVendas.data ?? []) as Venda[]);
-    setPags((rPags.data    ?? []) as { valor: number; valor_liquido: number | null; created_at: string }[]);
-    setTaxas((rTaxas.data   ?? []) as TaxaPaga[]);
-    setReserva((rReserva.data ?? []) as TaxaPaga[]);
-    setFechamentos((rFechamentos.data ?? []) as FinanceiroFechamentoRow[]);
-    setLoading(false);
-  }, [supabase]);
+    setErroCarga('');
+    const { atual: lAtual, anterior: lAnterior } = limitesDoPeriodo(per, hojeBRT(), opts);
+    try {
+      const [d, rCom] = await Promise.all([
+        carregarDadosFinanceiros(supabase, empId, uniaoLimites(lAnterior, lAtual)),
+        buscarTodasPaginas<Comissao>(async (from, to) => {
+          const r = await supabase.from('comissoes')
+            .select(`id, profissional_id, valor_comissao, status, percentual, created_at,
+              profissional:users!comissoes_profissional_id_fkey(nome),
+              agendamento:agendamentos(
+                data_hora_inicio, valor,
+                servico:servicos(nome),
+                cliente:clientes!agendamentos_cliente_id_fkey(nome)
+              )`)
+            .eq('empresa_id', empId)
+            .gte('created_at', lAtual.startIso)
+            .lte('created_at', lAtual.endIso)
+            .order('created_at').order('id')
+            .range(from, to);
+          if (r.error) throw new Error(r.error.message);
+          return r;
+        }),
+      ]);
+      if (req !== reqRef.current) return;   // resposta velha
+      const ids = clientesAtendidosNoPeriodo(recortarDados(d, lAtual).agendamentos);
+      const hist = await carregarClientesComHistoricoAntes(supabase, empId, ids, lAtual.startIso);
+      if (req !== reqRef.current) return;
+      setDados(d);
+      setComissoes(rCom as unknown as Comissao[]);
+      setHistoricoClientes(hist);
+    } catch (e) {
+      if (req !== reqRef.current) return;
+      const msg = `Erro ao carregar o relatório: ${(e as Error).message}`;
+      setDados(DADOS_VAZIOS);
+      setComissoes([]);
+      setHistoricoClientes(new Set());
+      setErroCarga(msg);
+      showErro(msg);
+    }
+    if (req === reqRef.current) setLoading(false);
+  }, []);
 
   // Opções que parametrizam o período selecionado — memoizado para não recriar o objeto
   // a cada render (evitaria re-disparar os efeitos abaixo, que o têm como dependência).
-  const periodoOpts = useMemo<PeriodoOpts>(
+  const periodoOpts = useMemo<OpcoesPeriodo>(
     () => ({ semanaOffset, anoOffset, custom: { ini: customIni, fim: customFim } }),
     [semanaOffset, anoOffset, customIni, customFim],
   );
+
+  // ── Período (Brasília) e comparação
+  const { atual, anterior } = useMemo(
+    () => limitesDoPeriodo(periodo, hojeBRT(), periodoOpts),
+    [periodo, periodoOpts],
+  );
+  const labelPeriodo = rotuloDoPeriodo(periodo, atual);
 
   useEffect(() => {
     if (empresaId) carregar(empresaId, periodo, periodoOpts);
   }, [empresaId, periodo, periodoOpts, carregar]);
 
-  // Retiradas/empréstimos da dona no período (owner-only).
+  // Retiradas/empréstimos da dona (owner-only). O total do período sai de retiradasDoPeriodo.
   useEffect(() => {
     if (!empresaId || !isOwner) { setRetiradasRows([]); setRetiradasDevsRows([]); return; }
-    (async () => {
-      const { inicio, fim } = periodoParaDatas(periodo, periodoOpts);
-      const di = format(inicio, 'yyyy-MM-dd');
-      const df = format(fim,    'yyyy-MM-dd');
-      const [rRet, rDev] = await Promise.all([
-        supabase.from('retiradas_socia')
-          .select('id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em')
-          .eq('empresa_id', empresaId)
-          .or(`and(data.gte.${di},data.lte.${df}),and(convertido_em.gte.${di},convertido_em.lte.${df})`),
-        supabase.from('retiradas_socia_devolucoes')
-          .select('id,retirada_id,valor,data,metodo').eq('empresa_id', empresaId),
-      ]);
-      setRetiradasRows((rRet.data ?? []) as RetiradaSocia[]);
-      setRetiradasDevsRows((rDev.data ?? []) as RetiradaSociaDevolucao[]);
-    })();
-  }, [empresaId, isOwner, periodo, periodoOpts]);
+    const reqR = ++reqRetiradasRef.current;
+    carregarRetiradas(supabase, empresaId)
+      .then(r => { if (reqR !== reqRetiradasRef.current) return; setRetiradasRows(r.rows); setRetiradasDevsRows(r.devs); })
+      .catch(e => {
+        if (reqR !== reqRetiradasRef.current) return;
+        setRetiradasRows([]); setRetiradasDevsRows([]);
+        showErro(`Erro ao carregar retiradas: ${(e as Error).message}`);
+      });
+  }, [empresaId, isOwner]);
 
   // ── Aba Estoque: carrega sob demanda (sai da query principal)
   useEffect(() => {
@@ -564,18 +397,23 @@ export default function RelatoriosPage() {
     if (estoqueChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { inicio, fim } = periodoParaDatas(periodo, periodoOpts);
-      const { data } = await supabase.from('estoque_movimentos')
+      const { data, error } = await supabase.from('estoque_movimentos')
         .select('produto_id, quantidade, produto:produtos(nome, preco_custo)')
         .eq('empresa_id', empresaId)
         .eq('tipo', 'saida')
-        .gte('created_at', inicio.toISOString())
-        .lte('created_at', fim.toISOString());
+        .gte('created_at', atual.startIso)
+        .lte('created_at', atual.endIso);
+      if (error) {
+        setMovs([]);
+        showErro(`Erro ao carregar o estoque: ${error.message}`);
+        setLoadingAba(false);
+        return;
+      }
       setMovs((data ?? []) as unknown as MovEstoque[]);
       setEstoqueChave(chave);
       setLoadingAba(false);
     })();
-  }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, estoqueChave]);
+  }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, estoqueChave, atual]);
 
   // ── Aba Avaliações: carrega sob demanda (sai da query principal)
   useEffect(() => {
@@ -584,144 +422,82 @@ export default function RelatoriosPage() {
     if (avalChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { inicio, fim } = periodoParaDatas(periodo, periodoOpts);
-      const { data } = await supabase.from('avaliacoes')
+      const { data, error } = await supabase.from('avaliacoes')
         .select(`nota, comentario, created_at, profissional_id,
           profissional:empresa_membros!avaliacoes_profissional_id_fkey(nome),
           cliente:clientes!avaliacoes_cliente_id_fkey(nome)`)
         .eq('empresa_id', empresaId)
-        .gte('created_at', inicio.toISOString())
-        .lte('created_at', fim.toISOString())
+        .gte('created_at', atual.startIso)
+        .lte('created_at', atual.endIso)
         .order('created_at', { ascending: false });
+      if (error) {
+        setAvaliacoes([]);
+        showErro(`Erro ao carregar as avaliações: ${error.message}`);
+        setLoadingAba(false);
+        return;
+      }
       setAvaliacoes((data ?? []) as unknown as Avaliacao[]);
       setAvalChave(chave);
       setLoadingAba(false);
     })();
-  }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, avalChave]);
+  }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, avalChave, atual]);
 
-  // ── Label do período selecionado
-  const { labelPeriodo, inicio, fim } = useMemo(
-    () => periodoParaDatas(periodo, periodoOpts),
-    [periodo, periodoOpts],
+  // ── Números únicos (mesmas funções do Financeiro, Dashboard e app mobile)
+  const dadosPeriodo = useMemo(() => recortarDados(dados, atual), [dados, atual]);
+  const kpis    = useMemo(() => calcularKpisFinanceiros(dados, atual),    [dados, atual]);
+  const kpisAnt = useMemo(() => calcularKpisFinanceiros(dados, anterior), [dados, anterior]);
+  const ags = useMemo(() => dadosPeriodo.agendamentos.map(a => ({
+    ...a, valor: Number(a.valor ?? 0),
+    servico: a.servico ?? null, profissional: a.profissional ?? null, cliente: a.cliente ?? null,
+  })) as Ag[], [dadosPeriodo]);
+  const despesas = useMemo<Despesa[]>(
+    () => dadosPeriodo.despesas.map(d => ({ valor: Number(d.valor ?? 0), categoria: d.categoria })),
+    [dadosPeriodo],
+  );
+  const concluidos = useMemo(() => ags.filter(a => a.status === 'concluido'), [ags]);
+
+  const { bruto, taxasCartao, liquidoAposTaxas, lucro } = kpis;
+  const brutoServicos = kpis.receitaServicos;
+  const brutoVendas   = kpis.receitaVendas;
+  const brutoTaxas    = kpis.receitaTaxasCancelamento;
+  const brutoReserva  = kpis.receitaTaxasReserva;
+  const comTot  = kpis.comissoes;
+  const despTot = kpis.despesas;
+  const ticket  = kpis.ticketMedio;
+  const taxa    = kpis.pctComparecimento;
+  const dBruto  = variacaoPercentual(kpis.bruto, kpisAnt.bruto);
+  const dAtend  = variacaoPercentual(kpis.atendimentos, kpisAnt.atendimentos);
+  const dTicket = variacaoPercentual(kpis.ticketMedio, kpisAnt.ticketMedio);
+
+  // Retiradas da dona no período — linha ADITIVA, não muda o "Lucro real".
+  const retiradasPeriodo = useMemo(
+    () => (isOwner ? retiradasDoPeriodo(retiradasRows, retiradasDevsRows, atual) : 0),
+    [isOwner, retiradasRows, retiradasDevsRows, atual],
+  );
+  const resultadoAposRetiradas = calcularAposRetiradas(lucro, retiradasPeriodo);
+
+  // ── Rankings (quantidade = concluídos; receita = só sem pacote)
+  const paraRank = (lista: ItemRanking[]): RankItem[] =>
+    lista.map(r => ({ nome: r.nome, valor: r.receita, qtd: r.quantidade, pct: r.percentual }));
+  const rankServicos = useMemo(() => paraRank(rankingAtendimentos(dadosPeriodo.agendamentos, 'servico')), [dadosPeriodo]);
+  const rankEquipe = useMemo<(RankItem & { comissao: number })[]>(() => {
+    const comPorProf: Record<string, number> = {};
+    for (const c of comissoes) comPorProf[c.profissional_id] = (comPorProf[c.profissional_id] ?? 0) + c.valor_comissao;
+    return rankingAtendimentos(dadosPeriodo.agendamentos, 'profissional').map(r => ({
+      nome: r.nome, valor: r.receita, qtd: r.quantidade, pct: r.percentual, comissao: comPorProf[r.chave] ?? 0,
+    }));
+  }, [dadosPeriodo, comissoes]);
+  const rankClientes = useMemo(
+    () => paraRank(rankingAtendimentos(dadosPeriodo.agendamentos, 'cliente').slice(0, 10)),
+    [dadosPeriodo],
   );
 
-  // ── KPIs principais
-  const concluidos = useMemo(() => ags.filter(a => a.status === 'concluido'), [ags]);
-  // Sessão de pacote não entra no faturamento (já paga na venda do pacote);
-  // continua contando em atendimentos/rankings/comparecimento.
-  const concluidosFaturaveis = useMemo(() => concluidos.filter(a => !a.pacote_cliente_id), [concluidos]);
-  const faltaram   = useMemo(() => ags.filter(a => a.status === 'faltou'),    [ags]);
-  const cancelados = useMemo(() => ags.filter(a => a.status === 'cancelado'), [ags]);
-
-  const brutoServicos   = useMemo(() => concluidosFaturaveis.reduce((s, a) => s + a.valor, 0), [concluidosFaturaveis]);
-  const brutoVendas     = useMemo(() => vendas.reduce((s, v) => s + Number(v.valor_final), 0), [vendas]);
-  const brutoTaxas      = useMemo(() => taxas.reduce((s, t) => s + Number(t.valor), 0), [taxas]);
-  const brutoReserva    = useMemo(() => reserva.reduce((s, t) => s + Number(t.valor), 0), [reserva]);
-
-  // Faturamento bruto / comissões / taxa de cartão resolvidos MÊS A MÊS contra os
-  // fechamentos históricos importados. Um mês coberto só por importação não tem
-  // agendamento/venda por trás — sem esse merge ele aparece com faturamento
-  // zerado aqui (mesmo aparecendo certo no Financeiro), e as despesas desse mês
-  // ainda contam, distorcendo o "Lucro real" ao escolher um período longo.
-  const { bruto, comTot, taxasCartao } = useMemo(() => {
-    const acumularPorMes = (
-      linhas: { data: string | null | undefined; valor: number }[],
-    ): Record<string, number> => {
-      const mapa: Record<string, number> = {};
-      for (const linha of linhas) {
-        if (!linha.data) continue;
-        const chave = linha.data.slice(0, 7);
-        mapa[chave] = (mapa[chave] ?? 0) + linha.valor;
-      }
-      return mapa;
-    };
-
-    const receitaPorMes = acumularPorMes([
-      ...concluidosFaturaveis.map(a => ({ data: a.data_hora_inicio, valor: a.valor })),
-      ...vendas.map(v => ({ data: v.created_at, valor: Number(v.valor_final) })),
-      ...taxas.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
-      ...reserva.map(t => ({ data: t.paga_em, valor: Number(t.valor) })),
-    ]);
-    const comissoesPorMes = acumularPorMes(
-      comissoes.map(c => ({ data: c.created_at, valor: c.valor_comissao })),
-    );
-    const taxasCartaoPorMes = acumularPorMes(
-      pags.map(p => ({
-        data: p.created_at,
-        valor: p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0,
-      })),
-    );
-
-    const mesesChave = eachMonthOfInterval({ start: inicio, end: fim })
-      .map(m => format(m, 'yyyy-MM'));
-
-    return somarPeriodoComFechamentos(
-      { receita: receitaPorMes, comissoes: comissoesPorMes, taxasCartao: taxasCartaoPorMes },
-      fechamentos,
-      mesesChave,
-    );
-  }, [concluidos, vendas, taxas, reserva, comissoes, pags, fechamentos, inicio, fim]);
-
-  const despTot         = useMemo(() => despesas.reduce((s, d) => s + d.valor, 0), [despesas]);
-  const liquido         = bruto - comTot;
-  const liquidoAposTaxas = bruto - taxasCartao;
-  const lucro           = liquidoAposTaxas - comTot - despTot;
-  // Retiradas da dona no período — linha ADITIVA, não muda o "Lucro real" acima.
-  const retiradasPeriodo = useMemo(() => {
-    if (!isOwner) return 0;
-    const devMap = somaDevolucoesPorRetirada(retiradasDevsRows);
-    return retiradasNoPeriodo(retiradasRows, devMap, format(inicio, 'yyyy-MM-dd'), format(fim, 'yyyy-MM-dd'));
-  }, [isOwner, retiradasRows, retiradasDevsRows, inicio, fim]);
-  const resultadoAposRetiradas = lucro - retiradasPeriodo;
-  // Ticket médio baseado apenas em serviços (mais representativo)
-  const ticket  = concluidos.length > 0 ? brutoServicos / concluidos.length : 0;
-  const taxaBase = concluidos.length + faltaram.length;
-  const taxa     = taxaBase > 0 ? (concluidos.length / taxaBase) * 100 : 0;
-
-  // ── Ranking: serviços por receita
-  const rankServicos = useMemo<RankItem[]>(() => {
-    const map: Record<string, { nome: string; valor: number; qtd: number }> = {};
-    for (const ag of concluidos) {
-      const k = ag.servico_id ?? '__sem__';
-      if (!map[k]) map[k] = { nome: ag.servico?.nome ?? 'Serviço', valor: 0, qtd: 0 };
-      map[k].valor += ag.valor;
-      map[k].qtd++;
-    }
-    const list = Object.values(map).sort((a, b) => b.valor - a.valor);
-    const maxV = list[0]?.valor ?? 1;
-    return list.map(s => ({ ...s, pct: (s.valor / maxV) * 100 }));
-  }, [concluidos]);
-
-  // ── Ranking: equipe por receita gerada
-  const rankEquipe = useMemo<(RankItem & { comissao: number })[]>(() => {
-    const map: Record<string, { nome: string; valor: number; qtd: number; comissao: number }> = {};
-    for (const ag of concluidos) {
-      const k = ag.profissional_id ?? '__sem__';
-      if (!map[k]) map[k] = { nome: ag.profissional?.nome ?? 'Profissional', valor: 0, qtd: 0, comissao: 0 };
-      map[k].valor += ag.valor;
-      map[k].qtd++;
-    }
-    for (const c of comissoes) {
-      if (map[c.profissional_id]) map[c.profissional_id].comissao += c.valor_comissao;
-    }
-    const list = Object.values(map).sort((a, b) => b.valor - a.valor);
-    const maxV = list[0]?.valor ?? 1;
-    return list.map(s => ({ ...s, pct: (s.valor / maxV) * 100 }));
-  }, [concluidos, comissoes]);
-
-  // ── Ranking: clientes por valor gasto (top 10)
-  const rankClientes = useMemo<RankItem[]>(() => {
-    const map: Record<string, { nome: string; valor: number; qtd: number }> = {};
-    for (const ag of concluidos) {
-      const k = ag.cliente_id ?? '__sem__';
-      if (!map[k]) map[k] = { nome: ag.cliente?.nome ?? 'Cliente', valor: 0, qtd: 0 };
-      map[k].valor += ag.valor;
-      map[k].qtd++;
-    }
-    const list = Object.values(map).sort((a, b) => b.valor - a.valor).slice(0, 10);
-    const maxV = list[0]?.valor ?? 1;
-    return list.map(s => ({ ...s, pct: (s.valor / maxV) * 100 }));
-  }, [concluidos]);
+  // Fechamento importado só tem totais: detalhamentos mostram apenas os lançamentos ao vivo.
+  const notaFechamento = kpis.mesesComFechamento.length > 0 ? (
+    <p className="text-xs text-text-3 mt-3">
+      Período inclui mês com fechamento importado — detalhamentos mostram só os lançamentos ao vivo.
+    </p>
+  ) : null;
 
   // ── Ranking: insumos consumidos (saídas de estoque)
   const rankEstoque = useMemo<EstRankItem[]>(() => {
@@ -815,22 +591,31 @@ export default function RelatoriosPage() {
       .map(c => c.id);
     if (ids.length === 0) return;
 
-    // Optimistic update
-    setComissoes(prev => prev.map(c =>
-      ids.includes(c.id) ? { ...c, status: 'pago' as const } : c
-    ));
+    // Optimistic update (lista detalhada + dados que alimentam os KPIs)
+    const marcar = (idsAlvo: string[], status: 'pago' | 'pendente') => {
+      setComissoes(prev => prev.map(c =>
+        idsAlvo.includes(c.id) ? { ...c, status } : c
+      ));
+      setDados(prev => ({
+        ...prev,
+        comissoes: prev.comissoes.map(c => idsAlvo.includes(c.id) ? { ...c, status } : c),
+      }));
+    };
+    marcar(ids, 'pago');
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('comissoes')
       .update({ status: 'pago' })
-      .in('id', ids);
+      .in('id', ids)
+      .select('id');
 
-    if (error) {
-      // Revert
-      setComissoes(prev => prev.map(c =>
-        ids.includes(c.id) ? { ...c, status: 'pendente' as const } : c
-      ));
-      showErro(`Erro ao atualizar comissões: ${error.message}`);
+    // RLS pode devolver sucesso com 0 linhas afetadas: confere antes de dar por pago.
+    // Em sucesso parcial, reverte SÓ as linhas que o banco não devolveu.
+    const confirmados = new Set((data ?? []).map((r: { id: string }) => r.id));
+    const naoConfirmados = error ? ids : ids.filter(id => !confirmados.has(id));
+    if (naoConfirmados.length > 0) {
+      marcar(naoConfirmados, 'pendente');
+      showErro(error ? `Erro ao atualizar comissões: ${error.message}` : 'Sem permissão para marcar todas as comissões como pagas.');
     }
   }
 
@@ -844,54 +629,19 @@ export default function RelatoriosPage() {
     });
   }
 
-  // ── Série temporal para o gráfico de evolução
-  // Granularidade por duração do intervalo (funciona para qualquer período, incluindo datas
-  // personalizadas): até 10 dias → por dia, até 45 dias → por semana, senão → por mês.
-  const serieGrafico = useMemo(() => {
-    const duracaoDias = differenceInCalendarDays(fim, inicio) + 1;
-
-    if (duracaoDias <= 10) {
-      const dias = eachDayOfInterval({ start: inicio, end: fim });
-      return dias.map(dia => {
-        const valor = concluidosFaturaveis
-          .filter(ag => isSameDay(parseISO(ag.data_hora_inicio), dia))
-          .reduce((s, ag) => s + ag.valor, 0);
-        return { label: format(dia, 'dd/MM'), valor };
-      });
-    }
-    if (duracaoDias <= 45) {
-      const semanas = eachWeekOfInterval({ start: inicio, end: fim }, { weekStartsOn: 0 });
-      return semanas.map(semIni => {
-        const semFim = endOfWeek(semIni, { weekStartsOn: 0 });
-        const valor  = concluidosFaturaveis
-          .filter(ag => { const d = parseISO(ag.data_hora_inicio); return d >= semIni && d <= semFim; })
-          .reduce((s, ag) => s + ag.valor, 0);
-        return { label: format(semIni, 'dd/MM'), valor };
-      });
-    }
-    const meses = eachMonthOfInterval({ start: inicio, end: fim });
-    return meses.map(mesIni => {
-      const mesFim = endOfMonth(mesIni);
-      // Mês coberto por importação: usa o faturamento importado; senão, soma os
-      // atendimentos concluídos do mês (comportamento original do gráfico).
-      const fechamento = getFechamentoForMonth(fechamentos, format(mesIni, 'yyyy-MM'));
-      const valor  = fechamento?.receitaBruta ?? concluidosFaturaveis
-        .filter(ag => { const d = parseISO(ag.data_hora_inicio); return d >= mesIni && d <= mesFim; })
-        .reduce((s, ag) => s + ag.valor, 0);
-      return { label: format(mesIni, 'MMM', { locale: ptBR }), valor };
-    });
-  }, [concluidos, concluidosFaturaveis, inicio, fim, fechamentos]);
+  // ── Série do gráfico (bruto completo, com vendas e taxas; semana no domingo)
+  const serieGrafico = useMemo(
+    () => serieFaturamento(dados, atual).map(p => ({ label: p.rotulo, valor: p.valor })),
+    [dados, atual],
+  );
 
   const maxGrafico = useMemo(() => Math.max(...serieGrafico.map(s => s.valor), 1), [serieGrafico]);
 
-  // ── Métricas de clientes (para painel de retenção)
-  const { clientesUnicos, retornaram, visitaramOnce } = useMemo(() => {
-    const contagem: Record<string, number> = {};
-    for (const ag of concluidos) contagem[ag.cliente_id ?? ''] = (contagem[ag.cliente_id ?? ''] ?? 0) + 1;
-    const total  = Object.keys(contagem).length;
-    const ret    = Object.values(contagem).filter(v => v > 1).length;
-    return { clientesUnicos: total, retornaram: ret, visitaramOnce: total - ret };
-  }, [concluidos]);
+  // ── Retenção: "retornou" = atendida no período E antes dele (regra única web + mobile)
+  const { atendidas: clientesUnicos, retornaram, novas } = useMemo(
+    () => metricasRetorno(dadosPeriodo.agendamentos, historicoClientes),
+    [dadosPeriodo, historicoClientes],
+  );
 
   // ── Render ────────────────────────────────────────────────────
 
@@ -925,7 +675,7 @@ export default function RelatoriosPage() {
                   type="date"
                   value={customFim}
                   min={customIni}
-                  max={format(new Date(), 'yyyy-MM-dd')}
+                  max={hojeBRT()}
                   onChange={e => atualizarCustomFim(e.target.value)}
                   aria-label="Data final"
                   className="text-xs text-text-2 bg-surface border border-border rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -977,7 +727,7 @@ export default function RelatoriosPage() {
 
         {/* Exportar */}
         <div className="flex items-center gap-2 bm-mobile-export-only">
-          {!loading && (
+          {!loading && !erroCarga && (
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
@@ -1035,7 +785,7 @@ export default function RelatoriosPage() {
       <SmoothTabs
         variant="pill"
         className="mb-6"
-        tabs={PERIODOS}
+        tabs={PERIODOS_RELATORIO}
         active={periodo}
         onChange={key => {
           setPeriodo(key as Periodo);
@@ -1044,10 +794,17 @@ export default function RelatoriosPage() {
         }}
       />
 
+      {erroCarga && (
+        <div className="bg-red-soft border border-border rounded-2xl p-4 mb-6 text-sm font-semibold text-red">
+          {erroCarga}
+        </div>
+      )}
+
       {/* ── KPIs ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      {!erroCarga && <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <KpiCard icon={DollarSign} label="Faturamento bruto"    value={fmtBRL(bruto)}
           sub={brutoVendas > 0 ? `inc. ${fmtBRL(brutoVendas)} em vendas` : undefined}
+          delta={dBruto} rotuloDelta={ROTULO_COMPARACAO[periodo]}
           cor="#7C3AED" loading={loading} />
         {taxasCartao > 0 && (
           <KpiCard icon={CreditCard} label="Taxas de cartão"    value={fmtBRL(taxasCartao)}         cor="#DC2626" loading={loading} />
@@ -1059,22 +816,22 @@ export default function RelatoriosPage() {
             sub={`(−) ${fmtBRL(retiradasPeriodo)} da dona`}
             cor={resultadoAposRetiradas >= 0 ? '#0D7E5F' : '#DC2626'} loading={loading} />
         )}
-        <KpiCard icon={Scissors}   label="Atendimentos"         value={String(concluidos.length)}   sub="concluídos" cor="#D4608A" loading={loading} />
-        <KpiCard icon={Target}     label="Ticket médio"         value={fmtBRL(ticket)}              cor="#B45309" loading={loading} />
+        <KpiCard icon={Scissors}   label="Atendimentos"         value={String(kpis.atendimentos)}   sub="concluídos"
+          delta={dAtend} rotuloDelta={ROTULO_COMPARACAO[periodo]} cor="#D4608A" loading={loading} />
+        <KpiCard icon={Target}     label="Ticket médio"         value={fmtBRL(ticket)}
+          delta={dTicket} rotuloDelta={ROTULO_COMPARACAO[periodo]} cor="#B45309" loading={loading} />
         <KpiCard icon={Users}      label="Taxa comparecimento"  value={`${taxa.toFixed(1)}%`}       cor="#1D4ED8" loading={loading} />
         <KpiCard icon={XCircle} label="Taxa de cancelamento"
-          value={ags.length > 0 ? `${(((cancelados.length + faltaram.length) / ags.length) * 100).toFixed(1)}%` : '—'}
-          sub={cancelados.length + faltaram.length > 0 ? `${cancelados.length + faltaram.length} perdido(s)` : undefined}
+          value={kpis.totalAgendamentos > 0 ? `${kpis.pctCancelamento.toFixed(1)}%` : '—'}
+          sub={kpis.perdidos > 0 ? `${kpis.perdidos} perdido(s)` : undefined}
           cor="#DC2626" loading={loading} />
         {(brutoTaxas + brutoReserva) > 0 && (
           <KpiCard icon={Receipt}       label="Taxas (cancel. + reserva)" value={fmtBRL(brutoTaxas + brutoReserva)}          cor="#DC2626" loading={loading} />
         )}
         <KpiCard icon={DollarSign} label="Total comissões"      value={fmtBRL(comTot)}
-          sub={comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0) > 0
-            ? `${fmtBRL(comissoes.filter(c => c.status === 'pendente').reduce((s, c) => s + c.valor_comissao, 0))} pendentes`
-            : 'Em dia'}
+          sub={kpis.comissoesPendentes > 0 ? `${fmtBRL(kpis.comissoesPendentes)} pendentes` : 'Em dia'}
           cor="#D97706" loading={loading} />
-      </div>
+      </div>}
 
       {/* ── Abas ── */}
       <SmoothTabs
@@ -1088,7 +845,7 @@ export default function RelatoriosPage() {
       {/* ════════════════════════════════════════════════════════
           TAB: FINANCEIRO
       ════════════════════════════════════════════════════════ */}
-      {aba === 'financeiro' && (
+      {aba === 'financeiro' && !erroCarga && (
         <div className="flex flex-col gap-5">
           {/* Gráfico de evolução de faturamento */}
           <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
@@ -1108,6 +865,7 @@ export default function RelatoriosPage() {
                 ))}
               </div>
             )}
+            {!loading && notaFechamento}
           </div>
 
           {/* Resumo + Despesas por categoria */}
@@ -1129,16 +887,23 @@ export default function RelatoriosPage() {
                       <span className="text-sm font-semibold" style={{ color: '#7C3AED' }}>{fmtBRL(brutoVendas)}</span>
                     </div>
                   )}
-                  {/* Linha de total bruto — só se tiver vendas */}
-                  {brutoVendas > 0 && (
-                    <div className="flex items-center justify-between py-2.5 border-b border-border bg-bg/50 px-1 rounded">
-                      <span className="text-sm font-semibold text-text">= Faturamento bruto</span>
-                      <span className="text-sm font-bold" style={{ color: '#7C3AED' }}><Secret>{fmtBRL(bruto)}</Secret></span>
+                  {(brutoTaxas + brutoReserva) > 0 && (
+                    <div className="flex items-center justify-between py-2.5 border-b border-border">
+                      <span className="text-sm text-text-2">Taxas (cancel. + reserva)</span>
+                      <span className="text-sm font-semibold" style={{ color: '#7C3AED' }}><Secret>{fmtBRL(brutoTaxas + brutoReserva)}</Secret></span>
                     </div>
                   )}
+                  <div className="flex items-center justify-between py-2.5 border-b border-border bg-bg/50 px-1 rounded">
+                    <span className="text-sm font-semibold text-text">= Faturamento bruto</span>
+                    <span className="text-sm font-bold" style={{ color: '#7C3AED' }}><Secret>{fmtBRL(bruto)}</Secret></span>
+                  </div>
+                  {kpis.mesesComFechamento.length > 0 && (
+                    <p className="text-xs text-text-3 py-1.5">Inclui fechamento importado de {kpis.mesesComFechamento.join(', ')}.</p>
+                  )}
                   {([
-                    { label: '(−) Comissões', v: comTot,  cor: '#D4608A' },
-                    { label: '(−) Despesas',  v: despTot, cor: '#DC2626' },
+                    { label: '(−) Taxas de cartão', v: taxasCartao, cor: '#DC2626' },
+                    { label: '(−) Comissões',       v: comTot,      cor: '#D4608A' },
+                    { label: '(−) Despesas',        v: despTot,     cor: '#DC2626' },
                   ] as const).map(({ label, v, cor }) => (
                     <div key={label} className="flex items-center justify-between py-2.5 border-b border-border">
                       <span className="text-sm text-text-2">{label}</span>
@@ -1201,7 +966,7 @@ export default function RelatoriosPage() {
       {/* ════════════════════════════════════════════════════════
           TAB: SERVIÇOS
       ════════════════════════════════════════════════════════ */}
-      {aba === 'servicos' && (
+      {aba === 'servicos' && !erroCarga && (
         <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-1">
             <h2 className="font-semibold text-text">Serviços por receita</h2>
@@ -1228,6 +993,7 @@ export default function RelatoriosPage() {
                 <span className="text-xs text-text-3">Total</span>
                 <span className="text-sm font-bold text-text"><Secret>{fmtBRL(bruto)}</Secret></span>
               </div>
+              {notaFechamento}
             </>
           )}
         </div>
@@ -1236,7 +1002,7 @@ export default function RelatoriosPage() {
       {/* ════════════════════════════════════════════════════════
           TAB: EQUIPE
       ════════════════════════════════════════════════════════ */}
-      {aba === 'equipe' && (
+      {aba === 'equipe' && !erroCarga && (
         <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-1">
             <h2 className="font-semibold text-text">Desempenho por profissional</h2>
@@ -1294,6 +1060,7 @@ export default function RelatoriosPage() {
                   <span className="text-sm font-bold text-text"><Secret>{fmtBRL(comTot)}</Secret></span>
                 </div>
               )}
+              {notaFechamento}
             </>
           )}
         </div>
@@ -1302,7 +1069,7 @@ export default function RelatoriosPage() {
       {/* ════════════════════════════════════════════════════════
           TAB: CLIENTES
       ════════════════════════════════════════════════════════ */}
-      {aba === 'clientes' && (
+      {aba === 'clientes' && !erroCarga && (
         <div className="flex flex-col gap-4">
           {/* Painel de retenção */}
           {!loading && (
@@ -1316,8 +1083,8 @@ export default function RelatoriosPage() {
                 <p className="text-xs text-text-3 mt-1">Retornaram</p>
               </div>
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
-                <p className="text-2xl font-bold text-sky-600">{visitaramOnce}</p>
-                <p className="text-xs text-text-3 mt-1">Única visita</p>
+                <p className="text-2xl font-bold text-sky-600">{novas}</p>
+                <p className="text-xs text-text-3 mt-1">Novas</p>
               </div>
             </div>
           )}
@@ -1430,7 +1197,7 @@ export default function RelatoriosPage() {
       {/* ════════════════════════════════════════════════════════
           TAB: COMISSÕES
       ════════════════════════════════════════════════════════ */}
-      {aba === 'comissoes' && (
+      {aba === 'comissoes' && !erroCarga && (
         <div className="flex flex-col gap-4">
 
           {/* Resumo geral */}

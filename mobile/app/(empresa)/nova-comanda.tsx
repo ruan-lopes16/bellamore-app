@@ -28,6 +28,8 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
+import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
+import { useQueryClient } from '@tanstack/react-query';
 import SuccessCheck from '@/components/SuccessCheck';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
@@ -114,6 +116,7 @@ export default function NovaComandaScreen() {
   const insets = useSafeAreaInsets();
   const empresaAtiva = useAuthStore(s => s.empresaAtiva);
   const empresaId = empresaAtiva?.id ?? null;
+  const qc = useQueryClient();
 
   const [loading, setLoading] = useState(true);
   const [agDia, setAgDia] = useState<AgDia[]>([]);
@@ -503,6 +506,9 @@ export default function NovaComandaScreen() {
     }
 
     setFechando(false);
+    // Receita, comissão e alerta de comandas abertas mudaram: atualiza todas as telas.
+    invalidarFinanceiro(qc);
+    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
     // status E comanda_id — senão o atendimento continua listado como aberto.
     setAgDia(prev => marcarAgendamentosFechados(prev, agIds, comandaId));
     setProximoCliente(proximoClienteAberto(clienteSel.id));

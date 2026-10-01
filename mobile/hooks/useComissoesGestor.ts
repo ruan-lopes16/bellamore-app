@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { startOfMonth, endOfMonth, subMonths, format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ export function useComissoesGestor(mesRef: Date) {
         .gte('created_at', ini)
         .lte('created_at', fim);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['comissoes-gestor', empresaId, chave] }),
+    onSuccess: () => invalidarFinanceiro(qc),   // lucro/comissões pendentes mudam em todas as telas
   });
 
   const lista = query.data ?? [];

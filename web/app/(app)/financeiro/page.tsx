@@ -2,38 +2,16 @@
 
 /**
  * @file financeiro/page.tsx
- * Módulo financeiro completo com KPIs, evolução e gestão de despesas.
+ * Módulo financeiro: KPIs do mês, evolução de 6 meses, top serviços, formas de
+ * pagamento, despesas, taxas e retiradas da dona.
  *
- * ## KPIs calculados
- * Todos os valores são calculados a partir de agendamentos (status = 'concluido'),
- * NÃO da tabela `comissoes` ou `pagamentos`.
- *
- * - Faturamento Bruto  = soma de agendamentos.valor + vendas.valor_final + taxas_cancelamento pagas no mês
- * - Comissões          = Σ (valor × percentual_comissao / 100) por profissional
- * - Faturamento Líquido = Bruto − Comissões
- * - Gastos             = soma de despesas do mês
- * - Lucro Real         = Líquido − Gastos
- *
- * ## Comparativo mês anterior
- * Cada KPI exibe o delta percentual vs. mês anterior.
- * `delta(atual, anterior)` retorna null se anterior = 0 (evita divisão por zero).
- *
- * ## Gráfico de evolução
- * Busca agendamentos dos últimos 6 meses em UMA query só (range de datas),
- * depois agrupa por mês no client usando `isSameMonth` do date-fns.
- * Evita 6 queries paralelas.
- *
- * ## Despesas
- * - Listagem do mês com status pendente/pago
- * - Modal de nova despesa com suporte a recorrentes
- * - Modal de marcar como pago (registra data e forma de pagamento)
- *
- * ## Taxas de cancelamento
- * - Listagem do mês (pendente/pago) com ação "marcar como paga"
- * - Taxas pagas no mês entram no Faturamento Bruto
+ * Todos os números vêm de @shared/kpis-financeiros (as mesmas funções do app
+ * mobile, do Dashboard e dos Relatórios), sobre as linhas trazidas por
+ * @shared/kpis-financeiros-consultas. Regras: ver o cabeçalho de
+ * shared/kpis-financeiros.ts. Datas do mês em Brasília (@shared/periodos).
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, Ban, X, Layers, Banknote, CreditCard, Gift,
@@ -45,21 +23,25 @@ import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { avancarComEnter } from '@/lib/formNav';
 import { KpisFinanceiroSkeleton, GraficosDespesasSkeleton } from './FinanceiroSkeleton';
-import {
-  format, addMonths, subMonths, isSameMonth,
-} from 'date-fns';
+import { format, addMonths, subMonths, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
 import {
-  type FinanceiroFechamentoRow,
-  getFechamentoForMonth,
-  resolveFinanceiroKpis,
-} from '@/lib/financeiro/fechamentos-mensais';
-import { getMonthQueryBounds } from '@/lib/financeiro/periodo-mensal';
-import {
   somaDevolucoesPorRetirada, saldoEmprestimo, saldoDevedorTotal,
-  retiradasNoPeriodo, statusParcela, montarRetiradaSociaInsert, montarDevolucaoInsert,
+  statusParcela, montarRetiradaSociaInsert, montarDevolucaoInsert,
 } from '@shared/retiradas-socia';
+import {
+  limitesMes, somarMeses, uniaoLimites, chaveDoMesExibido, getMonthQueryBounds,
+} from '@shared/periodos';
+import {
+  calcularKpisFinanceiros, recortarDados, evolucaoMensal, rankingAtendimentos,
+  resumoMetodosPagamento, variacaoPercentual, resultadoAposRetiradas, retiradasDoPeriodo,
+  listarRetiradasDoPeriodo, KPIS_ZERADOS, type KpisFinanceiros,
+} from '@shared/kpis-financeiros';
+import {
+  carregarDadosFinanceiros, carregarRetiradas, filtroDespesasDoMes,
+} from '@shared/kpis-financeiros-consultas';
+import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
 import type {
   TaxaCancelamento, TaxaReserva, RetiradaSocia, RetiradaSociaDevolucao,
   RetiradaSociaTipo, MetodoPagamentoRetirada,
@@ -86,10 +68,6 @@ type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number
 
 function fmtBRL(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
-function delta(atual: number, anterior: number) {
-  if (anterior === 0) return null;
-  return Math.round(((atual - anterior) / anterior) * 100);
 }
 
 const CATEGORIAS_DESP = [
@@ -1022,26 +1000,24 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 export default function FinanceiroPage() {
   const [mesRef,   setMesRef]   = useState(new Date());
   const [empresaId,setEmpresaId]= useState<string | null>(null);
-  const [isOwner,  setIsOwner]  = useState(false);
+  // null = ainda não resolvido: a 1ª carga espera, senão as retiradas da dona seriam
+  // buscadas como não-dona e depois sobrescritas (ou vice-versa).
+  const [isOwner,  setIsOwner]  = useState<boolean | null>(null);
+  // Contador de requisições: respostas de cargas antigas (mês trocado rápido) são descartadas.
+  const reqRef = useRef(0);
   const [loading,  setLoading]  = useState(true);
 
   // Dados
-  const [receita,       setReceita]       = useState(0);
-  const [receitaAnt,    setReceitaAnt]    = useState(0);
-  const [taxasCartao,   setTaxasCartao]   = useState(0);
-  const [comissoes,     setComissoes]     = useState(0);
-  const [comissoesAnt,  setComissoesAnt]  = useState(0);
-  const [gastos,        setGastos]        = useState(0);
-  const [gastosAnt,     setGastosAnt]     = useState(0);
+  const [kpis,    setKpis]    = useState<KpisFinanceiros>(KPIS_ZERADOS);
+  const [kpisAnt, setKpisAnt] = useState<KpisFinanceiros>(KPIS_ZERADOS);
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
   const [topServicos,   setTopServicos]   = useState<TopServico[]>([]);
   const [metodos,       setMetodos]       = useState<MetodoPag[]>([]);
   const [despesas,      setDespesas]      = useState<Despesa[]>([]);
   const [taxasCancelamento,      setTaxasCancelamento]      = useState<TaxaCancelamento[]>([]);
-  const [taxasCancelamentoPagas, setTaxasCancelamentoPagas] = useState(0);
   const [taxasReserva,      setTaxasReserva]      = useState<TaxaReserva[]>([]);
-  const [taxasReservaPagas, setTaxasReservaPagas] = useState(0);
   const [evolucao,      setEvolucao]      = useState<{ mes: string; receita: number; comissoes: number; gastos: number }[]>([]);
-  const [retiradas,     setRetiradas]     = useState<RetiradaSocia[]>([]);
+  const [retiradasTodas, setRetiradasTodas] = useState<RetiradaSocia[]>([]);
   const [retiradasDevs, setRetiradasDevs] = useState<RetiradaSociaDevolucao[]>([]);
 
   // Modais
@@ -1078,278 +1054,108 @@ export default function FinanceiroPage() {
   }, []);
 
   useEffect(() => {
-    if (!empresaId) return;
+    if (!empresaId || isOwner === null) return;
     carregar(empresaId, mesRef);
   }, [empresaId, mesRef, isOwner]);
 
   async function carregar(empId: string, mes: Date) {
+    const req = ++reqRef.current;
     setLoading(true);
-    const periodo    = getMonthQueryBounds(mes);
-    const periodoAnt = getMonthQueryBounds(subMonths(mes, 1));
-    const periodo6   = getMonthQueryBounds(subMonths(mes, 5));
-    const ini  = periodo.startIso;
-    const fim  = periodo.endIso;
-    const iniA = periodoAnt.startIso;
-    const fimA = periodoAnt.endIso;
-    const ini6 = periodo6.startIso;
+    const chave   = chaveDoMesExibido(mes);
+    const periodo = limitesMes(chave);
+    const chaves6 = Array.from({ length: 6 }, (_, i) => somarMeses(chave, i - 5));
+    const ini = periodo.startIso;
+    const fim = periodo.endIso;
+    setErroCarga(null);
 
-    const [agsMes, agsAnt, ags6m, membros, despMes, despAnt, desp6m, pagsMes, despLista, vendasMes, vendasAnt, vendas6m, recMesAnt, fechamentos6m, taxasLista, taxasPagasMes, taxasPagasAnt, reservaLista, reservaPagasMes, reservaPagasAnt] = await Promise.all([
-      // Agendamentos concluídos do mês (com profissional e serviço).
-      // .is('pacote_cliente_id', null): sessão de pacote já foi paga na venda do
-      // pacote — não entra como faturamento nem comissão de novo.
-      supabase.from('agendamentos').select('profissional_id, servico_id, valor, servico:servicos(nome)')
-        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
-        .gte('data_hora_inicio', ini).lte('data_hora_inicio', fim),
-      // Agendamentos mês anterior
-      supabase.from('agendamentos').select('profissional_id, valor')
-        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
-        .gte('data_hora_inicio', iniA).lte('data_hora_inicio', fimA),
-      // Agendamentos 6 meses (evolução)
-      supabase.from('agendamentos').select('profissional_id, valor, data_hora_inicio')
-        .eq('empresa_id', empId).eq('status', 'concluido').is('pacote_cliente_id', null)
-        .gte('data_hora_inicio', ini6).lte('data_hora_inicio', fim),
-      // Membros ativos → percentual de comissão (inclui owner/gestor que também atendem)
-      supabase.from('empresa_membros').select('user_id, percentual_comissao')
-        .eq('empresa_id', empId).eq('ativo', true),
-      // Despesas pagas no mês
-      supabase.from('despesas').select('valor')
-        .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', periodo.startDate).lte('data_pagamento', periodo.endDate),
-      // Despesas pagas mês anterior
-      supabase.from('despesas').select('valor')
-        .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', periodoAnt.startDate).lte('data_pagamento', periodoAnt.endDate),
-      // Despesas 6 meses (evolução)
-      supabase.from('despesas').select('valor, data_pagamento')
-        .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('data_pagamento', periodo6.startDate).lte('data_pagamento', periodo.endDate),
-      // Formas de pagamento
-      supabase.from('pagamentos').select('metodo, valor, valor_liquido')
-        .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('created_at', ini).lte('created_at', fim),
-      // Lista de despesas do mês (pendentes + pagas)
-      supabase.from('despesas').select('*')
-        .eq('empresa_id', empId)
-        .or(`and(data_vencimento.gte.${periodo.startDate},data_vencimento.lte.${periodo.endDate}),and(data_pagamento.gte.${periodo.startDate},data_pagamento.lte.${periodo.endDate})`)
-        .order('status').order('data_vencimento'),
-      // Vendas avulsas do mês
-      supabase.from('vendas').select('valor_final')
-        .eq('empresa_id', empId).gte('created_at', ini).lte('created_at', fim),
-      // Vendas avulsas mês anterior
-      supabase.from('vendas').select('valor_final')
-        .eq('empresa_id', empId).gte('created_at', iniA).lte('created_at', fimA),
-      // Vendas avulsas 6 meses
-      supabase.from('vendas').select('valor_final, created_at')
-        .eq('empresa_id', empId).gte('created_at', ini6).lte('created_at', fim),
-      // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
-      supabase.from('despesas')
-        .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas, valor_total_compra')
-        .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
-        .lt('data_vencimento', periodo.startDate)   // somente meses passados
-        .order('data_vencimento', { ascending: false })
-        .limit(5000),  // teto explicito: a contagem derivada (calcularParcelaDerivada) depende
-                        // da linha mais antiga de cada serie estar presente no historico
-      // Fechamentos importados para meses sem historico operacional completo.
-      supabase.from('financeiro_ajustes_mensais')
-        .select('mes, receita_bruta, comissao_paga')
-        .eq('empresa_id', empId)
-        .gte('mes', periodo6.startDate).lte('mes', periodo.endDate),
-      // Lista de taxas de cancelamento do mês (pendentes + pagas)
-      supabase.from('taxas_cancelamento')
-        .select('*, cliente:clientes(nome)')
-        .eq('empresa_id', empId)
-        .neq('status', 'cancelada')
-        .gte('created_at', ini).lte('created_at', fim)
-        .order('status').order('created_at'),
-      // Taxas pagas no mês (para somar ao bruto)
-      supabase.from('taxas_cancelamento').select('valor')
-        .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('paga_em', ini).lte('paga_em', fim),
-      // Taxas pagas no mês anterior (para somar ao bruto do mês anterior)
-      supabase.from('taxas_cancelamento').select('valor')
-        .eq('empresa_id', empId).eq('status', 'pago')
-        .gte('paga_em', iniA).lte('paga_em', fimA),
-      // Lista de taxas de reserva do mês (pendentes + pagas + retidas).
-      // 'cancelada' fica de fora: é o estado terminal das taxas encerradas
-      // pelo trigger quando o atendimento acontece (migration 061) — não é
-      // cobrança nem dívida, só ruído na lista. Mesmo critério já usado
-      // acima para taxas_cancelamento.
-      supabase.from('taxas_reserva')
-        .select('*, cliente:clientes(nome)')
-        .eq('empresa_id', empId)
-        .neq('status', 'cancelada')
-        .gte('created_at', ini).lte('created_at', fim)
-        .order('status').order('created_at'),
-      // Taxas de reserva pagas no mês (para somar ao bruto, inclui as posteriormente retidas)
-      supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empId).not('paga_em', 'is', null)
-        .gte('paga_em', ini).lte('paga_em', fim),
-      // Taxas de reserva pagas no mês anterior (para somar ao bruto do mês anterior)
-      supabase.from('taxas_reserva').select('valor')
-        .eq('empresa_id', empId).not('paga_em', 'is', null)
-        .gte('paga_em', iniA).lte('paga_em', fimA),
-    ]);
-
-    // Mapa de comissão por profissional (user_id → %)
-    const comMap: Record<string, number> = {};
-    ((membros.data ?? []) as { user_id: string; percentual_comissao: number }[])
-      .forEach(m => { comMap[m.user_id] = m.percentual_comissao ?? 0; });
-
-    type AgRow = { profissional_id: string | null; valor: number };
-    const calcCom = (ags: AgRow[]) =>
-      ags
-        .filter(a => a.profissional_id != null)
-        .reduce((s, a) => s + Number(a.valor) * (comMap[a.profissional_id!] ?? 0) / 100, 0);
-
-    type ValRow = { valor: number };
-    type VendaRow = { valor_final: number };
-    type TaxaRow = { valor: number };
-    const brutoServicos   = ((agsMes.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0);
-    const brutoVendas     = ((vendasMes.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0);
-    const brutoTaxasCanc  = ((taxasPagasMes.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
-    const brutoTaxasCancAnt = ((taxasPagasAnt.data ?? []) as TaxaRow[]).reduce((s, t) => s + Number(t.valor), 0);
-    const brutoReserva    = ((reservaPagasMes.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
-    const brutoReservaAnt = ((reservaPagasAnt.data ?? []) as { valor: number }[]).reduce((s, t) => s + Number(t.valor), 0);
-    const receitaVal      = brutoServicos + brutoVendas + brutoTaxasCanc + brutoReserva;
-    const receitaAntVal   = ((agsAnt.data ?? []) as ValRow[]).reduce((s, a) => s + Number(a.valor), 0)
-                          + ((vendasAnt.data ?? []) as VendaRow[]).reduce((s, v) => s + Number(v.valor_final), 0)
-                          + brutoTaxasCancAnt
-                          + brutoReservaAnt;
-    const comissoesVal    = calcCom((agsMes.data ?? []) as AgRow[]);
-    const comissoesAntVal = calcCom((agsAnt.data ?? []) as AgRow[]);
-    const gastosVal       = ((despMes.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
-    const gastosAntVal    = ((despAnt.data ?? []) as ValRow[]).reduce((s, d) => s + Number(d.valor), 0);
-    const fechamentosData = (fechamentos6m.data ?? []) as FinanceiroFechamentoRow[];
-    const fechamentoMes   = getFechamentoForMonth(fechamentosData, format(mes, 'yyyy-MM'));
-    const fechamentoAnt   = getFechamentoForMonth(fechamentosData, format(subMonths(mes, 1), 'yyyy-MM'));
-
-    type PagRow = { metodo: string; valor: number; valor_liquido: number | null };
-    const pagsData = (pagsMes.data ?? []) as PagRow[];
-    const taxasCartaoVal = pagsData.reduce((s, p) =>
-      s + (p.valor_liquido != null ? Number(p.valor) - Number(p.valor_liquido) : 0), 0);
-    const kpisMes = resolveFinanceiroKpis({
-      receita: receitaVal,
-      comissoes: comissoesVal,
-      gastos: gastosVal,
-      taxasCartao: taxasCartaoVal,
-    }, fechamentoMes);
-    const kpisAnt = resolveFinanceiroKpis({
-      receita: receitaAntVal,
-      comissoes: comissoesAntVal,
-      gastos: gastosAntVal,
-      taxasCartao: 0,
-    }, fechamentoAnt);
-
-    setReceita(kpisMes.receita);       setReceitaAnt(kpisAnt.receita);
-    setComissoes(kpisMes.comissoes);   setComissoesAnt(kpisAnt.comissoes);
-    setGastos(kpisMes.gastos);         setGastosAnt(kpisAnt.gastos);
-    setTaxasCartao(kpisMes.taxasCartao);
-    setTaxasCancelamento((taxasLista.data ?? []) as TaxaCancelamento[]);
-    setTaxasCancelamentoPagas(brutoTaxasCanc);
-    setTaxasReserva((reservaLista.data ?? []) as TaxaReserva[]);
-    setTaxasReservaPagas(brutoReserva);
-
-    // Top serviços
-    type TopServicoRow = { servico_id: string | null; valor: number; servico: { nome: string } | null };
-    const svcMap: Record<string, { nome: string; qtd: number; receita: number }> = {};
-    ((agsMes.data ?? []) as TopServicoRow[]).forEach(a => {
-      if (!a.servico_id) return;
-      const id = a.servico_id; const nome = a.servico?.nome ?? 'Serviço';
-      if (!svcMap[id]) svcMap[id] = { nome, qtd: 0, receita: 0 };
-      svcMap[id].qtd += 1; svcMap[id].receita += Number(a.valor);
-    });
-    const svcLista = Object.entries(svcMap)
-      .map(([, s]) => ({ nome: s.nome, quantidade: s.qtd, receita: s.receita, percentual: 0 }))
-      .sort((a, b) => b.receita - a.receita).slice(0, 5);
-    const maxSvc = svcLista[0]?.receita ?? 1;
-    setTopServicos(svcLista.map(s => ({ ...s, percentual: Math.round((s.receita / maxSvc) * 100) })));
-
-    // Formas de pagamento
-    const metMap: Record<string, { valor: number; quantidade: number }> = {};
-    pagsData.forEach(p => {
-      if (!metMap[p.metodo]) metMap[p.metodo] = { valor: 0, quantidade: 0 };
-      metMap[p.metodo].valor += Number(p.valor); metMap[p.metodo].quantidade += 1;
-    });
-    const metTotal = Object.values(metMap).reduce((s, m) => s + m.valor, 0);
-    setMetodos(Object.entries(metMap).map(([metodo, m]) => ({
-      metodo, valor: m.valor, quantidade: m.quantidade,
-      percentual: metTotal > 0 ? Math.round((m.valor / metTotal) * 100) : 0,
-    })).sort((a, b) => b.valor - a.valor));
-
-    // Evolução 6 meses (client-side, a partir das queries únicas)
-    const evolucaoData = Array.from({ length: 6 }, (_, i) => {
-      const m    = subMonths(mes, 5 - i);
-      type Desp6Row = { valor: number; data_pagamento: string | null };
-      type Venda6Row = { valor_final: number; created_at: string };
-      const mesAgs  = ((ags6m.data ?? []) as (AgRow & { data_hora_inicio: string })[]).filter(a =>
-        isSameMonth(new Date(a.data_hora_inicio), m)
-      );
-      const mesDesp = ((desp6m.data ?? []) as Desp6Row[]).filter(d =>
-        d.data_pagamento && isSameMonth(new Date(d.data_pagamento + 'T12:00'), m)
-      );
-      const mesVendas = ((vendas6m.data ?? []) as Venda6Row[]).filter(v =>
-        isSameMonth(new Date(v.created_at), m)
-      );
-      const gastosMes = mesDesp.reduce((s, d) => s + Number(d.valor), 0);
-      const fechamento = getFechamentoForMonth(fechamentosData, format(m, 'yyyy-MM'));
-      const kpis = resolveFinanceiroKpis({
-        receita: mesAgs.reduce((s, a) => s + Number(a.valor), 0)
-               + mesVendas.reduce((s, v) => s + Number(v.valor_final), 0),
-        comissoes: calcCom(mesAgs),
-        gastos: gastosMes,
-        taxasCartao: 0,
-      }, fechamento);
-      return {
-        mes:       format(m, 'MMM', { locale: ptBR }),
-        receita:   kpis.receita,
-        comissoes: kpis.comissoes,
-        gastos:    kpis.gastos,
-      };
-    });
-    setEvolucao(evolucaoData);
-
-    setDespesas((despLista.data ?? []) as Despesa[]);
-
-    // Auto-lançamento robusto: pega o template mais recente por (descricao+categoria),
-    // independente de quantos meses foram pulados, ignorando recorrências já
-    // encerradas e as que já existem no mês atual. Composição (agrupar por chave
-    // antes de filtrar por término) coberta por teste em
-    // shared/despesas.ts::templatesRecorrentesParaLancar — não reordenar sem testes.
-    const todasMensais = (recMesAnt.data ?? []) as RecorrenteTemplate[];
-    const despAtual = (despLista.data ?? []) as { descricao: string; categoria?: string }[];
-    const chavesMesAtual = new Set(despAtual.map(d => `${d.descricao}||${d.categoria ?? ''}`));
-    setRecorrentesParaLancar(
-      templatesRecorrentesParaLancar(todasMensais, chavesMesAtual, periodo.startDate)
-    );
-    setHistoricoMensal(todasMensais);
-
-    // Retiradas/empréstimos da dona — só o owner enxerga (RLS + guarda de UI).
-    if (isOwner) {
-      const [rRet, rDev] = await Promise.all([
-        supabase.from('retiradas_socia')
-          .select('id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at')
+    try {
+      const [dados, despLista, recMesAnt, taxasLista, reservaLista, retiradasDados] = await Promise.all([
+        // KPIs do mês, do mês anterior e dos 6 meses do gráfico — uma busca só.
+        carregarDadosFinanceiros(supabase, empId, uniaoLimites(limitesMes(chaves6[0]), periodo)),
+        // Lista de despesas do mês (pendentes + pagas)
+        supabase.from('despesas').select('*')
           .eq('empresa_id', empId)
-          .or(`and(data.gte.${periodo.startDate},data.lte.${periodo.endDate}),and(convertido_em.gte.${periodo.startDate},convertido_em.lte.${periodo.endDate})`)
-          .order('data', { ascending: false }),
-        // devoluções de TODOS os empréstimos — o saldo devedor é histórico, não do mês
-        supabase.from('retiradas_socia_devolucoes')
-          .select('id,retirada_id,valor,data,metodo')
-          .eq('empresa_id', empId),
+          .or(filtroDespesasDoMes(periodo))
+          .order('status').order('data_vencimento'),
+        // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
+        supabase.from('despesas')
+          .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas, valor_total_compra')
+          .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
+          .lt('data_vencimento', periodo.startDate)   // somente meses passados
+          .order('data_vencimento', { ascending: false })
+          .limit(5000),  // teto explicito: a contagem derivada (calcularParcelaDerivada) depende
+                          // da linha mais antiga de cada serie estar presente no historico
+        // Lista de taxas de cancelamento do mês (pendentes + pagas)
+        supabase.from('taxas_cancelamento')
+          .select('*, cliente:clientes(nome)')
+          .eq('empresa_id', empId)
+          .neq('status', 'cancelada')
+          .gte('created_at', ini).lte('created_at', fim)
+          .order('status').order('created_at'),
+        // Lista de taxas de reserva do mês. 'cancelada' fica de fora: é o estado
+        // terminal das taxas encerradas pelo trigger quando o atendimento acontece
+        // (migration 061) — não é cobrança nem dívida.
+        supabase.from('taxas_reserva')
+          .select('*, cliente:clientes(nome)')
+          .eq('empresa_id', empId)
+          .neq('status', 'cancelada')
+          .gte('created_at', ini).lte('created_at', fim)
+          .order('status').order('created_at'),
+        // Retiradas/empréstimos da dona — só o owner enxerga (RLS + guarda de UI).
+        isOwner
+          ? carregarRetiradas(supabase, empId)
+          : Promise.resolve({ rows: [] as RetiradaSociaRow[], devs: [] as RetiradaSociaDevolucaoRow[] }),
       ]);
-      setRetiradas((rRet.data ?? []) as RetiradaSocia[]);
-      setRetiradasDevs((rDev.data ?? []) as RetiradaSociaDevolucao[]);
-    } else {
-      setRetiradas([]);
-      setRetiradasDevs([]);
-    }
 
-    setLoading(false);
+      if (req !== reqRef.current) return;   // resposta velha: outra carga já começou
+
+      // Erro em qualquer consulta direta aborta a carga: sem isso, despesas do mês
+      // viram [] e o auto-lançamento proporia duplicar todas as recorrentes.
+      for (const r of [despLista, recMesAnt, taxasLista, reservaLista]) {
+        if (r.error) throw r.error;
+      }
+
+      const doMes = recortarDados(dados, periodo);
+      setKpis(calcularKpisFinanceiros(dados, periodo));
+      setKpisAnt(calcularKpisFinanceiros(dados, limitesMes(somarMeses(chave, -1))));
+      setTopServicos(rankingAtendimentos(doMes.agendamentos, 'servico').slice(0, 5)
+        .map(s => ({ nome: s.nome, quantidade: s.quantidade, receita: s.receita, percentual: Math.round(s.percentual) })));
+      setMetodos(resumoMetodosPagamento(doMes.pagamentos));
+      setEvolucao(evolucaoMensal(dados, chaves6)
+        .map(p => ({ mes: p.rotulo, receita: p.bruto, comissoes: p.comissoes, gastos: p.despesas })));
+      setTaxasCancelamento((taxasLista.data ?? []) as TaxaCancelamento[]);
+      setTaxasReserva((reservaLista.data ?? []) as TaxaReserva[]);
+      setDespesas((despLista.data ?? []) as Despesa[]);
+
+      // Auto-lançamento robusto: pega o template mais recente por (descricao+categoria),
+      // independente de quantos meses foram pulados, ignorando recorrências já
+      // encerradas e as que já existem no mês atual. Composição coberta por teste em
+      // shared/despesas.ts::templatesRecorrentesParaLancar — não reordenar sem testes.
+      const todasMensais = (recMesAnt.data ?? []) as RecorrenteTemplate[];
+      const despAtual = (despLista.data ?? []) as { descricao: string; categoria?: string }[];
+      const chavesMesAtual = new Set(despAtual.map(d => `${d.descricao}||${d.categoria ?? ''}`));
+      setRecorrentesParaLancar(templatesRecorrentesParaLancar(todasMensais, chavesMesAtual, periodo.startDate));
+      setHistoricoMensal(todasMensais);
+
+      setRetiradasTodas(retiradasDados.rows as RetiradaSocia[]);
+      setRetiradasDevs(retiradasDados.devs as RetiradaSociaDevolucao[]);
+    } catch (e) {
+      if (req !== reqRef.current) return;
+      // Não deixa números do mês anterior na tela: zera tudo que depende do mês.
+      setKpis(KPIS_ZERADOS); setKpisAnt(KPIS_ZERADOS);
+      setTopServicos([]); setMetodos([]); setEvolucao([]);
+      setDespesas([]); setTaxasCancelamento([]); setTaxasReserva([]);
+      setRecorrentesParaLancar([]); setHistoricoMensal([]);
+      setRetiradasTodas([]); setRetiradasDevs([]);
+      setErroCarga((e as Error).message || 'erro desconhecido');
+    }
+    if (req === reqRef.current) setLoading(false);
   }
 
   function recarregar() { if (empresaId) carregar(empresaId, mesRef); }
 
   async function lancarRecorrentes() {
-    if (!empresaId || recorrentesParaLancar.length === 0) return;
+    if (!empresaId || erroCarga || recorrentesParaLancar.length === 0) return;
     setLancandoRec(true);
     await supabase.from('despesas').insert(
       recorrentesParaLancar.map(r => ({
@@ -1421,21 +1227,31 @@ export default function FinanceiroPage() {
     if (empresaId) await carregar(empresaId, mesRef);
   }
 
-  const liquidoAposTaxas = receita - taxasCartao;
-  const lucro            = liquidoAposTaxas - comissoes - gastos;
-  const dReceita         = delta(receita,   receitaAnt);
-  const dComissoes       = delta(comissoes, comissoesAnt);
-  const dGastos          = delta(gastos,    gastosAnt);
+  // Números do mês — todos de calcularKpisFinanceiros (mesmos do mobile/Dashboard/Relatórios).
+  const receita                = kpis.bruto;
+  const taxasCartao            = kpis.taxasCartao;
+  const liquidoAposTaxas       = kpis.liquidoAposTaxas;
+  const comissoes              = kpis.comissoes;
+  const gastos                 = kpis.despesas;
+  const lucro                  = kpis.lucro;
+  const taxasCancelamentoPagas = kpis.receitaTaxasCancelamento;
+  const taxasReservaPagas      = kpis.receitaTaxasReserva;
+  const dReceita   = variacaoPercentual(kpis.bruto,     kpisAnt.bruto);
+  const dComissoes = variacaoPercentual(kpis.comissoes, kpisAnt.comissoes);
+  const dGastos    = variacaoPercentual(kpis.despesas,  kpisAnt.despesas);
   const hojeIso           = format(new Date(), 'yyyy-MM-dd');
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
   const totalPendente     = despesasPendentes.reduce((soma, d) => soma + Number(d.valor), 0);
   const maxEvolucao = Math.max(...evolucao.flatMap(e => [e.receita, e.gastos, e.comissoes ?? 0]), 1);
 
-  // Retiradas/empréstimos da dona (derivados — nada disso muda o Lucro Real acima)
-  const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
-  const aDonaDeve      = saldoDevedorTotal(retiradas, devPorRetirada);
+  // Retiradas/empréstimos da dona. "A dona deve" é saldo HISTÓRICO (todas as
+  // retiradas); a lista e o total do mês são recortes do mês exibido.
   const retiradaBounds = getMonthQueryBounds(mesRef);
-  const retiradasMes   = retiradasNoPeriodo(retiradas, devPorRetirada, retiradaBounds.startDate, retiradaBounds.endDate);
+  const retiradas      = listarRetiradasDoPeriodo(retiradasTodas, retiradaBounds);
+  const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
+  const aDonaDeve      = saldoDevedorTotal(retiradasTodas, devPorRetirada);
+  const retiradasMes   = retiradasDoPeriodo(retiradasTodas, retiradasDevs, retiradaBounds);
+  const aposRetiradas  = resultadoAposRetiradas(lucro, retiradasMes);
 
   return (
     <div className="bm-page">
@@ -1475,6 +1291,12 @@ export default function FinanceiroPage() {
         onNextMonth={() => setMesRef(m => addMonths(m, 1))}
       />
 
+      {erroCarga && (
+        <div role="alert" className="mb-4 px-4 py-3 rounded-xl border border-red/30 bg-red/5 text-sm text-red">
+          Não foi possível carregar o financeiro deste mês: {erroCarga}
+        </div>
+      )}
+
       {/* KPIs */}
       {loading ? (
         <KpisFinanceiroSkeleton />
@@ -1482,28 +1304,32 @@ export default function FinanceiroPage() {
         // Grade única de KPIs — evita a 4ª célula órfã que sobrava quando a
         // primeira linha tinha 3 itens num grid de 2 colunas (anexo 7).
         const kpisFinanceiro = [
-          { label: 'Faturamento Bruto',   value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false },
-          { label: 'Taxas de Cartão',     value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false },
-          { label: 'Líquido após Taxas',  value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false },
-          { label: 'Comissões',           value: comissoes,        d: dComissoes, cor: 'text-amber',   invertDelta: true  },
-          { label: 'Gastos Operacionais', value: gastos,           d: dGastos,    cor: 'text-rose',    invertDelta: true  },
-          { label: 'Lucro Real',          value: lucro,            d: null,       cor: lucro >= 0 ? 'text-primary' : 'text-red', invertDelta: false },
+          { label: 'Faturamento Bruto',   value: receita,          d: dReceita,   cor: 'text-green',   invertDelta: false, sub: null as string | null },
+          { label: 'Taxas de Cartão',     value: taxasCartao,      d: null,       cor: 'text-rose',    invertDelta: false, sub: null },
+          { label: 'Líquido após Taxas',  value: liquidoAposTaxas, d: null,       cor: 'text-primary', invertDelta: false, sub: null },
+          { label: 'Comissões',           value: comissoes,        d: dComissoes, cor: 'text-amber',   invertDelta: true,  sub: null },
+          { label: 'Gastos Operacionais', value: gastos,           d: dGastos,    cor: 'text-rose',    invertDelta: true,  sub: null },
+          { label: 'Lucro Real',          value: lucro,            d: null,       cor: lucro >= 0 ? 'text-primary' : 'text-red', invertDelta: false,
+            sub: isOwner && retiradasMes > 0 ? `Após retiradas ${fmtBRL(aposRetiradas)}` : null },
           ...(taxasCancelamentoPagas > 0
-            ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false }]
+            ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false, sub: null }]
             : []),
           ...(taxasReservaPagas > 0
-            ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false }]
+            ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false, sub: null }]
             : []),
         ];
         return (
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
-          {kpisFinanceiro.map(({ label, value, d, cor, invertDelta }, i, arr) => (
+          {kpisFinanceiro.map(({ label, value, d, cor, invertDelta, sub }, i, arr) => (
             <div key={label}
               className={`bg-surface border border-border rounded-2xl p-3 sm:p-5 shadow-sm min-w-0 ${
                 i === arr.length - 1 && arr.length % 2 === 1 ? 'col-span-2 lg:col-span-1' : ''
               }`}>
               <p className="text-[10px] sm:text-xs text-text-4 uppercase tracking-wide font-semibold mb-1.5 sm:mb-2 truncate">{label}</p>
               <p className={`text-lg sm:text-2xl font-bold leading-none mb-1.5 sm:mb-2 whitespace-nowrap tabular-nums ${cor}`}><Secret>{fmtBRL(value)}</Secret></p>
+              {sub && (
+                <p className="text-[10px] sm:text-xs text-text-4 truncate mb-1"><Secret>{sub}</Secret></p>
+              )}
               {d !== null && (
                 <div className="flex items-center gap-1 min-w-0">
                   {(invertDelta ? d < 0 : d >= 0)
@@ -1643,7 +1469,7 @@ export default function FinanceiroPage() {
           </div>
 
           {/* Banner: despesas recorrentes não lançadas */}
-          {!loading && recorrentesParaLancar.length > 0 && (
+          {!loading && !erroCarga && recorrentesParaLancar.length > 0 && (
             <div className="flex items-center gap-3 px-5 py-3 bg-amber-soft border-b border-amber/20">
               <RefreshCw size={14} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
               <p className="text-xs text-amber font-semibold flex-1">
