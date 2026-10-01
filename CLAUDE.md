@@ -729,7 +729,7 @@ automaticamente, preservando o comportamento antigo pra esse caminho específico
 11. Código morto removido (`ajustes-mensais`, `periodo-mensal`, `fechamentos-mensais` do web, "+12%" fixo, locale `pt-BR` do gráfico).
 12. Fora do escopo: lista da Fase 2B abaixo.
 
-**Interpretação do fechamento em mês parcial (pendente de confirmação do dono):** os valores do fechamento só se aplicam quando o período cobre o mês **inteiro**. Semana ou intervalo parcial dentro de um mês importado usa o cálculo ao vivo; os gráficos diário/semanal mostram uma nota sobre isso.
+**Interpretação do fechamento em mês parcial (confirmada pelo dono em 2026-10-01 — os fechamentos importados são só totais mensais, de quando tudo era manual):** os valores do fechamento só se aplicam quando o período cobre o mês **inteiro**. Semana ou intervalo parcial dentro de um mês importado usa o cálculo ao vivo; os gráficos diário/semanal mostram uma nota sobre isso.
 
 **Conferência em produção (somente leitura, funções de shared contra o banco real):**
 - Setembro/2026: bruto R$ 9.503,77 (serviços 9.150,00 + vendas 241,27 + taxas de reserva 112,50), taxas de cartão 49,37, comissões 4.117,50, despesas pagas 896,46, lucro 4.440,44, 105 atendimentos (104 faturáveis), ticket médio 87,98.
@@ -781,7 +781,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - "A dona deve" calculado só com as retiradas do mês.
 
 **Notas e decisões adicionais:**
-- Mês importado: o fechamento só vale com o mês inteiro no período (interpretação pendente de confirmação); gráficos diário/semanal mostram nota.
+- Mês importado: o fechamento só vale com o mês inteiro no período (confirmado pelo dono); gráficos diário/semanal mostram nota.
 - A agenda da profissional no mobile deixou de mostrar "Minha comissão (X%)" por atendimento (era valor × percentual; a comissão real só existe após a conclusão).
 - `somarPeriodoComFechamentos` e `resolveFinanceiroKpis` seguem em `shared/fechamentos-mensais.ts` com seus testes (documentam a regra); remoção na Fase 2B.
 
@@ -790,7 +790,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - → web: card "Sumidas +60d" (`clientesSumidas`, trazer na fase Clientes) e "Taxa de retorno".
 - Financeiro mobile: lançamento automático de recorrentes, calendário do mês (`FinanceMonthCalendar`), exportação (botões mortos).
 - Dashboard mobile: navegação de mês, meta mensal, reconquista/aniversariantes/inativos, alerta de despesas vencendo, sparkline de receita; → web: alerta de "comandas não fechadas".
-- "Agenda hoje" inclui cancelados no web e não no mobile (decidir).
+- ~~"Agenda hoje" inclui cancelados no web e não no mobile~~ — resolvido em 2026-10-01: não conta cancelados nas duas plataformas (decisão do dono).
 - `useDiasProfissional` ainda em horário local e sem `empresa_id`.
 - Comissões: tela (gestor e profissional) nas duas plataformas com a mesma fonte/limites/semana; escopo de "Pagar"; Comissões no menu do app.
 - Formatação monetária padronizada (app abrevia em "k" nos Relatórios).

@@ -105,6 +105,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       supabase.from('agendamentos')
         .select('id,status,valor,data_hora_inicio,pacote_cliente_id,cliente:clientes!agendamentos_cliente_id_fkey(nome),servico:servicos(nome)')
         .eq('empresa_id', empresaId).gte('data_hora_inicio', limHoje.startIso).lte('data_hora_inicio', limHoje.endIso)
+        // "Agenda hoje" não conta cancelados (decisão do dono, 2026-10-01) — igual ao app.
+        .neq('status', 'cancelado')
         .order('data_hora_inicio'),
       supabase.from('clientes').select('id', { count: 'exact', head: true })
         .eq('empresa_id', empresaId).eq('ativo', true),
