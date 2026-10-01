@@ -25,7 +25,7 @@
  */
 import {
   type Limites, contemInstante, contemData, chaveMesBRT, mesesDoIntervalo, mesesInteirosDoIntervalo,
-  limitesDias, limitesMes, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto,
+  limitesDias, limitesMes, chaveDiaBRT, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto,
 } from './periodos';
 import { type FinanceiroFechamentoRow, getFechamentoForMonth } from './fechamentos-mensais';
 import {
@@ -415,6 +415,29 @@ export function metricasRetorno(
     novas: ids.length - retornaram,
     pctRetorno: ids.length > 0 ? Math.round((retornaram / ids.length) * 100) : 0,
   };
+}
+
+/**
+ * Clientes "sumidas": a última visita concluída ATÉ o fim do período (`fimIso`)
+ * foi há mais de `dias` dias (contados em dias de Brasília, até o dia do fim).
+ * Quem teve atendimento concluído dentro do período nunca é sumida, pois a
+ * última visita cai dentro dele; também não depende da data de hoje, então
+ * vale para períodos passados. Regra única — será reaproveitada pelo web na
+ * fase Clientes.
+ * @param ultimaVisitaPorCliente cliente_id → data_hora_inicio (ISO) da última visita concluída até fimIso.
+ */
+export function clientesSumidas(
+  ultimaVisitaPorCliente: Map<string, string> | Record<string, string>,
+  fimIso: string,
+  dias = 60,
+): number {
+  const ultimas = ultimaVisitaPorCliente instanceof Map
+    ? [...ultimaVisitaPorCliente.values()]
+    : Object.values(ultimaVisitaPorCliente);
+  const fimDia = chaveDiaBRT(fimIso);
+  let n = 0;
+  for (const v of ultimas) if (diasEntre(chaveDiaBRT(v), fimDia) > dias) n++;
+  return n;
 }
 
 // ── Comissões ──────────────────────────────────────────────────────

@@ -6,7 +6,6 @@
  */
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { differenceInDays } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { buscarTodasPaginas } from '@shared/paginacao';
@@ -15,7 +14,7 @@ import {
   type PeriodoRelatorio, type OpcoesPeriodo,
 } from '@shared/periodos';
 import {
-  calcularKpisFinanceiros, recortarDados, rankingAtendimentos, clientesAtendidosNoPeriodo, metricasRetorno,
+  calcularKpisFinanceiros, recortarDados, rankingAtendimentos, clientesAtendidosNoPeriodo, metricasRetorno, clientesSumidas,
 } from '@shared/kpis-financeiros';
 import { carregarDadosFinanceiros, carregarClientesComHistoricoAntes } from '@shared/kpis-financeiros-consultas';
 
@@ -79,9 +78,10 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo) 
     },
   });
 
-  // Clientes sumidas: último atendimento antes do período há +60 dias.
+  // Clientes sumidas: última visita concluída até o FIM do período há +60 dias
+  // (regra única clientesSumidas; quem voltou no período não entra).
   const sumidosQ = useQuery({
-    queryKey: ['rel-sumidos', empresaId, chave],
+    queryKey: ['rel-sumidos', empresaId, periodo, atual.startIso, atual.endIso],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
@@ -91,15 +91,16 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo) 
           .select('cliente_id, data_hora_inicio')
           .eq('empresa_id', empresaId!)
           .eq('status', 'concluido')
-          .lt('data_hora_inicio', atual.startIso)
+          .lte('data_hora_inicio', atual.endIso)
           .order('data_hora_inicio', { ascending: false }).order('id')
           .range(from, to);
         if (r.error) throw r.error;
         return r;
       });
-      const ultimo: Record<string, string> = {};
-      for (const a of linhas) if (!ultimo[a.cliente_id]) ultimo[a.cliente_id] = a.data_hora_inicio;
-      return Object.values(ultimo).filter(d => differenceInDays(new Date(), new Date(d)) > 60).length;
+      // Ordem decrescente: a primeira linha de cada cliente é a última visita.
+      const ultimo = new Map<string, string>();
+      for (const a of linhas) if (!ultimo.has(a.cliente_id)) ultimo.set(a.cliente_id, a.data_hora_inicio);
+      return clientesSumidas(ultimo, atual.endIso);
     },
   });
 

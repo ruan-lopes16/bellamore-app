@@ -448,7 +448,7 @@ export default function Relatorios() {
           <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
             <KpiCard
               icon={<View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: C.indigoSoft, alignItems: 'center', justifyContent: 'center' }}><UserPlus size={13} color={C.indigo} strokeWidth={1.8} /></View>}
-              label="Novos clientes"
+              label="Novas clientes"
               valor={String(clientes?.novos ?? 0)}
               deltaVal={null}
             />
@@ -550,7 +550,7 @@ export default function Relatorios() {
             {/* Grid 2×2 */}
             {[
               [
-                { icon: <UserPlus size={12} color={C.indigo} strokeWidth={1.8} />, bg: C.indigoSoft, val: String(clientes?.novos ?? 0), label: 'Novos' },
+                { icon: <UserPlus size={12} color={C.indigo} strokeWidth={1.8} />, bg: C.indigoSoft, val: String(clientes?.novos ?? 0), label: 'Novas' },
                 { icon: <RefreshCw size={12} color={C.green} strokeWidth={1.8} />,  bg: C.greenSoft,  val: String(clientes?.retornaram ?? 0), label: 'Retornaram' },
               ],
               [
