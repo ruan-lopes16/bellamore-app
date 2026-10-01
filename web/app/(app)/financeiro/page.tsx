@@ -11,7 +11,7 @@
  * shared/kpis-financeiros.ts. Datas do mês em Brasília (@shared/periodos).
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
   CheckCircle2, AlertTriangle, Ban, X, Layers, Banknote, CreditCard, Gift,
@@ -1000,7 +1000,11 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 export default function FinanceiroPage() {
   const [mesRef,   setMesRef]   = useState(new Date());
   const [empresaId,setEmpresaId]= useState<string | null>(null);
-  const [isOwner,  setIsOwner]  = useState(false);
+  // null = ainda não resolvido: a 1ª carga espera, senão as retiradas da dona seriam
+  // buscadas como não-dona e depois sobrescritas (ou vice-versa).
+  const [isOwner,  setIsOwner]  = useState<boolean | null>(null);
+  // Contador de requisições: respostas de cargas antigas (mês trocado rápido) são descartadas.
+  const reqRef = useRef(0);
   const [loading,  setLoading]  = useState(true);
 
   // Dados
@@ -1050,11 +1054,12 @@ export default function FinanceiroPage() {
   }, []);
 
   useEffect(() => {
-    if (!empresaId) return;
+    if (!empresaId || isOwner === null) return;
     carregar(empresaId, mesRef);
   }, [empresaId, mesRef, isOwner]);
 
   async function carregar(empId: string, mes: Date) {
+    const req = ++reqRef.current;
     setLoading(true);
     const chave   = chaveDoMesExibido(mes);
     const periodo = limitesMes(chave);
@@ -1102,6 +1107,8 @@ export default function FinanceiroPage() {
           : Promise.resolve({ rows: [] as RetiradaSociaRow[], devs: [] as RetiradaSociaDevolucaoRow[] }),
       ]);
 
+      if (req !== reqRef.current) return;   // resposta velha: outra carga já começou
+
       // Erro em qualquer consulta direta aborta a carga: sem isso, despesas do mês
       // viram [] e o auto-lançamento proporia duplicar todas as recorrentes.
       for (const r of [despLista, recMesAnt, taxasLista, reservaLista]) {
@@ -1133,6 +1140,7 @@ export default function FinanceiroPage() {
       setRetiradasTodas(retiradasDados.rows as RetiradaSocia[]);
       setRetiradasDevs(retiradasDados.devs as RetiradaSociaDevolucao[]);
     } catch (e) {
+      if (req !== reqRef.current) return;
       // Não deixa números do mês anterior na tela: zera tudo que depende do mês.
       setKpis(KPIS_ZERADOS); setKpisAnt(KPIS_ZERADOS);
       setTopServicos([]); setMetodos([]); setEvolucao([]);
@@ -1141,7 +1149,7 @@ export default function FinanceiroPage() {
       setRetiradasTodas([]); setRetiradasDevs([]);
       setErroCarga((e as Error).message || 'erro desconhecido');
     }
-    setLoading(false);
+    if (req === reqRef.current) setLoading(false);
   }
 
   function recarregar() { if (empresaId) carregar(empresaId, mesRef); }

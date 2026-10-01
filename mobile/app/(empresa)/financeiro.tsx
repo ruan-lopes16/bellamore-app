@@ -32,6 +32,8 @@ import {
 import { addMonths, subMonths, format, isSameMonth, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useQueryClient } from '@tanstack/react-query';
+import { rotuloMesCurto, somarMeses } from '@shared/periodos';
+import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { variacaoPercentual } from '@shared/kpis-financeiros';
 
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
@@ -1354,9 +1356,7 @@ export default function Financeiro() {
   const hojeIso            = format(new Date(), 'yyyy-MM-dd');
 
   function aposMarcarPago() {
-    qc.invalidateQueries({ queryKey: ['fin-resumo'] });
-    qc.invalidateQueries({ queryKey: ['fin-despesas'] });
-    qc.invalidateQueries({ queryKey: ['fin-despesas-historico'] });
+    invalidarFinanceiro(qc);
   }
 
   async function marcarTaxaPaga(item: TaxaCancelamento, metodo: PagamentoMetodo | null) {
@@ -1376,8 +1376,7 @@ export default function Financeiro() {
       return;
     }
     setConfirmarTaxaCanc(null);
-    qc.invalidateQueries({ queryKey: ['fin-taxas-cancelamento'] });
-    qc.invalidateQueries({ queryKey: ['fin-resumo'] });   // receita/KPIs mudam ao pagar a taxa
+    invalidarFinanceiro(qc);   // receita/KPIs mudam ao pagar a taxa
   }
 
   async function marcarReservaPaga(item: TaxaReserva, metodo: PagamentoMetodo | null) {
@@ -1396,8 +1395,7 @@ export default function Financeiro() {
       return;
     }
     setConfirmarTaxaReserva(null);
-    qc.invalidateQueries({ queryKey: ['fin-taxas-reserva'] });
-    qc.invalidateQueries({ queryKey: ['fin-resumo'] });   // receita/KPIs mudam ao pagar a taxa
+    invalidarFinanceiro(qc);   // receita/KPIs mudam ao pagar a taxa
   }
 
   const [fontsLoaded] = useFonts({
@@ -1668,7 +1666,7 @@ export default function Financeiro() {
               ))}
             </View>
             <GraficoEvolucao dados={evolucao.length > 0 ? evolucao : Array.from({ length: 6 }, (_, i) => ({
-              mes: format(subMonths(mesRef, 5 - i), 'MMM', { locale: ptBR }),
+              mes: rotuloMesCurto(somarMeses(format(mesRef, 'yyyy-MM'), i - 5)),
               receita: 0, gastos: 0,
             }))} />
           </View>

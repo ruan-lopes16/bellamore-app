@@ -20,7 +20,7 @@
  * Serviços · Equipe · Top clientes · Insumos consumidos
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
   ChevronDown, ChevronLeft, ChevronRight, DollarSign, Target, Activity, User, Check, Star, CreditCard, XCircle,
@@ -275,6 +275,9 @@ export default function RelatoriosPage() {
   const [historicoClientes, setHistoricoClientes] = useState<Set<string>>(() => new Set());
   // Falha na carga principal: mostra aviso e nenhum número (nunca valores zerados como se fossem reais).
   const [erroCarga, setErroCarga] = useState('');
+  // Contadores de requisição: descartam respostas de cargas antigas (troca rápida de período).
+  const reqRef = useRef(0);
+  const reqRetiradasRef = useRef(0);
   const [comissoes,  setComissoes]  = useState<Comissao[]>([]);
   const [movs,       setMovs]       = useState<MovEstoque[]>([]);
   const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
@@ -312,6 +315,7 @@ export default function RelatoriosPage() {
    * e mostra aviso — nunca deixa números velhos ou zerados parecendo reais.
    */
   const carregar = useCallback(async (empId: string, per: Periodo, opts: OpcoesPeriodo) => {
+    const req = ++reqRef.current;
     setLoading(true);
     setErroCarga('');
     const { atual: lAtual, anterior: lAnterior } = limitesDoPeriodo(per, hojeBRT(), opts);
@@ -336,12 +340,15 @@ export default function RelatoriosPage() {
           return r;
         }),
       ]);
+      if (req !== reqRef.current) return;   // resposta velha
       const ids = clientesAtendidosNoPeriodo(recortarDados(d, lAtual).agendamentos);
       const hist = await carregarClientesComHistoricoAntes(supabase, empId, ids, lAtual.startIso);
+      if (req !== reqRef.current) return;
       setDados(d);
       setComissoes(rCom as unknown as Comissao[]);
       setHistoricoClientes(hist);
     } catch (e) {
+      if (req !== reqRef.current) return;
       const msg = `Erro ao carregar o relatório: ${(e as Error).message}`;
       setDados(DADOS_VAZIOS);
       setComissoes([]);
@@ -349,7 +356,7 @@ export default function RelatoriosPage() {
       setErroCarga(msg);
       showErro(msg);
     }
-    setLoading(false);
+    if (req === reqRef.current) setLoading(false);
   }, []);
 
   // Opções que parametrizam o período selecionado — memoizado para não recriar o objeto
@@ -373,9 +380,11 @@ export default function RelatoriosPage() {
   // Retiradas/empréstimos da dona (owner-only). O total do período sai de retiradasDoPeriodo.
   useEffect(() => {
     if (!empresaId || !isOwner) { setRetiradasRows([]); setRetiradasDevsRows([]); return; }
+    const reqR = ++reqRetiradasRef.current;
     carregarRetiradas(supabase, empresaId)
-      .then(r => { setRetiradasRows(r.rows); setRetiradasDevsRows(r.devs); })
+      .then(r => { if (reqR !== reqRetiradasRef.current) return; setRetiradasRows(r.rows); setRetiradasDevsRows(r.devs); })
       .catch(e => {
+        if (reqR !== reqRetiradasRef.current) return;
         setRetiradasRows([]); setRetiradasDevsRows([]);
         showErro(`Erro ao carregar retiradas: ${(e as Error).message}`);
       });
@@ -582,10 +591,17 @@ export default function RelatoriosPage() {
       .map(c => c.id);
     if (ids.length === 0) return;
 
-    // Optimistic update
-    setComissoes(prev => prev.map(c =>
-      ids.includes(c.id) ? { ...c, status: 'pago' as const } : c
-    ));
+    // Optimistic update (lista detalhada + dados que alimentam os KPIs)
+    const marcar = (idsAlvo: string[], status: 'pago' | 'pendente') => {
+      setComissoes(prev => prev.map(c =>
+        idsAlvo.includes(c.id) ? { ...c, status } : c
+      ));
+      setDados(prev => ({
+        ...prev,
+        comissoes: prev.comissoes.map(c => idsAlvo.includes(c.id) ? { ...c, status } : c),
+      }));
+    };
+    marcar(ids, 'pago');
 
     const { data, error } = await supabase
       .from('comissoes')
@@ -594,11 +610,11 @@ export default function RelatoriosPage() {
       .select('id');
 
     // RLS pode devolver sucesso com 0 linhas afetadas: confere antes de dar por pago.
-    if (error || (data?.length ?? 0) < ids.length) {
-      // Revert
-      setComissoes(prev => prev.map(c =>
-        ids.includes(c.id) ? { ...c, status: 'pendente' as const } : c
-      ));
+    // Em sucesso parcial, reverte SÓ as linhas que o banco não devolveu.
+    const confirmados = new Set((data ?? []).map((r: { id: string }) => r.id));
+    const naoConfirmados = error ? ids : ids.filter(id => !confirmados.has(id));
+    if (naoConfirmados.length > 0) {
+      marcar(naoConfirmados, 'pendente');
       showErro(error ? `Erro ao atualizar comissões: ${error.message}` : 'Sem permissão para marcar todas as comissões como pagas.');
     }
   }
@@ -711,7 +727,7 @@ export default function RelatoriosPage() {
 
         {/* Exportar */}
         <div className="flex items-center gap-2 bm-mobile-export-only">
-          {!loading && (
+          {!loading && !erroCarga && (
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"

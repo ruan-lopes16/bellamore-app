@@ -35,7 +35,7 @@ export interface ResumoRelatorio {
 export interface MetricasCliente {
   novos: number;
   retornaram: number;
-  sumidos: number; // sem visita há +60 dias (só no app por enquanto — Fase 2B)
+  sumidos: number | undefined; // undefined = ainda carregando/erro (a tela mostra '—');  sem visita há +60 dias (só no app por enquanto — Fase 2B)
   totalAtendidas: number;
   pctRetorno: number;
 }
@@ -85,7 +85,7 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo) 
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const linhas = await buscarTodasPaginas<{ cliente_id: string; data_hora_inicio: string }>(async (from, to) => {
+      const linhas = await buscarTodasPaginas<{ cliente_id: string | null; data_hora_inicio: string }>(async (from, to) => {
         const r = await supabase
           .from('agendamentos')
           .select('cliente_id, data_hora_inicio')
@@ -99,7 +99,7 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo) 
       });
       // Ordem decrescente: a primeira linha de cada cliente é a última visita.
       const ultimo = new Map<string, string>();
-      for (const a of linhas) if (!ultimo.has(a.cliente_id)) ultimo.set(a.cliente_id, a.data_hora_inicio);
+      for (const a of linhas) if (a.cliente_id && !ultimo.has(a.cliente_id)) ultimo.set(a.cliente_id, a.data_hora_inicio);
       return clientesSumidas(ultimo, atual.endIso);
     },
   });
@@ -151,7 +151,7 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo) 
   const clientes: MetricasCliente | undefined = calculado ? {
     novos: calculado.retorno.novas,
     retornaram: calculado.retorno.retornaram,
-    sumidos: sumidosQ.data ?? 0,
+    sumidos: sumidosQ.data,
     totalAtendidas: calculado.retorno.atendidas,
     pctRetorno: calculado.retorno.pctRetorno,
   } : undefined;

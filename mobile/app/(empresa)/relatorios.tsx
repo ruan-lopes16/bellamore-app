@@ -54,12 +54,17 @@ function mascaraData(v: string) {
   return `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`;
 }
 
-/** 'DD/MM/AAAA' → 'yyyy-MM-dd'; null enquanto a digitação estiver incompleta. */
+/** 'DD/MM/AAAA' → 'yyyy-MM-dd'; null enquanto a digitação estiver incompleta ou se a data não existe (ex.: 31/02). */
 function paraIsoBR(v: string): string | null {
   const p = v.split('/');
   if (p.length !== 3 || p[0].length !== 2 || p[1].length !== 2 || p[2].length !== 4) return null;
   const iso = `${p[2]}-${p[1]}-${p[0]}`;
-  return Number.isNaN(new Date(`${iso}T12:00:00`).getTime()) ? null : iso;
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  // Data impossível (31/02) não pode rolar para o mês seguinte: confere ida e volta.
+  const [y, m, dia] = [d.getFullYear(), d.getMonth() + 1, d.getDate()];
+  if (y !== Number(p[2]) || m !== Number(p[1]) || dia !== Number(p[0])) return null;
+  return iso;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -230,6 +235,10 @@ export default function Relatorios() {
     custom: { ini: paraIsoBR(customIniStr) ?? `${hoje.slice(0, 7)}-01`, fim: paraIsoBR(customFimStr) ?? hoje },
   }), [semanaOffset, anoOffset, customIniStr, customFimStr, hoje]);
 
+  // Data completa (10 caracteres) mas inexistente: avisa e mantém o último intervalo válido.
+  const dataCustomInvalida = periodo === 'custom'
+    && ((customIniStr.length === 10 && !paraIsoBR(customIniStr)) || (customFimStr.length === 10 && !paraIsoBR(customFimStr)));
+
   const { resumo, clientes, servicos, profissionais, mesesComFechamento, atual, isLoading, isError, refetch } = useRelatorios(periodo, opcoes);
   const rotuloAtual = rotuloDoPeriodo(periodo, atual);
 
@@ -337,6 +346,11 @@ export default function Relatorios() {
                   />
                 </View>
               </View>
+            )}
+            {dataCustomInvalida && (
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.rose, textAlign: 'center', marginTop: -12, marginBottom: 14 }}>
+                Data inválida. Use uma data que exista (DD/MM/AAAA).
+              </Text>
             )}
 
             {/* Navegação entre semanas — só no período "Semana" */}
@@ -554,7 +568,7 @@ export default function Relatorios() {
                 { icon: <RefreshCw size={12} color={C.green} strokeWidth={1.8} />,  bg: C.greenSoft,  val: String(clientes?.retornaram ?? 0), label: 'Retornaram' },
               ],
               [
-                { icon: <Clock size={12} color={C.amber} strokeWidth={1.8} />,     bg: C.amberSoft,  val: String(clientes?.sumidos ?? 0), label: 'Sumidas +60d' },
+                { icon: <Clock size={12} color={C.amber} strokeWidth={1.8} />,     bg: C.amberSoft,  val: clientes?.sumidos == null ? '—' : String(clientes.sumidos), label: 'Sumidas +60d' },
                 { icon: <Users size={12} color={C.primary} strokeWidth={1.8} />,   bg: C.primarySoft,val: String(clientes?.totalAtendidas ?? 0), label: 'Total atendidas' },
               ],
             ].map((linha, li) => (

@@ -41,10 +41,10 @@ describe('mobile Financeiro = web Financeiro', () => {
   it('salvar/pagar invalida as chaves que alimentam KPIs e gráfico', () => {
     expect(tela).not.toContain("'fin-evolucao'");
     const apos = tela.slice(tela.indexOf('function aposMarcarPago'));
-    expect(apos.slice(0, 400)).toContain("'fin-resumo'");
+    expect(apos.slice(0, 400)).toContain('invalidarFinanceiro(qc)');
     const tc = tela.slice(tela.indexOf('async function marcarTaxaPaga'), tela.indexOf('async function marcarReservaPaga'));
-    expect(tc).toContain("'fin-resumo'");
+    expect(tc).toContain('invalidarFinanceiro(qc)');
     const tr = tela.slice(tela.indexOf('async function marcarReservaPaga'), tela.indexOf('const [fontsLoaded]'));
-    expect(tr).toContain("'fin-resumo'");
+    expect(tr).toContain('invalidarFinanceiro(qc)');
   });
 });

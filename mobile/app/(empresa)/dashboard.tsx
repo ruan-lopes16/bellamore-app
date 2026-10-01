@@ -114,6 +114,8 @@ export default function Dashboard() {
     comissoesPendentes,
     estoqueBaixo,
     comandasNaoFechadas,
+    financeiroPronto,
+    comissoesPendentesPronto,
     isLoading,
     isError,
     erro,
@@ -384,7 +386,7 @@ export default function Dashboard() {
                   letterSpacing: -1,
                   marginBottom: 10,
                 }}>
-                  <SecretText>{formatBRL(receitaMes)}</SecretText>
+                  <SecretText>{financeiroPronto ? formatBRL(receitaMes) : '—'}</SecretText>
                 </Text>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -526,7 +528,7 @@ export default function Dashboard() {
               lineHeight: 22,
               marginBottom: 4,
             }}>
-              <SecretText>{formatBRL(receitaHoje)}</SecretText>
+              <SecretText>{financeiroPronto ? formatBRL(receitaHoje) : '—'}</SecretText>
             </Text>
             <View style={{
               backgroundColor: C.greenSoft,
@@ -578,7 +580,7 @@ export default function Dashboard() {
               lineHeight: 22,
               marginBottom: 4,
             }}>
-              <SecretText>{formatBRL(comissoesPendentes.total)}</SecretText>
+              <SecretText>{comissoesPendentesPronto ? formatBRL(comissoesPendentes.total) : '—'}</SecretText>
             </Text>
             <View style={{
               backgroundColor: C.amberSoft,
@@ -1016,7 +1018,7 @@ export default function Dashboard() {
                       color: C.text3,
                       marginTop: 1,
                     }}>
-                      Total: <SecretText>{formatBRL(comissoesPendentes.total)}</SecretText>
+                      Total: <SecretText>{comissoesPendentesPronto ? formatBRL(comissoesPendentes.total) : '—'}</SecretText>
                     </Text>
                   </View>
                   <ChevronRight size={14} color={C.accent} strokeWidth={2} />

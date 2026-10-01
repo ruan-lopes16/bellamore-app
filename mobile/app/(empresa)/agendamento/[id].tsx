@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import {
   ChevronLeft, Phone, MessageCircle, User,
   Clock, DollarSign, FileText, Check, X, AlertTriangle,
@@ -423,6 +424,7 @@ export default function AgendamentoDetalhe() {
     qc.invalidateQueries({ queryKey: ['agendamento', id] });
     qc.invalidateQueries({ queryKey: ['agenda-dia'] });
     qc.invalidateQueries({ queryKey: ['cliente-detalhe'] });
+    invalidarFinanceiro(qc);   // concluir/cancelar/faltou muda receita, comissão e alertas
   }
 
   function confirmarCancelamento() {
@@ -457,6 +459,7 @@ export default function AgendamentoDetalhe() {
     }
     qc.invalidateQueries({ queryKey: ['agenda-dia'] });
     qc.invalidateQueries({ queryKey: ['cliente-detalhe'] });
+    invalidarFinanceiro(qc);
     router.back();
   }
 

@@ -19,6 +19,7 @@ import {
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
@@ -176,9 +177,7 @@ export default function NovaDespesa() {
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
 
-    qc.invalidateQueries({ queryKey: ['fin-resumo'] });
-    qc.invalidateQueries({ queryKey: ['fin-despesas'] });
-    qc.invalidateQueries({ queryKey: ['fin-despesas-historico'] });
+    invalidarFinanceiro(qc);
     Alert.alert('Despesa registrada!', descricao, [
       { text: 'OK', onPress: () => router.back() },
     ]);

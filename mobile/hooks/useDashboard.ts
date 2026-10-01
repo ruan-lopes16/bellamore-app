@@ -121,6 +121,9 @@ export function useDashboard() {
     comissoesPendentes: comissoesPendentes.data ?? { quantidade: 0, total: 0 },
     estoqueBaixo: estoqueBaixo.data ?? [],
     comandasNaoFechadas: comandasNaoFechadas.data ?? [],
+    // Só vale número quando a consulta deu certo: carregando ou com erro a tela mostra '—', nunca R$ 0,00.
+    financeiroPronto: financeiro.isSuccess,
+    comissoesPendentesPronto: comissoesPendentes.isSuccess,
     isLoading: agendamentosHoje.isLoading || financeiro.isLoading,
     // Falha em qualquer consulta: a tela mostra aviso em vez de zeros enganosos.
     isError: agendamentosHoje.isError || financeiro.isError || comissoesPendentes.isError
