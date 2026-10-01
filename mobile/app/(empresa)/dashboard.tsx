@@ -10,7 +10,7 @@ import { MotiView } from 'moti';
 import {
   Bell, Calendar, FileText, User, DollarSign,
   TrendingUp, AlertTriangle, ChevronRight, Receipt,
-  Home, BarChart2, Users, MoreHorizontal,
+  Home, BarChart2, Users, MoreHorizontal, TrendingDown,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -104,15 +104,19 @@ export default function Dashboard() {
   const { user, empresaAtiva, isOwner, roleAtivo } = useAuthStore();
   const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
   const podeVerEstoque = temPermissao(role, 'gerenciar_estoque');
+  const podeVerFinanceiro = temPermissao(role, 'ver_resumo_financeiro');
 
   const {
     agendamentosHoje,
     receitaHoje,
     receitaMes,
+    variacaoReceitaMes,
     comissoesPendentes,
     estoqueBaixo,
     comandasNaoFechadas,
     isLoading,
+    isError,
+    erro,
     refetch,
   } = useDashboard();
 
@@ -334,7 +338,7 @@ export default function Dashboard() {
         </MotiView>
 
         {/* ── Card hero receita ── */}
-        {temPermissao(role, 'ver_resumo_financeiro') && (
+        {podeVerFinanceiro && (
           <MotiView
             from={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -384,26 +388,30 @@ export default function Dashboard() {
                 </Text>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 4,
-                    backgroundColor: 'rgba(255,255,255,0.1)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.08)',
-                    borderRadius: 20,
-                    paddingVertical: 4,
-                    paddingHorizontal: 10,
-                  }}>
-                    <TrendingUp size={10} color="#A8F0D4" strokeWidth={2.5} />
-                    <Text style={{
-                      fontFamily: 'PlusJakartaSans_700Bold',
-                      fontSize: 11,
-                      color: '#A8F0D4',
+                  {variacaoReceitaMes !== null && (
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      backgroundColor: 'rgba(255,255,255,0.1)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255,255,255,0.08)',
+                      borderRadius: 20,
+                      paddingVertical: 4,
+                      paddingHorizontal: 10,
                     }}>
-                      +12% vs mês anterior
-                    </Text>
-                  </View>
+                      {variacaoReceitaMes >= 0
+                        ? <TrendingUp size={10} color="#A8F0D4" strokeWidth={2.5} />
+                        : <TrendingDown size={10} color="#F4B8CE" strokeWidth={2.5} />}
+                      <Text style={{
+                        fontFamily: 'PlusJakartaSans_700Bold',
+                        fontSize: 11,
+                        color: variacaoReceitaMes >= 0 ? '#A8F0D4' : '#F4B8CE',
+                      }}>
+                        <SecretText>{`${variacaoReceitaMes >= 0 ? '+' : ''}${variacaoReceitaMes}%`}</SecretText> vs mês anterior
+                      </Text>
+                    </View>
+                  )}
                   <Text style={{
                     fontFamily: 'PlusJakartaSans_400Regular',
                     fontSize: 11,
@@ -416,6 +424,22 @@ export default function Dashboard() {
             </TouchableOpacity>
             </TiltCard>
           </MotiView>
+        )}
+
+        {/* ── Erro ao carregar: nunca mostrar zeros no lugar dos números ── */}
+        {isError && (
+          <TouchableOpacity
+            onPress={() => refetch()}
+            activeOpacity={0.8}
+            style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.roseSoft, borderWidth: 1, borderColor: C.rose, borderRadius: 14, padding: 12 }}
+          >
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.rose, marginBottom: 2 }}>
+              Não foi possível carregar o painel
+            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text2 }}>
+              {erro?.message ?? 'Falha ao buscar alguns dados'} · Toque para tentar de novo
+            </Text>
+          </TouchableOpacity>
         )}
 
         {/* ── KPIs mini ── */}
@@ -472,6 +496,7 @@ export default function Dashboard() {
           </View>
 
           {/* Receita hoje */}
+          {podeVerFinanceiro && (
           <View style={{
             flex: 1,
             backgroundColor: C.surface,
@@ -520,7 +545,10 @@ export default function Dashboard() {
             </View>
           </View>
 
+          )}
+
           {/* Comissões pendentes */}
+          {podeVerFinanceiro && (
           <View style={{
             flex: 1,
             backgroundColor: C.surface,
@@ -568,6 +596,7 @@ export default function Dashboard() {
               </Text>
             </View>
           </View>
+          )}
         </MotiView>
 
         {/* ── Ações rápidas ── */}
@@ -831,7 +860,7 @@ export default function Dashboard() {
         </MotiView>
 
         {/* ── Alertas ── */}
-        {((podeVerEstoque && estoqueBaixo.length > 0) || comissoesPendentes.quantidade > 0 || comandasNaoFechadas.length > 0) && (
+        {((podeVerEstoque && estoqueBaixo.length > 0) || (podeVerFinanceiro && comissoesPendentes.quantidade > 0) || comandasNaoFechadas.length > 0) && (
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -949,7 +978,7 @@ export default function Dashboard() {
                 </TouchableOpacity>
               )}
 
-              {comissoesPendentes.quantidade > 0 && (
+              {podeVerFinanceiro && comissoesPendentes.quantidade > 0 && (
                 <TouchableOpacity
                   onPress={() => router.push('/(empresa)/comissoes' as any)}
                   style={{
