@@ -696,6 +696,111 @@ automaticamente, preservando o comportamento antigo pra esse caminho específico
 
 ---
 
+### Sessão 2026-09-30 — Paridade Fase 2A (números financeiros únicos)
+
+*Escopo: Financeiro, Dashboard e Relatórios (web e mobile) e a área financeira da profissional passam a*
+*usar as mesmas funções de `shared/` (`periodos.ts`, `kpis-financeiros.ts`, `kpis-financeiros-consultas.ts`).*
+*12 tasks via superpowers:subagent-driven-development. Plano em `docs/superpowers/plans/2026-09-30-paridade-fase2a-kpis-financeiros.md`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; mobile mantém os 8 erros pré-existentes (o de `relatorios.tsx` só mudou de linha), nenhum novo |
+| UX / Padrões    | 9.0  | Mesmos períodos (lista única), mesmos deltas e mesmos rótulos nas duas plataformas |
+| Segurança       | —    | Sem migration, sem RLS nova; conferência em produção feita só com leitura |
+| Documentação    | 9.0  | JSDoc pt-BR nas funções de shared; plano, inventário e este registro atualizados |
+| Arquitetura     | 9.5  | Uma única fonte (`carregarDadosFinanceiros` + `calcularKpisFinanceiros`) para as telas; teste cruzado (`paridade-fase2a-cruzada.test.ts`) trava regressões por varredura de código e por fixture |
+| Performance     | 9.0  | Consultas paginadas por `@shared/paginacao` com `.order('id')`; janela única por tela |
+| Visual (UI)     | —    | Não executado (sem conta de teste local) |
+| **Completude**  | 8.5  | Números unificados; telas ausentes no mobile ficam na Fase 2B |
+| **Proatividade**| 9.0  | Conferência em produção e medição da diferença de data das comissões |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**As 12 decisões do dono:**
+1. Receita = agendamentos concluídos sem pacote (`valor`, por `data_hora_inicio`) + `vendas.valor_final` + taxas de cancelamento pagas + taxas de reserva com `paga_em`. `pagamentos` nunca é receita (só taxa de cartão e formas de pagamento).
+2. Comissões da tabela `comissoes` (`valor_comissao`), nunca recalculadas por percentual; período por `comissoes.created_at`.
+3. Lucro = bruto − taxa de cartão − comissões − despesas pagas; "Após retiradas" = lucro − retiradas da dona; "A dona deve" é saldo histórico (todas as retiradas).
+4. Fechamento mensal importado substitui receita e comissão e zera o cartão, igual em todas as telas.
+5. Datas sempre em Brasília (UTC−3) via `shared/periodos.ts`.
+6. Semana começa no domingo; lista única de períodos (Hoje, Semana, Mês, Mês anterior, 3 meses, 6 meses, Ano, Personalizado).
+7. Ticket médio = receita de serviços sem pacote ÷ atendimentos concluídos sem pacote.
+8. "Clientes que retornaram" = com atendimento antes do período (função única); "Única visita" do web virou "Novas".
+9. Deltas vs período anterior equivalente nas duas plataformas (base zero → sem delta).
+10. Alerta de comissões pendentes no Dashboard = todas as pendentes, de qualquer mês.
+11. Código morto removido (`ajustes-mensais`, `periodo-mensal`, `fechamentos-mensais` do web, "+12%" fixo, locale `pt-BR` do gráfico).
+12. Fora do escopo: lista da Fase 2B abaixo.
+
+**Interpretação do fechamento em mês parcial (pendente de confirmação do dono):** os valores do fechamento só se aplicam quando o período cobre o mês **inteiro**. Semana ou intervalo parcial dentro de um mês importado usa o cálculo ao vivo; os gráficos diário/semanal mostram uma nota sobre isso.
+
+**Conferência em produção (somente leitura, funções de shared contra o banco real):**
+- Setembro/2026: bruto R$ 9.503,77 (serviços 9.150,00 + vendas 241,27 + taxas de reserva 112,50), taxas de cartão 49,37, comissões 4.117,50, despesas pagas 896,46, lucro 4.440,44, 105 atendimentos (104 faturáveis), ticket médio 87,98.
+- Agosto/2026: bruto 9.814,49, comissões 4.189,05, despesas 2.144,96, lucro 3.380,63.
+- Datação das comissões (decisão 2): das 399 comissões, 0 caem em mês diferente por `comissoes.created_at` vs `data_hora_inicio` do atendimento (jun–set com totais idênticos) → decisão confirmada, sem item novo na Fase 2B.
+- Consulta independente para o dono conferir no SQL Editor (empresa `603fdaa1-be97-46a0-9333-325b30dea2ef`):
+
+```sql
+-- Setembro/2026 em Brasília: [2026-09-01 03:00Z, 2026-10-01 03:00Z)
+with p as (
+  select '603fdaa1-be97-46a0-9333-325b30dea2ef'::uuid as emp,
+         timestamptz '2026-09-01 03:00:00+00' as ini,
+         timestamptz '2026-10-01 03:00:00+00' as fim
+)
+select
+  (select coalesce(sum(a.valor),0) from agendamentos a, p
+    where a.empresa_id = p.emp and a.status = 'concluido' and a.pacote_cliente_id is null
+      and a.data_hora_inicio >= p.ini and a.data_hora_inicio < p.fim)                         as servicos,
+  (select coalesce(sum(v.valor_final),0) from vendas v, p
+    where v.empresa_id = p.emp and v.created_at >= p.ini and v.created_at < p.fim)               as vendas,
+  (select coalesce(sum(t.valor),0) from taxas_cancelamento t, p
+    where t.empresa_id = p.emp and t.status = 'pago' and t.paga_em >= p.ini and t.paga_em < p.fim) as taxas_canc,
+  (select coalesce(sum(r.valor),0) from taxas_reserva r, p
+    where r.empresa_id = p.emp and r.paga_em is not null and r.paga_em >= p.ini and r.paga_em < p.fim) as taxas_reserva,
+  (select coalesce(sum(g.valor - g.valor_liquido),0) from pagamentos g, p
+    where g.empresa_id = p.emp and g.status = 'pago' and g.valor_liquido is not null
+      and g.created_at >= p.ini and g.created_at < p.fim)                                       as taxa_cartao,
+  (select coalesce(sum(c.valor_comissao),0) from comissoes c, p
+    where c.empresa_id = p.emp and c.created_at >= p.ini and c.created_at < p.fim)               as comissoes_created_at,
+  (select coalesce(sum(c.valor_comissao),0) from comissoes c join agendamentos a on a.id = c.agendamento_id, p
+    where c.empresa_id = p.emp and a.data_hora_inicio >= p.ini and a.data_hora_inicio < p.fim)   as comissoes_data_atendimento,
+  (select coalesce(sum(d.valor),0) from despesas d, p
+    where d.empresa_id = p.emp and d.status = 'pago'
+      and d.data_pagamento between date '2026-09-01' and date '2026-09-30')                     as despesas,
+  (select count(*) from financeiro_ajustes_mensais f, p
+    where f.empresa_id = p.emp and f.mes = date '2026-09-01')                                   as tem_fechamento;
+```
+
+Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva; lucro = bruto − taxa_cartao − comissoes_created_at − despesas.
+
+**Bugs corrigidos nesta fase:**
+- Receita do mobile somava `pagamentos` (não batia com o web).
+- Comissão do web recalculada pelo percentual atual em vez do valor gerado.
+- Lucro do Dashboard sem descontar a taxa de cartão.
+- Limites de período em UTC ou no fuso do servidor/aparelho (últimas horas do mês caíam no mês errado).
+- Semana começando na segunda no app.
+- "+12% vs mês anterior" fixo no mobile.
+- Locale `pt-BR` inválido no gráfico mobile.
+- "A dona deve" calculado só com as retiradas do mês.
+
+**Notas e decisões adicionais:**
+- Mês importado: o fechamento só vale com o mês inteiro no período (interpretação pendente de confirmação); gráficos diário/semanal mostram nota.
+- A agenda da profissional no mobile deixou de mostrar "Minha comissão (X%)" por atendimento (era valor × percentual; a comissão real só existe após a conclusão).
+- `somarPeriodoComFechamentos` e `resolveFinanceiroKpis` seguem em `shared/fechamentos-mensais.ts` com seus testes (documentam a regra); remoção na Fase 2B.
+
+**Fase 2B (fora do escopo desta fase):**
+- Relatórios mobile: abas que faltam (Financeiro detalhado com gráfico, Equipe com comissão, Clientes top 10, Estoque, Comissões, Avaliações), KPIs de lucro/despesas/comissões, séries e exportação.
+- → web: card "Sumidas +60d" (`clientesSumidas`, trazer na fase Clientes) e "Taxa de retorno".
+- Financeiro mobile: lançamento automático de recorrentes, calendário do mês (`FinanceMonthCalendar`), exportação (botões mortos).
+- Dashboard mobile: navegação de mês, meta mensal, reconquista/aniversariantes/inativos, alerta de despesas vencendo, sparkline de receita; → web: alerta de "comandas não fechadas".
+- "Agenda hoje" inclui cancelados no web e não no mobile (decidir).
+- `useDiasProfissional` ainda em horário local e sem `empresa_id`.
+- Comissões: tela (gestor e profissional) nas duas plataformas com a mesma fonte/limites/semana; escopo de "Pagar"; Comissões no menu do app.
+- Formatação monetária padronizada (app abrevia em "k" nos Relatórios).
+- Limpeza: remover `somarPeriodoComFechamentos`/`resolveFinanceiroKpis` e seus testes.
+- Agenda (fase própria): `weekStartsOn: 1` e limites locais nas agendas mobile e nos hooks de agenda de `useProfissional.ts`.
+- Clientes inativos do Dashboard web: `.limit(3000)` sem paginação.
+- Paridade de Comanda/PDV, Estoque e Equipe.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
