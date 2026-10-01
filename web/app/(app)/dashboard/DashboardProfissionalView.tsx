@@ -51,7 +51,7 @@ export default async function DashboardProfissionalView({
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
       .gte('created_at', limMes.startIso).lte('created_at', limMes.endIso),
     supabase.from('empresa_membros').select('meta_mensal_pessoal')
-      .eq('empresa_id', empresaId).eq('user_id', userId).single(),
+      .eq('empresa_id', empresaId).eq('user_id', userId).maybeSingle(),
     supabase.from('agendamentos')
       .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(id, nome)')
       .eq('empresa_id', empresaId).eq('profissional_id', userId).eq('status', 'concluido')
