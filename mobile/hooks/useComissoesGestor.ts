@@ -16,7 +16,7 @@ import {
 import { carregarComissoesDoPeriodo, pagarComissoes } from '@shared/comissoes-consultas';
 import type { CategoriaCustom } from '@shared/categorias';
 
-export function useComissoesGestor(periodo: PeriodoComissao, deslocamento: number) {
+export function useComissoesGestor(periodo: PeriodoComissao, deslocamento: number, habilitado = true) {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
   const qc = useQueryClient();
@@ -24,14 +24,14 @@ export function useComissoesGestor(periodo: PeriodoComissao, deslocamento: numbe
 
   const query = useQuery({
     queryKey: ['comissoes-gestor', empresaId, limites.startIso, limites.endIso],
-    enabled: !!empresaId,
+    enabled: !!empresaId && habilitado,
     staleTime: 1000 * 60 * 2,
     queryFn: async () => normalizarComissoes(await carregarComissoesDoPeriodo(supabase, empresaId!, limites)),
   });
 
   const categorias = useQuery({
     queryKey: ['categorias-servico', empresaId],
-    enabled: !!empresaId,
+    enabled: !!empresaId && habilitado,
     staleTime: 1000 * 60 * 10,
     queryFn: async () => {
       const { data, error } = await supabase.from('categorias_servico').select('*').eq('empresa_id', empresaId!).order('nome');
@@ -58,9 +58,10 @@ export function useComissoesGestor(periodo: PeriodoComissao, deslocamento: numbe
     categorias: categorias.data ?? [],
     pronto: query.isSuccess,
     isLoading: query.isLoading,
+    isFetching: query.isFetching || categorias.isFetching,
     isError: query.isError || categorias.isError,
     erro: (query.error ?? categorias.error) as Error | null,
-    refetch: () => { query.refetch(); categorias.refetch(); },
+    refetch: () => Promise.all([query.refetch(), categorias.refetch()]),
     pagar: (p: ComissoesDaProfissional) => pagar.mutateAsync(p.idsPendentes),
   };
 }

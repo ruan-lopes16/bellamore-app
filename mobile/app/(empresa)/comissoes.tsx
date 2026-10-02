@@ -19,6 +19,9 @@ import {
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 
+import { router } from 'expo-router';
+import { useAuthStore } from '@/stores/authStore';
+import { temPermissao } from '@/lib/permissions';
 import { useComissoesGestor } from '@/hooks/useComissoesGestor';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { SmoothTabs } from '@/components/SmoothTabs';
@@ -254,10 +257,18 @@ export default function Comissoes() {
   const [periodo, setPeriodo] = useState<PeriodoComissao>('mes');
   const [deslocamento, setDeslocamento] = useState(0);
   const [filtro, setFiltro] = useState<FiltroComissao>('todas');
-  const [pagando, setPagando] = useState<ComissoesDaProfissional | null>(null);
+  const [pagandoId, setPagandoId] = useState<string | null>(null);
 
-  const { limites, profissionais, resumo, categorias, pronto, isLoading, isError, erro, refetch, pagar } =
-    useComissoesGestor(periodo, deslocamento);
+  // Trava de permissão dentro da tela (a rota também é alcançável pela Equipe ou por deep link).
+  const { roleAtivo, isOwner } = useAuthStore();
+  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const podeVer = temPermissao(role, 'ver_comissoes_todas');
+
+  const { limites, profissionais, resumo, categorias, pronto, isFetching, isError, erro, refetch, pagar } =
+    useComissoesGestor(periodo, deslocamento, podeVer);
+  // Modal derivado da lista atual: reflete o valor depois do refetch.
+  const pagando = profissionais.find((x) => x.profissionalId === pagandoId && x.pendente > 0) ?? null;
+  const setPagando = (x: ComissoesDaProfissional | null) => setPagandoId(x?.profissionalId ?? null);
   const rotulo = rotuloPeriodoComissao(periodo, limites);
   const podeAvancar = deslocamento < 0;
 
@@ -269,6 +280,19 @@ export default function Comissoes() {
 
   if (!fontsLoaded) return null;
 
+  if (!podeVer) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text3, textAlign: 'center' }}>
+          Sem permissão para ver as comissões da equipe
+        </Text>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20, backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: '#fff' }}>Voltar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
@@ -276,7 +300,7 @@ export default function Comissoes() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 100 }}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => refetch()} tintColor={C.accent} />}
+        refreshControl={<RefreshControl refreshing={isFetching} onRefresh={() => refetch()} tintColor={C.accent} />}
       >
         {/* Header */}
         <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 350 }}
@@ -383,7 +407,11 @@ export default function Comissoes() {
         profissional={pagando}
         rotuloPeriodo={rotulo}
         onClose={() => setPagando(null)}
-        onConfirmar={() => (pagando ? pagar(pagando) : Promise.resolve())}
+        onConfirmar={async () => {
+          if (!pagando) return;
+          await pagar(pagando);
+          Alert.alert('Comissões pagas', 'O pagamento foi registrado.');
+        }}
       />
     </View>
   );
