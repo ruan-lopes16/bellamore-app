@@ -33,7 +33,8 @@ export interface ClienteDb {
 
 type RespostaDb<T> = { data: T[] | null; error: { message: string } | null };
 
-async function todas<T>(montar: (de: number, ate: number) => PromiseLike<RespostaDb<T>>): Promise<T[]> {
+/** Pagina com buscarTodasPaginas e LANÇA o erro do banco — base de todas as consultas de shared. */
+export async function buscarTodasOuLancar<T>(montar: (de: number, ate: number) => PromiseLike<RespostaDb<T>>): Promise<T[]> {
   return buscarTodasPaginas<T>(async (de, ate) => {
     const r = await montar(de, ate);
     if (r.error) throw new Error(r.error.message);
@@ -58,49 +59,49 @@ export const COLUNAS_RETIRADA =
 export async function carregarDadosFinanceiros(db: ClienteDb, empresaId: string, l: Limites): Promise<DadosFinanceiros> {
   const [agendamentos, vendas, taxasCancelamento, taxasReserva, pagamentos, comissoes, despesas, fechamentos] =
     await Promise.all([
-      todas<AgendamentoFinRow>((de, ate) => db.from('agendamentos')
+      buscarTodasOuLancar<AgendamentoFinRow>((de, ate) => db.from('agendamentos')
         .select(COLUNAS_AGENDAMENTO_FIN)
         .eq('empresa_id', empresaId)
         .gte('data_hora_inicio', l.startIso).lte('data_hora_inicio', l.endIso)
         .order('data_hora_inicio').order('id')
         .range(de, ate)),
-      todas<VendaFinRow>((de, ate) => db.from('vendas')
+      buscarTodasOuLancar<VendaFinRow>((de, ate) => db.from('vendas')
         .select('id, valor_final, created_at')
         .eq('empresa_id', empresaId)
         .gte('created_at', l.startIso).lte('created_at', l.endIso)
         .order('created_at').order('id')
         .range(de, ate)),
-      todas<TaxaPagaFinRow>((de, ate) => db.from('taxas_cancelamento')
+      buscarTodasOuLancar<TaxaPagaFinRow>((de, ate) => db.from('taxas_cancelamento')
         .select('id, valor, paga_em')
         .eq('empresa_id', empresaId).eq('status', 'pago')
         .gte('paga_em', l.startIso).lte('paga_em', l.endIso)
         .order('paga_em').order('id')
         .range(de, ate)),
-      todas<TaxaPagaFinRow>((de, ate) => db.from('taxas_reserva')
+      buscarTodasOuLancar<TaxaPagaFinRow>((de, ate) => db.from('taxas_reserva')
         .select('id, valor, paga_em')
         .eq('empresa_id', empresaId).not('paga_em', 'is', null)
         .gte('paga_em', l.startIso).lte('paga_em', l.endIso)
         .order('paga_em').order('id')
         .range(de, ate)),
-      todas<PagamentoFinRow>((de, ate) => db.from('pagamentos')
+      buscarTodasOuLancar<PagamentoFinRow>((de, ate) => db.from('pagamentos')
         .select('id, metodo, valor, valor_liquido, created_at')
         .eq('empresa_id', empresaId).eq('status', 'pago')
         .gte('created_at', l.startIso).lte('created_at', l.endIso)
         .order('created_at').order('id')
         .range(de, ate)),
-      todas<ComissaoFinRow>((de, ate) => db.from('comissoes')
+      buscarTodasOuLancar<ComissaoFinRow>((de, ate) => db.from('comissoes')
         .select('id, profissional_id, valor_comissao, status, created_at')
         .eq('empresa_id', empresaId)
         .gte('created_at', l.startIso).lte('created_at', l.endIso)
         .order('created_at').order('id')
         .range(de, ate)),
-      todas<DespesaFinRow>((de, ate) => db.from('despesas')
+      buscarTodasOuLancar<DespesaFinRow>((de, ate) => db.from('despesas')
         .select('id, valor, categoria, status, data_pagamento')
         .eq('empresa_id', empresaId).eq('status', 'pago')
         .gte('data_pagamento', l.startDate).lte('data_pagamento', l.endDate)
         .order('data_pagamento').order('id')
         .range(de, ate)),
-      todas<FinanceiroFechamentoRow>((de, ate) => db.from('financeiro_ajustes_mensais')
+      buscarTodasOuLancar<FinanceiroFechamentoRow>((de, ate) => db.from('financeiro_ajustes_mensais')
         .select('mes, receita_bruta, comissao_paga')
         .eq('empresa_id', empresaId)
         .gte('mes', `${l.startDate.slice(0, 7)}-01`).lte('mes', l.endDate)
@@ -110,10 +111,12 @@ export async function carregarDadosFinanceiros(db: ClienteDb, empresaId: string,
   return { agendamentos, vendas, taxasCancelamento, taxasReserva, pagamentos, comissoes, despesas, fechamentos };
 }
 
-/** Todas as comissões pendentes da empresa, de qualquer mês (alerta do Dashboard). */
-export async function carregarComissoesPendentes(db: ClienteDb, empresaId: string): Promise<{ id: string; valor_comissao: number }[]> {
-  return todas((de, ate) => db.from('comissoes')
-    .select('id, valor_comissao')
+export type ComissaoPendenteRow = { id: string; profissional_id: string; valor_comissao: number | string; created_at: string };
+
+/** Todas as comissões pendentes da empresa, de qualquer mês (alerta do Dashboard, badge do menu e Equipe). */
+export async function carregarComissoesPendentes(db: ClienteDb, empresaId: string): Promise<ComissaoPendenteRow[]> {
+  return buscarTodasOuLancar<ComissaoPendenteRow>((de, ate) => db.from('comissoes')
+    .select('id, profissional_id, valor_comissao, created_at')
     .eq('empresa_id', empresaId).eq('status', 'pendente')
     .order('created_at').order('id')
     .range(de, ate));
@@ -128,7 +131,7 @@ export async function carregarClientesComHistoricoAntes(
   const comHistorico = new Set<string>();
   for (let i = 0; i < clienteIds.length; i += LOTE_IDS) {
     const lote = clienteIds.slice(i, i + LOTE_IDS);
-    const linhas = await todas<{ cliente_id: string }>((de, ate) => db.from('agendamentos')
+    const linhas = await buscarTodasOuLancar<{ cliente_id: string }>((de, ate) => db.from('agendamentos')
       .select('cliente_id')
       .eq('empresa_id', empresaId).eq('status', 'concluido')
       .lt('data_hora_inicio', antesIso)
@@ -149,12 +152,12 @@ export async function carregarRetiradas(
   db: ClienteDb, empresaId: string,
 ): Promise<{ rows: RetiradaSociaRow[]; devs: RetiradaSociaDevolucaoRow[] }> {
   const [rows, devs] = await Promise.all([
-    todas<RetiradaSociaRow>((de, ate) => db.from('retiradas_socia')
+    buscarTodasOuLancar<RetiradaSociaRow>((de, ate) => db.from('retiradas_socia')
       .select(COLUNAS_RETIRADA)
       .eq('empresa_id', empresaId)
       .order('data', { ascending: false }).order('id')
       .range(de, ate)),
-    todas<RetiradaSociaDevolucaoRow>((de, ate) => db.from('retiradas_socia_devolucoes')
+    buscarTodasOuLancar<RetiradaSociaDevolucaoRow>((de, ate) => db.from('retiradas_socia_devolucoes')
       .select('id,retirada_id,valor,data,metodo')
       .eq('empresa_id', empresaId)
       .order('id')
