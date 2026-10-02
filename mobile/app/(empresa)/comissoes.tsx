@@ -18,15 +18,16 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { addMonths, subMonths, format, isSameMonth } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 
+import { useComissoesGestor } from '@/hooks/useComissoesGestor';
+import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
+import { SmoothTabs } from '@/components/SmoothTabs';
+import { PERIODOS_COMISSAO, rotuloPeriodoComissao, horaBRT, type PeriodoComissao } from '@shared/periodos';
 import {
-  useComissoesGestor,
-  type ProfissionalComissao,
-} from '@/hooks/useComissoesGestor';
-import { CategoriaIcon, CATEGORIA_COR, CATEGORIA_BG } from '@/components/CategoriaIcon';
-import type { CategoriaServico } from '@/components/CategoriaIcon';
+  FILTROS_COMISSAO, filtrarComissoes, agruparComissoesPorData, rotuloPercentualComissao,
+  type ComissoesDaProfissional, type FiltroComissao,
+} from '@shared/comissoes';
+import { resolverCategoriaServico, type CategoriaCustom, type CategoriaServico } from '@shared/categorias';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -37,6 +38,7 @@ const C = {
   accent: '#9B6FE8',
   green: '#0D7E5F', greenSoft: '#EAFAF5',
   amber: '#B45309', amberSoft: '#FEF3E2',
+  rose: '#D4608A', roseSoft: '#FDF0F5',
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
 
@@ -46,14 +48,12 @@ const AVATAR_COLORS = [
   ['#B45309', '#F59E0B'],
 ];
 
-type Filtro = 'todas' | 'pendentes' | 'pagas';
-
 // ── Helpers ──────────────────────────────────────────────────
 
 function formatBRL(v: number) {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
   }).format(v);
 }
 
@@ -64,23 +64,21 @@ function initials(nome: string) {
 // ── Card do profissional ──────────────────────────────────────
 
 function ProfCard({
-  item, index, filtro, onPagar,
+  item, index, filtro, periodo, categorias, onPagar,
 }: {
-  item: ProfissionalComissao;
+  item: ComissoesDaProfissional;
   index: number;
-  filtro: Filtro;
+  filtro: FiltroComissao;
+  periodo: PeriodoComissao;
+  categorias: CategoriaCustom[];
   onPagar: () => void;
 }) {
   const [from, to] = AVATAR_COLORS[index % AVATAR_COLORS.length];
-  const comissoes = filtro === 'pendentes'
-    ? item.comissoes.filter((c) => c.status === 'pendente')
-    : filtro === 'pagas'
-    ? item.comissoes.filter((c) => c.status === 'pago')
-    : item.comissoes;
+  const grupos = agruparComissoesPorData(filtrarComissoes(item.itens, filtro), periodo);
 
-  if (comissoes.length === 0) return null;
+  if (grupos.length === 0) return null;
 
-  const temPendente = item.totalPendente > 0;
+  const temPendente = item.pendente > 0;
 
   return (
     <MotiView
@@ -106,7 +104,7 @@ function ProfCard({
             {item.nome}
           </Text>
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }} numberOfLines={1}>
-            {item.percentual}% de comissão · {item.totalAtendimentos} atend.
+            {`${rotuloPercentualComissao(item.percentual)} de comissão · ${item.atendimentos} atend.`}
           </Text>
         </View>
 
@@ -127,47 +125,59 @@ function ProfCard({
         )}
       </View>
 
-      {/* Lista de comissões */}
-      {comissoes.map((c, i) => {
-        const cat = (c.categoria ?? 'outros') as CategoriaServico;
-        const cor = CATEGORIA_COR[cat] ?? C.text3;
-        const bg  = CATEGORIA_BG[cat]  ?? C.primarySoft;
-        return (
-          <View
-            key={c.id}
-            style={{
-              flexDirection: 'row', alignItems: 'center', gap: 10,
-              paddingHorizontal: 14, paddingVertical: 11,
-              borderBottomWidth: i < comissoes.length - 1 ? 1 : 0, borderBottomColor: C.border,
-            }}
-          >
-            <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: bg, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <CategoriaIcon categoria={cat} size={16} color={cor} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text, marginBottom: 1 }}>
-                {c.servico_nome}
-              </Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
-                <SecretText>{formatBRL(c.valor_servico)} × {c.percentual}% = {formatBRL(c.valor_comissao)}</SecretText>
+      {/* Lista de comissões, agrupada por data */}
+      {grupos.map((g) => (
+        <View key={g.chave}>
+          {periodo !== 'dia' && (
+            <View style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: '#FAFAF9', borderBottomWidth: 1, borderBottomColor: C.border }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, letterSpacing: 1, textTransform: 'uppercase' }}>
+                {g.rotulo}
               </Text>
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
-                {formatBRL(c.valor_comissao)}
-              </SecretText>
-              <View style={{
-                marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
-                backgroundColor: c.status === 'pago' ? C.greenSoft : C.amberSoft,
-              }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 8, textTransform: 'uppercase', color: c.status === 'pago' ? C.green : C.amber }}>
-                  {c.status === 'pago' ? 'Pago' : 'Pendente'}
-                </Text>
+          )}
+          {g.itens.map((c, i) => {
+            const r = resolverCategoriaServico(c.servicoCategoria, c.servicoCategoriaId, categorias);
+            return (
+              <View
+                key={c.id}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                  paddingHorizontal: 14, paddingVertical: 11,
+                  borderBottomWidth: i < g.itens.length - 1 ? 1 : 0, borderBottomColor: C.border,
+                }}
+              >
+                <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: r.bg, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {r.iconeCustom
+                    ? <CategoriaIconCustom name={r.iconeCustom} size={16} color={r.cor} />
+                    : <CategoriaIcon categoria={(r.iconeBuiltin ?? 'outros') as CategoriaServico} size={16} color={r.cor} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text, marginBottom: 1 }}>
+                    {c.servicoNome}
+                  </Text>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
+                    <SecretText>{formatBRL(c.valorServico)} × {c.percentual}% = {formatBRL(c.valorComissao)}</SecretText>
+                    {c.dataAtendimento ? ' · ' + horaBRT(c.dataAtendimento) : ''}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
+                    {formatBRL(c.valorComissao)}
+                  </SecretText>
+                  <View style={{
+                    marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
+                    backgroundColor: c.status === 'pago' ? C.greenSoft : C.amberSoft,
+                  }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 8, textTransform: 'uppercase', color: c.status === 'pago' ? C.green : C.amber }}>
+                      {c.status === 'pago' ? 'Pago' : 'Pendente'}
+                    </Text>
+                  </View>
+                </View>
               </View>
-            </View>
-          </View>
-        );
-      })}
+            );
+          })}
+        </View>
+      ))}
 
       {/* Footer com ação */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: '#FAFAF9', borderTopWidth: 1, borderTopColor: C.border }}>
@@ -176,7 +186,7 @@ function ProfCard({
             {temPendente ? 'Pendente para repassar' : 'Tudo repassado'}
           </Text>
           <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: temPendente ? C.amber : C.green }}>
-            {formatBRL(temPendente ? item.totalPendente : item.totalPago)}
+            {formatBRL(temPendente ? item.pendente : item.pago)}
           </SecretText>
         </View>
       </View>
@@ -187,19 +197,25 @@ function ProfCard({
 // ── Modal confirmação ─────────────────────────────────────────
 
 function ModalPagamento({
-  profissional, onClose, onConfirmar,
+  profissional, rotuloPeriodo, onClose, onConfirmar,
 }: {
-  profissional: ProfissionalComissao | null;
+  profissional: ComissoesDaProfissional | null;
+  rotuloPeriodo: string;
   onClose: () => void;
-  onConfirmar: () => void;
+  onConfirmar: () => Promise<unknown>;
 }) {
   const [salvando, setSalvando] = useState(false);
 
   async function confirmar() {
     setSalvando(true);
-    await onConfirmar();
-    setSalvando(false);
-    onClose();
+    try {
+      await onConfirmar();
+      onClose();
+    } catch (e) {
+      Alert.alert('Não foi possível registrar o pagamento', (e as Error).message);
+    } finally {
+      setSalvando(false);
+    }
   }
 
   return (
@@ -213,9 +229,9 @@ function ModalPagamento({
               {profissional?.nome}
             </Text>
             <View style={{ backgroundColor: C.amberSoft, borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 24 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber, marginBottom: 4 }}>Total a repassar</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber, marginBottom: 4 }}>Pendentes de {rotuloPeriodo}</Text>
               <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 32, color: C.amber, letterSpacing: -1 }}>
-                {formatBRL(profissional?.totalPendente ?? 0)}
+                {formatBRL(profissional?.pendente ?? 0)}
               </SecretText>
             </View>
             <TouchableOpacity onPress={confirmar} disabled={salvando} style={{ backgroundColor: C.green, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', opacity: salvando ? 0.7 : 1 }}>
@@ -235,12 +251,15 @@ function ModalPagamento({
 
 export default function Comissoes() {
   const insets = useSafeAreaInsets();
-  const [mesRef, setMesRef] = useState(new Date());
-  const isHoje = isSameMonth(mesRef, new Date());
-  const [filtro, setFiltro] = useState<Filtro>('todas');
-  const [pagando, setPagando] = useState<ProfissionalComissao | null>(null);
+  const [periodo, setPeriodo] = useState<PeriodoComissao>('mes');
+  const [deslocamento, setDeslocamento] = useState(0);
+  const [filtro, setFiltro] = useState<FiltroComissao>('todas');
+  const [pagando, setPagando] = useState<ComissoesDaProfissional | null>(null);
 
-  const { profissionais, resumo, isLoading, refetch, marcarPago } = useComissoesGestor(mesRef);
+  const { limites, profissionais, resumo, categorias, pronto, isLoading, isError, erro, refetch, pagar } =
+    useComissoesGestor(periodo, deslocamento);
+  const rotulo = rotuloPeriodoComissao(periodo, limites);
+  const podeAvancar = deslocamento < 0;
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -249,12 +268,6 @@ export default function Comissoes() {
   });
 
   if (!fontsLoaded) return null;
-
-  const filtros: { key: Filtro; label: string }[] = [
-    { key: 'todas',     label: 'Todas'     },
-    { key: 'pendentes', label: 'Pendentes' },
-    { key: 'pagas',     label: 'Pagas'     },
-  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -273,24 +286,49 @@ export default function Comissoes() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>Comissões</Text><PrivacyToggle color={C.text2} bg={C.surface} borderColor={C.border} size={34} /></View>
         </MotiView>
 
-        {/* Seletor de mês */}
+        {/* Período */}
+        <SmoothTabs
+          tabs={PERIODOS_COMISSAO}
+          active={periodo}
+          onChange={(k) => { setPeriodo(k as PeriodoComissao); setDeslocamento(0); }}
+          activeColor={C.primary} trackBg={C.surface} trackBorder={C.border} inactiveTextColor={C.text3}
+          style={{ marginHorizontal: 24, marginBottom: 12 }}
+        />
+
+        {/* Navegação do período (nunca o futuro) */}
         <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 350, delay: 60 }}
           style={{ marginHorizontal: 24, marginBottom: 16 }}
         >
           <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 }}>
-            <TouchableOpacity onPress={() => setMesRef((m) => subMonths(m, 1))} style={{ width: 28, height: 28, borderRadius: 8, border: 1, borderColor: C.border, background: C.bg, alignItems: 'center', justifyContent: 'center' }}>
+            <TouchableOpacity onPress={() => setDeslocamento((d) => d - 1)} style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
               <ChevronLeft size={14} color={C.text2} strokeWidth={2.5} />
             </TouchableOpacity>
             <View style={{ alignItems: 'center' }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>
-                {format(mesRef, 'MMMM yyyy', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
+                {rotulo}
               </Text>
             </View>
-            <TouchableOpacity onPress={() => !isHoje && setMesRef((m) => addMonths(m, 1))} style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', opacity: isHoje ? 0.3 : 1 }}>
+            <TouchableOpacity onPress={() => podeAvancar && setDeslocamento((d) => d + 1)} disabled={!podeAvancar} style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', opacity: podeAvancar ? 1 : 0.3 }}>
               <ChevronRight size={14} color={C.text2} strokeWidth={2.5} />
             </TouchableOpacity>
           </View>
         </MotiView>
+
+        {/* Erro ao carregar: nunca mostrar zeros no lugar dos números */}
+        {isError && (
+          <TouchableOpacity
+            onPress={() => refetch()}
+            activeOpacity={0.8}
+            style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.roseSoft, borderWidth: 1, borderColor: C.rose, borderRadius: 14, padding: 12 }}
+          >
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.rose, marginBottom: 2 }}>
+              Não foi possível carregar as comissões
+            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text2 }}>
+              {erro?.message ?? 'Falha ao buscar os dados'} · Toque para tentar de novo
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Resumo */}
         <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 80 }}
@@ -304,7 +342,7 @@ export default function Comissoes() {
             <View key={s.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14, shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{s.label}</Text>
               <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20 }}>
-                {formatBRL(s.val)}
+                {pronto ? formatBRL(s.val) : '—'}
               </SecretText>
             </View>
           ))}
@@ -312,7 +350,7 @@ export default function Comissoes() {
 
         {/* Filtros */}
         <View style={{ flexDirection: 'row', gap: 6, marginHorizontal: 24, marginBottom: 16 }}>
-          {filtros.map(({ key, label }) => (
+          {FILTROS_COMISSAO.map(({ key, label }) => (
             <TouchableOpacity key={key} onPress={() => setFiltro(key)} style={{ paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20, backgroundColor: filtro === key ? C.primary : C.surface, borderWidth: 1, borderColor: filtro === key ? C.primary : C.border }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: filtro === key ? '#fff' : C.text3 }}>{label}</Text>
             </TouchableOpacity>
@@ -320,19 +358,21 @@ export default function Comissoes() {
         </View>
 
         {/* Cards */}
-        {profissionais.length === 0
+        {pronto && profissionais.length === 0
           ? (
             <View style={{ alignItems: 'center', paddingTop: 60 }}>
               <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text3 }}>Sem comissões</Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, marginTop: 6 }}>Nenhum atendimento concluído no período.</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, marginTop: 6 }}>Nenhuma comissão neste período.</Text>
             </View>
           )
-          : profissionais.map((p, i) => (
+          : !pronto ? null : profissionais.map((p, i) => (
             <ProfCard
-              key={p.profissional_id}
+              key={p.profissionalId}
               item={p}
               index={i}
               filtro={filtro}
+              periodo={periodo}
+              categorias={categorias}
               onPagar={() => setPagando(p)}
             />
           ))
@@ -341,11 +381,9 @@ export default function Comissoes() {
 
       <ModalPagamento
         profissional={pagando}
+        rotuloPeriodo={rotulo}
         onClose={() => setPagando(null)}
-        onConfirmar={() => {
-          if (pagando) return marcarPago(pagando.profissional_id);
-          return Promise.resolve();
-        }}
+        onConfirmar={() => (pagando ? pagar(pagando) : Promise.resolve())}
       />
     </View>
   );

@@ -62,12 +62,7 @@ export function useDashboard() {
   });
 
   // Comissões pendentes — TODAS, de qualquer mês (mesma regra do alerta do web)
-  const comissoesPendentes = useQuery({
-    queryKey: ['comissoes-pendentes', empresaId],
-    enabled: !!empresaId,
-    staleTime: 1000 * 60 * 5,
-    queryFn: async () => resumoComissoesPendentes(await carregarComissoesPendentes(supabase, empresaId!)),
-  });
+  const comissoesPendentes = useResumoComissoesPendentes();
 
   // Produtos com estoque baixo
   const estoqueBaixo = useQuery({
@@ -138,4 +133,16 @@ export function useDashboard() {
       comandasNaoFechadas.refetch();
     },
   };
+}
+
+/** TODAS as comissões pendentes da empresa (alerta do Dashboard e badge do menu "Mais"). */
+export function useResumoComissoesPendentes() {
+  const { empresaAtiva } = useAuthStore();
+  const empresaId = empresaAtiva?.id;
+  return useQuery({
+    queryKey: ['comissoes-pendentes', empresaId],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => resumoComissoesPendentes(await carregarComissoesPendentes(supabase, empresaId!)),
+  });
 }
