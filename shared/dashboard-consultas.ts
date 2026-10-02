@@ -9,10 +9,10 @@ import { janelaDespesasVencendo, type ClienteAniversario, type ComandaNaoFechada
 
 /** Última visita concluída por cliente (até `ateIso`, se informado). Sem teto de linhas. */
 export async function carregarUltimasVisitas(db: ClienteDb, empresaId: string, ateIso?: string): Promise<Map<string, UltimaVisita>> {
-  const linhas = await buscarTodasOuLancar<{ cliente_id: string | null; data_hora_inicio: string; cliente: { nome: string | null } | null }>(
+  const linhas = await buscarTodasOuLancar<{ cliente_id: string | null; data_hora_inicio: string; cliente: { nome: string | null; ativo?: boolean | null } | null }>(
     (de, ate) => {
       let q = db.from('agendamentos')
-        .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(nome)')
+        .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(nome, ativo)')
         .eq('empresa_id', empresaId).eq('status', 'concluido');
       if (ateIso) q = q.lte('data_hora_inicio', ateIso);
       return q.order('data_hora_inicio', { ascending: false }).order('id').range(de, ate);
@@ -20,6 +20,8 @@ export async function carregarUltimasVisitas(db: ClienteDb, empresaId: string, a
   // Ordem decrescente: a 1ª linha de cada cliente é a última visita.
   const mapa = new Map<string, UltimaVisita>();
   for (const a of linhas) {
+    // Cliente arquivada (ativo = false) não é reconquista nem sumida (filtro em JS: o embed é opcional).
+    if (a.cliente?.ativo === false) continue;
     if (a.cliente_id && !mapa.has(a.cliente_id)) mapa.set(a.cliente_id, { nome: a.cliente?.nome || 'Cliente', ultimaVisita: a.data_hora_inicio });
   }
   return mapa;

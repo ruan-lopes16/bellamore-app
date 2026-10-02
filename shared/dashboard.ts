@@ -54,6 +54,8 @@ export function aniversariantesProximos(
   for (const c of clientes) {
     const [, mm = '', dd = ''] = (c.data_nascimento ?? '').split('-');
     if (!/^\d{2}$/.test(mm) || !/^\d{2}$/.test(dd.slice(0, 2))) continue;
+    // Só mês 1–12 e dia 1–31; datas malformadas são ignoradas.
+    if (Number(mm) < 1 || Number(mm) > 12 || Number(dd.slice(0, 2)) < 1 || Number(dd.slice(0, 2)) > 31) continue;
     let data = aniversarioNoAno(ano, mm, dd.slice(0, 2));
     if (data < hoje) data = aniversarioNoAno(ano + 1, mm, dd.slice(0, 2));
     const diasAte = diasEntre(hoje, data);

@@ -26,6 +26,15 @@ describe('últimas visitas (reconquista e sumidas)', () => {
     expect(ops).toContainEqual(['order', ['data_hora_inicio', { ascending: false }]]);
     expect(ops).toContainEqual(['order', ['id']]);
   });
+  it('clientes arquivadas ficam fora', async () => {
+    const linhas = [
+      { cliente_id: 'a', data_hora_inicio: '2026-08-01T12:00:00Z', cliente: { nome: 'Ana', ativo: true } },
+      { cliente_id: 'x', data_hora_inicio: '2026-08-02T12:00:00Z', cliente: { nome: 'Arq', ativo: false } },
+    ];
+    const { db } = fakeDb({ linhas: { agendamentos: linhas } });
+    const m = await carregarUltimasVisitas(db, 'emp');
+    expect([...m.keys()]).toEqual(['a']);
+  });
   it('sem limite final e com erro', async () => {
     const { db, chamadas } = fakeDb();
     await carregarUltimasVisitas(db, 'emp');

@@ -30,6 +30,29 @@ describe('reconquista: mais de 45 dias sem visita', () => {
   });
 });
 
+describe('reconquista: limite padrão', () => {
+  it('7 candidatas → as 5 mais antigas', () => {
+    const m = new Map<string, UltimaVisita>();
+    for (let i = 1; i <= 7; i++) m.set(`c${i}`, { nome: `C${i}`, ultimaVisita: `2026-0${i}-01T15:00:00Z` });
+    expect(clientesParaReconquistar(m, HOJE).map(c => c.clienteId)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
+  });
+});
+
+describe('aniversariantes: validação, bissexto e limite', () => {
+  it('datas malformadas são ignoradas sem erro', () => {
+    const cs = ['1904-00-10', '1904-13-10', '1904-10-00', '1904-10-32', 'lixo', ''].map((d, i) => ({ id: String(i), nome: 'X', data_nascimento: d }));
+    expect(aniversariantesProximos(cs, '2026-10-01')).toEqual([]);
+  });
+  it('29/02 em ano bissexto continua 29/02', () => {
+    expect(aniversariantesProximos([{ id: 'z', nome: 'Z', data_nascimento: '1904-02-29' }], '2028-02-25')[0])
+      .toMatchObject({ diasAte: 4, dataAniversario: '2028-02-29' });
+  });
+  it('limite padrão de 8', () => {
+    const cs = Array.from({ length: 10 }, (_, i) => ({ id: String(i), nome: `N${i}`, data_nascimento: '1904-10-01' }));
+    expect(aniversariantesProximos(cs, '2026-10-01')).toHaveLength(8);
+  });
+});
+
 describe('aniversariantes nos próximos 7 dias', () => {
   it('hoje, amanhã, 7 dias; ontem e sem data ficam fora', () => {
     const cs = [
