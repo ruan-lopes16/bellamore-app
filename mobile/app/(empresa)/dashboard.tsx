@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   RefreshControl, StatusBar, Platform,
@@ -11,6 +11,7 @@ import {
   Bell, Calendar, FileText, User, DollarSign,
   TrendingUp, AlertTriangle, ChevronRight, Receipt,
   Home, BarChart2, Users, MoreHorizontal, TrendingDown,
+  ChevronLeft, UserMinus, Cake,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -33,6 +34,9 @@ import { useDashboard } from '@/hooks/useDashboard';
 import { useNotificacoes } from '@/hooks/useNotificacoes';
 import { temPermissao } from '@/lib/permissions';
 import TiltCard from '@/components/TiltCard';
+import { SparkLinha } from '@/components/SparkLinha';
+import { rotuloMesAno, horaBRT, rotuloDataHoraBRT } from '@shared/periodos';
+import { cartoesKpiDashboard, rotuloProgressoMeta } from '@shared/dashboard';
 
 // ── Helpers ─────────────────────────────────────────────────
 
@@ -41,7 +45,6 @@ function formatBRL(value: number) {
     style: 'currency',
     currency: 'BRL',
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
   }).format(value);
 }
 
@@ -101,12 +104,28 @@ const C = {
 
 export default function Dashboard() {
   const insets = useSafeAreaInsets();
-  const { user, empresaAtiva, isOwner, roleAtivo } = useAuthStore();
-  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const { user, empresaAtiva, isOwner: isOwnerStore, roleAtivo } = useAuthStore();
+  const role = isOwnerStore ? 'owner' : (roleAtivo ?? 'profissional');
   const podeVerEstoque = temPermissao(role, 'gerenciar_estoque');
   const podeVerFinanceiro = temPermissao(role, 'ver_resumo_financeiro');
+  const podeFecharComanda = temPermissao(role, 'fechar_comanda');
+  const [mesSolicitado, setMesSolicitado] = useState<string | null>(null);
 
   const {
+    nav,
+    kpisMes,
+    kpisAnt,
+    sparkline,
+    meta,
+    metaValor,
+    metaPronta,
+    isOwner,
+    retiradasMes,
+    emprestimosAbertos,
+    despesasVencendo,
+    reconquista,
+    aniversariantes,
+    hojePronto,
     agendamentosHoje,
     receitaHoje,
     receitaMes,
@@ -120,7 +139,7 @@ export default function Dashboard() {
     isError,
     erro,
     refetch,
-  } = useDashboard();
+  } = useDashboard(mesSolicitado);
 
   const { countNaoLidas: countNotifNaoLidas } = useNotificacoes();
 
@@ -141,6 +160,8 @@ export default function Dashboard() {
   const onRefresh = useCallback(() => { refetch(); }, [refetch]);
 
   if (!fontsLoaded) return null;
+
+  const cartoesMes = cartoesKpiDashboard(kpisMes, kpisAnt, { isOwner, retiradasMes, emprestimosAbertos, fmt: formatBRL });
 
   // ── RENDER ──────────────────────────────────────────────────
   return (
@@ -339,6 +360,28 @@ export default function Dashboard() {
           </TouchableOpacity>
         </MotiView>
 
+        {/* ── Navegação de mês (nunca o futuro) ── */}
+        {podeVerFinanceiro && (
+          <View style={{ marginHorizontal: 24, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <TouchableOpacity onPress={() => setMesSolicitado(nav.anterior)} accessibilityLabel="Mês anterior" style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronLeft size={14} color={C.text3} strokeWidth={2.4} />
+            </TouchableOpacity>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2 }}>
+              {rotuloMesAno(nav.chave)}
+            </Text>
+            {nav.seguinte ? (
+              <TouchableOpacity onPress={() => setMesSolicitado(nav.seguinte)} accessibilityLabel="Próximo mês" style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}>
+                <ChevronRight size={14} color={C.text3} strokeWidth={2.4} />
+              </TouchableOpacity>
+            ) : <View style={{ width: 26 }} />}
+            {!nav.isMesAtual && (
+              <TouchableOpacity onPress={() => setMesSolicitado(null)} style={{ backgroundColor: C.primarySoft, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.accent }}>Hoje</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         {/* ── Card hero receita ── */}
         {podeVerFinanceiro && (
           <MotiView
@@ -375,7 +418,7 @@ export default function Dashboard() {
                   textTransform: 'uppercase',
                   marginBottom: 8,
                 }}>
-                  Receita do Mês · {format(hoje, 'MMMM yyyy', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
+                  Receita do Mês · {rotuloMesAno(nav.chave)}
                 </Text>
 
                 <Text style={{
@@ -415,12 +458,27 @@ export default function Dashboard() {
                     </View>
                   )}
                   <Text style={{
+                    fontFamily: 'PlusJakartaSans_600SemiBold',
+                    fontSize: 11,
+                    color: 'rgba(255,255,255,0.6)',
+                  }}>
+                    Lucro <SecretText>{financeiroPronto ? formatBRL(kpisMes.lucro) : '—'}</SecretText>
+                  </Text>
+                  <Text style={{
                     fontFamily: 'PlusJakartaSans_400Regular',
                     fontSize: 11,
                     color: 'rgba(255,255,255,0.35)',
                   }}>
                     Toque para detalhes
                   </Text>
+                </View>
+                {kpisMes.mesesComFechamento.length > 0 && (
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 8 }}>
+                    Mês com fechamento importado — o gráfico diário mostra só os lançamentos ao vivo.
+                  </Text>
+                )}
+                <View pointerEvents="none" style={{ position: 'absolute', right: 16, bottom: 10 }}>
+                  <SparkLinha dados={sparkline} />
                 </View>
               </LinearGradient>
             </TouchableOpacity>
@@ -442,6 +500,43 @@ export default function Dashboard() {
               {erro?.message ?? 'Falha ao buscar alguns dados'} · Toque para tentar de novo
             </Text>
           </TouchableOpacity>
+        )}
+
+        {/* ── KPIs do mês (mesma lista do web) ── */}
+        {podeVerFinanceiro && financeiroPronto && (
+          <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {cartoesMes.map(c => {
+              const cor = c.tom === 'negativo' ? C.rose : c.tom === 'alerta' ? C.amber : C.primary;
+              return (
+                <View key={c.id} style={{ width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 12 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>{c.rotulo}</Text>
+                  <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: cor }}>{c.valor}</SecretText>
+                  {c.delta !== null && (
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: c.delta >= 0 ? C.green : C.rose, marginTop: 4 }}>
+                      {c.delta >= 0 ? '▲' : '▼'} {Math.abs(c.delta)}%
+                    </Text>
+                  )}
+                  {c.sub && (
+                    <SecretText style={{ fontFamily: c.subDestaque ? 'PlusJakartaSans_600SemiBold' : 'PlusJakartaSans_400Regular', fontSize: 10, color: c.subDestaque ? C.amber : C.text4, marginTop: 4 }}>{c.sub}</SecretText>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* ── Meta do mês ── */}
+        {podeVerFinanceiro && metaPronta && meta.temMeta && (
+          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1 }}>Meta do mês</Text>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text2 }}>{formatBRL(kpisMes.bruto)} / {formatBRL(metaValor)}</SecretText>
+            </View>
+            <View style={{ height: 8, borderRadius: 4, backgroundColor: C.primarySoft, overflow: 'hidden' }}>
+              <View style={{ height: 8, borderRadius: 4, width: `${meta.percentual}%`, backgroundColor: meta.atingida ? C.green : C.accent }} />
+            </View>
+            <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 6 }}>{rotuloProgressoMeta(meta, formatBRL)}</SecretText>
+          </View>
         )}
 
         {/* ── KPIs mini ── */}
@@ -528,7 +623,7 @@ export default function Dashboard() {
               lineHeight: 22,
               marginBottom: 4,
             }}>
-              <SecretText>{financeiroPronto ? formatBRL(receitaHoje) : '—'}</SecretText>
+              <SecretText>{hojePronto ? formatBRL(receitaHoje) : '—'}</SecretText>
             </Text>
             <View style={{
               backgroundColor: C.greenSoft,
@@ -727,7 +822,7 @@ export default function Dashboard() {
               </View>
             ) : (
               agendamentosHoje.map((ag, i) => {
-                const hora = format(new Date(ag.data_hora_inicio), 'HH:mm');
+                const hora = horaBRT(ag.data_hora_inicio);
                 const ampm = Number(hora.split(':')[0]) < 12 ? 'AM' : 'PM';
                 const statusCfg = STATUS_CONFIG[ag.status] ?? STATUS_CONFIG.agendado;
                 const [c1, c2] = avatarColors(ag.cliente?.nome ?? 'A');
@@ -861,8 +956,63 @@ export default function Dashboard() {
           </View>
         </MotiView>
 
+        {/* ── Reconquistar / Aniversariantes ── */}
+        {podeVerFinanceiro && reconquista.length > 0 && (
+          <View style={{ marginTop: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 24, marginBottom: 12 }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text }}>Reconquistar</Text>
+              <View style={{ backgroundColor: C.roseSoft, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.rose }}>{reconquista.length}</Text>
+              </View>
+            </View>
+            <View style={{ marginHorizontal: 24, gap: 6 }}>
+              {reconquista.map(c => (
+                <TouchableOpacity key={c.clienteId} onPress={() => router.push(`/(empresa)/cliente/${c.clienteId}` as any)}
+                  style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ width: 30, height: 30, backgroundColor: C.roseSoft, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    <UserMinus size={14} color={C.rose} strokeWidth={2} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>{c.nome}</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>Sem visita há {c.diasSemVisita} dias</Text>
+                  </View>
+                  <ChevronRight size={14} color={C.text4} strokeWidth={2} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {podeVerFinanceiro && aniversariantes.length > 0 && (
+          <View style={{ marginTop: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 24, marginBottom: 12 }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text }}>Aniversariantes</Text>
+              <View style={{ backgroundColor: C.primarySoft, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.accent }}>{aniversariantes.length}</Text>
+              </View>
+            </View>
+            <View style={{ marginHorizontal: 24, gap: 6 }}>
+              {aniversariantes.map(c => (
+                <TouchableOpacity key={c.id} onPress={() => router.push(`/(empresa)/cliente/${c.id}` as any)}
+                  style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{ width: 30, height: 30, backgroundColor: C.primarySoft, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    <Cake size={14} color={C.accent} strokeWidth={2} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>{c.nome}</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
+                      {`${c.dataAniversario.slice(8, 10)}/${c.dataAniversario.slice(5, 7)} · ${c.rotulo}`}
+                    </Text>
+                  </View>
+                  <ChevronRight size={14} color={C.text4} strokeWidth={2} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* ── Alertas ── */}
-        {((podeVerEstoque && estoqueBaixo.length > 0) || (podeVerFinanceiro && comissoesPendentes.quantidade > 0) || comandasNaoFechadas.length > 0) && (
+        {((podeVerEstoque && estoqueBaixo.length > 0) || (podeVerFinanceiro && comissoesPendentes.quantidade > 0) || (podeVerFinanceiro && despesasVencendo.length > 0) || (podeFecharComanda && comandasNaoFechadas.quantidade > 0)) && (
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -934,9 +1084,28 @@ export default function Dashboard() {
                 ))
               )}
 
-              {comandasNaoFechadas.length > 0 && (
+              {podeVerFinanceiro && despesasVencendo.map(d => (
                 <TouchableOpacity
-                  onPress={() => router.push(`/(empresa)/agendamento/${comandasNaoFechadas[0].id}` as any)}
+                  key={d.id}
+                  onPress={() => router.push('/(empresa)/financeiro' as any)}
+                  style={{ backgroundColor: C.roseSoft, borderWidth: 1, borderColor: 'rgba(212,96,138,0.15)', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                >
+                  <View style={{ width: 30, height: 30, backgroundColor: 'rgba(212,96,138,0.12)', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    <DollarSign size={14} color={C.rose} strokeWidth={2} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.rose, lineHeight: 16 }}>{d.descricao}</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
+                      Vence {d.data_vencimento.slice(8, 10)}/{d.data_vencimento.slice(5, 7)} · <SecretText>{formatBRL(Number(d.valor))}</SecretText>
+                    </Text>
+                  </View>
+                  <ChevronRight size={14} color={C.rose} strokeWidth={2} />
+                </TouchableOpacity>
+              ))}
+
+              {podeFecharComanda && comandasNaoFechadas.quantidade > 0 && comandasNaoFechadas.maisAntiga && (
+                <TouchableOpacity
+                  onPress={() => router.push(`/(empresa)/agendamento/${comandasNaoFechadas.maisAntiga!.id}` as any)}
                   style={{
                     backgroundColor: C.roseSoft,
                     borderWidth: 1,
@@ -964,8 +1133,8 @@ export default function Dashboard() {
                       color: C.rose,
                       lineHeight: 16,
                     }}>
-                      <SecretText>{comandasNaoFechadas.length}</SecretText>{' '}
-                      {comandasNaoFechadas.length === 1 ? 'comanda não fechada' : 'comandas não fechadas'}
+                      <SecretText>{comandasNaoFechadas.quantidade}</SecretText>{' '}
+                      {comandasNaoFechadas.quantidade === 1 ? 'comanda não fechada' : 'comandas não fechadas'}
                     </Text>
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_400Regular',
@@ -973,7 +1142,7 @@ export default function Dashboard() {
                       color: C.text3,
                       marginTop: 1,
                     }}>
-                      Mais antiga: {format(new Date(comandasNaoFechadas[0].data_hora_inicio), "dd/MM 'às' HH:mm", { locale: ptBR })}
+                      Mais antiga: {rotuloDataHoraBRT(comandasNaoFechadas.maisAntiga.data_hora_inicio)}
                     </Text>
                   </View>
                   <ChevronRight size={14} color={C.rose} strokeWidth={2} />

@@ -64,7 +64,7 @@ describe('mobile: dashboard, sumidas, período personalizado, gráfico vazio', (
   it('dashboard mostra — fora do sucesso', () => {
     const d = ler('mobile', 'app', '(empresa)', 'dashboard.tsx');
     expect(d).toContain("financeiroPronto ? formatBRL(receitaMes) : '—'");
-    expect(d).toContain("financeiroPronto ? formatBRL(receitaHoje) : '—'");
+    expect(d).toContain("hojePronto ? formatBRL(receitaHoje) : '—'");
     expect(d).not.toContain('{formatBRL(comissoesPendentes.total)}');
   });
   it('sumidas ignora cliente nulo e mostra — enquanto carrega', () => {

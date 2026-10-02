@@ -1,28 +1,36 @@
 /**
  * @file useDashboard.ts
- * Dados do Dashboard do app. Receita do mês e de hoje pelas funções únicas de
- * @shared/kpis-financeiros (mesmo número do Dashboard e do Financeiro web, com
- * fechamento importado). Comissões pendentes: TODAS, de qualquer mês.
+ * Dashboard do app — mesmas regras e fontes do Dashboard web (@shared/dashboard,
+ * @shared/kpis-financeiros, @shared/dashboard-consultas). Mês navegável (nunca o
+ * futuro); "hoje" sempre em Brasília; "Agenda hoje" não conta cancelados.
  */
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import type { Agendamento, Produto } from '@/types';
-import { hojeBRT, limitesDias, limitesMes, somarMeses, uniaoLimites } from '@shared/periodos';
+import { hojeBRT, limitesDias, limitesMes, uniaoLimites } from '@shared/periodos';
 import {
-  calcularKpisFinanceiros, variacaoPercentual, resumoComissoesPendentes, DADOS_VAZIOS,
+  calcularKpisFinanceiros, variacaoPercentual, resumoComissoesPendentes, receitaAcumuladaPorDia,
+  retiradasDoPeriodo, DADOS_VAZIOS,
 } from '@shared/kpis-financeiros';
-import { carregarDadosFinanceiros, carregarComissoesPendentes } from '@shared/kpis-financeiros-consultas';
+import { carregarDadosFinanceiros, carregarComissoesPendentes, carregarRetiradas } from '@shared/kpis-financeiros-consultas';
+import { somaDevolucoesPorRetirada, saldoDevedorTotal } from '@shared/retiradas-socia';
+import {
+  navegacaoMesDashboard, clientesParaReconquistar, aniversariantesProximos, resumoComandasNaoFechadas, progressoMetaEmpresa,
+} from '@shared/dashboard';
+import {
+  carregarComandasNaoFechadas, carregarDespesasVencendo, carregarUltimasVisitas, carregarAniversariantes,
+} from '@shared/dashboard-consultas';
 
-export function useDashboard() {
-  const { empresaAtiva } = useAuthStore();
+export function useDashboard(mesSolicitado: string | null = null) {
+  const { empresaAtiva, isOwner } = useAuthStore();
   const empresaId = empresaAtiva?.id;
 
-  const hoje     = hojeBRT();
-  const chaveMes = hoje.slice(0, 7);
-  const limHoje  = limitesDias(hoje, hoje);
-  const limMes   = limitesMes(chaveMes);
-  const limAnt   = limitesMes(somarMeses(chaveMes, -1));
+  const hoje    = hojeBRT();
+  const nav     = navegacaoMesDashboard(mesSolicitado, hoje);
+  const limHoje = limitesDias(hoje, hoje);
+  const limMes  = limitesMes(nav.chave);
+  const limAnt  = limitesMes(nav.anterior);
 
   // Agendamentos de hoje com joins
   const agendamentosHoje = useQuery({
@@ -53,12 +61,19 @@ export function useDashboard() {
     },
   });
 
-  // Mês atual + anterior (delta) numa busca só; hoje está dentro do mês atual.
+  // Mês exibido + anterior (delta) numa busca só.
   const financeiro = useQuery({
-    queryKey: ['dash-financeiro', empresaId, chaveMes],
+    queryKey: ['dash-financeiro', empresaId, nav.chave],
     enabled: !!empresaId,
     staleTime: 1000 * 60,
     queryFn: () => carregarDadosFinanceiros(supabase, empresaId!, uniaoLimites(limAnt, limMes)),
+  });
+  // "Receita hoje" quando o mês exibido não é o atual (mesma regra do web).
+  const financeiroHoje = useQuery({
+    queryKey: ['dash-financeiro', empresaId, 'hoje', hoje],
+    enabled: !!empresaId && !nav.isMesAtual,
+    staleTime: 1000 * 60,
+    queryFn: () => carregarDadosFinanceiros(supabase, empresaId!, limHoje),
   });
 
   // Comissões pendentes — TODAS, de qualquer mês (mesma regra do alerta do web)
@@ -81,57 +96,88 @@ export function useDashboard() {
     },
   });
 
-  // Comandas não fechadas — atendimentos já ocorridos (data_hora_fim passada),
-  // sem comanda_id, que não foram cancelados/faltaram.
   const comandasNaoFechadas = useQuery({
     queryKey: ['comandas-nao-fechadas', empresaId],
     enabled: !!empresaId,
     staleTime: 1000 * 60,
+    queryFn: async () => resumoComandasNaoFechadas(await carregarComandasNaoFechadas(supabase, empresaId!, new Date().toISOString())),
+  });
+  const despesasVencendo = useQuery({
+    queryKey: ['despesas-vencendo', empresaId, hoje],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: () => carregarDespesasVencendo(supabase, empresaId!, hoje),
+  });
+  const reconquista = useQuery({
+    queryKey: ['dash-reconquista', empresaId, hoje],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 10,
+    queryFn: async () => clientesParaReconquistar(await carregarUltimasVisitas(supabase, empresaId!), hoje),
+  });
+  const aniversariantes = useQuery({
+    queryKey: ['dash-aniversariantes', empresaId, hoje],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 30,
+    queryFn: async () => aniversariantesProximos(await carregarAniversariantes(supabase, empresaId!), hoje),
+  });
+  // Meta lida do banco (o web lê a empresa a cada carga; o store do app pode estar velho).
+  const meta = useQuery({
+    queryKey: ['dash-meta', empresaId],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 10,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('agendamentos')
-        .select('id, data_hora_inicio')
-        .eq('empresa_id', empresaId!)
-        .is('comanda_id', null)
-        .not('status', 'in', '("cancelado","faltou")')
-        .lt('data_hora_fim', new Date().toISOString())
-        .order('data_hora_inicio', { ascending: true })
-        .limit(500);
-
+      const { data, error } = await supabase.from('empresas').select('meta_mensal').eq('id', empresaId!).single();
       if (error) throw error;
-      return data as { id: string; data_hora_inicio: string }[];
+      return Number((data as { meta_mensal: number | string | null } | null)?.meta_mensal ?? 0);
     },
+  });
+  // Retiradas da dona (owner-only) — mesma chave/consulta do Financeiro.
+  const retiradas = useQuery({
+    queryKey: ['fin-retiradas', empresaId],
+    enabled: !!empresaId && isOwner,
+    staleTime: 1000 * 60 * 5,
+    queryFn: () => carregarRetiradas(supabase, empresaId!),
   });
 
   const dados    = financeiro.data ?? DADOS_VAZIOS;
   const kpisMes  = calcularKpisFinanceiros(dados, limMes);
   const kpisAnt  = calcularKpisFinanceiros(dados, limAnt);
-  const kpisHoje = calcularKpisFinanceiros(dados, limHoje);
+  const kpisHoje = calcularKpisFinanceiros(nav.isMesAtual ? dados : (financeiroHoje.data ?? DADOS_VAZIOS), limHoje);
+  const rowsRet  = retiradas.data?.rows ?? [];
+  const devsRet  = retiradas.data?.devs ?? [];
+
+  const consultas = [agendamentosHoje, financeiro, financeiroHoje, comissoesPendentes, estoqueBaixo,
+    comandasNaoFechadas, despesasVencendo, reconquista, aniversariantes, meta, retiradas];
 
   return {
+    nav,
     agendamentosHoje: agendamentosHoje.data ?? [],
+    kpisMes,
+    kpisAnt,
     receitaHoje: kpisHoje.bruto,
     receitaMes: kpisMes.bruto,
     variacaoReceitaMes: financeiro.data ? variacaoPercentual(kpisMes.bruto, kpisAnt.bruto) : null,
+    sparkline: financeiro.data ? receitaAcumuladaPorDia(dados, limMes, nav.isMesAtual ? hoje : limMes.endDate) : [],
+    meta: progressoMetaEmpresa(kpisMes.bruto, meta.data ?? 0),
+    metaValor: meta.data ?? 0,
+    metaPronta: meta.isSuccess && financeiro.isSuccess,
+    isOwner,
+    retiradasMes: retiradasDoPeriodo(rowsRet, devsRet, limMes),
+    emprestimosAbertos: saldoDevedorTotal(rowsRet, somaDevolucoesPorRetirada(devsRet)),
     comissoesPendentes: comissoesPendentes.data ?? { quantidade: 0, total: 0 },
     estoqueBaixo: estoqueBaixo.data ?? [],
-    comandasNaoFechadas: comandasNaoFechadas.data ?? [],
-    // Só vale número quando a consulta deu certo: carregando ou com erro a tela mostra '—', nunca R$ 0,00.
+    comandasNaoFechadas: comandasNaoFechadas.data ?? { quantidade: 0, maisAntiga: null },
+    despesasVencendo: despesasVencendo.data ?? [],
+    reconquista: reconquista.data ?? [],
+    aniversariantes: aniversariantes.data ?? [],
+    // Só vale número com a consulta certa: carregando ou com erro a tela mostra '—'.
     financeiroPronto: financeiro.isSuccess,
+    hojePronto: nav.isMesAtual ? financeiro.isSuccess : financeiroHoje.isSuccess,
     comissoesPendentesPronto: comissoesPendentes.isSuccess,
     isLoading: agendamentosHoje.isLoading || financeiro.isLoading,
-    // Falha em qualquer consulta: a tela mostra aviso em vez de zeros enganosos.
-    isError: agendamentosHoje.isError || financeiro.isError || comissoesPendentes.isError
-      || estoqueBaixo.isError || comandasNaoFechadas.isError,
-    erro: (agendamentosHoje.error ?? financeiro.error ?? comissoesPendentes.error
-      ?? estoqueBaixo.error ?? comandasNaoFechadas.error) as Error | null,
-    refetch: () => {
-      agendamentosHoje.refetch();
-      financeiro.refetch();
-      comissoesPendentes.refetch();
-      estoqueBaixo.refetch();
-      comandasNaoFechadas.refetch();
-    },
+    isError: consultas.some(q => q.isError),
+    erro: (consultas.find(q => q.isError)?.error ?? null) as Error | null,
+    refetch: () => { for (const q of consultas) q.refetch(); },
   };
 }
 

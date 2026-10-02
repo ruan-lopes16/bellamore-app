@@ -25,6 +25,7 @@ export const CHAVES_FINANCEIRO = [
   'comissoes-pendentes',
   'comissoes-gestor',
   'comandas-nao-fechadas',
+  'despesas-vencendo',
 ] as const;
 
 /** O mínimo de um QueryClient (TanStack Query) que esta função usa. */
