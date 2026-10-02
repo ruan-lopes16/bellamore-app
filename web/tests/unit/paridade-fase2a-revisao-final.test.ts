@@ -36,10 +36,10 @@ describe('mobile invalidarFinanceiro', () => {
 
 describe('web Relatórios: pagar comissão e carga', () => {
   const src = ler('web', 'app', '(app)', 'relatorios', 'page.tsx');
-  it('atualiza dados.comissoes (KPI) e reverte só os ids não confirmados', () => {
+  it('atualiza dados.comissoes (KPI) só com os ids confirmados pelo banco', () => {
     expect(src).toContain('comissoes: prev.comissoes.map');
     expect(src).toContain('ids.filter(id => !confirmados.has(id))');
-    expect(src).toContain("marcar(naoConfirmados, 'pendente')");
+    expect(src).toContain("marcar(r.confirmados, 'pago')");
   });
   it('descarta respostas velhas e bloqueia exportação com erro', () => {
     expect(src).toContain('const req = ++reqRef.current');

@@ -367,18 +367,23 @@ export default function RelatoriosPage() {
     if (aba !== 'estoque' || !empresaId) return;
     const chave = `${empresaId}-${periodo}-${semanaOffset}-${anoOffset}-${customIni}-${customFim}`;
     if (estoqueChave === chave) return;
+    // Guarda: resposta de período/aba antigo não pode sobrescrever o estado atual.
+    let ativo = true;
     (async () => {
       setLoadingAba(true);
       try {
         const rows = await carregarSaidasEstoque(supabase, empresaId, atual);
+        if (!ativo) return;
         setMovs(rows);
         setEstoqueChave(chave);
       } catch (e) {
+        if (!ativo) return;
         setMovs([]);
         showErro(`Erro ao carregar o estoque: ${(e as Error).message}`);
       }
-      setLoadingAba(false);
+      if (ativo) setLoadingAba(false);
     })();
+    return () => { ativo = false; };
   }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, estoqueChave, atual]);
 
   // ── Aba Avaliações: carrega sob demanda (sai da query principal)
@@ -386,18 +391,23 @@ export default function RelatoriosPage() {
     if (aba !== 'avaliacoes' || !empresaId) return;
     const chave = `${empresaId}-${periodo}-${semanaOffset}-${anoOffset}-${customIni}-${customFim}`;
     if (avalChave === chave) return;
+    // Guarda: resposta de período/aba antigo não pode sobrescrever o estado atual.
+    let ativo = true;
     (async () => {
       setLoadingAba(true);
       try {
         const rows = await carregarAvaliacoes(supabase, empresaId, atual);
+        if (!ativo) return;
         setAvaliacoes(rows);
         setAvalChave(chave);
       } catch (e) {
+        if (!ativo) return;
         setAvaliacoes([]);
         showErro(`Erro ao carregar as avaliações: ${(e as Error).message}`);
       }
-      setLoadingAba(false);
+      if (ativo) setLoadingAba(false);
     })();
+    return () => { ativo = false; };
   }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, avalChave, atual]);
 
   // ── Números únicos (mesmas funções do Financeiro, Dashboard e app mobile)
@@ -458,22 +468,22 @@ export default function RelatoriosPage() {
     if (ids.length === 0) return;
     if (!confirm(textoConfirmarPagamento(prof.nome, fmtBRL(prof.pendente), labelPeriodo))) return;
 
-    // Optimistic update (lista detalhada + dados que alimentam os KPIs)
-    const marcar = (idsAlvo: string[], status: 'pago' | 'pendente') => {
+    // Sem flip otimista: só marca como paga o que o banco confirmou (mesmo comportamento das outras telas de pagar).
+    const marcar = (idsAlvo: string[], status: 'pago') => {
       setComissoes(prev => prev.map(c => idsAlvo.includes(c.id) ? { ...c, status } : c));
       setDados(prev => ({
         ...prev,
         comissoes: prev.comissoes.map(c => idsAlvo.includes(c.id) ? { ...c, status } : c),
       }));
     };
-    marcar(ids, 'pago');
-
-    // pagarComissoes confere as linhas afetadas; sucesso parcial reverte só o que não foi confirmado.
+    const req = reqRef.current;
+    // pagarComissoes confere as linhas afetadas.
     const r = await pagarComissoes(supabase, empresaId, ids);
+    // Se o período mudou durante a chamada, a tela já recarregou com o estado do banco.
+    if (req === reqRef.current) marcar(r.confirmados, 'pago');
     const confirmados = new Set(r.confirmados);
     const naoConfirmados = ids.filter(id => !confirmados.has(id));
-    if (naoConfirmados.length > 0) {
-      marcar(naoConfirmados, 'pendente');
+    if (naoConfirmados.length > 0 || r.erro) {
       showErro(r.erro ? `Erro ao atualizar comissões: ${r.erro}` : MENSAGEM_PAGAMENTO_PARCIAL);
     }
   }
@@ -977,7 +987,7 @@ export default function RelatoriosPage() {
               ))}
 
               {/* Custo médio por atendimento */}
-              {insumos.custoMedioPorAtendimento != null && (
+              {(
                 <div className="mt-4 pt-3 border-t border-border grid grid-cols-2 gap-3">
                   <div className="bg-bg rounded-xl p-3">
                     <p className="text-xs text-text-3 mb-1">Custo total de insumos</p>
@@ -988,7 +998,7 @@ export default function RelatoriosPage() {
                   <div className="bg-bg rounded-xl p-3">
                     <p className="text-xs text-text-3 mb-1">Custo médio / atendimento</p>
                     <p className="text-sm font-bold text-text">
-                      {fmtBRL(insumos.custoMedioPorAtendimento)}
+                      {insumos.custoMedioPorAtendimento != null ? fmtBRL(insumos.custoMedioPorAtendimento) : '—'}
                     </p>
                   </div>
                 </div>

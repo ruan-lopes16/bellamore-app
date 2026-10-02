@@ -17,4 +17,15 @@ describe('web Relatórios com as regras únicas', () => {
   it('Pagar confirma antes', () => {
     expect(src).toContain('textoConfirmarPagamento(');
   });
+  it('Pagar sem flip otimista e abas lazy com guarda', () => {
+    const h = src.slice(src.indexOf('async function marcarComoPago'));
+    const corpo = h.slice(0, h.indexOf('// Estado de accordion'));
+    expect(corpo.indexOf('await pagarComissoes(')).toBeGreaterThan(-1);
+    const antes = corpo.slice(0, corpo.indexOf('await pagarComissoes('));
+    expect(antes.includes('marcar(')).toBe(false);
+    expect(src).toContain('marcar(r.confirmados');
+    const est = src.slice(src.indexOf('Aba Estoque'), src.indexOf('Números únicos'));
+    expect((est.match(/let ativo = true/g) ?? []).length).toBe(2);
+    expect(est.split('return () => { ativo = false; };').length - 1).toBe(2);
+  });
 });
