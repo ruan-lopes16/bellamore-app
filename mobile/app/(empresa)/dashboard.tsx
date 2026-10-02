@@ -139,7 +139,7 @@ export default function Dashboard() {
     isError,
     erro,
     refetch,
-  } = useDashboard(mesSolicitado);
+  } = useDashboard(mesSolicitado, { podeVerFinanceiro, podeFecharComanda });
 
   const { countNaoLidas: countNotifNaoLidas } = useNotificacoes();
 
@@ -525,20 +525,6 @@ export default function Dashboard() {
           </View>
         )}
 
-        {/* ── Meta do mês ── */}
-        {podeVerFinanceiro && metaPronta && meta.temMeta && (
-          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1 }}>Meta do mês</Text>
-              <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text2 }}>{formatBRL(kpisMes.bruto)} / {formatBRL(metaValor)}</SecretText>
-            </View>
-            <View style={{ height: 8, borderRadius: 4, backgroundColor: C.primarySoft, overflow: 'hidden' }}>
-              <View style={{ height: 8, borderRadius: 4, width: `${meta.percentual}%`, backgroundColor: meta.atingida ? C.green : C.accent }} />
-            </View>
-            <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 6 }}>{rotuloProgressoMeta(meta, formatBRL)}</SecretText>
-          </View>
-        )}
-
         {/* ── KPIs mini ── */}
         <MotiView
           from={{ opacity: 0, translateY: 6 }}
@@ -695,6 +681,20 @@ export default function Dashboard() {
           </View>
           )}
         </MotiView>
+
+        {/* ── Meta do mês ── */}
+        {podeVerFinanceiro && metaPronta && meta.temMeta && (
+          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1 }}>Meta do mês</Text>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text2 }}>{formatBRL(kpisMes.bruto)} / {formatBRL(metaValor)}</SecretText>
+            </View>
+            <View style={{ height: 8, borderRadius: 4, backgroundColor: C.primarySoft, overflow: 'hidden' }}>
+              <View style={{ height: 8, borderRadius: 4, width: `${meta.percentual}%`, backgroundColor: meta.atingida ? C.green : C.accent }} />
+            </View>
+            <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 6 }}>{rotuloProgressoMeta(meta, formatBRL)}</SecretText>
+          </View>
+        )}
 
         {/* ── Ações rápidas ── */}
         <MotiView
