@@ -42,6 +42,17 @@ function diaDoMs(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+const RE_SEM_FUSO = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/**
+ * Milissegundos UTC de um instante. String SEM fuso ('2026-09-30T10:00:00' ou
+ * com espaço) é lida como UTC — é como o Postgres a guarda. `Date.parse` a
+ * leria no fuso do aparelho e o dia mudaria conforme o celular.
+ */
+export function instanteMs(ts: string): number {
+  return Date.parse(RE_SEM_FUSO.test(ts) ? `${ts.replace(' ', 'T')}Z` : ts);
+}
+
 /** Soma `n` dias (pode ser negativo) a 'yyyy-MM-dd'. */
 export function somarDias(dia: string, n: number): string {
   return diaDoMs(msDoDia(dia) + n * DIA_MS);
@@ -77,7 +88,7 @@ export function ultimoDiaDoMes(chave: string): string {
  */
 export function chaveDiaBRT(valor: string | Date): string {
   if (typeof valor === 'string' && RE_DIA.test(valor)) return valor;
-  const ms = typeof valor === 'string' ? Date.parse(valor) : valor.getTime();
+  const ms = typeof valor === 'string' ? instanteMs(valor) : valor.getTime();
   return diaDoMs(ms - OFFSET_BRT_MS);
 }
 
@@ -130,7 +141,7 @@ export function uniaoLimites(a: Limites, b: Limites): Limites {
 /** O instante (timestamptz) cai dentro dos limites? */
 export function contemInstante(l: Limites, ts: string | null | undefined): boolean {
   if (!ts) return false;
-  const ms = Date.parse(ts);
+  const ms = instanteMs(ts);
   return ms >= Date.parse(l.startIso) && ms <= Date.parse(l.endIso);
 }
 
@@ -288,4 +299,122 @@ export function rotuloDoPeriodo(periodo: PeriodoRelatorio, l: Limites): string {
     case 'custom':
       return `${ddmmaaaa(l.startDate)} – ${ddmmaaaa(l.endDate)}`;
   }
+}
+
+// ── Comissões: períodos de calendário com navegação (lista ÚNICA web + mobile) ──
+
+export type PeriodoComissao = 'dia' | 'semana' | 'mes' | 'trimestre' | 'semestre' | 'ano';
+
+export const PERIODOS_COMISSAO: { key: PeriodoComissao; label: string }[] = [
+  { key: 'dia', label: 'Dia' },
+  { key: 'semana', label: 'Semana' },
+  { key: 'mes', label: 'Mês' },
+  { key: 'trimestre', label: 'Trimestre' },
+  { key: 'semestre', label: 'Semestre' },
+  { key: 'ano', label: 'Ano' },
+];
+
+function blocoDoCalendario(hoje: string, meses: number, deslocamento: number): Limites {
+  const m = Number(hoje.slice(5, 7));
+  const inicioBloco = `${hoje.slice(0, 4)}-${pad(Math.floor((m - 1) / meses) * meses + 1)}`;
+  const ini = somarMeses(inicioBloco, meses * deslocamento);
+  return limitesDias(`${ini}-01`, ultimoDiaDoMes(somarMeses(ini, meses - 1)));
+}
+
+/**
+ * Limites do período de comissão. `deslocamento` = quantos períodos a partir
+ * do atual (0 = atual, −1 = anterior). Trimestre/semestre são de calendário.
+ */
+export function limitesPeriodoComissao(periodo: PeriodoComissao, hoje: string, deslocamento = 0): Limites {
+  switch (periodo) {
+    case 'dia': {
+      const d = somarDias(hoje, deslocamento);
+      return limitesDias(d, d);
+    }
+    case 'semana': {
+      const ref = somarDias(hoje, 7 * deslocamento);
+      const ini = somarDias(ref, -diaDaSemana(ref));
+      return limitesDias(ini, somarDias(ini, 6));
+    }
+    case 'mes':
+      return limitesMes(somarMeses(hoje.slice(0, 7), deslocamento));
+    case 'trimestre':
+      return blocoDoCalendario(hoje, 3, deslocamento);
+    case 'semestre':
+      return blocoDoCalendario(hoje, 6, deslocamento);
+    case 'ano': {
+      const a = Number(hoje.slice(0, 4)) + deslocamento;
+      return limitesDias(`${a}-01-01`, `${a}-12-31`);
+    }
+  }
+}
+
+export const DIAS_SEMANA_ABREV = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const capitalizar = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** 'Setembro 2026' para '2026-09' (ou um dia do mês). */
+export function rotuloMesAno(chave: string): string {
+  return `${capitalizar(MESES[Number(chave.slice(5, 7)) - 1])} ${chave.slice(0, 4)}`;
+}
+/** 'Qua, 30 de set'. */
+export function rotuloDiaCurto(dia: string): string {
+  return `${DIAS_SEMANA_ABREV[diaDaSemana(dia)]}, ${dia.slice(8, 10)} de ${MESES_ABREV[Number(dia.slice(5, 7)) - 1]}`;
+}
+/** '16 de julho de 2026'. */
+export function rotuloDiaExtenso(dia: string): string {
+  return `${Number(dia.slice(8, 10))} de ${MESES[Number(dia.slice(5, 7)) - 1]} de ${dia.slice(0, 4)}`;
+}
+/** '05/09/2026'. */
+export function rotuloDataBR(dia: string): string {
+  return ddmmaaaa(dia);
+}
+
+export function rotuloPeriodoComissao(periodo: PeriodoComissao, l: Limites): string {
+  const ano = l.startDate.slice(0, 4);
+  const mes = Number(l.startDate.slice(5, 7));
+  switch (periodo) {
+    case 'dia': return `${rotuloDiaCurto(l.startDate)} ${ano}`;
+    case 'semana': return `${ddmm(l.startDate)} – ${ddmmaaaa(l.endDate)}`;
+    case 'mes': return rotuloMesAno(l.startDate);
+    case 'trimestre': return `${Math.floor((mes - 1) / 3) + 1}º Trimestre ${ano}`;
+    case 'semestre': return `${mes <= 6 ? 1 : 2}º Semestre ${ano}`;
+    case 'ano': return ano;
+  }
+}
+
+// ── Calendário do mês (Financeiro web e app) ──────────────────────
+
+export type CelulaCalendario = { dia: string; numero: number; foraDoMes: boolean; destacado: boolean };
+
+/** 42 dias (6 semanas, domingo primeiro) que cobrem o mês 'yyyy-MM'. */
+export function gradeCalendarioMes(chave: string, diaDestacado?: string | null): CelulaCalendario[] {
+  const k = chave.slice(0, 7);
+  const primeiro = `${k}-01`;
+  const inicio = somarDias(primeiro, -diaDaSemana(primeiro));
+  return Array.from({ length: 42 }, (_, i) => {
+    const dia = somarDias(inicio, i);
+    return { dia, numero: Number(dia.slice(8, 10)), foraDoMes: dia.slice(0, 7) !== k, destacado: dia === diaDestacado };
+  });
+}
+
+/** '01/07 - 31/07'. */
+export function rotuloIntervaloMes(chave: string): string {
+  const k = chave.slice(0, 7);
+  return `${ddmm(`${k}-01`)} - ${ddmm(ultimoDiaDoMes(k))}`;
+}
+
+/** 'yyyy-MM-dd' do Date do seletor da tela (calendário local, sem fuso). */
+export function chaveDiaExibido(d: Date): string {
+  return `${chaveDoMesExibido(d)}-${pad(d.getDate())}`;
+}
+
+/** 'HH:mm' em Brasília (o servidor do web roda em UTC). */
+export function horaBRT(ts: string): string {
+  const d = new Date(instanteMs(ts) - OFFSET_BRT_MS);
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
+/** '30/09 às 23:30' em Brasília. */
+export function rotuloDataHoraBRT(ts: string): string {
+  return `${ddmm(chaveDiaBRT(ts))} às ${horaBRT(ts)}`;
 }
