@@ -35,19 +35,29 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
-  PERIODOS_RELATORIO, ROTULO_COMPARACAO, limitesDoPeriodo, rotuloDoPeriodo, uniaoLimites, hojeBRT,
+  PERIODOS_RELATORIO, limitesDoPeriodo, rotuloDoPeriodo, uniaoLimites, hojeBRT, chaveDiaBRT, rotuloDataBR,
   type PeriodoRelatorio, type OpcoesPeriodo,
 } from '@shared/periodos';
 import {
   calcularKpisFinanceiros, recortarDados, serieFaturamento, rankingAtendimentos, metricasRetorno,
-  clientesAtendidosNoPeriodo, variacaoPercentual, retiradasDoPeriodo,
-  resultadoAposRetiradas as calcularAposRetiradas, DADOS_VAZIOS,
+  clientesAtendidosNoPeriodo, retiradasDoPeriodo, clientesSumidas, DADOS_VAZIOS,
   type DadosFinanceiros, type ItemRanking,
 } from '@shared/kpis-financeiros';
 import {
   carregarDadosFinanceiros, carregarClientesComHistoricoAntes, carregarRetiradas,
 } from '@shared/kpis-financeiros-consultas';
-import { buscarTodasPaginas } from '@shared/paginacao';
+import {
+  ABAS_RELATORIO, cartoesKpiRelatorio, linhasResumoFinanceiro, rankingDespesasPorCategoria, comissaoPorProfissional,
+  resumoInsumos, resumoAvaliacoes, type AbaRelatorio, type ItemInsumo, type CartaoKpiRelatorio, type MovEstoqueRow, type AvaliacaoRow,
+} from '@shared/relatorios';
+import { carregarSaidasEstoque, carregarAvaliacoes } from '@shared/relatorios-consultas';
+import {
+  normalizarComissoes, comissoesPorProfissional, resumoComissoes, textoConfirmarPagamento, MENSAGEM_PAGAMENTO_PARCIAL,
+  type ComissaoItem,
+} from '@shared/comissoes';
+import { carregarComissoesDoPeriodo, pagarComissoes } from '@shared/comissoes-consultas';
+import { carregarUltimasVisitas } from '@shared/dashboard-consultas';
+import { datasDasUltimasVisitas } from '@shared/dashboard';
 import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 
@@ -72,52 +82,25 @@ type Ag = {
   cliente:      { nome: string } | null;
 };
 
-type Despesa  = { valor: number; categoria: string | null };
-type Comissao = {
-  id:               string;
-  profissional_id:  string;
-  valor_comissao:   number;
-  status:           'pendente' | 'pago';
-  percentual:       number;
-  created_at:       string;
-  profissional:     { nome: string } | null;
-  agendamento: {
-    data_hora_inicio: string;
-    valor:            number;
-    servico:  { nome: string } | null;
-    cliente:  { nome: string } | null;
-  } | null;
-};
-type MovEstoque = {
-  produto_id: string; quantidade: number;
-  produto: { nome: string; preco_custo: number } | null;
-};
-type Avaliacao = {
-  nota: number;
-  comentario: string | null;
-  created_at: string;
-  profissional_id: string | null;
-  profissional: { nome: string } | null;
-  cliente: { nome: string } | null;
-};
-
 /** Item genérico de ranking (serviços, equipe, clientes) */
 type RankItem = { nome: string; valor: number; qtd: number; pct: number };
-/** Ranking de estoque com custo estimado */
-type EstRankItem = { nome: string; qtd: number; custo: number; pct: number };
 
 // ── Constantes ────────────────────────────────────────────────
 
-const ABA_OPTS = [
-  { key: 'financeiro' as const, label: 'Financeiro', icon: BarChart2  },
-  { key: 'servicos'   as const, label: 'Serviços',   icon: Scissors   },
-  { key: 'equipe'     as const, label: 'Equipe',     icon: Users      },
-  { key: 'clientes'   as const, label: 'Clientes',   icon: User       },
-  { key: 'estoque'    as const, label: 'Estoque',    icon: Package    },
-  { key: 'comissoes'  as const, label: 'Comissões',  icon: DollarSign },
-  { key: 'avaliacoes' as const, label: 'Avaliações', icon: Star       },
-];
-type Aba = typeof ABA_OPTS[number]['key'];
+const ICONE_ABA: Record<AbaRelatorio, React.ComponentType<{ size?: number }>> = {
+  financeiro: BarChart2, servicos: Scissors, equipe: Users, clientes: User, estoque: Package, comissoes: DollarSign, avaliacoes: Star,
+};
+const ABA_OPTS = ABAS_RELATORIO.map(a => ({ ...a, icon: ICONE_ABA[a.key] }));
+type Aba = AbaRelatorio;
+
+const ICONE_KPI: Record<CartaoKpiRelatorio['id'], React.ElementType> = {
+  bruto: DollarSign, cartao: CreditCard, liquido: TrendingUp, lucro: Activity, aposRetiradas: Activity,
+  atendimentos: Scissors, ticket: Target, comparecimento: Users, cancelamento: XCircle, taxas: Receipt, comissoes: DollarSign,
+};
+const COR_KPI: Record<CartaoKpiRelatorio['id'], string> = {
+  bruto: '#7C3AED', cartao: '#DC2626', liquido: '#16A34A', lucro: '#0D7E5F', aposRetiradas: '#0D7E5F',
+  atendimentos: '#D4608A', ticket: '#B45309', comparecimento: '#1D4ED8', cancelamento: '#DC2626', taxas: '#DC2626', comissoes: '#D97706',
+};
 
 const AVATAR_CORES = ['#7C3AED', '#D4608A', '#0D7E5F', '#B45309', '#1D4ED8', '#7C2D12'];
 
@@ -278,9 +261,11 @@ export default function RelatoriosPage() {
   // Contadores de requisição: descartam respostas de cargas antigas (troca rápida de período).
   const reqRef = useRef(0);
   const reqRetiradasRef = useRef(0);
-  const [comissoes,  setComissoes]  = useState<Comissao[]>([]);
-  const [movs,       setMovs]       = useState<MovEstoque[]>([]);
-  const [avaliacoes, setAvaliacoes] = useState<Avaliacao[]>([]);
+  const [comissoes,  setComissoes]  = useState<ComissaoItem[]>([]);
+  const [movs,       setMovs]       = useState<MovEstoqueRow[]>([]);
+  const [avaliacoes, setAvaliacoes] = useState<AvaliacaoRow[]>([]);
+  // Clientes sumidas (+60d) até o fim do período; null = ainda não carregou / falhou.
+  const [sumidas, setSumidas] = useState<number | null>(null);
   // Retiradas/empréstimos da dona — só o owner enxerga (RLS + guarda de UI).
   const [isOwner, setIsOwner] = useState(false);
   const [retiradasRows,     setRetiradasRows]     = useState<RetiradaSociaRow[]>([]);
@@ -320,38 +305,25 @@ export default function RelatoriosPage() {
     setErroCarga('');
     const { atual: lAtual, anterior: lAnterior } = limitesDoPeriodo(per, hojeBRT(), opts);
     try {
-      const [d, rCom] = await Promise.all([
+      const [d, rCom, ultimas] = await Promise.all([
         carregarDadosFinanceiros(supabase, empId, uniaoLimites(lAnterior, lAtual)),
-        buscarTodasPaginas<Comissao>(async (from, to) => {
-          const r = await supabase.from('comissoes')
-            .select(`id, profissional_id, valor_comissao, status, percentual, created_at,
-              profissional:users!comissoes_profissional_id_fkey(nome),
-              agendamento:agendamentos(
-                data_hora_inicio, valor,
-                servico:servicos(nome),
-                cliente:clientes!agendamentos_cliente_id_fkey(nome)
-              )`)
-            .eq('empresa_id', empId)
-            .gte('created_at', lAtual.startIso)
-            .lte('created_at', lAtual.endIso)
-            .order('created_at').order('id')
-            .range(from, to);
-          if (r.error) throw new Error(r.error.message);
-          return r;
-        }),
+        carregarComissoesDoPeriodo(supabase, empId, lAtual),
+        carregarUltimasVisitas(supabase, empId, lAtual.endIso),
       ]);
       if (req !== reqRef.current) return;   // resposta velha
       const ids = clientesAtendidosNoPeriodo(recortarDados(d, lAtual).agendamentos);
       const hist = await carregarClientesComHistoricoAntes(supabase, empId, ids, lAtual.startIso);
       if (req !== reqRef.current) return;
       setDados(d);
-      setComissoes(rCom as unknown as Comissao[]);
+      setComissoes(normalizarComissoes(rCom));
+      setSumidas(clientesSumidas(datasDasUltimasVisitas(ultimas), lAtual.endIso));
       setHistoricoClientes(hist);
     } catch (e) {
       if (req !== reqRef.current) return;
       const msg = `Erro ao carregar o relatório: ${(e as Error).message}`;
       setDados(DADOS_VAZIOS);
       setComissoes([]);
+      setSumidas(null);
       setHistoricoClientes(new Set());
       setErroCarga(msg);
       showErro(msg);
@@ -397,20 +369,14 @@ export default function RelatoriosPage() {
     if (estoqueChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { data, error } = await supabase.from('estoque_movimentos')
-        .select('produto_id, quantidade, produto:produtos(nome, preco_custo)')
-        .eq('empresa_id', empresaId)
-        .eq('tipo', 'saida')
-        .gte('created_at', atual.startIso)
-        .lte('created_at', atual.endIso);
-      if (error) {
+      try {
+        const rows = await carregarSaidasEstoque(supabase, empresaId, atual);
+        setMovs(rows);
+        setEstoqueChave(chave);
+      } catch (e) {
         setMovs([]);
-        showErro(`Erro ao carregar o estoque: ${error.message}`);
-        setLoadingAba(false);
-        return;
+        showErro(`Erro ao carregar o estoque: ${(e as Error).message}`);
       }
-      setMovs((data ?? []) as unknown as MovEstoque[]);
-      setEstoqueChave(chave);
       setLoadingAba(false);
     })();
   }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, estoqueChave, atual]);
@@ -422,22 +388,14 @@ export default function RelatoriosPage() {
     if (avalChave === chave) return;
     (async () => {
       setLoadingAba(true);
-      const { data, error } = await supabase.from('avaliacoes')
-        .select(`nota, comentario, created_at, profissional_id,
-          profissional:empresa_membros!avaliacoes_profissional_id_fkey(nome),
-          cliente:clientes!avaliacoes_cliente_id_fkey(nome)`)
-        .eq('empresa_id', empresaId)
-        .gte('created_at', atual.startIso)
-        .lte('created_at', atual.endIso)
-        .order('created_at', { ascending: false });
-      if (error) {
+      try {
+        const rows = await carregarAvaliacoes(supabase, empresaId, atual);
+        setAvaliacoes(rows);
+        setAvalChave(chave);
+      } catch (e) {
         setAvaliacoes([]);
-        showErro(`Erro ao carregar as avaliações: ${error.message}`);
-        setLoadingAba(false);
-        return;
+        showErro(`Erro ao carregar as avaliações: ${(e as Error).message}`);
       }
-      setAvaliacoes((data ?? []) as unknown as Avaliacao[]);
-      setAvalChave(chave);
       setLoadingAba(false);
     })();
   }, [aba, empresaId, periodo, semanaOffset, anoOffset, customIni, customFim, periodoOpts, avalChave, atual]);
@@ -450,43 +408,30 @@ export default function RelatoriosPage() {
     ...a, valor: Number(a.valor ?? 0),
     servico: a.servico ?? null, profissional: a.profissional ?? null, cliente: a.cliente ?? null,
   })) as Ag[], [dadosPeriodo]);
-  const despesas = useMemo<Despesa[]>(
-    () => dadosPeriodo.despesas.map(d => ({ valor: Number(d.valor ?? 0), categoria: d.categoria })),
-    [dadosPeriodo],
-  );
   const concluidos = useMemo(() => ags.filter(a => a.status === 'concluido'), [ags]);
 
-  const { bruto, taxasCartao, liquidoAposTaxas, lucro } = kpis;
-  const brutoServicos = kpis.receitaServicos;
-  const brutoVendas   = kpis.receitaVendas;
-  const brutoTaxas    = kpis.receitaTaxasCancelamento;
-  const brutoReserva  = kpis.receitaTaxasReserva;
-  const comTot  = kpis.comissoes;
-  const despTot = kpis.despesas;
-  const ticket  = kpis.ticketMedio;
-  const taxa    = kpis.pctComparecimento;
-  const dBruto  = variacaoPercentual(kpis.bruto, kpisAnt.bruto);
-  const dAtend  = variacaoPercentual(kpis.atendimentos, kpisAnt.atendimentos);
-  const dTicket = variacaoPercentual(kpis.ticketMedio, kpisAnt.ticketMedio);
+  const bruto = kpis.bruto;
+  const comTot = kpis.comissoes;
 
   // Retiradas da dona no período — linha ADITIVA, não muda o "Lucro real".
   const retiradasPeriodo = useMemo(
     () => (isOwner ? retiradasDoPeriodo(retiradasRows, retiradasDevsRows, atual) : 0),
     [isOwner, retiradasRows, retiradasDevsRows, atual],
   );
-  const resultadoAposRetiradas = calcularAposRetiradas(lucro, retiradasPeriodo);
+  const cartoes = cartoesKpiRelatorio(kpis, kpisAnt, { periodo, isOwner, retiradasPeriodo, fmt: fmtBRL });
+  const linhasResumo = linhasResumoFinanceiro(kpis, { isOwner, retiradasPeriodo });
 
   // ── Rankings (quantidade = concluídos; receita = só sem pacote)
   const paraRank = (lista: ItemRanking[]): RankItem[] =>
     lista.map(r => ({ nome: r.nome, valor: r.receita, qtd: r.quantidade, pct: r.percentual }));
   const rankServicos = useMemo(() => paraRank(rankingAtendimentos(dadosPeriodo.agendamentos, 'servico')), [dadosPeriodo]);
+  // Comissão por profissional: mesma fonte do KPI (linhas de comissoes do período).
+  const comPorProf = useMemo(() => comissaoPorProfissional(dadosPeriodo.comissoes), [dadosPeriodo]);
   const rankEquipe = useMemo<(RankItem & { comissao: number })[]>(() => {
-    const comPorProf: Record<string, number> = {};
-    for (const c of comissoes) comPorProf[c.profissional_id] = (comPorProf[c.profissional_id] ?? 0) + c.valor_comissao;
     return rankingAtendimentos(dadosPeriodo.agendamentos, 'profissional').map(r => ({
       nome: r.nome, valor: r.receita, qtd: r.quantidade, pct: r.percentual, comissao: comPorProf[r.chave] ?? 0,
     }));
-  }, [dadosPeriodo, comissoes]);
+  }, [dadosPeriodo, comPorProf]);
   const rankClientes = useMemo(
     () => paraRank(rankingAtendimentos(dadosPeriodo.agendamentos, 'cliente').slice(0, 10)),
     [dadosPeriodo],
@@ -499,103 +444,23 @@ export default function RelatoriosPage() {
     </p>
   ) : null;
 
-  // ── Ranking: insumos consumidos (saídas de estoque)
-  const rankEstoque = useMemo<EstRankItem[]>(() => {
-    const map: Record<string, { nome: string; qtd: number; custo: number }> = {};
-    for (const mov of movs) {
-      const k = mov.produto_id;
-      if (!map[k]) map[k] = { nome: mov.produto?.nome ?? 'Produto', qtd: 0, custo: 0 };
-      map[k].qtd   += mov.quantidade;
-      map[k].custo += mov.quantidade * (mov.produto?.preco_custo ?? 0);
-    }
-    const list = Object.values(map).sort((a, b) => b.qtd - a.qtd).slice(0, 10);
-    const maxQ = list[0]?.qtd ?? 1;
-    return list.map(s => ({ ...s, pct: (s.qtd / maxQ) * 100 }));
-  }, [movs]);
+  const rankDespCat = useMemo(() => rankingDespesasPorCategoria(dadosPeriodo.despesas), [dadosPeriodo]);
+  const insumos = useMemo(() => resumoInsumos(movs, kpis.atendimentos), [movs, kpis.atendimentos]);
+  const aval = useMemo(() => resumoAvaliacoes(avaliacoes), [avaliacoes]);
+  const comissoesPorProf = useMemo(() => comissoesPorProfissional(comissoes), [comissoes]);
+  const resumoCom = useMemo(() => resumoComissoes(comissoes), [comissoes]);
 
-  // ── Avaliações: média por profissional
-  const { notaMedia, rankAvaliacoes } = useMemo(() => {
-    const notaMedia = avaliacoes.length > 0
-      ? avaliacoes.reduce((s, a) => s + a.nota, 0) / avaliacoes.length
-      : 0;
-
-    const map: Record<string, { nome: string; total: number; qtd: number }> = {};
-    for (const av of avaliacoes) {
-      const k = av.profissional_id ?? '__sem__';
-      if (!map[k]) map[k] = { nome: av.profissional?.nome ?? 'Sem profissional', total: 0, qtd: 0 };
-      map[k].total += av.nota;
-      map[k].qtd++;
-    }
-    const rank = Object.values(map)
-      .map(p => ({ ...p, media: p.total / p.qtd }))
-      .sort((a, b) => b.media - a.media);
-
-    return { notaMedia, rankAvaliacoes: rank };
-  }, [avaliacoes]);
-
-  // ── Ranking: despesas por categoria
-  const rankDespCat = useMemo<RankItem[]>(() => {
-    const map: Record<string, { nome: string; valor: number; qtd: number }> = {};
-    for (const d of despesas) {
-      const k = d.categoria ?? 'Outros';
-      if (!map[k]) map[k] = { nome: k, valor: 0, qtd: 0 };
-      map[k].valor += d.valor;
-      map[k].qtd++;
-    }
-    const list = Object.values(map).sort((a, b) => b.valor - a.valor);
-    const maxV = list[0]?.valor ?? 1;
-    return list.map(s => ({ ...s, pct: (s.valor / maxV) * 100 }));
-  }, [despesas]);
-
-  // ── Comissões agrupadas por profissional (para aba Comissões)
-  const comissoesPorProf = useMemo(() => {
-    const map = new Map<string, {
-      nome:           string;
-      pendentes:      Comissao[];
-      pagas:          Comissao[];
-      totalPendente:  number;
-      totalPago:      number;
-    }>();
-
-    for (const c of comissoes) {
-      const pid = c.profissional_id;
-      if (!map.has(pid)) {
-        map.set(pid, {
-          nome:          c.profissional?.nome ?? 'Profissional',
-          pendentes:     [],
-          pagas:         [],
-          totalPendente: 0,
-          totalPago:     0,
-        });
-      }
-      const entry = map.get(pid)!;
-      if (c.status === 'pendente') {
-        entry.pendentes.push(c);
-        entry.totalPendente += c.valor_comissao;
-      } else {
-        entry.pagas.push(c);
-        entry.totalPago += c.valor_comissao;
-      }
-    }
-
-    // Ordena por maior pendente primeiro
-    return Array.from(map.entries())
-      .map(([id, data]) => ({ id, ...data }))
-      .sort((a, b) => b.totalPendente - a.totalPendente);
-  }, [comissoes]);
-
-  // ── Marcar comissões como pagas (optimistic UI)
+  // ── Marcar comissões como pagas (optimistic UI) — só as pendentes do período exibido
   async function marcarComoPago(profissionalId: string) {
-    const ids = comissoes
-      .filter(c => c.profissional_id === profissionalId && c.status === 'pendente')
-      .map(c => c.id);
+    const prof = comissoesPorProf.find(p => p.profissionalId === profissionalId);
+    if (!empresaId || !prof) return;
+    const ids = prof.idsPendentes;
     if (ids.length === 0) return;
+    if (!confirm(textoConfirmarPagamento(prof.nome, fmtBRL(prof.pendente), labelPeriodo))) return;
 
     // Optimistic update (lista detalhada + dados que alimentam os KPIs)
     const marcar = (idsAlvo: string[], status: 'pago' | 'pendente') => {
-      setComissoes(prev => prev.map(c =>
-        idsAlvo.includes(c.id) ? { ...c, status } : c
-      ));
+      setComissoes(prev => prev.map(c => idsAlvo.includes(c.id) ? { ...c, status } : c));
       setDados(prev => ({
         ...prev,
         comissoes: prev.comissoes.map(c => idsAlvo.includes(c.id) ? { ...c, status } : c),
@@ -603,19 +468,13 @@ export default function RelatoriosPage() {
     };
     marcar(ids, 'pago');
 
-    const { data, error } = await supabase
-      .from('comissoes')
-      .update({ status: 'pago' })
-      .in('id', ids)
-      .select('id');
-
-    // RLS pode devolver sucesso com 0 linhas afetadas: confere antes de dar por pago.
-    // Em sucesso parcial, reverte SÓ as linhas que o banco não devolveu.
-    const confirmados = new Set((data ?? []).map((r: { id: string }) => r.id));
-    const naoConfirmados = error ? ids : ids.filter(id => !confirmados.has(id));
+    // pagarComissoes confere as linhas afetadas; sucesso parcial reverte só o que não foi confirmado.
+    const r = await pagarComissoes(supabase, empresaId, ids);
+    const confirmados = new Set(r.confirmados);
+    const naoConfirmados = ids.filter(id => !confirmados.has(id));
     if (naoConfirmados.length > 0) {
       marcar(naoConfirmados, 'pendente');
-      showErro(error ? `Erro ao atualizar comissões: ${error.message}` : 'Sem permissão para marcar todas as comissões como pagas.');
+      showErro(r.erro ? `Erro ao atualizar comissões: ${r.erro}` : MENSAGEM_PAGAMENTO_PARCIAL);
     }
   }
 
@@ -638,7 +497,7 @@ export default function RelatoriosPage() {
   const maxGrafico = useMemo(() => Math.max(...serieGrafico.map(s => s.valor), 1), [serieGrafico]);
 
   // ── Retenção: "retornou" = atendida no período E antes dele (regra única web + mobile)
-  const { atendidas: clientesUnicos, retornaram, novas } = useMemo(
+  const { atendidas: clientesUnicos, retornaram, novas, pctRetorno } = useMemo(
     () => metricasRetorno(dadosPeriodo.agendamentos, historicoClientes),
     [dadosPeriodo, historicoClientes],
   );
@@ -748,18 +607,18 @@ export default function RelatoriosPage() {
                   { header: 'Atendimentos',  accessor: (r: RankItem) => r.qtd,           width: 14 },
                   { header: 'Total gasto',   accessor: (r: RankItem) => fmtBRL(r.valor), width: 16 },
                 ] : aba === 'estoque' ? [
-                  { header: 'Produto',       accessor: (r: EstRankItem) => r.nome,            width: 28 },
-                  { header: 'Qtd consumida', accessor: (r: EstRankItem) => r.qtd,             width: 14 },
-                  { header: 'Custo estimado',accessor: (r: EstRankItem) => fmtBRL(r.custo),   width: 16 },
+                  { header: 'Produto',       accessor: (r: ItemInsumo) => r.nome,            width: 28 },
+                  { header: 'Qtd consumida', accessor: (r: ItemInsumo) => r.qtd,             width: 14 },
+                  { header: 'Custo estimado',accessor: (r: ItemInsumo) => fmtBRL(r.custo),   width: 16 },
                 ] : aba === 'comissoes' ? [
-                  { header: 'Profissional', accessor: (c: Comissao) => c.profissional?.nome ?? '—',                                         width: 22 },
-                  { header: 'Data',         accessor: (c: Comissao) => c.agendamento ? format(parseISO(c.agendamento.data_hora_inicio), 'dd/MM/yyyy') : '—', width: 12 },
-                  { header: 'Cliente',      accessor: (c: Comissao) => c.agendamento?.cliente?.nome ?? '—',                                  width: 22 },
-                  { header: 'Serviço',      accessor: (c: Comissao) => c.agendamento?.servico?.nome ?? '—',                                  width: 22 },
-                  { header: 'Vlr atend.',   accessor: (c: Comissao) => c.agendamento ? fmtBRL(c.agendamento.valor) : '—',                    width: 12 },
-                  { header: '%',            accessor: (c: Comissao) => `${c.percentual}%`,                                                   width: 6  },
-                  { header: 'Comissão',     accessor: (c: Comissao) => fmtBRL(c.valor_comissao),                                             width: 12 },
-                  { header: 'Status',       accessor: (c: Comissao) => c.status === 'pago' ? 'Pago' : 'Pendente',                            width: 10 },
+                  { header: 'Profissional', accessor: (c: ComissaoItem) => c.profissionalNome,                                                              width: 22 },
+                  { header: 'Data',         accessor: (c: ComissaoItem) => rotuloDataBR(chaveDiaBRT(c.dataAtendimento ?? c.criadaEm)),                       width: 12 },
+                  { header: 'Cliente',      accessor: (c: ComissaoItem) => c.clienteNome,                                                                    width: 22 },
+                  { header: 'Serviço',      accessor: (c: ComissaoItem) => c.servicoNome,                                                                    width: 22 },
+                  { header: 'Vlr atend.',   accessor: (c: ComissaoItem) => c.valorAtendimento != null ? fmtBRL(c.valorAtendimento) : '—',                    width: 12 },
+                  { header: '%',            accessor: (c: ComissaoItem) => `${c.percentual}%`,                                                               width: 6  },
+                  { header: 'Comissão',     accessor: (c: ComissaoItem) => fmtBRL(c.valorComissao),                                                          width: 12 },
+                  { header: 'Status',       accessor: (c: ComissaoItem) => c.status === 'pago' ? 'Pago' : 'Pendente',                                        width: 10 },
                 ] : /* financeiro */ [
                   { header: 'Data',      accessor: (a: Ag) => format(parseISO(a.data_hora_inicio), 'dd/MM/yyyy HH:mm'), width: 18 },
                   { header: 'Cliente',   accessor: (a: Ag) => a.cliente?.nome ?? '—',     width: 26 },
@@ -772,7 +631,7 @@ export default function RelatoriosPage() {
                 aba === 'servicos'   ? rankServicos :
                 aba === 'equipe'     ? rankEquipe   :
                 aba === 'clientes'   ? rankClientes :
-                aba === 'estoque'    ? rankEstoque  :
+                aba === 'estoque'    ? insumos.ranking :
                 aba === 'comissoes'  ? comissoes    :
                 concluidos
               ) as any[]}
@@ -802,35 +661,11 @@ export default function RelatoriosPage() {
 
       {/* ── KPIs ── */}
       {!erroCarga && <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <KpiCard icon={DollarSign} label="Faturamento bruto"    value={fmtBRL(bruto)}
-          sub={brutoVendas > 0 ? `inc. ${fmtBRL(brutoVendas)} em vendas` : undefined}
-          delta={dBruto} rotuloDelta={ROTULO_COMPARACAO[periodo]}
-          cor="#7C3AED" loading={loading} />
-        {taxasCartao > 0 && (
-          <KpiCard icon={CreditCard} label="Taxas de cartão"    value={fmtBRL(taxasCartao)}         cor="#DC2626" loading={loading} />
-        )}
-        <KpiCard icon={TrendingUp} label="Líquido após taxas"   value={fmtBRL(liquidoAposTaxas)}    cor="#16A34A" loading={loading} />
-        <KpiCard icon={Activity}   label="Lucro real"           value={fmtBRL(lucro)}               cor={lucro >= 0 ? '#0D7E5F' : '#DC2626'} loading={loading} />
-        {isOwner && retiradasPeriodo > 0 && (
-          <KpiCard icon={Activity} label="Resultado após retiradas" value={fmtBRL(resultadoAposRetiradas)}
-            sub={`(−) ${fmtBRL(retiradasPeriodo)} da dona`}
-            cor={resultadoAposRetiradas >= 0 ? '#0D7E5F' : '#DC2626'} loading={loading} />
-        )}
-        <KpiCard icon={Scissors}   label="Atendimentos"         value={String(kpis.atendimentos)}   sub="concluídos"
-          delta={dAtend} rotuloDelta={ROTULO_COMPARACAO[periodo]} cor="#D4608A" loading={loading} />
-        <KpiCard icon={Target}     label="Ticket médio"         value={fmtBRL(ticket)}
-          delta={dTicket} rotuloDelta={ROTULO_COMPARACAO[periodo]} cor="#B45309" loading={loading} />
-        <KpiCard icon={Users}      label="Taxa comparecimento"  value={`${taxa.toFixed(1)}%`}       cor="#1D4ED8" loading={loading} />
-        <KpiCard icon={XCircle} label="Taxa de cancelamento"
-          value={kpis.totalAgendamentos > 0 ? `${kpis.pctCancelamento.toFixed(1)}%` : '—'}
-          sub={kpis.perdidos > 0 ? `${kpis.perdidos} perdido(s)` : undefined}
-          cor="#DC2626" loading={loading} />
-        {(brutoTaxas + brutoReserva) > 0 && (
-          <KpiCard icon={Receipt}       label="Taxas (cancel. + reserva)" value={fmtBRL(brutoTaxas + brutoReserva)}          cor="#DC2626" loading={loading} />
-        )}
-        <KpiCard icon={DollarSign} label="Total comissões"      value={fmtBRL(comTot)}
-          sub={kpis.comissoesPendentes > 0 ? `${fmtBRL(kpis.comissoesPendentes)} pendentes` : 'Em dia'}
-          cor="#D97706" loading={loading} />
+        {cartoes.map(c => (
+          <KpiCard key={c.id} icon={ICONE_KPI[c.id]} label={c.rotulo} value={c.valor}
+            sub={c.sub ?? undefined} delta={c.delta} rotuloDelta={c.rotuloDelta ?? undefined}
+            cor={c.negativo ? '#DC2626' : COR_KPI[c.id]} loading={loading} />
+        ))}
       </div>}
 
       {/* ── Abas ── */}
@@ -875,63 +710,24 @@ export default function RelatoriosPage() {
               <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
                 <h2 className="font-semibold text-text mb-4">Resumo financeiro</h2>
                 <div className="flex flex-col">
-                  {/* Serviços */}
-                  <div className="flex items-center justify-between py-2.5 border-b border-border">
-                    <span className="text-sm text-text-2">Serviços concluídos</span>
-                    <span className="text-sm font-semibold" style={{ color: '#7C3AED' }}>{fmtBRL(brutoServicos)}</span>
-                  </div>
-                  {/* Vendas avulsas — só aparece se > 0 */}
-                  {brutoVendas > 0 && (
-                    <div className="flex items-center justify-between py-2.5 border-b border-border">
-                      <span className="text-sm text-text-2">Vendas avulsas</span>
-                      <span className="text-sm font-semibold" style={{ color: '#7C3AED' }}>{fmtBRL(brutoVendas)}</span>
-                    </div>
-                  )}
-                  {(brutoTaxas + brutoReserva) > 0 && (
-                    <div className="flex items-center justify-between py-2.5 border-b border-border">
-                      <span className="text-sm text-text-2">Taxas (cancel. + reserva)</span>
-                      <span className="text-sm font-semibold" style={{ color: '#7C3AED' }}><Secret>{fmtBRL(brutoTaxas + brutoReserva)}</Secret></span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between py-2.5 border-b border-border bg-bg/50 px-1 rounded">
-                    <span className="text-sm font-semibold text-text">= Faturamento bruto</span>
-                    <span className="text-sm font-bold" style={{ color: '#7C3AED' }}><Secret>{fmtBRL(bruto)}</Secret></span>
-                  </div>
-                  {kpis.mesesComFechamento.length > 0 && (
-                    <p className="text-xs text-text-3 py-1.5">Inclui fechamento importado de {kpis.mesesComFechamento.join(', ')}.</p>
-                  )}
-                  {([
-                    { label: '(−) Taxas de cartão', v: taxasCartao, cor: '#DC2626' },
-                    { label: '(−) Comissões',       v: comTot,      cor: '#D4608A' },
-                    { label: '(−) Despesas',        v: despTot,     cor: '#DC2626' },
-                  ] as const).map(({ label, v, cor }) => (
-                    <div key={label} className="flex items-center justify-between py-2.5 border-b border-border">
-                      <span className="text-sm text-text-2">{label}</span>
-                      <span className="text-sm font-semibold" style={{ color: cor }}>
-                        <Secret>{v > 0 ? '− ' : ''}{fmtBRL(v)}</Secret>
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex items-center justify-between pt-3 mt-1">
-                    <span className="text-sm font-bold text-text">Lucro real</span>
-                    <span className="text-base font-bold" style={{ color: lucro >= 0 ? '#0D7E5F' : '#DC2626' }}>
-                      <Secret>{fmtBRL(lucro)}</Secret>
-                    </span>
-                  </div>
-                  {isOwner && retiradasPeriodo > 0 && (
-                    <>
-                      <div className="flex items-center justify-between py-2.5 border-t border-border mt-1">
-                        <span className="text-sm text-text-2">(−) Retiradas da dona</span>
-                        <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>− <Secret>{fmtBRL(retiradasPeriodo)}</Secret></span>
-                      </div>
-                      <div className="flex items-center justify-between pt-1">
-                        <span className="text-sm font-bold text-text">Resultado após retiradas</span>
-                        <span className="text-base font-bold" style={{ color: resultadoAposRetiradas >= 0 ? '#0D7E5F' : '#DC2626' }}>
-                          <Secret>{fmtBRL(resultadoAposRetiradas)}</Secret>
+                  {linhasResumo.map(l => (
+                    <div key={l.id}>
+                      <div className={
+                        l.tipo === 'resultado' ? 'flex items-center justify-between pt-3 mt-1'
+                        : l.tipo === 'total' ? 'flex items-center justify-between py-2.5 border-b border-border bg-bg/50 px-1 rounded'
+                        : 'flex items-center justify-between py-2.5 border-b border-border'
+                      }>
+                        <span className={l.tipo === 'resultado' || l.tipo === 'total' ? 'text-sm font-bold text-text' : 'text-sm text-text-2'}>{l.rotulo}</span>
+                        <span className={l.tipo === 'resultado' ? 'text-base font-bold' : l.tipo === 'total' ? 'text-sm font-bold' : 'text-sm font-semibold'}
+                          style={{ color: l.tipo === 'resultado' ? (l.valor >= 0 ? '#0D7E5F' : '#DC2626') : l.tipo === 'saida' ? '#DC2626' : '#7C3AED' }}>
+                          <Secret>{l.tipo === 'saida' && l.valor > 0 ? '− ' : ''}{fmtBRL(l.valor)}</Secret>
                         </span>
                       </div>
-                    </>
-                  )}
+                      {l.id === 'bruto' && kpis.mesesComFechamento.length > 0 && (
+                        <p className="text-xs text-text-3 py-1.5">Inclui fechamento importado de {kpis.mesesComFechamento.join(', ')}.</p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -1073,7 +869,7 @@ export default function RelatoriosPage() {
         <div className="flex flex-col gap-4">
           {/* Painel de retenção */}
           {!loading && (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
                 <p className="text-2xl font-bold text-violet-600">{clientesUnicos}</p>
                 <p className="text-xs text-text-3 mt-1">Clientes únicos</p>
@@ -1085,6 +881,14 @@ export default function RelatoriosPage() {
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
                 <p className="text-2xl font-bold text-sky-600">{novas}</p>
                 <p className="text-xs text-text-3 mt-1">Novas</p>
+              </div>
+              <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
+                <p className="text-2xl font-bold text-teal-600">{clientesUnicos > 0 ? `${pctRetorno}%` : '—'}</p>
+                <p className="text-xs text-text-3 mt-1">Taxa de retorno</p>
+              </div>
+              <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
+                <p className="text-2xl font-bold text-amber-600">{sumidas == null ? '—' : sumidas}</p>
+                <p className="text-xs text-text-3 mt-1">Sumidas +60d</p>
               </div>
             </div>
           )}
@@ -1123,9 +927,9 @@ export default function RelatoriosPage() {
         <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-1">
             <h2 className="font-semibold text-text">Insumos consumidos</h2>
-            {!loading && rankEstoque.length > 0 && (
+            {!loading && insumos.ranking.length > 0 && (
               <span className="text-xs font-semibold text-text-2">
-                Custo total: {fmtBRL(rankEstoque.reduce((s, e) => s + e.custo, 0))}
+                Custo total: {fmtBRL(insumos.custoTotal)}
               </span>
             )}
           </div>
@@ -1135,7 +939,7 @@ export default function RelatoriosPage() {
             <div className="flex flex-col gap-3">
               {[1, 2, 3, 4, 5].map(i => <Sk key={i} className="h-14 rounded-xl" />)}
             </div>
-          ) : rankEstoque.length === 0 ? (
+          ) : insumos.ranking.length === 0 ? (
             <div className="text-center py-10">
               <Package className="mx-auto mb-2 text-text-4" size={28} />
               <p className="text-sm text-text-3">Sem saídas de estoque registradas no período</p>
@@ -1143,7 +947,7 @@ export default function RelatoriosPage() {
             </div>
           ) : (
             <>
-              {rankEstoque.map((e, i) => (
+              {insumos.ranking.map((e, i) => (
                 <div key={i} className="flex items-center gap-3 py-3 border-b border-border last:border-0">
                   <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                     style={{ background: i < 3 ? '#0D7E5F' : '#94A3B8' }}>
@@ -1173,18 +977,18 @@ export default function RelatoriosPage() {
               ))}
 
               {/* Custo médio por atendimento */}
-              {concluidos.length > 0 && (
+              {insumos.custoMedioPorAtendimento != null && (
                 <div className="mt-4 pt-3 border-t border-border grid grid-cols-2 gap-3">
                   <div className="bg-bg rounded-xl p-3">
                     <p className="text-xs text-text-3 mb-1">Custo total de insumos</p>
                     <p className="text-sm font-bold text-text">
-                      {fmtBRL(rankEstoque.reduce((s, e) => s + e.custo, 0))}
+                      {fmtBRL(insumos.custoTotal)}
                     </p>
                   </div>
                   <div className="bg-bg rounded-xl p-3">
                     <p className="text-xs text-text-3 mb-1">Custo médio / atendimento</p>
                     <p className="text-sm font-bold text-text">
-                      {fmtBRL(rankEstoque.reduce((s, e) => s + e.custo, 0) / concluidos.length)}
+                      {fmtBRL(insumos.custoMedioPorAtendimento)}
                     </p>
                   </div>
                 </div>
@@ -1205,18 +1009,18 @@ export default function RelatoriosPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
                 <p className="text-2xl font-bold text-amber-600" style={{ letterSpacing: '-0.02em' }}>
-                  {fmtBRL(comissoesPorProf.reduce((s, p) => s + p.totalPendente, 0))}
+                  {fmtBRL(resumoCom.pendente)}
                 </p>
                 <p className="text-xs text-text-3 mt-1">A pagar (pendente)</p>
               </div>
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
                 <p className="text-2xl font-bold text-green-600" style={{ letterSpacing: '-0.02em' }}>
-                  {fmtBRL(comissoesPorProf.reduce((s, p) => s + p.totalPago, 0))}
+                  {fmtBRL(resumoCom.pago)}
                 </p>
                 <p className="text-xs text-text-3 mt-1">Já pago</p>
               </div>
               <div className="bg-surface border border-border rounded-2xl p-4 shadow-sm text-center">
-                <p className="text-2xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{comissoes.length}</p>
+                <p className="text-2xl font-bold text-text" style={{ letterSpacing: '-0.02em' }}>{resumoCom.quantidade}</p>
                 <p className="text-xs text-text-3 mt-1">Comissões no período</p>
               </div>
             </div>
@@ -1235,7 +1039,7 @@ export default function RelatoriosPage() {
             </div>
           ) : (
             comissoesPorProf.map(prof => (
-              <div key={prof.id} className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
+              <div key={prof.profissionalId} className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
 
                 {/* Cabeçalho do profissional */}
                 <div className="flex items-center gap-3 px-5 py-4">
@@ -1247,39 +1051,39 @@ export default function RelatoriosPage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-text">{prof.nome}</p>
                     <div className="flex items-center gap-3 mt-0.5">
-                      {prof.totalPendente > 0 && (
+                      {prof.pendente > 0 && (
                         <span className="text-xs font-semibold text-amber-600">
-                          {fmtBRL(prof.totalPendente)} pendente ({prof.pendentes.length}×)
+                          {fmtBRL(prof.pendente)} pendente ({prof.itens.filter(c => c.status === 'pendente').length}×)
                         </span>
                       )}
-                      {prof.totalPago > 0 && (
+                      {prof.pago > 0 && (
                         <span className="text-xs text-text-3">
-                          {fmtBRL(prof.totalPago)} pago ({prof.pagas.length}×)
+                          {fmtBRL(prof.pago)} pago ({prof.itens.filter(c => c.status === 'pago').length}×)
                         </span>
                       )}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {prof.totalPendente > 0 && (
+                    {prof.pendente > 0 && (
                       <button
-                        onClick={() => marcarComoPago(prof.id)}
+                        onClick={() => marcarComoPago(prof.profissionalId)}
                         className="h-8 px-3 rounded-xl bg-green text-white text-xs font-bold hover:opacity-90 transition flex items-center gap-1.5">
                         <Check size={12} strokeWidth={3}/>
-                        Pagar {fmtBRL(prof.totalPendente)}
+                        Pagar {fmtBRL(prof.pendente)}
                       </button>
                     )}
                     <button
-                      onClick={() => toggleExpandido(prof.id)}
+                      onClick={() => toggleExpandido(prof.profissionalId)}
                       className="h-8 px-3 rounded-xl border border-border text-xs font-semibold text-text-3 hover:bg-bg transition flex items-center gap-1">
-                      {expandidos.has(prof.id) ? 'Ocultar' : 'Detalhar'}
-                      <ChevronDown size={12} className={`transition-transform ${expandidos.has(prof.id) ? 'rotate-180' : ''}`}/>
+                      {expandidos.has(prof.profissionalId) ? 'Ocultar' : 'Detalhar'}
+                      <ChevronDown size={12} className={`transition-transform ${expandidos.has(prof.profissionalId) ? 'rotate-180' : ''}`}/>
                     </button>
                   </div>
                 </div>
 
                 {/* Tabela de comissões individuais */}
-                {expandidos.has(prof.id) && (
+                {expandidos.has(prof.profissionalId) && (
                   <div className="border-t border-border overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
@@ -1294,25 +1098,23 @@ export default function RelatoriosPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...prof.pendentes, ...prof.pagas].map(c => (
+                        {prof.itens.map(c => (
                           <tr key={c.id} className="border-b border-border last:border-0 hover:bg-bg/50 transition">
                             <td className="px-4 py-3 text-text-3 whitespace-nowrap">
-                              {c.agendamento
-                                ? format(parseISO(c.agendamento.data_hora_inicio), 'dd/MM/yy')
-                                : '—'}
+                              {rotuloDataBR(chaveDiaBRT(c.dataAtendimento ?? c.criadaEm))}
                             </td>
                             <td className="px-4 py-3 text-text truncate max-w-[160px]">
-                              {c.agendamento?.cliente?.nome ?? '—'}
+                              {c.clienteNome}
                             </td>
                             <td className="px-4 py-3 text-text-2 truncate max-w-[160px]">
-                              {c.agendamento?.servico?.nome ?? '—'}
+                              {c.servicoNome}
                             </td>
                             <td className="px-4 py-3 text-right text-text-2 whitespace-nowrap">
-                              {c.agendamento ? fmtBRL(c.agendamento.valor) : '—'}
+                              {c.valorAtendimento != null ? fmtBRL(c.valorAtendimento) : '—'}
                             </td>
                             <td className="px-4 py-3 text-right text-text-3">{c.percentual}%</td>
                             <td className="px-4 py-3 text-right font-semibold text-text whitespace-nowrap">
-                              {fmtBRL(c.valor_comissao)}
+                              {fmtBRL(c.valorComissao)}
                             </td>
                             <td className="px-4 py-3 text-center">
                               {c.status === 'pago' ? (
@@ -1331,10 +1133,10 @@ export default function RelatoriosPage() {
                       <tfoot>
                         <tr className="bg-bg border-t border-border">
                           <td colSpan={5} className="px-4 py-2.5 text-xs font-semibold text-text-3">
-                            Total — {prof.pendentes.length + prof.pagas.length} comissões
+                            Total — {prof.itens.length} comissões
                           </td>
                           <td className="px-4 py-2.5 text-right font-bold text-text">
-                            {fmtBRL(prof.totalPendente + prof.totalPago)}
+                            {fmtBRL(prof.total)}
                           </td>
                           <td/>
                         </tr>
@@ -1357,23 +1159,23 @@ export default function RelatoriosPage() {
           {/* KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <KpiCard loading={loading || loadingAba} icon={Star} label="Nota média geral" cor="#D97706"
-              value={notaMedia > 0 ? notaMedia.toFixed(1) : '—'}
-              sub={avaliacoes.length > 0 ? `${avaliacoes.length} avaliação${avaliacoes.length !== 1 ? 'ões' : ''}` : 'Nenhuma ainda'}/>
+              value={aval.notaMedia != null ? aval.notaMedia.toFixed(1) : '—'}
+              sub={aval.total > 0 ? `${aval.total} avaliaç${aval.total !== 1 ? 'ões' : 'ão'}` : 'Nenhuma ainda'}/>
             <KpiCard loading={loading || loadingAba} icon={Users} label="Profissionais avaliados" cor="#7C3AED"
-              value={String(rankAvaliacoes.length)}/>
+              value={String(aval.ranking.length)}/>
             <KpiCard loading={loading || loadingAba} icon={TrendingUp} label="Com nota 5" cor="#0D7E5F"
-              value={String(avaliacoes.filter(a => a.nota === 5).length)}
-              sub={avaliacoes.length > 0 ? `${((avaliacoes.filter(a => a.nota === 5).length / avaliacoes.length) * 100).toFixed(0)}% das avaliações` : undefined}/>
+              value={String(aval.comNota5)}
+              sub={aval.pctNota5 != null ? `${aval.pctNota5}% das avaliações` : undefined}/>
           </div>
 
           {/* Ranking por profissional */}
-          {rankAvaliacoes.length > 0 && (
+          {aval.ranking.length > 0 && (
             <div className="bg-surface border border-border rounded-2xl p-5">
               <h3 className="text-sm font-bold text-text mb-3 uppercase tracking-wide text-text-3" style={{ fontSize: 10.5 }}>
                 Nota média por profissional
               </h3>
               <div className="flex flex-col gap-1">
-                {rankAvaliacoes.map((p, i) => (
+                {aval.ranking.map((p, i) => (
                   <div key={i} className="flex items-center gap-3 py-2.5 border-b border-border last:border-0">
                     <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                       style={{ background: i < 3 ? 'var(--color-amber)' : 'var(--color-ink4)' }}>
@@ -1409,8 +1211,8 @@ export default function RelatoriosPage() {
                     <div className="flex items-center gap-2 justify-between">
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-semibold text-text">{av.cliente?.nome ?? '—'}</span>
-                        {av.profissional && (
-                          <span className="text-xs text-text-4">· {av.profissional.nome}</span>
+                        {av.profissional?.user?.nome && (
+                          <span className="text-xs text-text-4">· {av.profissional.user.nome}</span>
                         )}
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
