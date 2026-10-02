@@ -5,13 +5,14 @@
  * funções do Financeiro web. Receita NÃO vem de `pagamentos` (só taxa de
  * cartão e formas de pagamento). Mês em Brasília (@shared/periodos).
  */
-import { useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import type { OcorrenciaHistorico } from '@shared/despesas';
-import { limitesMes, somarMeses, uniaoLimites } from '@shared/periodos';
+import { recorrentesParaLancarNoMes, montarLancamentosRecorrentes, type DespesaRecorrenteTemplate } from '@shared/despesas';
+import { carregarHistoricoRecorrentesMensais, lancarRecorrentesMensais } from '@shared/despesas-consultas';
+import { limitesMes, somarMeses, uniaoLimites, chaveDoMesExibido } from '@shared/periodos';
 import {
   calcularKpisFinanceiros, recortarDados, evolucaoMensal, rankingAtendimentos,
   resumoMetodosPagamento, retiradasDoPeriodo, listarRetiradasDoPeriodo, resultadoAposRetiradas,
@@ -86,7 +87,7 @@ export function useFinanceiro(mesRef: Date) {
   const { empresaAtiva, isOwner } = useAuthStore();
   const empresaId = empresaAtiva?.id;
 
-  const chave   = format(mesRef, 'yyyy-MM');           // mês que a tela mostra
+  const chave   = chaveDoMesExibido(mesRef);           // mês que a tela mostra
   const periodo = limitesMes(chave);                   // limites em Brasília
   const chaves6 = Array.from({ length: 6 }, (_, i) => somarMeses(chave, i - 5));
 
@@ -116,23 +117,29 @@ export function useFinanceiro(mesRef: Date) {
     },
   });
 
-  // ── Histórico de despesas recorrentes mensais (para contagem derivada)
-  const despesasHistorico = useQuery<OcorrenciaHistorico[]>({
+  // ── Histórico das recorrentes mensais (auto-lançamento + contagem derivada) — consulta única de shared
+  const historicoQ = useQuery<DespesaRecorrenteTemplate[]>({
     queryKey: ['fin-despesas-historico', empresaId, chave],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 5,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('despesas')
-        .select('descricao, categoria, data_vencimento, recorrencia_ate')
-        .eq('empresa_id', empresaId!)
-        .eq('recorrente', true)
-        .eq('periodicidade', 'mensal')
-        .lt('data_vencimento', periodo.startDate)
-        .order('data_vencimento', { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as OcorrenciaHistorico[];
+    queryFn: () => carregarHistoricoRecorrentesMensais(supabase, empresaId!, periodo.startDate),
+  });
+
+  // Só propõe lançar quando as DUAS listas vieram com sucesso e não estão
+  // recarregando: com erro (ou dado velho) proporia duplicar as recorrentes.
+  const qc = useQueryClient();
+  const recorrentesParaLancar = despesas.isSuccess && historicoQ.isSuccess && !despesas.isFetching && !historicoQ.isFetching
+    ? recorrentesParaLancarNoMes(historicoQ.data, despesas.data, periodo.startDate)
+    : [];
+
+  const lancar = useMutation({
+    mutationFn: async () => {
+      if (recorrentesParaLancar.length === 0) return { inseridas: 0, jaExistiam: 0 };
+      const linhas = montarLancamentosRecorrentes(recorrentesParaLancar, empresaId!, chave);
+      // Reconsulta o mês antes de inserir e descarta as já existentes (toque duplo / web em paralelo).
+      return lancarRecorrentesMensais(supabase, empresaId!, chave, linhas);
     },
+    onSettled: () => invalidarFinanceiro(qc),
   });
 
   // ── Taxas de cancelamento do mês
@@ -225,7 +232,11 @@ export function useFinanceiro(mesRef: Date) {
     metodos,
     topServicos,
     despesas:          despesas.data ?? [],
-    despesasHistorico: despesasHistorico.data ?? [],
+    despesasHistorico: historicoQ.data ?? [],
+    recorrentesParaLancar,
+    /** Lança as recorrentes pendentes do mês; resolve com { inseridas, jaExistiam } e lança erro. */
+    lancarRecorrentes: () => lancar.mutateAsync(),
+    lancandoRecorrentes: lancar.isPending,
     taxasCancelamento: taxasCancelamento.data ?? [],
     taxasReserva:      taxasReserva.data ?? [],
     evolucao,
@@ -236,13 +247,13 @@ export function useFinanceiro(mesRef: Date) {
     retiradasPeriodo,
     isLoading: dadosQ.isLoading,
     /** Alguma consulta que alimenta a tela falhou (KPIs, despesas, taxas ou retiradas). */
-    isError: !!erroKpis || despesas.isError || despesasHistorico.isError || taxasCancelamento.isError || taxasReserva.isError || retiradasQ.isError,
+    isError: !!erroKpis || despesas.isError || historicoQ.isError || taxasCancelamento.isError || taxasReserva.isError || retiradasQ.isError,
     /** Erro da consulta dos KPIs (números do topo e gráfico), ou null. */
     erroKpis: erroKpis as Error | null,
     refetch: () => {
       dadosQ.refetch();
       despesas.refetch();
-      despesasHistorico.refetch();
+      historicoQ.refetch();
       taxasCancelamento.refetch();
       taxasReserva.refetch();
       retiradasQ.refetch();
