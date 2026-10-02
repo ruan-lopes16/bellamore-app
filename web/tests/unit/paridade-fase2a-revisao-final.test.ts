@@ -69,7 +69,8 @@ describe('mobile: dashboard, sumidas, período personalizado, gráfico vazio', (
   });
   it('sumidas ignora cliente nulo e mostra — enquanto carrega', () => {
     const h = ler('mobile', 'hooks', 'useRelatorios.ts');
-    expect(h).toContain('a.cliente_id && !ultimo.has(a.cliente_id)');
+    expect(h).toContain('carregarUltimasVisitas(');
+    expect(ler('shared', 'dashboard-consultas.ts')).toContain('a.cliente_id && !mapa.has(a.cliente_id)');
     expect(h).toContain('sumidos: sumidosQ.data,');
     expect(ler('mobile', 'app', '(empresa)', 'relatorios.tsx')).toContain("clientes?.sumidos == null ? '—'");
   });

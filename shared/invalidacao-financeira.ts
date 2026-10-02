@@ -22,6 +22,7 @@ export const CHAVES_FINANCEIRO = [
   'agendamentos-hoje',
   'rel-dados',
   'rel-sumidos',
+  'rel-comissoes',
   'comissoes-pendentes',
   'comissoes-gestor',
   'comandas-nao-fechadas',
