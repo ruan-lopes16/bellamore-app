@@ -1,9 +1,14 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  ChevronLeft, ChevronRight, Banknote, CircleCheck, X, ChevronDown,
-} from 'lucide-react';
+/**
+ * @file comissoes/ComissoesGestorView.tsx
+ * Comissões da equipe. Fonte, períodos e regras ÚNICOS, os mesmos do app
+ * (mobile/app/(empresa)/comissoes.tsx): carregarComissoesDoPeriodo (created_at
+ * em Brasília), PERIODOS_COMISSAO, @shared/comissoes. "Pagar" = só as
+ * pendentes do período exibido.
+ */
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { ChevronLeft, ChevronRight, Banknote, CircleCheck, X, ChevronDown } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
@@ -12,27 +17,16 @@ import { ExportButton } from '@/components/ExportButton';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 import {
-  addDays, subDays, addWeeks, subWeeks, addMonths, subMonths, addYears, subYears,
-  startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
-  startOfYear, endOfYear, format, parseISO, isSameDay, isToday,
-} from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+  PERIODOS_COMISSAO, limitesPeriodoComissao, rotuloPeriodoComissao, hojeBRT, somarDias, diaDaSemana,
+  diasEntre, DIAS_SEMANA_ABREV, horaBRT, chaveDiaBRT, rotuloDataBR, type PeriodoComissao,
+} from '@shared/periodos';
+import {
+  normalizarComissoes, resumoComissoes, comissoesPorProfissional, agruparComissoesPorData, filtrarComissoes,
+  rotuloPercentualComissao, FILTROS_COMISSAO, MENSAGEM_PAGAMENTO_PARCIAL, type ComissaoItem, type FiltroComissao,
+} from '@shared/comissoes';
+import { carregarComissoesDoPeriodo, pagarComissoes } from '@shared/comissoes-consultas';
 
 const supabase = createClient();
-
-const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-
-type Periodo = 'dia' | 'semana' | 'mes' | 'trimestre' | 'semestre' | 'ano';
-type Filtro  = 'todas' | 'pendentes' | 'pagas';
-
-const PERIODOS: { key: Periodo; label: string }[] = [
-  { key: 'dia',       label: 'Dia'       },
-  { key: 'semana',    label: 'Semana'    },
-  { key: 'mes',       label: 'Mês'       },
-  { key: 'trimestre', label: 'Trimestre' },
-  { key: 'semestre',  label: 'Semestre'  },
-  { key: 'ano',       label: 'Ano'       },
-];
 
 function fmtBRL(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
@@ -46,127 +40,33 @@ function avatarGradient(nome: string) {
   return `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`;
 }
 
-function getPeriodRange(date: Date, periodo: Periodo): [Date, Date] {
-  switch (periodo) {
-    case 'dia':       return [startOfDay(date), endOfDay(date)];
-    case 'semana':    return [startOfWeek(date, { weekStartsOn: 0 }), endOfWeek(date, { weekStartsOn: 0 })];
-    case 'mes':       return [startOfMonth(date), endOfMonth(date)];
-    case 'trimestre': {
-      const q = Math.floor(date.getMonth() / 3);
-      const y = date.getFullYear();
-      return [new Date(y, q * 3, 1), endOfMonth(new Date(y, q * 3 + 2, 1))];
-    }
-    case 'semestre': {
-      const y = date.getFullYear();
-      return date.getMonth() < 6
-        ? [new Date(y, 0, 1), endOfMonth(new Date(y, 5, 1))]
-        : [new Date(y, 6, 1), endOfMonth(new Date(y, 11, 1))];
-    }
-    case 'ano':       return [startOfYear(date), endOfYear(date)];
-  }
-}
-
-function navigate(date: Date, periodo: Periodo, dir: 1 | -1): Date {
-  switch (periodo) {
-    case 'dia':       return dir > 0 ? addDays(date, 1)    : subDays(date, 1);
-    case 'semana':    return dir > 0 ? addWeeks(date, 1)   : subWeeks(date, 1);
-    case 'mes':       return dir > 0 ? addMonths(date, 1)  : subMonths(date, 1);
-    case 'trimestre': return dir > 0 ? addMonths(date, 3)  : subMonths(date, 3);
-    case 'semestre':  return dir > 0 ? addMonths(date, 6)  : subMonths(date, 6);
-    case 'ano':       return dir > 0 ? addYears(date, 1)   : subYears(date, 1);
-  }
-}
-
-function getPeriodLabel(date: Date, periodo: Periodo): string {
-  const [ini, fim] = getPeriodRange(date, periodo);
-  switch (periodo) {
-    case 'dia':
-      return format(date, "EEE, dd 'de' MMM yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase());
-    case 'semana':
-      return `${format(ini, 'dd/MM', { locale: ptBR })} – ${format(fim, 'dd/MM/yyyy', { locale: ptBR })}`;
-    case 'mes':
-      return format(date, 'MMMM yyyy', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase());
-    case 'trimestre': {
-      const q = Math.floor(date.getMonth() / 3) + 1;
-      return `${q}º Trimestre ${date.getFullYear()}`;
-    }
-    case 'semestre': {
-      const s = date.getMonth() < 6 ? 1 : 2;
-      return `${s}º Semestre ${date.getFullYear()}`;
-    }
-    case 'ano':
-      return String(date.getFullYear());
-  }
-}
-
-type ComissaoRow = {
-  id: string;
-  profissional_id: string;
-  valor_servico: number;
-  percentual: number;
-  valor_comissao: number;
-  status: 'pendente' | 'pago';
-  created_at: string;
-  agendamento: {
-    data_hora_inicio: string | null;
-    servico: { nome: string; categoria: string | null; categoria_id?: string | null } | null;
-  } | null;
-};
-
-type ProfRow = {
-  profissional_id: string;
-  nome: string;
-  percentual: number;
-  comissoes: ComissaoRow[];
-  total: number;
-  pendente: number;
-  pago: number;
-  totalAtendimentos: number;
-};
-
-function groupByPeriodo(comissoes: ComissaoRow[], periodo: Periodo) {
-  const byMonth = ['trimestre', 'semestre', 'ano'].includes(periodo);
-  const map: Record<string, ComissaoRow[]> = {};
-
-  for (const c of comissoes) {
-    const raw = c.agendamento?.data_hora_inicio ?? c.created_at;
-    const d = parseISO(raw);
-    const key = byMonth ? format(d, 'yyyy-MM') : format(d, 'yyyy-MM-dd');
-    if (!map[key]) map[key] = [];
-    map[key].push(c);
-  }
-
-  return Object.entries(map)
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([key, items]) => {
-      const d = parseISO(byMonth ? key + '-01' : key);
-      const label = byMonth
-        ? format(d, 'MMMM yyyy', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())
-        : format(d, "EEE, dd 'de' MMM", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase());
-      return { key, label, items };
-    });
-}
-
 export default function ComissoesGestorView() {
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [loading,   setLoading]   = useState(true);
-  const [periodo,   setPeriodo]   = useState<Periodo>('mes');
-  const [refDate,   setRefDate]   = useState(new Date());
-  const [semana,    setSemana]    = useState<Date[]>(() =>
-    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
-  );
-  const [comissoes, setComissoes] = useState<ComissaoRow[]>([]);
+  const [periodo, setPeriodo] = useState<PeriodoComissao>('mes');
+  const [deslocamento, setDeslocamento] = useState(0);
+  const [itens, setItens] = useState<ComissaoItem[]>([]);
+  const [erroCarga, setErroCarga] = useState('');
   const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
-  const [membros,   setMembros]   = useState<{ user_id: string; percentual_comissao: number; users: { nome: string } | null }[]>([]);
-  const [filtro,    setFiltro]    = useState<Filtro>('todas');
+  const [filtro, setFiltro] = useState<FiltroComissao>('todas');
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
-  const [pagando,   setPagando]   = useState<string | null>(null);
+  const [pagando, setPagando] = useState<string | null>(null);
   useScrollLock(!!pagando);
-  const [salvando,  setSalvando]  = useState(false);
-  const [toast,     setToast]     = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [toast, setToast] = useState('');
+  const [toastErro, setToastErro] = useState('');
+  const reqRef = useRef(0);
 
-  const [ini, fim] = useMemo(() => getPeriodRange(refDate, periodo), [refDate, periodo]);
-  const isFuturo   = fim > new Date();
+  const hoje = hojeBRT();
+  const limites = useMemo(() => limitesPeriodoComissao(periodo, hoje, deslocamento), [periodo, hoje, deslocamento]);
+  const periodoLabel = rotuloPeriodoComissao(periodo, limites);
+  // Nunca navega para o futuro: com deslocamento 0 a seta "próximo" fica desabilitada.
+  const podeAvancar = deslocamento < 0;
+  // Faixa domingo–sábado do modo Dia
+  const semana = useMemo(() => {
+    const domingo = somarDias(limites.startDate, -diaDaSemana(limites.startDate));
+    return Array.from({ length: 7 }, (_, i) => somarDias(domingo, i));
+  }, [limites.startDate]);
 
   useEffect(() => {
     (async () => {
@@ -181,73 +81,31 @@ export default function ComissoesGestorView() {
 
   const fetchData = useCallback(async () => {
     if (!empresaId) return;
+    const req = ++reqRef.current;
     setLoading(true);
-    const [rCom, rMem, rCat] = await Promise.all([
-      supabase.from('comissoes')
-        .select(`id, profissional_id, valor_servico, percentual, valor_comissao, status, created_at,
-          agendamento:agendamentos(data_hora_inicio, servico:servicos(nome, categoria, categoria_id))`)
-        .eq('empresa_id', empresaId)
-        .gte('created_at', ini.toISOString())
-        .lte('created_at', fim.toISOString())
-        .order('created_at', { ascending: false }),
-      supabase.from('empresa_membros')
-        .select('user_id, percentual_comissao, users:users!empresa_membros_user_id_fkey(nome)')
-        .eq('empresa_id', empresaId).eq('ativo', true),
-      supabase.from('categorias_servico').select('*')
-        .eq('empresa_id', empresaId).order('nome'),
-    ]);
-    setComissoes((rCom.data ?? []) as unknown as ComissaoRow[]);
-    setMembros((rMem.data ?? []) as any[]);
-    setCategoriasCustom((rCat.data ?? []) as CategoriaCustom[]);
-    setLoading(false);
-  }, [empresaId, ini, fim]);
+    setErroCarga('');
+    try {
+      const [rows, rCat] = await Promise.all([
+        carregarComissoesDoPeriodo(supabase, empresaId, limites),
+        supabase.from('categorias_servico').select('*').eq('empresa_id', empresaId).order('nome'),
+      ]);
+      if (rCat.error) throw new Error(rCat.error.message);
+      if (req !== reqRef.current) return;   // resposta velha
+      setItens(normalizarComissoes(rows));
+      setCategoriasCustom((rCat.data ?? []) as CategoriaCustom[]);
+    } catch (e) {
+      if (req !== reqRef.current) return;
+      setItens([]);
+      setErroCarga((e as Error).message || 'erro desconhecido');
+    }
+    if (req === reqRef.current) setLoading(false);
+  }, [empresaId, limites]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { setExpandidos(new Set()); }, [periodo, refDate]);
+  useEffect(() => { setExpandidos(new Set()); }, [periodo, deslocamento]);
 
-  const profissionais = useMemo<ProfRow[]>(() => {
-    const map: Record<string, ProfRow> = {};
-    for (const m of membros) {
-      map[m.user_id] = {
-        profissional_id: m.user_id,
-        nome: m.users?.nome ?? 'Profissional',
-        percentual: m.percentual_comissao,
-        comissoes: [], total: 0, pendente: 0, pago: 0, totalAtendimentos: 0,
-      };
-    }
-    for (const c of comissoes) {
-      if (!map[c.profissional_id]) continue;
-      map[c.profissional_id].comissoes.push(c);
-      map[c.profissional_id].total += c.valor_comissao;
-      map[c.profissional_id].totalAtendimentos++;
-      if (c.status === 'pendente') map[c.profissional_id].pendente += c.valor_comissao;
-      else                         map[c.profissional_id].pago     += c.valor_comissao;
-    }
-    return Object.values(map).filter(p => p.comissoes.length > 0).sort((a, b) => b.total - a.total);
-  }, [comissoes, membros]);
-
-  const resumo = useMemo(() => {
-    let total = 0, pendente = 0, pago = 0;
-    for (const c of comissoes) {
-      total += c.valor_comissao;
-      if (c.status === 'pendente') pendente += c.valor_comissao;
-      else pago += c.valor_comissao;
-    }
-    return { total, pendente, pago };
-  }, [comissoes]);
-
-  /** Move a seleção um dia por vez; realoca a faixa da semana quando o dia sai da semana visível */
-  function navDia(dir: 1 | -1) {
-    const novaData = addDays(refDate, dir);
-    setRefDate(novaData);
-    if (!semana.some(s => isSameDay(s, novaData)))
-      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(novaData, { weekStartsOn: 0 }), i)));
-  }
-
-  function selecionarDia(d: Date) {
-    setRefDate(d);
-    setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
-  }
+  const profissionais = useMemo(() => comissoesPorProfissional(itens), [itens]);
+  const resumo = useMemo(() => resumoComissoes(itens), [itens]);
 
   function toggleExpand(id: string) {
     setExpandidos(prev => {
@@ -257,34 +115,34 @@ export default function ComissoesGestorView() {
     });
   }
 
+  /** Paga só as pendentes do período exibido; nunca marca linhas que o banco não confirmou. */
   async function marcarPago(profId: string) {
-    if (!empresaId) return;
+    const prof = profissionais.find(p => p.profissionalId === profId);
+    if (!empresaId || !prof || prof.idsPendentes.length === 0) return;
     setSalvando(true);
-    const ids = comissoes.filter(c => c.profissional_id === profId && c.status === 'pendente').map(c => c.id);
-    if (ids.length > 0) {
-      await supabase.from('comissoes').update({ status: 'pago' }).in('id', ids).eq('empresa_id', empresaId);
-    }
+    const r = await pagarComissoes(supabase, empresaId, prof.idsPendentes);
     setSalvando(false);
     setPagando(null);
-    setToast('Pagamento registrado!');
-    setTimeout(() => setToast(''), 2500);
+    if (r.naoConfirmados.length > 0) {
+      setToastErro(r.erro ? `Erro ao registrar o pagamento: ${r.erro}` : MENSAGEM_PAGAMENTO_PARCIAL);
+      setTimeout(() => setToastErro(''), 4000);
+    } else {
+      setToast('Pagamento registrado!');
+      setTimeout(() => setToast(''), 2500);
+    }
     fetchData();
   }
 
-  const periodoLabel = getPeriodLabel(refDate, periodo);
   type ExRow = { prof: string; data: string; servico: string; valor: number; perc: string; comissao: number; status: string };
-  const exportRows: ExRow[] = comissoes.map(c => {
-    const p = profissionais.find(x => x.profissional_id === c.profissional_id);
-    return {
-      prof:     p?.nome ?? '',
-      data:     format(parseISO(c.agendamento?.data_hora_inicio ?? c.created_at), 'dd/MM/yyyy'),
-      servico:  c.agendamento?.servico?.nome ?? '',
-      valor:    c.valor_servico,
-      perc:     `${c.percentual}%`,
-      comissao: c.valor_comissao,
-      status:   c.status === 'pago' ? 'Pago' : 'Pendente',
-    };
-  });
+  const exportRows: ExRow[] = itens.map(c => ({
+    prof: c.profissionalNome,
+    data: rotuloDataBR(chaveDiaBRT(c.dataAtendimento ?? c.criadaEm)),
+    servico: c.servicoNome,
+    valor: c.valorServico,
+    perc: `${c.percentual}%`,
+    comissao: c.valorComissao,
+    status: c.status === 'pago' ? 'Pago' : 'Pendente',
+  }));
 
   return (
     <div className="bm-page">
@@ -293,6 +151,13 @@ export default function ComissoesGestorView() {
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-green text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 pointer-events-none"
           style={{ animation: 'bm-pop .35s cubic-bezier(.2,.85,.3,1)' }}>
           <CircleCheck size={15} strokeWidth={3}/>{toast}
+        </div>
+      )}
+
+      {toastErro && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg max-w-[90vw] text-center pointer-events-none"
+          style={{ animation: 'bm-pop .35s cubic-bezier(.2,.85,.3,1)' }}>
+          {toastErro}
         </div>
       )}
 
@@ -325,9 +190,9 @@ export default function ComissoesGestorView() {
 
       {/* Tabs de período */}
       <div className="flex gap-1 mb-4 p-1 rounded-2xl w-fit" style={{ background: 'var(--color-bg2)' }}>
-        {PERIODOS.map(p => (
+        {PERIODOS_COMISSAO.map(p => (
           <button key={p.key}
-            onClick={() => { setPeriodo(p.key); setRefDate(new Date()); }}
+            onClick={() => { setPeriodo(p.key); setDeslocamento(0); }}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
               periodo === p.key
                 ? 'bg-surface text-primary border border-border shadow-sm'
@@ -343,33 +208,33 @@ export default function ComissoesGestorView() {
         <div className="flex justify-center mb-5">
           <div className="bg-surface border border-border rounded-[20px] py-3 px-2 sm:px-4 overflow-x-auto">
             <div className="flex items-center gap-1 sm:gap-1.5">
-              <button onClick={() => navDia(-1)}
+              <button onClick={() => setDeslocamento(x => x - 1)}
                 className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0">
                 <ChevronLeft size={16}/>
               </button>
               <div className="flex gap-0.5 sm:gap-1">
                 {semana.map((d) => {
-                  const sel = isSameDay(d, refDate);
-                  const hj  = isToday(d);
-                  const fut = d > new Date();
+                  const sel = d === limites.startDate;
+                  const hj  = d === hoje;
+                  const fut = d > hoje;
                   return (
-                    <button key={d.toISOString()}
-                      onClick={() => !fut && selecionarDia(d)}
+                    <button key={d}
+                      onClick={() => !fut && setDeslocamento(diasEntre(hoje, d))}
                       disabled={fut}
                       className="press flex flex-col items-center rounded-[14px] py-2.5 w-9 sm:w-11 flex-shrink-0 disabled:opacity-30"
                       style={{ background: sel ? 'var(--color-primary)' : 'transparent', transition: 'all 0.15s' }}>
                       <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4, fontFamily: 'var(--font-sans)', color: sel ? 'rgba(255,255,255,0.7)' : 'var(--color-ink4)' }}>
-                        {DIAS_SEMANA[d.getDay()]}
+                        {DIAS_SEMANA_ABREV[diaDaSemana(d)]}
                       </span>
                       <span style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-sans)', color: sel ? '#fff' : hj ? 'var(--color-accent)' : 'var(--color-ink2)' }}>
-                        {format(d, 'd')}
+                        {Number(d.slice(8, 10))}
                       </span>
                     </button>
                   );
                 })}
               </div>
-              <button onClick={() => navDia(1)}
-                disabled={isToday(refDate)}
+              <button onClick={() => podeAvancar && setDeslocamento(x => x + 1)}
+                disabled={!podeAvancar}
                 className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition flex-shrink-0 disabled:opacity-30">
                 <ChevronRight size={16}/>
               </button>
@@ -379,17 +244,23 @@ export default function ComissoesGestorView() {
       ) : (
         <div className="flex items-center justify-center gap-3 mb-5">
           <div className="bg-surface border border-border rounded-[20px] flex items-center gap-2 px-3 py-2">
-            <button onClick={() => setRefDate(d => navigate(d, periodo, -1))}
+            <button onClick={() => setDeslocamento(x => x - 1)}
               className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
               <ChevronLeft size={16}/>
             </button>
             <span className="text-sm font-semibold text-text text-center" style={{ minWidth: 200 }}>{periodoLabel}</span>
-            <button onClick={() => !isFuturo && setRefDate(d => navigate(d, periodo, 1))}
-              disabled={isFuturo}
+            <button onClick={() => podeAvancar && setDeslocamento(x => x + 1)}
+              disabled={!podeAvancar}
               className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition disabled:opacity-30">
               <ChevronRight size={16}/>
             </button>
           </div>
+        </div>
+      )}
+
+      {erroCarga && (
+        <div role="alert" className="mb-4 px-4 py-3 rounded-xl border border-red/30 bg-red/5 text-sm text-red">
+          Não foi possível carregar as comissões: {erroCarga}
         </div>
       )}
 
@@ -404,7 +275,7 @@ export default function ComissoesGestorView() {
             style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
             <p className="text-[10px] font-bold uppercase tracking-widest mb-2 truncate" style={{ color: 'var(--color-ink4)' }}>{s.label}</p>
             <p className="text-sm sm:text-lg font-bold leading-tight break-words" style={{ color: s.cor, letterSpacing: '-0.02em' }}>
-              {loading ? '—' : <Secret>{fmtBRL(s.val)}</Secret>}
+              {loading || erroCarga ? '—' : <Secret>{fmtBRL(s.val)}</Secret>}
             </p>
           </div>
         ))}
@@ -412,14 +283,14 @@ export default function ComissoesGestorView() {
 
       {/* Filtros */}
       <div className="flex gap-2 mb-5">
-        {(['todas', 'pendentes', 'pagas'] as Filtro[]).map(f => (
-          <button key={f} onClick={() => setFiltro(f)}
+        {FILTROS_COMISSAO.map(f => (
+          <button key={f.key} onClick={() => setFiltro(f.key)}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
-              filtro === f
+              filtro === f.key
                 ? 'bg-primary text-white border-primary'
                 : 'bg-surface text-text-3 border-border hover:border-accent/40'
             }`}>
-            {f === 'todas' ? 'Todas' : f === 'pendentes' ? 'Pendentes' : 'Pagas'}
+            {f.label}
           </button>
         ))}
       </div>
@@ -439,7 +310,7 @@ export default function ComissoesGestorView() {
             </div>
           ))}
         </div>
-      ) : profissionais.length === 0 ? (
+      ) : erroCarga ? null : profissionais.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Banknote size={28} className="mb-3" style={{ color: 'var(--color-ink4)' }}/>
           <h2 className="font-serif text-xl mb-1" style={{ color: 'var(--color-ink)' }}>Sem comissões</h2>
@@ -448,24 +319,22 @@ export default function ComissoesGestorView() {
       ) : (
         <div className="flex flex-col gap-3">
           {profissionais.map(prof => {
-            const list = filtro === 'pendentes' ? prof.comissoes.filter(c => c.status === 'pendente')
-                       : filtro === 'pagas'     ? prof.comissoes.filter(c => c.status === 'pago')
-                       : prof.comissoes;
+            const list = filtrarComissoes(prof.itens, filtro);
             if (list.length === 0) return null;
 
-            const expanded    = expandidos.has(prof.profissional_id);
+            const expanded    = expandidos.has(prof.profissionalId);
             const temPendente = prof.pendente > 0;
-            const groups      = groupByPeriodo(list, periodo);
+            const groups      = agruparComissoesPorData(list, periodo);
 
             return (
-              <div key={prof.profissional_id}
+              <div key={prof.profissionalId}
                 className="bg-surface border border-border rounded-2xl overflow-hidden"
                 style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
 
                 {/* Card colapsado */}
                 <div className="w-full flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
                   <button
-                    onClick={() => toggleExpand(prof.profissional_id)}
+                    onClick={() => toggleExpand(prof.profissionalId)}
                     className="flex-1 min-w-0 flex items-center gap-3 text-left transition hover:opacity-80">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
                       style={{ background: avatarGradient(prof.nome) }}>
@@ -474,12 +343,12 @@ export default function ComissoesGestorView() {
 
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold truncate" style={{ color: 'var(--color-ink)' }}>{prof.nome}</p>
-                      <p className="text-xs" style={{ color: 'var(--color-ink3)' }}>{prof.totalAtendimentos} atend.</p>
+                      <p className="text-xs" style={{ color: 'var(--color-ink3)' }}>{prof.atendimentos} atend.</p>
                     </div>
 
                     {/* % */}
                     <div className="text-center flex-shrink-0 px-2">
-                      <p className="text-base font-bold" style={{ color: 'var(--color-primary)' }}>{prof.percentual}%</p>
+                      <p className="text-base font-bold" style={{ color: 'var(--color-primary)' }}>{rotuloPercentualComissao(prof.percentual)}</p>
                       <p className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--color-ink4)' }}>comissão</p>
                     </div>
 
@@ -498,14 +367,14 @@ export default function ComissoesGestorView() {
 
                   {/* Pagar — visível direto no cabeçalho, sem precisar expandir */}
                   {temPendente && (
-                    <button onClick={() => setPagando(prof.profissional_id)}
+                    <button onClick={() => setPagando(prof.profissionalId)}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-white text-xs font-bold hover:opacity-90 transition flex-shrink-0"
                       style={{ background: 'var(--color-green)' }}>
                       <Banknote size={13} strokeWidth={2}/>Pagar
                     </button>
                   )}
 
-                  <button onClick={() => toggleExpand(prof.profissional_id)} className="flex-shrink-0 p-1">
+                  <button onClick={() => toggleExpand(prof.profissionalId)} className="flex-shrink-0 p-1">
                     <ChevronDown size={16} style={{ color: 'var(--color-ink4)', transition: 'transform 0.2s', transform: expanded ? 'rotate(180deg)' : 'none' }}/>
                   </button>
                 </div>
@@ -515,23 +384,23 @@ export default function ComissoesGestorView() {
                   <div className="overflow-hidden">
                   <div className="border-t border-border">
                     {groups.map(group => (
-                      <div key={group.key}>
+                      <div key={group.chave}>
                         {/* Cabeçalho de dia/mês */}
                         {periodo !== 'dia' && (
                           <div className="px-4 py-2 border-b border-border" style={{ background: 'var(--color-bg)' }}>
                             <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-ink4)' }}>
-                              {group.label}
+                              {group.rotulo}
                             </p>
                           </div>
                         )}
 
-                        {group.items.map((c, i) => {
-                          const r   = resolverCategoriaServico(c.agendamento?.servico?.categoria, c.agendamento?.servico?.categoria_id, categoriasCustom);
+                        {group.itens.map((c, i) => {
+                          const r   = resolverCategoriaServico(c.servicoCategoria, c.servicoCategoriaId, categoriasCustom);
                           const cor = r.cor;
                           const bg  = r.bg;
                           return (
                             <div key={c.id}
-                              className={`flex items-center gap-3 px-4 py-3 ${i < group.items.length - 1 ? 'border-b border-border' : ''}`}>
+                              className={`flex items-center gap-3 px-4 py-3 ${i < group.itens.length - 1 ? 'border-b border-border' : ''}`}>
                               <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                                 style={{ background: bg }}>
                                 {r.iconeCustom
@@ -540,20 +409,20 @@ export default function ComissoesGestorView() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold truncate" style={{ color: 'var(--color-ink)' }}>
-                                  {c.agendamento?.servico?.nome ?? '—'}
+                                  {c.servicoNome}
                                 </p>
                                 <p className="text-[10px]" style={{ color: 'var(--color-ink3)' }}>
-                                  <Secret>{fmtBRL(c.valor_servico)} × {c.percentual}%</Secret>
-                                  {c.agendamento?.data_hora_inicio && (
+                                  <Secret>{fmtBRL(c.valorServico)} × {c.percentual}%</Secret>
+                                  {c.dataAtendimento && (
                                     <span className="ml-1.5 opacity-60">
-                                      {format(parseISO(c.agendamento.data_hora_inicio), 'HH:mm')}
+                                      {horaBRT(c.dataAtendimento)}
                                     </span>
                                   )}
                                 </p>
                               </div>
                               <div className="text-right flex-shrink-0">
                                 <p className="text-xs font-bold" style={{ color: 'var(--color-ink)' }}>
-                                  <Secret>{fmtBRL(c.valor_comissao)}</Secret>
+                                  <Secret>{fmtBRL(c.valorComissao)}</Secret>
                                 </p>
                                 <span className={`inline-block text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md mt-0.5 ${
                                   c.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
@@ -595,7 +464,7 @@ export default function ComissoesGestorView() {
 
       {/* Modal de confirmação de pagamento */}
       {pagando && (() => {
-        const prof = profissionais.find(p => p.profissional_id === pagando);
+        const prof = profissionais.find(p => p.profissionalId === pagando);
         if (!prof) return null;
         return (
           <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center bg-black/40"
@@ -619,8 +488,9 @@ export default function ComissoesGestorView() {
                 <p className="text-3xl font-bold" style={{ color: 'var(--color-amber)', letterSpacing: '-0.02em' }}>
                   <Secret>{fmtBRL(prof.pendente)}</Secret>
                 </p>
+                <p className="text-[11px] mt-1" style={{ color: 'var(--color-amber)' }}>Pendentes de {periodoLabel}</p>
               </div>
-              <button onClick={() => marcarPago(prof.profissional_id)}
+              <button onClick={() => marcarPago(prof.profissionalId)}
                 disabled={salvando}
                 className="w-full h-12 rounded-xl text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 style={{ background: 'var(--color-green)' }}>
