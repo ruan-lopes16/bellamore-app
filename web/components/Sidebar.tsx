@@ -9,6 +9,8 @@ import {
   Banknote, X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { hojeBRT } from '@shared/periodos';
+import { aplicarFiltroComandasNaoFechadas, aplicarFiltroDespesasVencendo } from '@shared/dashboard-consultas';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
@@ -93,27 +95,18 @@ export default function Sidebar({
 
   useEffect(() => {
     (async () => {
-      const hoje   = new Date().toISOString().slice(0, 10);
-      const daqui7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-
       const [estoque, despesas, comissoes, comandas] = await Promise.all([
         podeVerEstoque
           ? supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
               .eq('empresa_id', empresaId).eq('ativo', true)
           : Promise.resolve({ count: 0 } as { count: number | null }),
-        supabase.from('despesas').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empresaId).eq('status', 'pendente')
-          .gte('data_vencimento', hoje).lte('data_vencimento', daqui7),
+        aplicarFiltroDespesasVencendo(
+          supabase.from('despesas').select('id', { count: 'exact', head: true }), empresaId, hojeBRT()),
         supabase.from('comissoes').select('id', { count: 'exact', head: true })
           .eq('empresa_id', empresaId).eq('status', 'pendente'),
-        // Atendimentos já ocorridos (data_hora_fim passada) sem comanda_id — o
-        // fechamento (INSERT em comandas + link do agendamento) nunca aconteceu.
-        // Cobre tanto quem esqueceu de fechar quanto o atalho "Marcar como
-        // concluído" do app mobile, que muda o status sem gerar comanda.
-        supabase.from('agendamentos').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empresaId).is('comanda_id', null)
-          .not('status', 'in', '("cancelado","faltou")')
-          .lt('data_hora_fim', new Date().toISOString()),
+        // Atendimentos já ocorridos sem comanda (regra única do Dashboard).
+        aplicarFiltroComandasNaoFechadas(
+          supabase.from('agendamentos').select('id', { count: 'exact', head: true }), empresaId, new Date().toISOString()),
       ]);
 
       const comCount = comissoes.count ?? 0;
