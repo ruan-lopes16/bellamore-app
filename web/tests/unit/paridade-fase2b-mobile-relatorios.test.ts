@@ -22,3 +22,14 @@ describe('app Relatórios: dados das abas pelas funções do web', () => {
     expect(CHAVES_FINANCEIRO).toContain('rel-comissoes');
   });
 });
+
+describe('app Relatórios: tela com as 7 abas', () => {
+  const tela = ler('mobile/app/(empresa)/relatorios.tsx');
+  it('abas e blocos', () => {
+    for (const t of ['ABAS_RELATORIO', 'cartoesKpiRelatorio(', 'linhasResumoFinanceiro(', '<GraficoBarras', 'Despesas por categoria',
+      'Sumidas +60d', 'Taxa retorno', 'Top clientes', 'Insumos consumidos', 'Avaliações recentes', 'textoConfirmarPagamento(',
+      'Período inclui mês com fechamento importado', "resumo && !isError ? formatBRL(resumo.faturamento) : '—'"])
+      expect(tela).toContain(t);
+    expect(tela).not.toContain('iconSize=');
+  });
+});

@@ -1,15 +1,14 @@
 import { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, StatusBar, TextInput,
+  RefreshControl, StatusBar, TextInput, useWindowDimensions, Alert,
 } from 'react-native';
+import Svg, { Rect, G, Text as SvgText } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
-  Download, TrendingUp, TrendingDown,
-  CalendarCheck2, Receipt, UserPlus, RefreshCw,
-  Users, UserCheck, Clock, ChevronLeft, ChevronRight, XCircle,
+  Download, TrendingUp, TrendingDown, ChevronLeft, ChevronRight, ChevronDown, Star,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -23,13 +22,18 @@ import {
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 
-import { useRelatorios, type ServicoRelatorio, type ProfissionalRelatorio } from '@/hooks/useRelatorios';
+import { useRelatorios } from '@/hooks/useRelatorios';
+import { useAuthStore } from '@/stores/authStore';
+import { temPermissao } from '@/lib/permissions';
 import {
-  PERIODOS_RELATORIO, ROTULO_COMPARACAO, rotuloDoPeriodo, hojeBRT, type PeriodoRelatorio,
+  PERIODOS_RELATORIO, ROTULO_COMPARACAO, rotuloDoPeriodo, hojeBRT, rotuloDataBR, chaveDiaBRT, type PeriodoRelatorio,
 } from '@shared/periodos';
+import {
+  ABAS_RELATORIO, cartoesKpiRelatorio, linhasResumoFinanceiro, type AbaRelatorio, type CartaoKpiRelatorio,
+} from '@shared/relatorios';
+import { textoConfirmarPagamento, type ComissoesDaProfissional } from '@shared/comissoes';
 import { variacaoPercentual } from '@shared/kpis-financeiros';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
-import { CategoriaIcon } from '@/components/CategoriaIcon';
 import { SmoothTabs } from '@/components/SmoothTabs';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -102,119 +106,145 @@ function Avatar({ nome, index }: { nome: string; index: number }) {
   );
 }
 
-// ── KPI card ─────────────────────────────────────────────────
+// ── Blocos reutilizáveis ─────────────────────────────────────
 
-function KpiCard({
-  icon, label, valor, deltaVal, invertDelta = false,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  valor: string;
-  deltaVal: number | null;
-  invertDelta?: boolean;
-}) {
-  const positivo = deltaVal !== null
-    ? (invertDelta ? deltaVal < 0 : deltaVal >= 0)
-    : true;
-
+function Secao({ titulo, extra, children }: { titulo: string; extra?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <View style={{
-      flex: 1, backgroundColor: C.surface,
-      borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14,
-      shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-    }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        {icon}
-        <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3 }}>
-          {label}
-        </Text>
+    <View style={{ marginHorizontal: 24, marginBottom: 20 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text }}>{titulo}</Text>
+        {extra}
       </View>
-      <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: C.text, letterSpacing: -0.5, lineHeight: 24, marginBottom: 4 }}>
-        {valor}
-      </SecretText>
-      {deltaVal !== null && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-          {positivo
-            ? <TrendingUp size={9} color={C.green} strokeWidth={2.5} />
-            : <TrendingDown size={9} color={C.red} strokeWidth={2.5} />
-          }
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: positivo ? C.green : C.red }}>
-            {deltaVal >= 0 ? '+' : ''}{deltaVal}%
-          </Text>
-        </View>
+      <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 18, overflow: 'hidden' }}>
+        {children}
+      </View>
+    </View>
+  );
+}
+
+function Vazio({ texto }: { texto: string }) {
+  return (
+    <View style={{ padding: 20, alignItems: 'center' }}>
+      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, textAlign: 'center' }}>{texto}</Text>
+    </View>
+  );
+}
+
+function CartaoKpi({ c }: { c: CartaoKpiRelatorio }) {
+  return (
+    <View style={{ width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
+      <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6 }}>{c.rotulo}</Text>
+      <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: c.negativo ? C.red : C.text, letterSpacing: -0.5 }}>{c.valor}</SecretText>
+      {c.sub && <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 2 }}>{c.sub}</SecretText>}
+      {c.delta !== null && (
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: c.delta >= 0 ? C.green : C.red, marginTop: 4 }}>
+          {c.delta >= 0 ? '+' : ''}{c.delta}% {c.rotuloDelta}
+        </Text>
       )}
     </View>
   );
 }
 
-// ── Serviço row ───────────────────────────────────────────────
-
-function ServicoRow({ item, isLast }: { item: ServicoRelatorio; isLast: boolean }) {
+/** Cartão simples (rótulo + valor) usado nas abas Clientes, Comissões e Avaliações. */
+function CartaoSimples({ rotulo, valor, cor = C.text, secreto = true }: { rotulo: string; valor: string; cor?: string; secreto?: boolean }) {
+  const estilo = { fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: cor, letterSpacing: -0.5 } as const;
   return (
-    <View style={{
-      paddingVertical: 12, paddingHorizontal: 16,
-      flexDirection: 'row', alignItems: 'center', gap: 12,
-      borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
-    }}>
-      <CategoriaIcon categoria={item.nome} size={32} iconSize={13} />
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 2 }}>
-          {item.nome}
-        </Text>
-        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginBottom: 5 }}>
-          {item.quantidade} atendimentos
-        </Text>
-        <View style={{ height: 3, backgroundColor: C.border, borderRadius: 2 }}>
-          <View style={{
-            height: 3, borderRadius: 2, backgroundColor: C.accent,
-            width: `${item.percentual}%`, opacity: 0.5 + item.percentual / 200,
-          }} />
-        </View>
-      </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
-          {formatBRL(item.receita)}
-        </SecretText>
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, marginTop: 2 }}>
-          {item.percentual}%
-        </Text>
-      </View>
+    <View style={{ width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
+      <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6 }}>{rotulo}</Text>
+      {secreto ? <SecretText style={estilo}>{valor}</SecretText> : <Text style={estilo}>{valor}</Text>}
     </View>
   );
 }
 
-// ── Profissional row ──────────────────────────────────────────
-
-function ProfissionalRow({ item, index, isLast }: { item: ProfissionalRelatorio; index: number; isLast: boolean }) {
+function LinhaRanking({ pos, nome, valor, detalhe, pct, extra, cor = C.accent, ultimo }: {
+  pos: number; nome: string; valor: string; detalhe: string; pct: number; extra?: string; cor?: string; ultimo: boolean;
+}) {
   return (
-    <View style={{
-      paddingVertical: 12, paddingHorizontal: 16,
-      flexDirection: 'row', alignItems: 'center', gap: 12,
-      borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
-    }}>
-      <Text style={{
-        fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20,
-        color: index < 2 ? C.primary : C.text4, minWidth: 22,
-      }}>
-        {index + 1}
-      </Text>
-      <Avatar nome={item.nome} index={index} />
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 2 }}>
-          {item.nome}
-        </Text>
-        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
-          {item.especialidades}
-        </Text>
+    <View style={{ paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: ultimo ? 0 : 1, borderBottomColor: C.border }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: pos <= 3 ? C.primary : C.text4, minWidth: 18 }}>{pos}</Text>
+        <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>{nome}</Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>{detalhe}</Text>
+        <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>{valor}</SecretText>
       </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
-          {formatBRL(item.faturamento)}
-        </SecretText>
-        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 2 }}>
-          {item.atendimentos} atend.
-        </Text>
+      <View style={{ height: 3, backgroundColor: C.border, borderRadius: 2, marginTop: 6, marginLeft: 28 }}>
+        <View style={{ height: 3, borderRadius: 2, backgroundColor: cor, width: `${Math.min(pct, 100)}%` }} />
       </View>
+      {extra && <SecretText style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 3, marginLeft: 28 }}>{extra}</SecretText>}
+    </View>
+  );
+}
+
+function GraficoBarras({ pontos }: { pontos: { rotulo: string; valor: number }[] }) {
+  const { width } = useWindowDimensions();
+  const W = width - 48 - 32;
+  const H = 140, BASE = 18, TOPO = 8;
+  const max = Math.max(...pontos.map(p => p.valor), 1);
+  const passo = W / Math.max(pontos.length, 1);
+  const barra = Math.max(passo * 0.6, 2);
+  return (
+    <Svg width={W} height={H}>
+      {pontos.map((p, i) => {
+        const h = (p.valor / max) * (H - BASE - TOPO);
+        const x = i * passo + (passo - barra) / 2;
+        return (
+          <G key={`${p.rotulo}-${i}`}>
+            <Rect x={x} y={H - BASE - h} width={barra} height={p.valor > 0 ? Math.max(h, 2) : 0} rx={3} fill={C.accent} />
+            <SvgText x={x + barra / 2} y={H - 4} fontSize={9} fill={C.text3} textAnchor="middle">{p.rotulo}</SvgText>
+          </G>
+        );
+      })}
+    </Svg>
+  );
+}
+
+function CartaoComissoes({ p, rotuloPeriodo, onPagar, pagando, podePagar }: {
+  p: ComissoesDaProfissional; rotuloPeriodo: string; onPagar: (p: ComissoesDaProfissional) => Promise<unknown>; pagando: boolean; podePagar: boolean;
+}) {
+  const [aberto, setAberto] = useState(false);
+  function confirmar() {
+    Alert.alert('Confirmar pagamento', textoConfirmarPagamento(p.nome, formatBRL(p.pendente), rotuloPeriodo), [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Pagar', onPress: async () => {
+        try {
+          await onPagar(p);
+          Alert.alert('Pronto', 'Comissões marcadas como pagas.');
+        } catch (e) { Alert.alert('Não foi possível registrar o pagamento', (e as Error).message); }
+      } },
+    ]);
+  }
+  return (
+    <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 18, overflow: 'hidden' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>{p.nome}</Text>
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 2 }}>
+            {formatBRL(p.pendente)} pendente · {formatBRL(p.pago)} pago
+          </SecretText>
+        </View>
+        {podePagar && p.pendente > 0 && (
+          <TouchableOpacity onPress={confirmar} disabled={pagando} style={{ backgroundColor: C.green, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, opacity: pagando ? 0.6 : 1 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: '#fff' }}>Pagar</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity onPress={() => setAberto(a => !a)} accessibilityLabel={aberto ? 'Ocultar' : 'Detalhar'}>
+          <View style={{ transform: [{ rotate: aberto ? '180deg' : '0deg' }] }}><ChevronDown size={16} color={C.text4} /></View>
+        </TouchableOpacity>
+      </View>
+      {aberto && p.itens.map((c) => (
+        <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.border }}>
+          <View style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text }}>{c.clienteNome} · {c.servicoNome}</Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
+              {rotuloDataBR(chaveDiaBRT(c.dataAtendimento ?? c.criadaEm))} · {c.percentual}%
+            </Text>
+          </View>
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>{formatBRL(c.valorComissao)}</SecretText>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 8, textTransform: 'uppercase', color: c.status === 'pago' ? C.green : C.amber }}>
+            {c.status === 'pago' ? 'Pago' : 'Pendente'}
+          </Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -239,7 +269,11 @@ export default function Relatorios() {
   const dataCustomInvalida = periodo === 'custom'
     && ((customIniStr.length === 10 && !paraIsoBR(customIniStr)) || (customFimStr.length === 10 && !paraIsoBR(customFimStr)));
 
-  const { resumo, clientes, servicos, profissionais, mesesComFechamento, atual, isLoading, isError, refetch } = useRelatorios(periodo, opcoes);
+  const [aba, setAba] = useState<AbaRelatorio>('financeiro');
+  const r = useRelatorios(periodo, opcoes, aba);
+  const { resumo, clientes, servicos, profissionais, mesesComFechamento, atual, isLoading, isError, refetch } = r;
+  const { isOwner, roleAtivo } = useAuthStore();
+  const podePagar = temPermissao(isOwner ? 'owner' : (roleAtivo ?? 'profissional'), 'ver_comissoes_todas');
   const rotuloAtual = rotuloDoPeriodo(periodo, atual);
 
   const [fontsLoaded] = useFonts({
@@ -255,9 +289,13 @@ export default function Relatorios() {
 
   if (!fontsLoaded) return null;
 
+  const notaFechamento = mesesComFechamento.length > 0 ? (
+    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, padding: 12 }}>
+      Período inclui mês com fechamento importado — detalhamentos mostram só os lançamentos ao vivo.
+    </Text>
+  ) : null;
+
   const dFat    = resumo ? variacaoPercentual(resumo.faturamento, resumo.faturamentoAnterior) : null;
-  const dAtend  = resumo ? variacaoPercentual(resumo.atendimentos, resumo.atendimentosAnterior) : null;
-  const dTicket = resumo ? variacaoPercentual(resumo.ticketMedio, resumo.ticketMedioAnterior) : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -403,7 +441,7 @@ export default function Relatorios() {
                 Faturamento no período
               </Text>
               <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 38, color: '#fff', letterSpacing: -1, lineHeight: 42, marginBottom: 8 }}>
-                {formatBRL(resumo?.faturamento ?? 0)}
+                {resumo && !isError ? formatBRL(resumo.faturamento) : '—'}
               </SecretText>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <View style={{
@@ -430,7 +468,7 @@ export default function Relatorios() {
         {isError && (
           <View style={{ marginHorizontal: 24, marginTop: 16, backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.red, borderRadius: 14, padding: 14 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, marginBottom: 6 }}>
-              Não foi possível carregar os relatórios. Os números abaixo podem estar incompletos.
+              Não foi possível carregar os relatórios.
             </Text>
             <TouchableOpacity onPress={onRefresh}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red, textDecorationLine: 'underline' }}>Tentar de novo</Text>
@@ -438,164 +476,241 @@ export default function Relatorios() {
           </View>
         )}
 
-        {/* ── KPIs ── */}
-        <MotiView
-          from={{ opacity: 0, translateY: 6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 380, delay: 80 }}
-          style={{ marginHorizontal: 24, marginTop: 16, marginBottom: 20, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
-        >
-          <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
-            <KpiCard
-              icon={<View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}><CalendarCheck2 size={13} color={C.primary} strokeWidth={1.8} /></View>}
-              label="Atendimentos"
-              valor={String(resumo?.atendimentos ?? 0)}
-              deltaVal={dAtend}
-            />
-            <KpiCard
-              icon={<View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Receipt size={13} color={C.green} strokeWidth={1.8} /></View>}
-              label="Ticket médio"
-              valor={formatBRL(resumo?.ticketMedio ?? 0)}
-              deltaVal={dTicket}
-            />
-          </View>
-          <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
-            <KpiCard
-              icon={<View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: C.indigoSoft, alignItems: 'center', justifyContent: 'center' }}><UserPlus size={13} color={C.indigo} strokeWidth={1.8} /></View>}
-              label="Novas clientes"
-              valor={String(clientes?.novos ?? 0)}
-              deltaVal={null}
-            />
-            <KpiCard
-              icon={<View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: C.roseSoft, alignItems: 'center', justifyContent: 'center' }}><RefreshCw size={13} color={C.rose} strokeWidth={1.8} /></View>}
-              label="Taxa retorno"
-              valor={clientes && clientes.totalAtendidas > 0 ? `${clientes.pctRetorno}%` : '—'}
-              deltaVal={null}
-            />
-          </View>
-          <View style={{ flexDirection: 'row', gap: 8, width: '100%' }}>
-            <KpiCard
-              icon={<View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: C.roseSoft, alignItems: 'center', justifyContent: 'center' }}><XCircle size={13} color={C.rose} strokeWidth={1.8} /></View>}
-              label="Taxa cancelamento"
-              valor={resumo ? `${resumo.pctCancelamento.toFixed(1)}%` : '—'}
-              deltaVal={null}
-            />
-          </View>
-        </MotiView>
+        {/* ── Abas ── */}
+        <SmoothTabs
+          tabs={ABAS_RELATORIO}
+          active={aba}
+          onChange={k => setAba(k as AbaRelatorio)}
+          activeColor={C.primary}
+          trackBg={C.surface}
+          trackBorder={C.border}
+          inactiveTextColor={C.text3}
+          style={{ marginHorizontal: 24, marginTop: 16, marginBottom: 16 }}
+        />
 
-        {/* ── Por serviço ── */}
-        <MotiView
-          from={{ opacity: 0, translateY: 6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 380, delay: 140 }}
-          style={{ marginHorizontal: 24, marginBottom: 20 }}
-        >
-          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
-            Por Serviço
-          </Text>
-          {mesesComFechamento.length > 0 && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginBottom: 10 }}>
-              Período inclui mês com fechamento importado — detalhamentos mostram só os lançamentos ao vivo.
-            </Text>
-          )}
-          <View style={{
-            backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-            borderRadius: 18, overflow: 'hidden',
-            shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-          }}>
-            {servicos.length === 0 ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
-                  Sem atendimentos no período
-                </Text>
-              </View>
-            ) : (
-              servicos.map((s, i) => (
-                <ServicoRow key={s.servico_id} item={s} isLast={i === servicos.length - 1} />
-              ))
-            )}
-          </View>
-        </MotiView>
+        {/* Abas calculadas da carga principal: nada é desenhado com erro ou sem dados. */}
+        {(aba === 'financeiro' || aba === 'servicos' || aba === 'equipe' || aba === 'clientes') && (!r.kpis || isError) && (
+          <Vazio texto={isError ? 'Não foi possível carregar os dados desta aba.' : 'Carregando…'} />
+        )}
 
-        {/* ── Por profissional ── */}
-        <MotiView
-          from={{ opacity: 0, translateY: 6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 380, delay: 200 }}
-          style={{ marginHorizontal: 24, marginBottom: 20 }}
-        >
-          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
-            Por Profissional
-          </Text>
-          <View style={{
-            backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-            borderRadius: 18, overflow: 'hidden',
-            shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-          }}>
-            {profissionais.length === 0 ? (
-              <View style={{ padding: 20, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
-                  Sem dados no período
-                </Text>
-              </View>
-            ) : (
-              profissionais.map((p, i) => (
-                <ProfissionalRow key={p.profissional_id} item={p} index={i} isLast={i === profissionais.length - 1} />
-              ))
-            )}
-          </View>
-        </MotiView>
+        {/* ── Financeiro ── */}
+        {aba === 'financeiro' && r.kpis && r.kpisAnt && !isError && (
+          <>
+            <View style={{ marginHorizontal: 24, marginBottom: 20, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {cartoesKpiRelatorio(r.kpis, r.kpisAnt, { periodo, isOwner: r.isOwner, retiradasPeriodo: r.retiradasPeriodo, fmt: formatBRL })
+                .filter(c => c.id !== 'bruto')
+                .map(c => <CartaoKpi key={c.id} c={c} />)}
+            </View>
 
-        {/* ── Clientes ── */}
-        <MotiView
-          from={{ opacity: 0, translateY: 6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 380, delay: 260 }}
-          style={{ marginHorizontal: 24 }}
-        >
-          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
-            Clientes
-          </Text>
-          <View style={{
-            backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-            borderRadius: 18, overflow: 'hidden',
-            shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-          }}>
-            {/* Grid 2×2 */}
-            {[
-              [
-                { icon: <UserPlus size={12} color={C.indigo} strokeWidth={1.8} />, bg: C.indigoSoft, val: String(clientes?.novos ?? 0), label: 'Novas' },
-                { icon: <RefreshCw size={12} color={C.green} strokeWidth={1.8} />,  bg: C.greenSoft,  val: String(clientes?.retornaram ?? 0), label: 'Retornaram' },
-              ],
-              [
-                { icon: <Clock size={12} color={C.amber} strokeWidth={1.8} />,     bg: C.amberSoft,  val: clientes?.sumidos == null ? '—' : String(clientes.sumidos), label: 'Sumidas +60d' },
-                { icon: <Users size={12} color={C.primary} strokeWidth={1.8} />,   bg: C.primarySoft,val: String(clientes?.totalAtendidas ?? 0), label: 'Total atendidas' },
-              ],
-            ].map((linha, li) => (
-              <View key={li} style={{ flexDirection: 'row', borderBottomWidth: li === 0 ? 1 : 0, borderBottomColor: C.border }}>
-                {linha.map((m, mi) => (
-                  <View
-                    key={mi}
-                    style={{
-                      flex: 1, padding: 14,
-                      borderRightWidth: mi === 0 ? 1 : 0, borderRightColor: C.border,
-                    }}
-                  >
-                    <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: m.bg, alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                      {m.icon}
+            <Secao titulo="Evolução de faturamento">
+              {r.serie.length === 0 || r.serie.every(p => p.valor === 0)
+                ? <Vazio texto="Sem faturamento no período" />
+                : <View style={{ padding: 16 }}><GraficoBarras pontos={r.serie} /></View>}
+              {notaFechamento}
+            </Secao>
+
+            <Secao titulo="Resumo financeiro">
+              <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+                {linhasResumoFinanceiro(r.kpis, { isOwner: r.isOwner, retiradasPeriodo: r.retiradasPeriodo }).map(l => (
+                  <View key={l.id}>
+                    <View style={{
+                      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                      paddingVertical: 10, borderBottomWidth: l.tipo === 'resultado' ? 0 : 1, borderBottomColor: C.border,
+                    }}>
+                      <Text style={{
+                        fontFamily: l.tipo === 'resultado' || l.tipo === 'total' ? 'PlusJakartaSans_700Bold' : 'PlusJakartaSans_500Medium',
+                        fontSize: 12, color: l.tipo === 'resultado' || l.tipo === 'total' ? C.text : C.text2,
+                      }}>{l.rotulo}</Text>
+                      <SecretText style={{
+                        fontFamily: l.tipo === 'resultado' ? 'PlusJakartaSans_700Bold' : 'PlusJakartaSans_600SemiBold',
+                        fontSize: l.tipo === 'resultado' ? 15 : 12,
+                        color: l.tipo === 'resultado' ? (l.valor >= 0 ? C.green : C.red) : l.tipo === 'saida' ? C.red : C.accent,
+                      }}>{l.tipo === 'saida' && l.valor > 0 ? '− ' : ''}{formatBRL(l.valor)}</SecretText>
                     </View>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.text, letterSpacing: -0.5, lineHeight: 22, marginBottom: 2 }}>
-                      {m.val}
-                    </Text>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                      {m.label}
-                    </Text>
+                    {l.id === 'bruto' && mesesComFechamento.length > 0 && (
+                      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, paddingVertical: 6 }}>
+                        Inclui fechamento importado de {mesesComFechamento.join(', ')}.
+                      </Text>
+                    )}
                   </View>
                 ))}
               </View>
-            ))}
-          </View>
-        </MotiView>
+            </Secao>
+
+            <Secao titulo="Despesas por categoria">
+              {r.despesasPorCategoria.length === 0
+                ? <Vazio texto="Sem despesas no período" />
+                : r.despesasPorCategoria.slice(0, 6).map((d, i, arr) => (
+                  <LinhaRanking key={`${d.nome}-${i}`} pos={i + 1} nome={d.nome} valor={formatBRL(d.valor)} detalhe=""
+                    pct={d.pct} cor={C.red} ultimo={i === arr.length - 1} />
+                ))}
+            </Secao>
+          </>
+        )}
+
+        {/* ── Serviços ── */}
+        {aba === 'servicos' && r.kpis && !isError && (
+          <Secao titulo="Serviços por receita">
+            {servicos.length === 0
+              ? <Vazio texto="Sem atendimentos no período" />
+              : servicos.map((s, i) => (
+                <LinhaRanking key={s.servico_id} pos={i + 1} nome={s.nome} valor={formatBRL(s.receita)}
+                  detalhe={`${s.quantidade} atend.`} pct={s.percentual}
+                  extra={`Ticket médio: ${formatBRL(s.quantidade > 0 ? s.receita / s.quantidade : 0)}`}
+                  ultimo={i === servicos.length - 1} />
+              ))}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 14, borderTopWidth: 1, borderTopColor: C.border }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>Total</Text>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
+                {resumo ? formatBRL(resumo.faturamento) : '—'}
+              </SecretText>
+            </View>
+            {notaFechamento}
+          </Secao>
+        )}
+
+        {/* ── Equipe ── */}
+        {aba === 'equipe' && r.kpis && !isError && (
+          <Secao titulo="Equipe">
+            {profissionais.length === 0
+              ? <Vazio texto="Sem dados no período" />
+              : profissionais.map((p, i) => (
+                <View key={p.profissional_id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 16 }}>
+                  <Avatar nome={p.nome} index={i} />
+                  <View style={{ flex: 1 }}>
+                    <LinhaRanking pos={i + 1} nome={p.nome} valor={formatBRL(p.faturamento)}
+                      detalhe={`${p.atendimentos} atend.`} pct={p.percentual}
+                      extra={p.comissao > 0 ? `Comissão ${formatBRL(p.comissao)}` : undefined}
+                      ultimo={i === profissionais.length - 1} />
+                  </View>
+                </View>
+              ))}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 14, borderTopWidth: 1, borderTopColor: C.border }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>Total comissões no período</Text>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>{formatBRL(r.kpis.comissoes)}</SecretText>
+            </View>
+            {notaFechamento}
+          </Secao>
+        )}
+
+        {/* ── Clientes ── */}
+        {aba === 'clientes' && r.kpis && !isError && (
+          <>
+            <View style={{ marginHorizontal: 24, marginBottom: 20, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <CartaoSimples rotulo="Novas" valor={String(clientes?.novos ?? 0)} secreto={false} />
+              <CartaoSimples rotulo="Retornaram" valor={String(clientes?.retornaram ?? 0)} secreto={false} />
+              <CartaoSimples rotulo="Sumidas +60d" valor={clientes?.sumidos == null ? '—' : String(clientes.sumidos)} secreto={false} />
+              <CartaoSimples rotulo="Total atendidas" valor={String(clientes?.totalAtendidas ?? 0)} secreto={false} />
+              <CartaoSimples rotulo="Taxa retorno" valor={clientes && clientes.totalAtendidas > 0 ? `${clientes.pctRetorno}%` : '—'} secreto={false} />
+            </View>
+            <Secao titulo="Top clientes">
+              {r.topClientes.length === 0
+                ? <Vazio texto="Sem atendimentos no período" />
+                : r.topClientes.map((c, i) => (
+                  <LinhaRanking key={c.cliente_id} pos={i + 1} nome={c.nome} valor={formatBRL(c.total)}
+                    detalhe={`${c.visitas} ${c.visitas === 1 ? 'visita' : 'visitas'}`} pct={c.percentual} cor={C.rose}
+                    ultimo={i === r.topClientes.length - 1} />
+                ))}
+            </Secao>
+          </>
+        )}
+
+        {/* ── Estoque ── */}
+        {aba === 'estoque' && (
+          r.insumosErro || isError
+            ? <Vazio texto="Não foi possível carregar o estoque." />
+            : !r.insumosPronto || !r.kpis
+              ? <Vazio texto="Carregando…" />
+              : r.insumos.ranking.length === 0
+                ? <Vazio texto="Sem saídas de estoque registradas no período" />
+                : (
+                  <Secao titulo="Insumos consumidos"
+                    extra={<SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 }}>Custo total: {formatBRL(r.insumos.custoTotal)}</SecretText>}>
+                    {r.insumos.ranking.map((e, i) => (
+                      <LinhaRanking key={e.produtoId} pos={i + 1} nome={e.nome} valor={formatBRL(e.custo)}
+                        detalhe={`${e.qtd % 1 === 0 ? e.qtd : e.qtd.toFixed(2)} un.`} pct={e.pct} cor={C.green}
+                        ultimo={i === r.insumos.ranking.length - 1} />
+                    ))}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 14, borderTopWidth: 1, borderTopColor: C.border }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>Custo médio / atendimento</Text>
+                      <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
+                        {r.insumos.custoMedioPorAtendimento == null ? '—' : formatBRL(r.insumos.custoMedioPorAtendimento)}
+                      </SecretText>
+                    </View>
+                  </Secao>
+                )
+        )}
+
+        {/* ── Comissões ── */}
+        {aba === 'comissoes' && (
+          r.comissoes.isError || isError
+            ? <Vazio texto="Não foi possível carregar as comissões." />
+            : !r.comissoes.pronto
+              ? <Vazio texto="Carregando…" />
+              : (
+                <>
+                  <View style={{ marginHorizontal: 24, marginBottom: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    <CartaoSimples rotulo="A pagar" valor={formatBRL(r.comissoes.resumo.pendente)} cor={C.amber} />
+                    <CartaoSimples rotulo="Já pago" valor={formatBRL(r.comissoes.resumo.pago)} cor={C.green} />
+                    <CartaoSimples rotulo="Comissões no período" valor={String(r.comissoes.resumo.quantidade)} secreto={false} />
+                  </View>
+                  {r.comissoes.porProfissional.length === 0
+                    ? <Vazio texto="Sem comissões no período" />
+                    : r.comissoes.porProfissional.map(p => (
+                      <CartaoComissoes key={p.profissionalId} p={p} rotuloPeriodo={rotuloAtual} podePagar={podePagar}
+                        onPagar={x => r.pagarComissoes(x.idsPendentes)} pagando={r.pagando} />
+                    ))}
+                </>
+              )
+        )}
+
+        {/* ── Avaliações ── */}
+        {aba === 'avaliacoes' && (
+          r.avaliacoesErro || isError
+            ? <Vazio texto="Não foi possível carregar as avaliações." />
+            : !r.avaliacoesPronto
+              ? <Vazio texto="Carregando…" />
+              : r.avaliacoes.total === 0
+                ? <Vazio texto="Nenhuma avaliação registrada neste período." />
+                : (
+                  <>
+                    <View style={{ marginHorizontal: 24, marginBottom: 20, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      <CartaoSimples rotulo="Nota média" valor={r.avaliacoes.notaMedia != null ? r.avaliacoes.notaMedia.toFixed(1) : '—'} secreto={false} />
+                      <CartaoSimples rotulo="Profissionais avaliados" valor={String(r.avaliacoes.ranking.length)} secreto={false} />
+                      <CartaoSimples rotulo="Com nota 5" valor={r.avaliacoes.pctNota5 != null ? `${r.avaliacoes.pctNota5}%` : '—'} secreto={false} />
+                    </View>
+                    <Secao titulo="Nota média por profissional">
+                      {r.avaliacoes.ranking.map((p, i, arr) => (
+                        <View key={`${p.nome}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 14, borderBottomWidth: i === arr.length - 1 ? 0 : 1, borderBottomColor: C.border }}>
+                          <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>{p.nome}</Text>
+                          <Star size={12} color={C.amber} fill={C.amber} />
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>{p.media.toFixed(1)}</Text>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>({p.qtd})</Text>
+                        </View>
+                      ))}
+                    </Secao>
+                    <Secao titulo="Avaliações recentes">
+                      {r.avaliacoesRecentes.map((av, i, arr) => (
+                        <View key={i} style={{ padding: 14, borderBottomWidth: i === arr.length - 1 ? 0 : 1, borderBottomColor: C.border }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
+                              {av.cliente?.nome ?? 'Cliente'}{av.profissional?.user?.nome ? ` · ${av.profissional.user.nome}` : ''}
+                            </Text>
+                            <Star size={11} color={C.amber} fill={C.amber} />
+                            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>{av.nota}</Text>
+                          </View>
+                          {av.comentario ? (
+                            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text2, marginTop: 4 }}>“{av.comentario}”</Text>
+                          ) : null}
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 4 }}>
+                            {rotuloDataBR(chaveDiaBRT(av.created_at))}
+                          </Text>
+                        </View>
+                      ))}
+                    </Secao>
+                  </>
+                )
+        )}
 
       </ScrollView>
     </View>
