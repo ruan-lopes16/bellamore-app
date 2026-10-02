@@ -38,7 +38,7 @@ describe('FinanceMonthCalendar', () => {
 
     expect(screen.getByRole('grid', { name: /calendario de julho 2026/i })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Dom' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Sab' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Sáb' })).toBeInTheDocument();
     expect(screen.getByRole('gridcell', { name: /16 de julho de 2026/i })).toHaveAttribute('aria-current', 'date');
     expect(screen.getByRole('gridcell', { name: /28 de junho de 2026/i })).toHaveAttribute('data-outside-month', 'true');
     expect(screen.getByRole('gridcell', { name: /1 de agosto de 2026/i })).toHaveAttribute('data-outside-month', 'true');
