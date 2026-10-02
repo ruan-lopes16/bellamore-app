@@ -67,22 +67,68 @@ describe('histórico paginado', () => {
   });
 });
 
+describe('regressões de quais lançar', () => {
+  it('linha antiga sem fim + linha mais nova já encerrada: série continua excluída (dedup antes do filtro)', () => {
+    const hist: DespesaRecorrenteTemplate[] = [
+      { descricao: 'Seguro', categoria: 'Outros', valor: 50, data_vencimento: '2026-08-10', recorrencia_ate: '2026-08-31' },
+      { descricao: 'Seguro', categoria: 'Outros', valor: 50, data_vencimento: '2026-05-10', recorrencia_ate: null },
+    ];
+    expect(recorrentesParaLancarNoMes(hist, [], '2026-09-01')).toEqual([]);
+  });
+  it('categoria null e vazia contam como a mesma série já lançada no mês', () => {
+    const hist: DespesaRecorrenteTemplate[] = [{ descricao: 'Luz', categoria: null, valor: 10, data_vencimento: '2026-08-10' }];
+    expect(recorrentesParaLancarNoMes(hist, [{ descricao: 'Luz', categoria: '' }], '2026-09-01')).toEqual([]);
+    expect(recorrentesParaLancarNoMes(hist, [{ descricao: 'Luz', categoria: null }], '2026-09-01')).toEqual([]);
+  });
+});
+
 describe('inserção em lote', () => {
-  const stub = (resp: { data: unknown[] | null; error: { message: string } | null }) => {
-    const chamadas: unknown[][] = [];
-    const db = { from: () => ({ insert: (l: unknown) => { chamadas.push([l]); return { select: () => Promise.resolve(resp) }; } }) };
-    return { db, chamadas };
+  type Resp = { data: unknown[] | null; error: { message: string } | null };
+  const stub = (resp: Resp, noMes: { descricao: string; categoria: string | null }[] = []) => {
+    const inserts: unknown[] = [];
+    const selects: unknown[][] = [];
+    const filtros: unknown[][] = [];
+    const db = {
+      from: () => {
+        const q: Record<string, unknown> = {
+          select: () => q,
+          eq: (...a: unknown[]) => { filtros.push(['eq', ...a]); return q; },
+          gte: (...a: unknown[]) => { filtros.push(['gte', ...a]); return q; },
+          lte: (...a: unknown[]) => { filtros.push(['lte', ...a]); return q; },
+          order: () => q,
+          range: (de: number, ate: number) => Promise.resolve({ data: noMes.slice(de, ate + 1), error: null }),
+          insert: (l: unknown) => { inserts.push(l); return { select: (...a: unknown[]) => { selects.push(a); return Promise.resolve(resp); } }; },
+        };
+        return q;
+      },
+    };
+    return { db, inserts, selects, filtros };
   };
   const linhas = montarLancamentosRecorrentes(
     [{ descricao: 'A', valor: 1, data_vencimento: '2026-08-01' }, { descricao: 'B', valor: 2, data_vencimento: '2026-08-02' }], 'emp', '2026-09');
-  it('confere a contagem inserida', async () => {
-    expect(await lancarRecorrentesMensais(stub({ data: [{ id: '1' }, { id: '2' }], error: null }).db, linhas)).toBe(2);
-    await expect(lancarRecorrentesMensais(stub({ data: [{ id: '1' }], error: null }).db, linhas)).rejects.toThrow();
-    await expect(lancarRecorrentesMensais(stub({ data: null, error: { message: 'x' } }).db, linhas)).rejects.toThrow('x');
+  it('envia as linhas, pede select(id) e confere a contagem', async () => {
+    const s = stub({ data: [{ id: '1' }, { id: '2' }], error: null });
+    expect(await lancarRecorrentesMensais(s.db, 'emp', '2026-09', linhas)).toEqual({ inseridas: 2, jaExistiam: 0 });
+    expect(s.inserts).toEqual([linhas]);
+    expect(s.selects).toEqual([['id']]);
+    expect(s.filtros).toContainEqual(['gte', 'data_vencimento', '2026-09-01']);
+    expect(s.filtros).toContainEqual(['lte', 'data_vencimento', '2026-09-30']);
+    await expect(lancarRecorrentesMensais(stub({ data: [{ id: '1' }], error: null }).db, 'emp', '2026-09', linhas)).rejects.toThrow();
+    await expect(lancarRecorrentesMensais(stub({ data: null, error: { message: 'x' } }).db, 'emp', '2026-09', linhas)).rejects.toThrow('x');
+  });
+  it('não insere linha cuja chave a reconsulta encontra no banco', async () => {
+    const s = stub({ data: [{ id: '2' }], error: null }, [{ descricao: 'A', categoria: null }]);
+    expect(await lancarRecorrentesMensais(s.db, 'emp', '2026-09', linhas)).toEqual({ inseridas: 1, jaExistiam: 1 });
+    expect(s.inserts).toEqual([[linhas[1]]]);
+  });
+  it('tudo já existe: não chama o insert', async () => {
+    const s = stub({ data: [], error: null }, [{ descricao: 'A', categoria: '' }, { descricao: 'B', categoria: null }]);
+    expect(await lancarRecorrentesMensais(s.db, 'emp', '2026-09', linhas)).toEqual({ inseridas: 0, jaExistiam: 2 });
+    expect(s.inserts).toHaveLength(0);
   });
   it('lista vazia não chama o banco', async () => {
     const s = stub({ data: [], error: null });
-    expect(await lancarRecorrentesMensais(s.db, [])).toBe(0);
-    expect(s.chamadas).toHaveLength(0);
+    expect(await lancarRecorrentesMensais(s.db, 'emp', '2026-09', [])).toEqual({ inseridas: 0, jaExistiam: 0 });
+    expect(s.inserts).toHaveLength(0);
   });
 });
