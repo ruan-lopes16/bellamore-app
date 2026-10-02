@@ -17,8 +17,11 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { addMonths, subMonths, format, isSameMonth } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import {
+  PERIODOS_COMISSAO, limitesPeriodoComissao, rotuloPeriodoComissao, hojeBRT, rotuloDataHoraBRT,
+  type PeriodoComissao,
+} from '@shared/periodos';
+import { FILTROS_COMISSAO, filtrarComissoes, type FiltroComissao } from '@shared/comissoes';
 
 import { useAuthStore } from '@/stores/authStore';
 import { SmoothTabs } from '@/components/SmoothTabs';
@@ -38,8 +41,6 @@ const C = {
   amber: '#B45309', amberSoft: '#FEF3E2',
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
-
-type Filtro = 'todas' | 'pendente' | 'pago';
 
 function formatBRL(v: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -68,16 +69,16 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
         {/* Header: cliente + data */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, flex: 1 }} numberOfLines={1}>
-            {item.cliente_nome}
+            {item.clienteNome}
           </Text>
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginLeft: 8 }}>
-            {format(new Date(item.data_hora), "dd/MM · HH:mm")}
+            {rotuloDataHoraBRT(item.dataAtendimento ?? item.criadaEm)}
           </Text>
         </View>
 
         {/* Serviço */}
         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginBottom: 10 }} numberOfLines={1}>
-          {item.servico_nome}
+          {item.servicoNome}
         </Text>
 
         {/* Footer: cálculo + status */}
@@ -85,7 +86,7 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
           {/* Cálculo transparente */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>
-              <SecretText>{formatBRL(item.valor_servico)}</SecretText>
+              <SecretText>{formatBRL(item.valorServico)}</SecretText>
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>×</Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.accent }}>
@@ -93,7 +94,7 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>=</Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.green, letterSpacing: -0.5 }}>
-              <SecretText>{formatBRL(item.valor_comissao)}</SecretText>
+              <SecretText>{formatBRL(item.valorComissao)}</SecretText>
             </Text>
           </View>
 
@@ -123,15 +124,21 @@ export default function Comissoes() {
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
 
-  const [mesRef, setMesRef] = useState(new Date());
-  const [filtro, setFiltro] = useState<Filtro>('todas');
-  const isHoje = isSameMonth(mesRef, new Date());
+  const [periodo, setPeriodo] = useState<PeriodoComissao>('mes');
+  const [deslocamento, setDeslocamento] = useState(0);
+  const [filtro, setFiltro] = useState<FiltroComissao>('todas');
+  // Períodos de calendário em Brasília, iguais ao web (nunca o futuro).
+  const l = limitesPeriodoComissao(periodo, hojeBRT(), deslocamento);
+  const rotulo = rotuloPeriodoComissao(periodo, l);
+  const podeAvancar = deslocamento < 0;
 
-  const { data: comissoes = [], isLoading, refetch } = useComissoesProfissional(mesRef, filtro);
-  const { data: resumo, isError: erroResumo, error: errResumo, refetch: refetchResumo } = useResumoComissoes(mesRef);
+  const { data: itens = [], isLoading, isError: erroLista, error: errLista, refetch } = useComissoesProfissional(l);
+  const { data: resumo, isError: erroResumo, error: errResumo, refetch: refetchResumo } = useResumoComissoes(l);
+  const comissoes = filtrarComissoes(itens, filtro);
+  const erro = erroResumo || erroLista;
   // Nunca mostrar R$ 0 no lugar dos números quando a consulta falha.
-  const fmtRes = (n: number) => (erroResumo ? '—' : formatBRL(n));
-  const numRes = (n: number) => (erroResumo ? '—' : String(n));
+  const fmtRes = (n: number) => (erro ? '—' : formatBRL(n));
+  const numRes = (n: number) => (erro ? '—' : String(n));
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -141,15 +148,9 @@ export default function Comissoes() {
     PlusJakartaSans_700Bold,
   });
 
-  const onRefresh = useCallback(() => refetch(), [refetch]);
+  const onRefresh = useCallback(() => { refetch(); refetchResumo(); }, [refetch, refetchResumo]);
 
   if (!fontsLoaded) return null;
-
-  const FILTROS: { key: Filtro; label: string }[] = [
-    { key: 'todas',    label: 'Todas' },
-    { key: 'pendente', label: 'Pendentes' },
-    { key: 'pago',     label: 'Pagas' },
-  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -175,13 +176,23 @@ export default function Comissoes() {
           </Text>
         </MotiView>
 
-        {/* ── Seletor de mês ── */}
+        {/* ── Período + navegação ── */}
         <MotiView
           from={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ type: 'timing', duration: 350, delay: 60 }}
           style={{ marginHorizontal: 24, marginBottom: 16 }}
         >
+          <SmoothTabs
+            tabs={PERIODOS_COMISSAO}
+            active={periodo}
+            onChange={key => { setPeriodo(key as PeriodoComissao); setDeslocamento(0); }}
+            activeColor={C.primary}
+            trackBg={C.surface}
+            trackBorder={C.border}
+            inactiveTextColor={C.text3}
+            style={{ marginBottom: 10 }}
+          />
           <View style={{
             backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
             borderRadius: 14, padding: 10, paddingHorizontal: 14,
@@ -189,22 +200,23 @@ export default function Comissoes() {
             shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
           }}>
             <TouchableOpacity
-              onPress={() => setMesRef(m => subMonths(m, 1))}
+              onPress={() => setDeslocamento(d => d - 1)}
               style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg }}
             >
               <ChevronLeft size={14} color={C.text2} strokeWidth={2.5} />
             </TouchableOpacity>
             <View style={{ alignItems: 'center' }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>
-                {format(mesRef, 'MMMM yyyy', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
+                {rotulo}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
                 {numRes(resumo?.atendimentos ?? 0)} atendimentos
               </Text>
             </View>
             <TouchableOpacity
-              onPress={() => !isHoje && setMesRef(m => addMonths(m, 1))}
-              style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, opacity: isHoje ? 0.3 : 1 }}
+              disabled={!podeAvancar}
+              onPress={() => podeAvancar && setDeslocamento(d => d + 1)}
+              style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, opacity: podeAvancar ? 1 : 0.3 }}
             >
               <ChevronRight size={14} color={C.text2} strokeWidth={2.5} />
             </TouchableOpacity>
@@ -212,9 +224,9 @@ export default function Comissoes() {
         </MotiView>
 
         {/* Erro ao carregar: nunca mostrar zeros no lugar dos números */}
-        {erroResumo && (
+        {erro && (
           <TouchableOpacity
-            onPress={() => refetchResumo()}
+            onPress={() => { refetch(); refetchResumo(); }}
             activeOpacity={0.8}
             style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#C0392B', borderRadius: 14, padding: 12 }}
           >
@@ -222,7 +234,7 @@ export default function Comissoes() {
               Não foi possível carregar suas comissões
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text2 }}>
-              {errResumo?.message ?? 'Falha ao buscar os dados'} · Tentar de novo
+              {(errResumo ?? errLista)?.message ?? 'Falha ao buscar os dados'} · Tentar de novo
             </Text>
           </TouchableOpacity>
         )}
@@ -240,7 +252,7 @@ export default function Comissoes() {
             style={{ borderRadius: 20, padding: 22, shadowColor: '#1A0A3C', shadowOpacity: 0.2, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 8 }}
           >
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
-              Total de comissões · {format(mesRef, 'MMMM', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
+              Total de comissões · {rotulo}
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 36, color: '#fff', letterSpacing: -1, lineHeight: 40, marginBottom: 12 }}>
               <SecretText>{fmtRes(resumo?.total ?? 0)}</SecretText>
@@ -271,7 +283,7 @@ export default function Comissoes() {
         >
           {[
             { label: 'Atendimentos', value: numRes(resumo?.atendimentos ?? 0), color: C.primary },
-            { label: 'Ticket médio', value: fmtRes(resumo?.ticketMedio ?? 0), color: C.primary },
+            { label: 'Comissão média', value: fmtRes(resumo?.ticketMedio ?? 0), color: C.primary },
             { label: 'Já recebido', value: fmtRes(resumo?.pago ?? 0), color: C.green, pill: 'pago' },
             { label: 'Pendente', value: fmtRes(resumo?.pendente ?? 0), color: C.amber, pill: 'pendente' },
           ].map((k) => (
@@ -299,9 +311,9 @@ export default function Comissoes() {
 
         {/* ── Filtros ── */}
         <SmoothTabs
-          tabs={FILTROS}
+          tabs={FILTROS_COMISSAO}
           active={filtro}
-          onChange={key => setFiltro(key as Filtro)}
+          onChange={key => setFiltro(key as FiltroComissao)}
           activeColor={C.primary}
           trackBg={C.surface}
           trackBorder={C.border}
@@ -313,14 +325,14 @@ export default function Comissoes() {
         <View style={{ paddingHorizontal: 24 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 18, color: C.text }}>
-              {comissoes.length} {filtro === 'todas' ? 'comissões' : filtro === 'pendente' ? 'pendentes' : 'pagas'}
+              {erro ? '—' : comissoes.length} {filtro === 'todas' ? 'comissões' : filtro === 'pendentes' ? 'pendentes' : 'pagas'}
             </Text>
           </View>
 
-          {comissoes.length === 0 ? (
+          {erro ? null : comissoes.length === 0 ? (
             <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 24, alignItems: 'center' }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
-                Nenhuma comissão encontrada
+                Nenhuma comissão neste período.
               </Text>
             </View>
           ) : (

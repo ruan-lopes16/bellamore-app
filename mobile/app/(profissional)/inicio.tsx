@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Target, Pencil, AlertTriangle, UserX, CalendarDays } from 'lucide-react-native';
 import { format } from 'date-fns';
+import { hojeBRT, limitesMes } from '@shared/periodos';
 import { ptBR } from 'date-fns/locale';
 import {
   useFonts,
@@ -113,10 +114,11 @@ export default function Inicio() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const hoje = new Date();
+  const mesAtual = limitesMes(hojeBRT().slice(0, 7));
 
   const { data: agendaHoje, isLoading: loadingAgenda, refetch: refetchAgenda, isError: erroAgenda, error: errAgenda } = useAgendaProfissional(hoje);
   const { data: kpisDia, refetch: refetchKpis, isError: erroKpis, error: errKpis } = useKpisDiaProfissional(hoje);
-  const { data: resumoMes, refetch: refetchResumo, isError: erroResumo, error: errResumo } = useResumoComissoes(hoje);
+  const { data: resumoMes, refetch: refetchResumo, isError: erroResumo, error: errResumo } = useResumoComissoes(mesAtual);
   // Nunca mostrar zeros no lugar dos números quando a consulta falha.
   const isError = erroKpis || erroResumo || erroAgenda;
   const erro = errKpis ?? errResumo ?? errAgenda;

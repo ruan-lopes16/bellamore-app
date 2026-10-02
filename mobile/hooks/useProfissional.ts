@@ -3,7 +3,10 @@ import { startOfDay, endOfDay, format, differenceInDays } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { resolverCategoria, type AgendamentoCompleto, type BloqueioAgenda } from '@/hooks/useAgenda';
-import { limitesDias, limitesMes } from '@shared/periodos';
+import { limitesDias, limitesMes, chaveDoMesExibido, chaveDiaBRT, type Limites } from '@shared/periodos';
+import { normalizarComissoes } from '@shared/comissoes';
+import { carregarComissoesDoPeriodo } from '@shared/comissoes-consultas';
+export type { ComissaoItem } from '@shared/comissoes';
 import {
   resumoComissoesProfissional, faturamentoPrevistoDia, resumoComissoesPendentes,
 } from '@shared/kpis-financeiros';
@@ -11,21 +14,6 @@ import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bl
 import { classificarClientesReconquista, type VisitaClienteProfissional } from '@shared/dashboard-profissional';
 
 // ── Tipos ────────────────────────────────────────────────────
-
-export type ComissaoStatus = 'pendente' | 'pago';
-
-export interface ComissaoItem {
-  id: string;
-  agendamento_id: string;
-  valor_servico: number;
-  percentual: number;
-  valor_comissao: number;
-  status: ComissaoStatus;
-  created_at: string;
-  cliente_nome: string;
-  servico_nome: string;
-  data_hora: string;
-}
 
 export interface ResumoComissoes {
   total: number;
@@ -128,112 +116,59 @@ export function useKpisDiaProfissional(dia: Date) {
   });
 }
 
-// ── Comissões da profissional (mês) ─────────────────────────
-
-export function useComissoesProfissional(mesRef: Date, filtro: 'todas' | 'pendente' | 'pago' = 'todas') {
-  const { user, empresaAtiva } = useAuthStore();
-  const userId    = user?.id;
-  const empresaId = empresaAtiva?.id;
-  const chave     = format(mesRef, 'yyyy-MM');
-
-  return useQuery({
-    queryKey: ['prof-comissoes', userId, empresaId, chave, filtro],
+// ── Comissões da profissional (período) ──────────────────────
+// Uma consulta só (mesma chave); cada hook transforma com `select`.
+function consultaComissoesProfissional(userId: string | undefined, empresaId: string | undefined, l: Limites) {
+  return {
+    queryKey: ['prof-comissoes', userId, empresaId, l.startIso, l.endIso] as const,
     enabled: !!userId && !!empresaId,
     staleTime: 1000 * 60 * 2,
-    queryFn: async () => {
-      let query = supabase
-        .from('comissoes')
-        .select(`
-          *,
-          agendamento:agendamentos(
-            data_hora_inicio, valor,
-            cliente:clientes!agendamentos_cliente_id_fkey(nome),
-            servico:servicos(nome)
-          )
-        `)
-        .eq('profissional_id', userId!)
-        .eq('empresa_id', empresaId!)
-        .gte('created_at', limitesMes(chave).startIso)
-        .lte('created_at', limitesMes(chave).endIso)
-        .order('created_at', { ascending: false });
-
-      if (filtro !== 'todas') {
-        query = query.eq('status', filtro);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      return (data ?? []).map((c: any) => ({
-        id: c.id,
-        agendamento_id: c.agendamento_id,
-        valor_servico:  Number(c.valor_servico),
-        percentual:     Number(c.percentual),
-        valor_comissao: Number(c.valor_comissao),
-        status:         c.status as ComissaoStatus,
-        created_at:     c.created_at,
-        cliente_nome:   c.agendamento?.cliente?.nome ?? '—',
-        servico_nome:   c.agendamento?.servico?.nome ?? '—',
-        data_hora:      c.agendamento?.data_hora_inicio ?? c.created_at,
-      })) as ComissaoItem[];
-    },
-  });
+    queryFn: () => carregarComissoesDoPeriodo(supabase, empresaId!, l, { profissionalId: userId! }),
+  };
 }
 
-// ── Resumo de comissões do mês ───────────────────────────────
-
-export function useResumoComissoes(mesRef: Date): { data: ResumoComissoes | null; isLoading: boolean; isError: boolean; error: Error | null; refetch: () => void } {
+export function useComissoesProfissional(l: Limites) {
   const { user, empresaAtiva } = useAuthStore();
-  const userId    = user?.id;
-  const empresaId = empresaAtiva?.id;
-  const chave     = format(mesRef, 'yyyy-MM');
+  return useQuery({ ...consultaComissoesProfissional(user?.id, empresaAtiva?.id, l), select: normalizarComissoes });
+}
 
+export function useResumoComissoes(l: Limites): { data: ResumoComissoes | null; isLoading: boolean; isError: boolean; error: Error | null; refetch: () => void } {
+  const { user, empresaAtiva } = useAuthStore();
   const query = useQuery({
-    queryKey: ['prof-resumo-comissoes', userId, empresaId, chave],
-    enabled: !!userId && !!empresaId,
-    staleTime: 1000 * 60 * 5,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('comissoes')
-        .select('valor_servico, valor_comissao, status')
-        .eq('profissional_id', userId!)
-        .eq('empresa_id', empresaId!)
-        .gte('created_at', limitesMes(chave).startIso)
-        .lte('created_at', limitesMes(chave).endIso);
-      if (error) throw error;
-
-      const r = resumoComissoesProfissional(data ?? []);
+    ...consultaComissoesProfissional(user?.id, empresaAtiva?.id, l),
+    select: (rows): ResumoComissoes => {
+      const r = resumoComissoesProfissional(rows);
       return {
         total: r.comissaoTotal, pago: r.comissaoPaga, pendente: r.comissaoPendente,
         atendimentos: r.atendimentos, ticketMedio: r.comissaoMedia, faturamentoBruto: r.faturamentoBruto,
-      } as ResumoComissoes;
+      };
     },
   });
-
   return { data: query.data ?? null, isLoading: query.isLoading, isError: query.isError, error: query.error as Error | null, refetch: query.refetch };
 }
 
 // ── Dias com agendamentos da profissional (dots) ─────────────
 
 export function useDiasProfissional(mes: Date) {
-  const { user } = useAuthStore();
+  const { user, empresaAtiva } = useAuthStore();
   const userId = user?.id;
-  const chave  = format(mes, 'yyyy-MM');
-
+  const empresaId = empresaAtiva?.id;
+  const chave = chaveDoMesExibido(mes);
   return useQuery({
-    queryKey: ['prof-dias', userId, chave],
-    enabled: !!userId,
+    queryKey: ['prof-dias', userId, empresaId, chave],
+    enabled: !!userId && !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('agendamentos')
+      const l = limitesMes(chave);   // mês em Brasília
+      const { data, error } = await supabase.from('agendamentos')
         .select('data_hora_inicio')
+        .eq('empresa_id', empresaId!)
         .eq('profissional_id', userId!)
         .neq('status', 'cancelado')
-        .gte('data_hora_inicio', new Date(mes.getFullYear(), mes.getMonth(), 1).toISOString())
-        .lte('data_hora_inicio', new Date(mes.getFullYear(), mes.getMonth() + 1, 0, 23, 59).toISOString());
-
-      return new Set((data ?? []).map((a) => format(new Date(a.data_hora_inicio), 'yyyy-MM-dd')));
+        .gte('data_hora_inicio', l.startIso)
+        .lte('data_hora_inicio', l.endIso);
+      if (error) throw error;
+      return new Set((data ?? []).map(a => chaveDiaBRT(a.data_hora_inicio)));
     },
   });
 }
