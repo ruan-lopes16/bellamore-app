@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { startOfDay, endOfDay, format, differenceInDays } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { resolverCategoria, type AgendamentoCompleto, type BloqueioAgenda } from '@/hooks/useAgenda';
@@ -197,13 +197,15 @@ export function useBloqueiosProfissionalDia(dia: Date) {
     enabled: !!empresaId && !!userId,
     staleTime: 1000 * 30,
     queryFn: async (): Promise<BloqueioAgenda[]> => {
+      // Limites do dia em Brasília (não no fuso do aparelho).
+      const lim = limitesDias(format(dia, 'yyyy-MM-dd'), format(dia, 'yyyy-MM-dd'));
       const { data, error } = await supabase
         .from('agenda_bloqueios')
         .select(BLOQUEIO_PROF_COLS)
         .eq('empresa_id', empresaId)
         .or(`profissional_id.eq.${user!.id},escopo.eq.geral`)
-        .lte('data_inicio', endOfDay(dia).toISOString())
-        .gte('data_fim', startOfDay(dia).toISOString());
+        .lte('data_inicio', lim.endIso)
+        .gte('data_fim', lim.startIso);
       if (error) throw error;
       return (data ?? []) as BloqueioAgenda[];
     },

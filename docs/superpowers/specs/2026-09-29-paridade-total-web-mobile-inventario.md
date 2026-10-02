@@ -76,6 +76,8 @@ Legenda de arquivos: W = `web/app/(app)/…`; M = `mobile/app/(empresa)/…`; MP
   - Validar desconto acima do subtotal (hoje nenhum dos dois valida) → validar nos dois.
 
 ### Financeiro / Relatórios / Dashboard
+
+> **Status (2026-10-01): funcionalidades entregues** pela Fase 2B (`docs/superpowers/plans/2026-10-01-paridade-fase2b-funcionalidades-financeiras.md`) — comissões unificadas (Pagar = período, menu do app), recorrentes e calendário no app, Dashboard completo nas duas plataformas, 7 abas dos Relatórios no app, Sumidas/Taxa de retorno no web. Exportação do app: Fase 2C.
 > **Status (2026-09-30): números entregues** pela Fase 2A (`docs/superpowers/plans/2026-09-30-paridade-fase2a-kpis-financeiros.md`) — fonte de receita, lucro, comissão da tabela, Brasília, fechamento no mobile, deltas, "Após retiradas", ticket médio, retorno de clientes, código morto. Telas/funções ainda ausentes no mobile ficam na Fase 2B.
 
 - **Fonte de receita diferente:**
@@ -119,6 +121,8 @@ Legenda de arquivos: W = `web/app/(app)/…`; M = `mobile/app/(empresa)/…`; MP
 - Mobile não tem a aba Movimentações, os filtros, o valor total e a exportação.
 
 ### Equipe / Comissões
+
+> **Status (2026-10-01): funcionalidades entregues** pela Fase 2B (`docs/superpowers/plans/2026-10-01-paridade-fase2b-funcionalidades-financeiras.md`) — comissões unificadas (Pagar = período, menu do app), recorrentes e calendário no app, Dashboard completo nas duas plataformas, 7 abas dos Relatórios no app, Sumidas/Taxa de retorno no web. Exportação do app: Fase 2C.
 - Reenviar convite pelo mobile **zera o `percentual_comissao`** (a API usa `?? 0`).
 - Mobile não permite:
   - editar a profissional (tela inexistente; e o PATCH só aceita cookie);
