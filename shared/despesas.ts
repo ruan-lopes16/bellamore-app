@@ -81,11 +81,11 @@ export function recorrenciaAindaAtiva(
 
 export type RecorrenteTemplateHistorico = {
   descricao: string;
-  categoria?: string;
-  valor: number;
-  periodicidade?: string;
-  data_vencimento?: string;
-  recorrencia_ate?: string;
+  categoria?: string | null;
+  valor: number | string;
+  periodicidade?: string | null;
+  data_vencimento?: string | null;
+  recorrencia_ate?: string | null;
 };
 
 /**
@@ -99,12 +99,12 @@ export type RecorrenteTemplateHistorico = {
  * agrupar deixaria uma linha antiga sem `recorrencia_ate` "reviver" uma
  * recorrencia que uma linha mais recente ja tinha encerrado.
  */
-export function templatesRecorrentesParaLancar(
-  historico: RecorrenteTemplateHistorico[],
+export function templatesRecorrentesParaLancar<T extends RecorrenteTemplateHistorico>(
+  historico: T[],
   chavesMesAtual: Set<string>,
   periodoInicioIso: string,
-): RecorrenteTemplateHistorico[] {
-  const porChave: Record<string, RecorrenteTemplateHistorico> = {};
+): T[] {
+  const porChave: Record<string, T> = {};
   for (const r of historico) {
     const chave = `${r.descricao}||${r.categoria ?? ''}`;
     if (!porChave[chave]) porChave[chave] = r;   // primeiro = mais recente
@@ -198,9 +198,9 @@ export function proximaParcelaAtual(
 
 export type OcorrenciaHistorico = {
   descricao: string;
-  categoria?: string;
-  data_vencimento?: string;
-  recorrencia_ate?: string;
+  categoria?: string | null;
+  data_vencimento?: string | null;
+  recorrencia_ate?: string | null;
 };
 
 /**
@@ -215,7 +215,7 @@ export type OcorrenciaHistorico = {
  */
 export function calcularParcelaDerivada(
   descricao: string,
-  categoria: string | undefined,
+  categoria: string | null | undefined,
   dataVencimento: string,
   recorrenciaAte: string | null | undefined,
   historico: OcorrenciaHistorico[],
@@ -265,4 +265,88 @@ export function dividirValorCompra(
     valorBase: centavosBase / 100,
     valorParcelaAtual: (centavosTotal - centavosBase * (n - 1)) / 100,
   };
+}
+
+// ── Lançamento automático das recorrentes mensais (web e mobile) ──
+
+export type DespesaRecorrenteTemplate = RecorrenteTemplateHistorico & {
+  parcela_atual?: number | null;
+  total_parcelas?: number | null;
+  valor_total_compra?: number | string | null;
+};
+
+export type DespesaRecorrenteInsert = {
+  empresa_id: string;
+  descricao: string;
+  categoria: string | null;
+  valor: number;
+  recorrente: true;
+  periodicidade: string;
+  data_vencimento: string;
+  recorrencia_ate: string | null;
+  total_parcelas: number | null;
+  parcela_atual: number | null;
+  valor_total_compra: number | null;
+  status: 'pendente';
+};
+
+/** Identidade da série (descrição + categoria; null e vazio são iguais). */
+export function chaveDespesa(d: { descricao: string; categoria?: string | null }): string {
+  return `${d.descricao}||${d.categoria ?? ''}`;
+}
+
+/**
+ * Templates a lançar no mês que começa em `inicioMes`. `historico` = recorrentes
+ * mensais anteriores, mais recente primeiro; `despesasDoMes` = lista do mês
+ * (CARREGADA COM SUCESSO — com erro, não chame: duplicaria tudo).
+ */
+export function recorrentesParaLancarNoMes<T extends RecorrenteTemplateHistorico>(
+  historico: T[], despesasDoMes: { descricao: string; categoria?: string | null }[], inicioMes: string,
+): T[] {
+  return templatesRecorrentesParaLancar(historico, new Set(despesasDoMes.map(chaveDespesa)), inicioMes);
+}
+
+/** Dia do vencimento do template no mês 'yyyy-MM' (dia 31 em fevereiro → último dia). */
+export function vencimentoNoMes(dataVencimentoTemplate: string | null | undefined, chaveMes: string): string {
+  const k = chaveMes.slice(0, 7);
+  const [ano, mes] = k.split('-').map(Number);
+  const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const dia = dataVencimentoTemplate ? Number(dataVencimentoTemplate.slice(8, 10)) || 1 : 1;
+  return `${k}-${String(Math.min(dia, ultimo)).padStart(2, '0')}`;
+}
+
+/** Linhas de INSERT das recorrentes no mês 'yyyy-MM' (regra única web + mobile). */
+export function montarLancamentosRecorrentes(
+  templates: DespesaRecorrenteTemplate[], empresaId: string, chaveMes: string,
+): DespesaRecorrenteInsert[] {
+  const [ano, mes] = chaveMes.slice(0, 7).split('-').map(Number);
+  return templates.map((r): DespesaRecorrenteInsert => {
+    const total = r.total_parcelas ?? null;
+    const compra = r.valor_total_compra != null ? Number(r.valor_total_compra) : null;
+    return {
+      empresa_id: empresaId,
+      descricao: r.descricao,
+      categoria: r.categoria ?? null,
+      // Compra parcelada: as parcelas lançadas depois recebem o valor-base (a sobra fica na 1ª).
+      valor: compra != null && total != null
+        ? dividirValorCompra(compra, total).valorBase
+        : Math.round(Number(r.valor) * 100) / 100,
+      recorrente: true,
+      periodicidade: r.periodicidade ?? 'mensal',
+      data_vencimento: vencimentoNoMes(r.data_vencimento, chaveMes),
+      recorrencia_ate: r.recorrencia_ate ?? null,
+      total_parcelas: total,
+      parcela_atual: total != null && r.parcela_atual != null && r.data_vencimento
+        ? proximaParcelaAtual(r.parcela_atual, total, r.data_vencimento, ano, mes)
+        : null,
+      valor_total_compra: compra,
+      status: 'pendente',
+    };
+  });
+}
+
+/** Texto do aviso de recorrentes não lançadas. */
+export function textoRecorrentesPendentes(n: number): string {
+  const s = n !== 1 ? 's' : '';
+  return `${n} despesa${s} recorrente${s} do mês anterior não ${n !== 1 ? 'foram lançadas' : 'foi lançada'}.`;
 }
