@@ -25,6 +25,7 @@ import { useAuthStore } from '@/stores/authStore';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
 import { aniversarioParaGravar, nomeClienteValido, partesAniversario, parseEndereco, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
+import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -115,7 +116,7 @@ export default function EditarCliente() {
       endereco: serializarEndereco(endereco), observacoes: obs.trim() || null,
     }).eq('id', id).eq('empresa_id', empresaAtiva.id).select('id');
     setSalvando(false);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error) { Alert.alert('Erro', mensagemErroBanco(error, 'editar cliente')); return; }
     if (!data || data.length === 0) { Alert.alert('Erro', 'Sem permissão para editar esta cliente.'); return; }
     qc.invalidateQueries({ queryKey: ['cliente-detalhe', empresaAtiva.id, id] });
     qc.invalidateQueries({ queryKey: ['clientes'] });

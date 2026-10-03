@@ -45,6 +45,7 @@ import {
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada } from '@shared/agendamentos';
+import { mensagemErroBanco } from '@shared/erros';
 import {
   MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
   montarInsertBloqueio, bloqueioEmConflito, bloqueioNoInstante,
@@ -544,7 +545,7 @@ function NovoAgModal({
       telefone: novoClienteTelefone.trim() || null,
     }).select('id, nome, telefone').single();
     setSalvandoCliente(false);
-    if (error || !data) { setErroCliente(error?.message ?? 'Erro ao cadastrar cliente'); return; }
+    if (error || !data) { setErroCliente(mensagemErroBanco(error, 'cadastrar cliente')); return; }
     setClientes(prev => [...prev, data as ClienteOpt].sort((a, b) => a.nome.localeCompare(b.nome)));
     setClienteId(data.id);
     setCriandoCliente(false);
@@ -609,7 +610,7 @@ function NovoAgModal({
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       }).eq('id', agEditar.id);
-      if (error) { setSalvando(false); setErro(error.message); return; }
+      if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'salvar agendamento')); return; }
       await supabase.from('agendamento_servicos').delete().eq('agendamento_id', agEditar.id);
       agId = agEditar.id;
     } else {
@@ -625,7 +626,7 @@ function NovoAgModal({
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       }).select().single();
-      if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
+      if (error || !ag) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
       agId = ag.id;
 
       // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".

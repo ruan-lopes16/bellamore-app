@@ -27,6 +27,7 @@ import { supabase } from '@/lib/supabase';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
 import { montarAniversario, nomeClienteValido, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
+import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -146,7 +147,7 @@ export default function NovoCliente() {
       observacoes:     obs.trim() || null,
     }).select('id, nome').single();
     setSalvando(false);
-    if (error || !data) { Alert.alert('Erro', error?.message ?? 'Não foi possível cadastrar.'); return; }
+    if (error || !data) { Alert.alert('Erro', mensagemErroBanco(error, 'cadastrar cliente')); return; }
     qc.invalidateQueries({ queryKey: ['clientes'] });
     qc.invalidateQueries({ queryKey: ['clientes-stats'] });
     router.replace(`/(empresa)/cliente/${data.id}/anamnese` as any);
