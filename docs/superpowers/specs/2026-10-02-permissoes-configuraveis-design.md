@@ -12,6 +12,20 @@ O bug imediato foi corrigido à parte, no PR #142 (migration 081 + `shared/erros
 `clientes` só aceitava INSERT/UPDATE de dona/gestora (migration 006), embora web e app
 mostrassem "Novo cliente" para todos. Esta spec trata da segunda parte, a tela de permissões.
 
+### Estado real de produção (pg_policies lido em 2026-10-02)
+
+- `agendamentos`: não havia INSERT/UPDATE para profissional nem gestora, só a policy manual
+  "gestor pode gerenciar agendamentos" (FOR ALL, apenas a dona). Criar agendamento era
+  recusado e concluir/fechar comanda afetava 0 linhas em silêncio. **Corrigido no PR #142
+  (migration 082).**
+- `vendas`/`venda_itens`: "membro gerencia" (FOR ALL), porque a 046 nunca foi aplicada.
+- `anamnese_fichas`: só a policy antiga de SELECT, porque a 080 ainda não foi aplicada.
+- `comissoes`: além das versionadas, existe "gestor pode gerenciar comissoes" (FOR ALL, só a
+  dona), manual.
+- As demais tabelas do catálogo batem com os arquivos.
+- `empresa_membros` ativos: 1 owner + 1 profissional. A dona tem linha `role = 'owner'` em
+  todas as empresas.
+
 ### Estado atual (levantado no código)
 
 - As permissões são **fixas em código**, em dois arquivos espelhados: `web/lib/permissions.ts`
@@ -51,7 +65,7 @@ travá-la no banco quebraria essa operação.
 | Chave | Rótulo | Gestora | Profissional | Onde |
 |---|---|---|---|---|
 | `agenda.ver_equipe` | Ver agenda de toda a equipe | ✔ | ✘ | Banco (SELECT `agendamentos`) |
-| `agenda.gerenciar_outras` | Criar/editar agendamento de outra profissional | ✔ | ✘ | Banco* |
+| `agenda.gerenciar_outras` | Criar/editar agendamento de outra profissional | ✔ | ✘ | Banco (082) |
 | `agenda.excluir` | Excluir agendamento | ✔ | ✘ | Banco (DELETE `agendamentos`, 066) |
 | `agenda.aprovar_bloqueios` | Aprovar/recusar bloqueios e bloquear agenda geral | ✔ | ✘ | Banco (068) |
 | `clientes.ver_todas` | Ver todas as clientes (desligado: só as que atendeu) | ✔ | ✔ | Banco (SELECT `clientes`) |
@@ -63,13 +77,13 @@ travá-la no banco quebraria essa operação.
 | `anamnese.editar` | Editar anamnese | ✔ | ✔ | Banco (080) |
 | `comanda.fechar` | Fechar comanda (profissional: só as próprias) | ✔ | ✔ | Banco (073/075) |
 | `comanda.desconto` | Dar desconto / cortesia | ✔ | ✔ | Tela |
-| `comanda.editar_fechada` | Editar comanda já fechada | ✔ | ✘ | Banco* |
-| `vendas.acessar` | Tela Vendas (registrar e ver vendas avulsas) | ✔ | ✘ | Banco (SELECT `vendas`, 046) + Tela |
+| `comanda.editar_fechada` | Editar comanda já fechada | ✔ | ✘ | Tela* |
+| `vendas.acessar` | Tela Vendas (registrar e ver vendas avulsas) | ✔ | ✘ | Tela*** |
 | `servicos.gerenciar` | Gerenciar serviços e categorias | ✔ | ✘ | Banco (078, 063) |
 | `pacotes.gerenciar` | Gerenciar catálogo de pacotes | ✔ | ✘ | Banco (078) |
 | `pacotes.vender` | Vender pacote para cliente | ✔ | ✔ | Banco (`pacote_clientes`) |
 | `estoque.acessar` | Ver e movimentar estoque | ✔ | ✘ | Tela** |
-| `financeiro.ver` | Ver Financeiro, Relatórios e números do Dashboard | ✔ | ✘ | Banco (SELECT despesas/vendas/taxas) + Tela |
+| `financeiro.ver` | Ver Financeiro, Relatórios e números do Dashboard | ✔ | ✘ | Banco (SELECT despesas e taxas) + Tela |
 | `despesas.gerenciar` | Lançar, editar e pagar despesas | ✔ | ✘ | Banco (003) |
 | `taxas.marcar_pagas` | Marcar taxas de reserva/cancelamento como pagas | ✔ | ✘ | Banco (047/054) |
 | `financeiro.fechamentos` | Importar fechamentos mensais | ✔ | ✘ | Banco (040) |
@@ -78,10 +92,12 @@ travá-la no banco quebraria essa operação.
 | `comissoes.pagar` | Pagar comissões | ✔ | ✘ | Banco (042) |
 | `config.taxas` | Editar taxas de reserva e cancelamento | ✔ | ✘ | Tela (UPDATE `empresas` já é gestor/owner, 049) |
 
-\* A forma exata depende das policies reais de produção (Tarefa 1). Se não for possível
-travar no banco sem risco, a chave fica "Tela" e isso é registrado na spec.
+\* Editar e fechar usam as mesmas policies de `comandas` (073/075), sem coluna que distinga
+as duas operações no banco.
 \*\* A comanda de qualquer profissional baixa estoque (`estoque_movimentos`/`produtos`), então
 travar no banco quebraria o fechamento.
+\*\*\* A comanda da profissional grava `vendas` e lê de volta (`insert(...).select()`); travar o
+SELECT quebraria o fechamento. A 046, que restringia isso, nunca foi aplicada em produção.
 
 **Fixo, só com a dona, fora da tabela:** dados da empresa (nome, CNPJ, endereço, horário, logo,
 segmento, meta), retiradas da sócia, valores sensíveis (`ver_financeiro_sensivel`), promover
@@ -90,7 +106,7 @@ alguém a gestora.
 
 ## Design
 
-### 1. Banco (migration 082)
+### 1. Banco (migration 083)
 
 ```
 permissoes_papel     (empresa_id, papel 'gestor'|'profissional', chave, permitido bool,
@@ -137,7 +153,7 @@ permissoes_historico (id, empresa_id, alterado_por, alvo_tipo 'papel'|'membro',
   (migration ainda não aplicada) ou falha. Garante que o deploy seja seguro em qualquer ordem.
 - `podeEditarPermissao(quemSalva, alvo)`: espelha a regra da gestora em `salvar_permissoes`,
   para a tela travar antes do banco recusar.
-- Teste que lê a migration 082 e confere que a lista do CHECK e os padrões literais de
+- Teste que lê a migration 083 e confere que a lista do CHECK e os padrões literais de
   `tem_permissao` batem com o catálogo.
 - `web/lib/permissions.ts` e `mobile/lib/permissions.ts` passam a ser finos: as chaves antigas
   (`ver_resumo_financeiro` etc.) são mapeadas para as novas, ou trocadas nos pontos de uso.
@@ -194,10 +210,9 @@ permissoes_historico (id, empresa_id, alterado_por, alvo_tipo 'papel'|'membro',
 
 Plano via superpowers:writing-plans, execução por subagent-driven-development:
 
-1. **Sondar produção (somente leitura)**: `pg_policies` de todas as tabelas do catálogo,
-   registrando a diferença em relação às migrations. Decide os itens com \*.
+1. ~~Sondar produção~~: feito em 2026-10-02 (seção "Estado real de produção").
 2. `shared/permissoes.ts` + testes (TDD).
-3. Migration 082 (tabelas, funções, reescrita de policies, `clientes.criado_por`) + teste de
+3. Migration 083 (tabelas, funções, reescrita de policies, `clientes.criado_por`) + teste de
    paridade com o catálogo.
 4. Web: contexto + `exigirPermissao`/Sidebar com chaves novas.
 5. Web: Configurações em 3 abas + aba Permissões + selo na Equipe.
@@ -206,14 +221,15 @@ Plano via superpowers:writing-plans, execução por subagent-driven-development:
 8. App: wiring dos botões por chave.
 9. Revisão final de branch.
 
-**Dependência:** a 082 reescreve as policies de `clientes` criadas pela 081 (PR #142). Esta
-branch só é aberta como PR depois do #142 mergeado, e a 081 é aplicada antes da 082.
+**Dependência:** a 083 reescreve as policies de `clientes` (081) e de `agendamentos` (082),
+ambas do PR #142, e as de `anamnese_fichas` (080). Esta branch só vira PR depois do #142
+mergeado. Ordem obrigatória no SQL Editor: 080 → 081 → 082 → 083.
 
-**Padrões ✔/✘ da tabela:** se a Tarefa 1 mostrar que algum padrão difere do comportamento real
-de hoje, vale o de hoje (decisão 5), e a tabela da spec é corrigida.
+**Padrões ✔/✘ da tabela:** conferidos contra o banco real em 2026-10-02. Se algum ainda divergir do comportamento
+real de hoje durante a implementação, vale o de hoje (decisão 5) e a tabela é corrigida.
 
-**Deploy em qualquer ordem:** código novo sem a 082 usa o fallback (comportamento de hoje);
-código antigo com a 082 se comporta igual, porque os padrões são idênticos. A 082 é aplicada à
+**Deploy em qualquer ordem:** código novo sem a 083 usa o fallback (comportamento de hoje);
+código antigo com a 083 se comporta igual, porque os padrões são idênticos. A 083 é aplicada à
 mão no SQL Editor (nunca `supabase db push`), como todas as anteriores.
 
 ## Fora de escopo
@@ -229,7 +245,7 @@ mão no SQL Editor (nunca `supabase db push`), como todas as anteriores.
 
 - `tsc` web zerado; mobile sem erro novo (baseline: 6 erros pré-existentes em 2026-10-02).
 - Testes unitários do catálogo/resolvedor, da regra da gestora e da paridade SQL ↔ catálogo.
-- Conferência em produção, somente leitura, depois de aplicada a 082: `minhas_permissoes`
+- Conferência em produção, somente leitura, depois de aplicada a 083: `minhas_permissoes`
   para cada papel bate com `permissoesPadrao`.
 - Visual: depende de uma conta de teste de profissional, que hoje não existe. Se o dono criar
   uma, verificar no navegador.
