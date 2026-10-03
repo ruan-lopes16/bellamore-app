@@ -30,6 +30,11 @@
 --   drop function if exists public.permissoes_chaves();
 --   (clientes.criado_por pode ficar — é nullable e só é lida pela policy de SELECT)
 --   O trigger de clientes.ativo volta ao corpo da 081 (is_gestor_ou_owner).
+--
+-- Notas: (1) remover uma chave do catálogo numa migration futura exige apagar as linhas dela
+-- em permissoes_papel/permissoes_membro (o CHECK não revalida linhas antigas). (2) Clientes
+-- cadastradas antes da 083 ficam com criado_por NULL: com "clientes.ver_todas" desligado, a
+-- profissional só as vê se já tiver atendido.
 
 -- ── 1. Catálogo ───────────────────────────────────────────────
 
@@ -195,12 +200,12 @@ begin
     v_para  := case when m->'permitido' is null or jsonb_typeof(m->'permitido') = 'null'
                     then null else (m->>'permitido')::boolean end;
 
-    if not (v_chave = any (public.permissoes_chaves())) then
+    if v_chave is null or not (v_chave = any (public.permissoes_chaves())) then
       raise exception 'Permissão desconhecida: %', v_chave using errcode = '22023';
     end if;
 
     if v_tipo = 'papel' then
-      if v_alvo not in ('gestor', 'profissional') then
+      if v_alvo is null or v_alvo not in ('gestor', 'profissional') then
         raise exception 'Papel inválido: %', v_alvo using errcode = '22023';
       end if;
       if not v_owner and v_alvo <> 'profissional' then
@@ -259,8 +264,8 @@ $$;
 grant execute on function public.salvar_permissoes(uuid, jsonb) to authenticated;
 
 -- ── 5. Mudar papel de alguém: só a dona ───────────────────────
--- Sem isso, quem ganhasse "equipe.gerenciar" (UPDATE em empresa_membros) poderia se
--- promover a gestora. auth.uid() nulo = service role / SQL editor (rotas de API).
+-- Rede de segurança: o trigger trg_bloquear_alteracao_role (043) já barra isso; este garante
+-- a regra mesmo que a 043 seja alterada. "equipe.gerenciar" nunca permite promover alguém.
 
 create or replace function public.fn_membros_papel_so_dona()
 returns trigger language plpgsql security definer set search_path = public
