@@ -17,7 +17,8 @@ import { carregarComissoesPendentes } from '@shared/kpis-financeiros-consultas';
 import { pagarComissoes } from '@shared/comissoes-consultas';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
-import { configVazia, contarExcecoes, type ConfigPermissoes } from '@shared/permissoes';
+import { configVazia, contarExcecoes, podeGerenciarMembro, type ConfigPermissoes } from '@shared/permissoes';
+import { mensagemErroBanco } from '@shared/erros';
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
@@ -431,11 +432,13 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
 
 // ── Card profissional ─────────────────────────────────────────
 
-function ProfCard({ prof, excecoes, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlterarRole }: {
+function ProfCard({ prof, excecoes, podeAlterarRole, podeGerenciar, onEditInfo, onToggle, onPagar, onAlterarRole }: {
   prof: Profissional;
   /** Quantidade de exceções individuais de permissão desta pessoa. */
   excecoes: number;
   podeAlterarRole: boolean;
+  /** Editar dados/comissão e ativar/desativar — mesma regra da policy de UPDATE de empresa_membros. */
+  podeGerenciar: boolean;
   onEditInfo: () => void;
   onToggle: () => void;
   onPagar: () => void;
@@ -472,11 +475,13 @@ function ProfCard({ prof, excecoes, podeAlterarRole, onEditInfo, onToggle, onPag
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <p style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prof.user.nome}</p>
-            <button onClick={e => { e.stopPropagation(); onEditInfo(); }} title="Editar informações"
-              style={{ width: 20, height: 20, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-ink4)', background: 'transparent', border: 'none', cursor: 'pointer', flexShrink: 0 }}
-              className="hover:text-accent transition">
-              <Edit3 size={11} strokeWidth={2}/>
-            </button>
+            {podeGerenciar && (
+              <button onClick={e => { e.stopPropagation(); onEditInfo(); }} title="Editar informações"
+                style={{ width: 20, height: 20, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-ink4)', background: 'transparent', border: 'none', cursor: 'pointer', flexShrink: 0 }}
+                className="hover:text-accent transition">
+                <Edit3 size={11} strokeWidth={2}/>
+              </button>
+            )}
           </div>
           {prof.user.telefone && (
             <a href={`tel:${prof.user.telefone}`} onClick={e => e.stopPropagation()}
@@ -572,6 +577,7 @@ function ProfCard({ prof, excecoes, podeAlterarRole, onEditInfo, onToggle, onPag
           )}
 
           {/* Ativar / desativar */}
+          {podeGerenciar && (
           <button onClick={onToggle}
             style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 36, borderRadius: 14, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', border: prof.ativo ? '1px solid rgba(201,82,127,0.3)' : '1px solid rgba(21,122,91,0.3)', background: 'transparent', color: prof.ativo ? 'var(--color-rose)' : 'var(--color-green)', fontFamily: 'var(--font-sans)' }}
             className={prof.ativo ? 'hover:bg-red-soft' : 'hover:bg-green-soft'}>
@@ -580,6 +586,7 @@ function ProfCard({ prof, excecoes, podeAlterarRole, onEditInfo, onToggle, onPag
               : <><Power     size={13} strokeWidth={2}/> Reativar profissional</>
             }
           </button>
+          )}
 
           {/* Promover / rebaixar */}
           {podeAlterarRole && prof.role !== 'owner' && (
@@ -608,6 +615,10 @@ export default function EquipePage() {
   const [meuRole,   setMeuRole]   = useState<'owner' | 'gestor' | 'profissional'>('profissional');
   const [toast,     setToast]     = useState('');
   const [cfgPerms,  setCfgPerms]  = useState<ConfigPermissoes>(configVazia());
+  const { isOwner, papel, pode } = usePermissoes();
+  // O selo leva à aba Permissões, que só dona/gestora enxergam (igual ao app).
+  const veSeloExcecoes = isOwner || papel === 'gestor';
+  const podeEquipe = pode('equipe.gerenciar');
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
@@ -676,19 +687,28 @@ export default function EquipePage() {
     setLoading(false);
   }
 
+  /** Grava ativo/inativo conferindo as linhas afetadas (RLS recusando UPDATE volta sem erro e sem linha). */
+  async function gravarAtivo(prof: Profissional, ativo: boolean): Promise<boolean> {
+    const { data, error } = await supabase.from('empresa_membros').update({ ativo }).eq('id', prof.id).select('id');
+    if (error || !data || data.length === 0) {
+      alert(mensagemErroBanco(error ?? { code: '42501' }, ativo ? 'reativar esta pessoa' : 'desativar esta pessoa'));
+      return false;
+    }
+    setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, ativo } : p));
+    return true;
+  }
+
   async function toggleAtivo(prof: Profissional) {
     if (prof.ativo) {
       setConfirmDesativar(prof);
       return;
     }
-    await supabase.from('empresa_membros').update({ ativo: true }).eq('id', prof.id);
-    setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, ativo: true } : p));
+    await gravarAtivo(prof, true);
   }
 
   async function confirmarDesativar() {
     if (!confirmDesativar) return;
-    await supabase.from('empresa_membros').update({ ativo: false }).eq('id', confirmDesativar.id);
-    setProfs(prev => prev.map(p => p.id === confirmDesativar.id ? { ...p, ativo: false } : p));
+    await gravarAtivo(confirmDesativar, false);
     setConfirmDesativar(null);
   }
 
@@ -836,8 +856,9 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
                 style={{ '--bm-i': i, '--bm-step': '60ms' } as React.CSSProperties}>
                 <ProfCard
                   prof={p}
-                  excecoes={contarExcecoes(cfgPerms, p.user_id)}
+                  excecoes={veSeloExcecoes ? contarExcecoes(cfgPerms, p.user_id) : 0}
                   podeAlterarRole={meuRole === 'owner' && p.user_id !== meuUserId}
+                  podeGerenciar={podeGerenciarMembro({ isOwner, userId: meuUserId ?? '' }, podeEquipe, { role: p.role, userId: p.user_id })}
                   onEditInfo={() => setEditandoInfo(p)}
                   onToggle={() => toggleAtivo(p)}
                   onPagar={() => pagarComissoesDoMes(p)}

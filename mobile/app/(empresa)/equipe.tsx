@@ -27,7 +27,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { supabase } from '@/lib/supabase';
-import { configVazia, contarExcecoes } from '@shared/permissoes';
+import { configVazia, contarExcecoes, podeGerenciarMembro } from '@shared/permissoes';
+import { mensagemErroBanco } from '@shared/erros';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -383,7 +384,7 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, excecoes, onVerExcec
 
 export default function Equipe() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, isOwner } = useAuthStore();
+  const { empresaAtiva, isOwner, user } = useAuthStore();
   const { pode, papel } = usePermissoes();
   // O selo leva à aba Permissões, que só dona/gestora enxergam.
   const veSeloExcecoes = isOwner || papel === 'gestor';
@@ -416,22 +417,31 @@ export default function Equipe() {
   const inativos = membros.length - ativos;
 
   async function toggleAtivo(m: MembroEquipe) {
-    const { error } = await supabase
+    // .select('id') + guarda de 0 linhas: RLS recusando UPDATE volta sem erro e sem linha.
+    const { data, error } = await supabase
       .from('empresa_membros')
       .update({ ativo: !m.ativo })
-      .eq('id', m.id);
-    if (error) { Alert.alert('Erro', error.message); return; }
+      .eq('id', m.id)
+      .select('id');
+    if (error || !data || data.length === 0) {
+      Alert.alert('Erro', mensagemErroBanco(error ?? { code: '42501' }, m.ativo ? 'desativar esta pessoa' : 'reativar esta pessoa'));
+      return;
+    }
     qc.invalidateQueries({ queryKey: ['equipe'] });
     qc.invalidateQueries({ queryKey: ['profissionais'] });
   }
 
   async function salvarComissao(membro: MembroEquipe, pct: number) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('empresa_membros')
       .update({ percentual_comissao: pct })
-      .eq('id', membro.id);
+      .eq('id', membro.id)
+      .select('id');
     setEditando(null);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error || !data || data.length === 0) {
+      Alert.alert('Erro', mensagemErroBanco(error ?? { code: '42501' }, 'alterar a comissão desta pessoa'));
+      return;
+    }
     qc.invalidateQueries({ queryKey: ['equipe'] });
   }
 
@@ -524,7 +534,7 @@ export default function Equipe() {
               key={m.id}
               membro={m}
               podeAlterarRole={isOwner}
-              podeGerenciar={podeGerenciarEquipe}
+              podeGerenciar={podeGerenciarMembro({ isOwner, userId: user?.id ?? '' }, podeGerenciarEquipe, { role: m.role, userId: m.user_id })}
               excecoes={veSeloExcecoes && cfgPermissoes ? contarExcecoes(cfgPermissoes, m.user_id) : 0}
               onVerExcecoes={() => router.push(`/(empresa)/configuracoes?aba=permissoes&membro=${m.user_id}` as any)}
               onEditComissao={() => setEditando(m)}

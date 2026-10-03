@@ -80,7 +80,7 @@ describe('agenda: pílula + modal de bloqueios pendentes (aprovar/recusar)', () 
 describe('agenda: TimelineView desenha bloqueio pendente + trava do remover', () => {
   it('TimelineView recebe meuUserId e consulta a permissão pelo contexto (destructure + type + call site)', () => {
     expect(src).toMatch(/function TimelineView\(\{[\s\S]*?onAvisoBloqueio, meuUserId,[\s\S]*?\}: \{/);
-    expect(src).toMatch(/onPedirRemoverBloqueio: \(b: Bloqueio\) => void;\s*onAvisoBloqueio: \(msg: string\) => void;\s*meuUserId: string;\s*\}\) \{\s*const \{ pode \} = usePermissoes\(\);\s*const podeAprovarBloqueios = pode\('agenda\.aprovar_bloqueios'\);/);
+    expect(src).toMatch(/onPedirRemoverBloqueio: \(b: Bloqueio\) => void;\s*onAvisoBloqueio: \(msg: string\) => void;\s*meuUserId: string;\s*(?:\/\*\*[\s\S]*?\*\/\s*podeAlterar: \(ag: Ag\) => boolean;\s*)?\}\) \{\s*const \{ pode \} = usePermissoes\(\);\s*const podeAprovarBloqueios = pode\('agenda\.aprovar_bloqueios'\);/);
     expect(src).toMatch(/<TimelineView[\s\S]*?meuUserId=\{meuUserId\}[\s\S]*?\/>/);
   });
 
