@@ -77,7 +77,7 @@ travá-la no banco quebraria essa operação.
 | `anamnese.editar` | Editar anamnese | ✔ | ✔ | Banco (080) |
 | `comanda.fechar` | Fechar comanda (profissional: só as próprias) | ✔ | ✔ | Banco (073/075) |
 | `comanda.desconto` | Dar desconto / cortesia | ✔ | ✔ | Tela |
-| `comanda.editar_fechada` | Editar comanda já fechada | ✔ | ✘ | Tela* |
+| `comanda.editar_fechada` | Editar comanda já fechada (profissional: só as próprias) | ✔ | ✔ | Tela* |
 | `vendas.acessar` | Tela Vendas (registrar e ver vendas avulsas) | ✔ | ✘ | Tela*** |
 | `servicos.gerenciar` | Gerenciar serviços e categorias | ✔ | ✘ | Banco (078, 063) |
 | `pacotes.gerenciar` | Gerenciar catálogo de pacotes | ✔ | ✘ | Banco (078) |
