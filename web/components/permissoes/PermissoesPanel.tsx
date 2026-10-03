@@ -80,7 +80,8 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
   const visivel = useMemo(() => aplicarMudancas(cfg, mudancas), [cfg, mudancas]);
   const nomes = useMemo(() => Object.fromEntries(membros.map(m => [m.user_id, m.nome])), [membros]);
   const membrosEditaveis = membros.filter(m => podeEditarAlvo(editor, { tipo: 'membro', userId: m.user_id, papel: m.role }));
-  const membroAtual = membros.find(m => m.user_id === membroSel);
+  // Só alvos que a pessoa pode editar (o membro da URL pode ser ela mesma ou outra gestora).
+  const membroAtual = membrosEditaveis.find(m => m.user_id === membroSel);
 
   function mudar(m: MudancaPermissao) {
     setRascunho(prev => {
