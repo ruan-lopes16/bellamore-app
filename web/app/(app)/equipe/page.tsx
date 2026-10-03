@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog, ChevronDown, CheckCircle2,
-  Eye, EyeOff, Copy, Check, Sparkles,
+  Eye, EyeOff, Copy, Check, Sparkles, Shield,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -15,6 +15,8 @@ import { hojeBRT, limitesMes } from '@shared/periodos';
 import { pendentesPorProfissional, MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
 import { carregarComissoesPendentes } from '@shared/kpis-financeiros-consultas';
 import { pagarComissoes } from '@shared/comissoes-consultas';
+import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
+import { configVazia, contarExcecoes, type ConfigPermissoes } from '@shared/permissoes';
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
@@ -428,8 +430,10 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
 
 // ── Card profissional ─────────────────────────────────────────
 
-function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlterarRole }: {
+function ProfCard({ prof, excecoes, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlterarRole }: {
   prof: Profissional;
+  /** Quantidade de exceções individuais de permissão desta pessoa. */
+  excecoes: number;
   podeAlterarRole: boolean;
   onEditInfo: () => void;
   onToggle: () => void;
@@ -485,6 +489,13 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             <span style={{ display: 'inline-flex', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: roleBadge(prof.role).bg, color: roleBadge(prof.role).color }}>
               {roleBadge(prof.role).label}
             </span>
+            {prof.role !== 'owner' && excecoes > 0 && (
+              <Link href={`/configuracoes?aba=permissoes&membro=${prof.user_id}`}
+                className="press inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
+                <Shield size={11}/> {excecoes} {excecoes === 1 ? 'exceção' : 'exceções'}
+              </Link>
+            )}
             {temPendente && !expandido && (
               <span style={{ display: 'inline-flex', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: 'rgba(217,119,6,0.12)', color: '#B45309' }}>
                 <Secret>{fmtBRL(prof.comissao_pendente)}</Secret> pendente no mês
@@ -593,6 +604,7 @@ export default function EquipePage() {
   const [meuUserId, setMeuUserId] = useState<string | null>(null);
   const [meuRole,   setMeuRole]   = useState<'owner' | 'gestor' | 'profissional'>('profissional');
   const [toast,     setToast]     = useState('');
+  const [cfgPerms,  setCfgPerms]  = useState<ConfigPermissoes>(configVazia());
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
@@ -630,12 +642,15 @@ export default function EquipePage() {
     // Mês atual em Brasília: é o "período exibido" da Equipe (Pagar = pendentes dele).
     const mesAtual = limitesMes(hojeBRT().slice(0, 7));
     try {
-      const [rAgs, pendentes] = await Promise.all([
+      const [rAgs, pendentes, cfg] = await Promise.all([
         supabase.from('agendamentos').select('profissional_id, valor')
           .eq('empresa_id', empId).eq('status', 'concluido')
           .gte('data_hora_inicio', mesAtual.startIso).lte('data_hora_inicio', mesAtual.endIso),
         carregarComissoesPendentes(supabase, empId),
+        // Se a migration 083 ainda não rodou, a Equipe segue funcionando sem o selo.
+        carregarConfigPermissoes(supabase, empId).catch(() => configVazia()),
       ]);
+      setCfgPerms(cfg);
       if (rAgs.error) throw new Error(rAgs.error.message);
       const stats: Record<string, { total: number; count: number }> = {};
       ((rAgs.data ?? []) as { profissional_id: string; valor: number }[]).forEach(a => {
@@ -818,6 +833,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
                 style={{ '--bm-i': i, '--bm-step': '60ms' } as React.CSSProperties}>
                 <ProfCard
                   prof={p}
+                  excecoes={contarExcecoes(cfgPerms, p.user_id)}
                   podeAlterarRole={meuRole === 'owner' && p.user_id !== meuUserId}
                   onEditInfo={() => setEditandoInfo(p)}
                   onToggle={() => toggleAtivo(p)}

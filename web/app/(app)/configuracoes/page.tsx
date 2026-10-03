@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
@@ -10,6 +10,7 @@ import { validaCNPJ, maskMoeda, parseMoeda, formatMoeda, maskComCursor } from '@
 import { registrarEInscrever } from '@/components/SwRegister';
 import Image from 'next/image';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { PermissoesPanel } from '@/components/permissoes/PermissoesPanel';
 
 const supabase = createClient();
 
@@ -181,10 +182,29 @@ function CardPreferenciasNotificacao({ notifResumo, notifLembrete, onChange }: {
   );
 }
 
-export default function ConfiguracoesPage() {
-  const router = useRouter();
+type AbaConfig = 'empresa' | 'permissoes' | 'perfil';
 
-  const [aba,      setAba]      = useState<'empresa' | 'perfil'>('empresa');
+/** useSearchParams exige Suspense nesta versão do Next (build estático). */
+export default function ConfiguracoesPage() {
+  return <Suspense fallback={null}><ConfiguracoesConteudo/></Suspense>;
+}
+
+function ConfiguracoesConteudo() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { pode, papel } = usePermissoes();
+  const verEmpresa    = pode('dona') || pode('config.taxas');
+  const verPermissoes = pode('dona') || papel === 'gestor';
+  const abaDaUrl = params.get('aba');
+  const membroDaUrl = params.get('membro');
+
+  // Aba inicial: a da URL (se o usuário puder vê-la), senão Empresa (quem puder) ou Meu perfil.
+  const [aba,      setAba]      = useState<AbaConfig>(() => {
+    if (abaDaUrl === 'permissoes' && verPermissoes) return 'permissoes';
+    if (abaDaUrl === 'perfil') return 'perfil';
+    if (abaDaUrl === 'empresa' && verEmpresa) return 'empresa';
+    return verEmpresa ? 'empresa' : 'perfil';
+  });
   const [loading,  setLoading]  = useState(true);
   const [darkMode, setDarkMode] = useState(false);
 
@@ -204,7 +224,6 @@ export default function ConfiguracoesPage() {
   const [empresaId, setEmpresaId] = useState('');
   const [userId,    setUserId]    = useState('');
   // Dados da empresa: só a dona. Taxas de reserva/cancelamento: chave 'config.taxas' (a dona sempre tem).
-  const { pode } = usePermissoes();
   const isOwner = pode('dona');
   const podeEditarTaxa = pode('config.taxas');
 
@@ -562,21 +581,20 @@ export default function ConfiguracoesPage() {
       <SmoothTabs
         variant="underline"
         className="mb-8"
-        tabs={[{ key: 'empresa', label: 'Empresa' }, { key: 'perfil', label: 'Meu perfil' }]}
+        tabs={[
+          ...(verEmpresa ? [{ key: 'empresa', label: 'Empresa' }] : []),
+          ...(verPermissoes ? [{ key: 'permissoes', label: 'Permissões' }] : []),
+          { key: 'perfil', label: 'Meu perfil' },
+        ]}
         active={aba}
-        onChange={key => { setAba(key as 'empresa' | 'perfil'); setErro(''); }}
+        onChange={key => { setAba(key as AbaConfig); setErro(''); }}
       />
 
       {/* ══ TAB: EMPRESA ══ */}
-      {aba === 'empresa' && (
+      {aba === 'empresa' && verEmpresa && (
         <form onSubmit={salvarEmpresa} className="max-w-2xl flex flex-col gap-6">
 
-          {!isOwner && (
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              <AlertCircle size={15} className="text-amber-500 flex-shrink-0"/>
-              <p className="text-sm text-amber-700">Somente o dono da empresa pode editar estas configurações.</p>
-            </div>
-          )}
+          {isOwner && (<>
 
           {/* Logo — primeiro para reflexo imediato */}
           <SectionCard title="Logo" icon={ImageIcon} color="accent">
@@ -724,6 +742,8 @@ export default function ConfiguracoesPage() {
             </div>
           </SectionCard>
 
+          </>)}
+
           {/* Taxa de cancelamento */}
           <SectionCard title="Taxa de cancelamento" icon={Ban} color="rose">
             <p className="text-xs text-text-3 -mt-2">
@@ -839,6 +859,7 @@ export default function ConfiguracoesPage() {
             )}
           </SectionCard>
 
+          {isOwner && (<>
           {/* Horários */}
           <SectionCard title="Horários de funcionamento" icon={Clock} color="green">
             <div className="flex flex-col gap-3">
@@ -872,6 +893,8 @@ export default function ConfiguracoesPage() {
             </div>
           </SectionCard>
 
+          </>)}
+
           {erro && (
             <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
               <AlertCircle size={14} className="text-red flex-shrink-0"/>
@@ -889,6 +912,11 @@ export default function ConfiguracoesPage() {
             </div>
           )}
         </form>
+      )}
+
+      {/* ══ TAB: PERMISSÕES ══ */}
+      {aba === 'permissoes' && verPermissoes && empresaId && userId && (
+        <PermissoesPanel empresaId={empresaId} meuUserId={userId} membroInicial={membroDaUrl ?? undefined}/>
       )}
 
       {/* ══ TAB: MEU PERFIL ══ */}
