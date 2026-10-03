@@ -316,7 +316,7 @@ function NovoAgModal({
   const [excluindo,        setExcluindo]        = useState(false);
   const [avisoTaxaExcluir, setAvisoTaxaExcluir] = useState('');
 
-  const podeExcluir = !!agEditar && podeExcluirAgendamento(agEditar.status, meuRole);
+  const podeExcluir = !!agEditar && podeExcluirAgendamento(agEditar.status, meuRole === 'owner' || meuRole === 'gestor');
   const motivoBloqueioExcluir = agEditar ? motivoExclusaoBloqueada(agEditar.status) : null;
 
   async function abrirConfirmExcluir() {
@@ -1234,7 +1234,7 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
   onSalvo: (b: Bloqueio) => void;
 }) {
   useScrollLock();
-  const ehGestao = podeSelecionarEscopoGeral(meuRole);
+  const ehGestao = podeSelecionarEscopoGeral(meuRole === 'owner' || meuRole === 'gestor');
 
   const [escopo,   setEscopo]   = useState<EscopoBloqueio>('profissional');
   const [profId,   setProfId]   = useState('');
@@ -1260,7 +1260,7 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
     }
 
     const insert = montarInsertBloqueio({
-      role: meuRole,
+      podeAprovarBloqueios: ehGestao,
       meuUserId,
       empresaId,
       escopo,

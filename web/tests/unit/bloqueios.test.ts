@@ -34,26 +34,23 @@ describe('motivoBloqueioLabel', () => {
 });
 
 describe('podeSelecionarEscopoGeral', () => {
-  it('so owner e gestor', () => {
-    expect(podeSelecionarEscopoGeral('owner')).toBe(true);
-    expect(podeSelecionarEscopoGeral('gestor')).toBe(true);
-    expect(podeSelecionarEscopoGeral('profissional')).toBe(false);
-    expect(podeSelecionarEscopoGeral('')).toBe(false);
+  it('so quem pode aprovar bloqueios', () => {
+    expect(podeSelecionarEscopoGeral(true)).toBe(true);
+    expect(podeSelecionarEscopoGeral(false)).toBe(false);
   });
 });
 
 describe('situacaoInicialBloqueio', () => {
   it('gestao => aprovado, profissional => pendente', () => {
-    expect(situacaoInicialBloqueio('owner')).toBe('aprovado');
-    expect(situacaoInicialBloqueio('gestor')).toBe('aprovado');
-    expect(situacaoInicialBloqueio('profissional')).toBe('pendente');
+    expect(situacaoInicialBloqueio(true)).toBe('aprovado');
+    expect(situacaoInicialBloqueio(false)).toBe('pendente');
   });
 });
 
 describe('montarInsertBloqueio', () => {
   it('profissional: forca escopo=profissional, profissional_id=si, situacao=pendente — mesmo pedindo geral', () => {
     const ins = montarInsertBloqueio({
-      ...BASE, role: 'profissional', escopo: 'geral', profissionalId: 'u-outra',
+      ...BASE, podeAprovarBloqueios: false, escopo: 'geral', profissionalId: 'u-outra',
     });
     expect(ins.escopo).toBe('profissional');
     expect(ins.profissional_id).toBe('u-prof');
@@ -65,7 +62,7 @@ describe('montarInsertBloqueio', () => {
 
   it('gestor: escopo geral => profissional_id null, situacao aprovado', () => {
     const ins = montarInsertBloqueio({
-      ...BASE, meuUserId: 'u-gestor', role: 'gestor', escopo: 'geral', profissionalId: 'u-x',
+      ...BASE, meuUserId: 'u-gestor', podeAprovarBloqueios: true, escopo: 'geral', profissionalId: 'u-x',
     });
     expect(ins.escopo).toBe('geral');
     expect(ins.profissional_id).toBeNull();
@@ -75,7 +72,7 @@ describe('montarInsertBloqueio', () => {
 
   it('gestor: escopo profissional => usa o profissionalId escolhido', () => {
     const ins = montarInsertBloqueio({
-      ...BASE, meuUserId: 'u-gestor', role: 'gestor', escopo: 'profissional', profissionalId: 'u-alvo',
+      ...BASE, meuUserId: 'u-gestor', podeAprovarBloqueios: true, escopo: 'profissional', profissionalId: 'u-alvo',
     });
     expect(ins.escopo).toBe('profissional');
     expect(ins.profissional_id).toBe('u-alvo');
@@ -83,8 +80,8 @@ describe('montarInsertBloqueio', () => {
   });
 
   it('titulo vazio cai no rotulo do motivo; com texto usa o texto (trim)', () => {
-    expect(montarInsertBloqueio({ ...BASE, role: 'gestor', escopo: 'profissional', profissionalId: 'x' }).titulo).toBe('Folga');
-    expect(montarInsertBloqueio({ ...BASE, role: 'gestor', escopo: 'profissional', profissionalId: 'x', titulo: '  Dentista  ' }).titulo).toBe('Dentista');
+    expect(montarInsertBloqueio({ ...BASE, podeAprovarBloqueios: true, escopo: 'profissional', profissionalId: 'x' }).titulo).toBe('Folga');
+    expect(montarInsertBloqueio({ ...BASE, podeAprovarBloqueios: true, escopo: 'profissional', profissionalId: 'x', titulo: '  Dentista  ' }).titulo).toBe('Dentista');
   });
 });
 

@@ -281,11 +281,11 @@ export function useCriarBloqueio() {
   const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
   return useMutation({
     mutationFn: async (
-      input: Omit<MontarInsertBloqueioInput, 'role' | 'meuUserId' | 'empresaId'>,
+      input: Omit<MontarInsertBloqueioInput, 'podeAprovarBloqueios' | 'meuUserId' | 'empresaId'>,
     ) => {
       const insert = montarInsertBloqueio({
         ...input,
-        role,
+        podeAprovarBloqueios: role === 'owner' || role === 'gestor',
         meuUserId: user!.id,
         empresaId: empresaAtiva!.id,
       });

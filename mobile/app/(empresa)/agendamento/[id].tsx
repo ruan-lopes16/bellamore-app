@@ -442,7 +442,7 @@ export default function AgendamentoDetalhe() {
   const estaCancelado  = ag.status === 'cancelado';
 
   const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
-  const podeExcluir = podeExcluirAgendamento(ag.status, meuRole);
+  const podeExcluir = podeExcluirAgendamento(ag.status, meuRole === 'owner' || meuRole === 'gestor');
 
   async function excluirAgendamento() {
     setAtualizando(true);

@@ -23,7 +23,7 @@ describe('agenda: bloqueio com tipos + aprovacao', () => {
 
 describe('agenda: NovoBloqueioModal reescrito (escopo + motivo + papel)', () => {
   it('gate do toggle de escopo pelo helper de papel', () => {
-    expect(src).toMatch(/const ehGestao = podeSelecionarEscopoGeral\(meuRole\)/);
+    expect(src).toMatch(/const ehGestao = podeSelecionarEscopoGeral\(meuRole === 'owner' \|\| meuRole === 'gestor'\)/);
   });
   it('oferece o toggle "Um profissional" / "Toda a agenda"', () => {
     expect(src).toContain('Um profissional');

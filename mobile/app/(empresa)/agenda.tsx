@@ -628,7 +628,7 @@ export default function Agenda() {
       <BloqueioModal
         key={diaSelecionado.toISOString()}
         visible={modalBloqueio}
-        role={meuRole}
+        podeAprovarBloqueios={meuRole === 'owner' || meuRole === 'gestor'}
         meuUserId={user?.id ?? ''}
         meuNome={user?.nome ?? 'Você'}
         membros={profissionais.map((p) => ({ id: p.id, nome: p.nome }))}

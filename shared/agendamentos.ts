@@ -12,10 +12,9 @@
 /** Status cujo agendamento NÃO pode ser apagado (tem financeiro vinculado). */
 export const STATUS_NAO_EXCLUIVEL = ['concluido'] as const;
 
-/** true se este papel pode apagar de vez um agendamento neste status. */
-export function podeExcluirAgendamento(status: string, role: string): boolean {
-  const ehGestao = role === 'owner' || role === 'gestor';
-  return ehGestao && !(STATUS_NAO_EXCLUIVEL as readonly string[]).includes(status);
+/** Pode excluir quem tem a permissão `agenda.excluir`, nunca um atendimento concluído. */
+export function podeExcluirAgendamento(status: string, podeExcluir: boolean): boolean {
+  return podeExcluir && !(STATUS_NAO_EXCLUIVEL as readonly string[]).includes(status);
 }
 
 /** Texto do porquê a exclusão está bloqueada por status, ou null se o status permite. */

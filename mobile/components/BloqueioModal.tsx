@@ -12,22 +12,22 @@ const C = {
   primary: '#2C1654', rose: '#C9527F', text: '#1A1228', text3: '#8878A6',
 };
 
-type SubmitInput = Omit<MontarInsertBloqueioInput, 'role' | 'meuUserId' | 'empresaId'>;
+type SubmitInput = Omit<MontarInsertBloqueioInput, 'podeAprovarBloqueios' | 'meuUserId' | 'empresaId'>;
 
 /**
  * Modal nativo de criação de bloqueio de agenda para a área `(empresa)`.
  *
- * Dona/gestora (`podeSelecionarEscopoGeral(role) === true`) vê o alternador
+ * Dona/gestora (`podeSelecionarEscopoGeral(podeAprovarBloqueios) === true`) vê o alternador
  * "Um profissional" / "Toda a agenda" e a lista de membros; profissional vê
  * apenas o aviso de que o pedido vai para aprovação. `onSubmit` recebe o
- * input já sem `role`/`meuUserId`/`empresaId` (o hook os injeta) e resolve
+ * input já sem `podeAprovarBloqueios`/`meuUserId`/`empresaId` (o hook os injeta) e resolve
  * com a `situacao` final — "pendente" dispara o alerta de aguardo.
  */
 export function BloqueioModal({
-  visible, role, meuNome, membros, dataInicial, onClose, onSubmit,
+  visible, podeAprovarBloqueios, meuNome, membros, dataInicial, onClose, onSubmit,
 }: {
   visible: boolean;
-  role: string;
+  podeAprovarBloqueios: boolean;
   meuUserId: string;
   meuNome: string;
   membros: { id: string; nome: string }[];
@@ -35,7 +35,7 @@ export function BloqueioModal({
   onClose: () => void;
   onSubmit: (input: SubmitInput) => Promise<{ situacao: 'aprovado' | 'pendente' }>;
 }) {
-  const ehGestao = podeSelecionarEscopoGeral(role);
+  const ehGestao = podeSelecionarEscopoGeral(podeAprovarBloqueios);
   const [escopo, setEscopo] = useState<EscopoBloqueio>('profissional');
   const [profId, setProfId] = useState('');
   const [motivo, setMotivo] = useState<MotivoBloqueio>('folga');

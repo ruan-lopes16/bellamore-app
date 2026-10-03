@@ -224,11 +224,11 @@ export function useCriarBloqueioProfissional() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (
-      input: Omit<MontarInsertBloqueioInput, 'role' | 'meuUserId' | 'empresaId'>,
+      input: Omit<MontarInsertBloqueioInput, 'podeAprovarBloqueios' | 'meuUserId' | 'empresaId'>,
     ) => {
       const insert = montarInsertBloqueio({
         ...input,
-        role: 'profissional',
+        podeAprovarBloqueios: false,
         meuUserId: user!.id,
         empresaId: empresaAtiva!.id,
       });

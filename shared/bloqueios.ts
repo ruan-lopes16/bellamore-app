@@ -29,21 +29,22 @@ export function motivoBloqueioLabel(motivo: string | null | undefined): string {
   return m ? m.label : '—';
 }
 
-/** Só dona (owner) e gestora podem criar bloqueio "geral". */
-export function podeSelecionarEscopoGeral(role: string): boolean {
-  return role === 'owner' || role === 'gestor';
+/** Escolher "Toda a agenda" exige `agenda.aprovar_bloqueios`. */
+export function podeSelecionarEscopoGeral(podeAprovarBloqueios: boolean): boolean {
+  return podeAprovarBloqueios;
 }
 
-/** Bloqueio de dona/gestora nasce aprovado; de profissional, pendente. */
-export function situacaoInicialBloqueio(role: string): SituacaoBloqueio {
-  return role === 'owner' || role === 'gestor' ? 'aprovado' : 'pendente';
+/** Quem aprova bloqueios cria já aprovado; os demais criam pendente. */
+export function situacaoInicialBloqueio(podeAprovarBloqueios: boolean): SituacaoBloqueio {
+  return podeAprovarBloqueios ? 'aprovado' : 'pendente';
 }
 
 export interface MontarInsertBloqueioInput {
-  role: string;
+  /** Tem `agenda.aprovar_bloqueios` (dona sempre tem). */
+  podeAprovarBloqueios: boolean;
   meuUserId: string;
   empresaId: string;
-  /** Escopo pedido. Ignorado (forçado 'profissional') quando role = profissional. */
+  /** Escopo pedido. Ignorado (forçado 'profissional') quando não pode aprovar bloqueios. */
   escopo: EscopoBloqueio;
   /** Profissional-alvo quando a gestão cria escopo 'profissional'. */
   profissionalId: string | null;
@@ -74,7 +75,7 @@ export interface BloqueioInsert {
  * `situacao='pendente'`, independentemente do que foi passado.
  */
 export function montarInsertBloqueio(input: MontarInsertBloqueioInput): BloqueioInsert {
-  const ehGestao = input.role === 'owner' || input.role === 'gestor';
+  const ehGestao = input.podeAprovarBloqueios;
   const escopo: EscopoBloqueio = ehGestao ? input.escopo : 'profissional';
   const profissional_id =
     escopo === 'geral'
@@ -91,7 +92,7 @@ export function montarInsertBloqueio(input: MontarInsertBloqueioInput): Bloqueio
     titulo:          (input.titulo ?? '').trim() || motivoBloqueioLabel(input.motivo),
     data_inicio:     input.dataInicio,
     data_fim:        input.dataFim,
-    situacao:        situacaoInicialBloqueio(input.role),
+    situacao:        situacaoInicialBloqueio(input.podeAprovarBloqueios),
     criado_por:      input.meuUserId,
   };
 }
