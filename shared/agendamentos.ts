@@ -24,3 +24,21 @@ export function motivoExclusaoBloqueada(status: string): string | null {
   }
   return null;
 }
+
+/**
+ * Pode alterar (editar, mudar status, fechar comanda de) este agendamento?
+ * Espelha a policy "agendamentos: equipe atualiza" (migration 083): a própria agenda é
+ * sempre liberada; a de outra profissional exige `agenda.gerenciar_outras`.
+ *
+ * @param profissionalId  dona do agendamento (`agendamentos.profissional_id`)
+ * @param meuUserId       quem está logado (vazio enquanto carrega = nunca libera por igualdade)
+ * @param podeGerenciarOutras  `pode('agenda.gerenciar_outras')`
+ */
+export function podeMexerNoAgendamento(
+  profissionalId: string | null | undefined,
+  meuUserId: string,
+  podeGerenciarOutras: boolean,
+): boolean {
+  if (podeGerenciarOutras) return true;
+  return !!profissionalId && !!meuUserId && profissionalId === meuUserId;
+}

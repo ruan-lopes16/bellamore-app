@@ -28,6 +28,7 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
+import { podeMexerNoAgendamento } from '@shared/agendamentos';
 import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { useQueryClient } from '@tanstack/react-query';
@@ -116,7 +117,9 @@ type Etapa = 'lista' | 'comanda' | 'sucesso';
 export default function NovaComandaScreen() {
   const insets = useSafeAreaInsets();
   const empresaAtiva = useAuthStore(s => s.empresaAtiva);
+  const meuUserId = useAuthStore(s => s.user?.id ?? '');
   const { pode } = usePermissoes();
+  const podeOutras = pode('agenda.gerenciar_outras');
   const podeFechar   = pode('comanda.fechar');
   const podeDesconto = pode('comanda.desconto');
   const podeVenderPacote = pode('pacotes.vender');
@@ -239,6 +242,7 @@ export default function NovaComandaScreen() {
     const agora = new Date();
     return clientesDia.find(c =>
       c.id !== excluirId &&
+      !temAtendimentoDeOutra(c) &&
       c.agendamentos.some(a => a.status !== 'concluido' || !a.comanda_id) &&
       c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
     ) ?? null;
@@ -254,6 +258,14 @@ export default function NovaComandaScreen() {
     }, 1800);
     return () => clearTimeout(t);
   }, [etapa, proximoCliente]);
+
+  /**
+   * Atendimento de outra profissional sem 'agenda.gerenciar_outras': o banco recusaria o UPDATE
+   * do agendamento no fechamento (e a comanda já teria sido inserida — ficaria órfã). Trava antes.
+   */
+  function temAtendimentoDeOutra(c: ClienteComanda): boolean {
+    return c.agendamentos.some(a => !podeMexerNoAgendamento(a.profissional?.id, meuUserId, podeOutras));
+  }
 
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
@@ -691,6 +703,8 @@ export default function NovaComandaScreen() {
               // nunca fechar) ainda tem algo a cobrar — não pode travar a
               // linha, senão não existe outro jeito de fechar essa comanda.
               const jaCobrado = cliente.agendamentos.every(a => a.status === 'concluido' && a.comanda_id);
+              const deOutra = temAtendimentoDeOutra(cliente);
+              const travado = jaCobrado || deOutra;
               const ag1 = cliente.agendamentos[0];
               const hue = avatarHue(cliente.nome);
               return (
@@ -699,13 +713,13 @@ export default function NovaComandaScreen() {
                   animate={{ opacity: 1, translateY: 0 }}
                   transition={{ type: 'timing', duration: 300, delay: idx * 60 }}>
                   <TouchableOpacity
-                    onPress={() => !jaCobrado && abrirComanda(cliente)}
-                    disabled={jaCobrado}
+                    onPress={() => !travado && abrirComanda(cliente)}
+                    disabled={travado}
                     activeOpacity={0.7}
                     style={{
                       backgroundColor: C.surface, borderRadius: 16, padding: 14,
                       borderWidth: 1, borderColor: C.border,
-                      opacity: jaCobrado ? 0.5 : 1,
+                      opacity: travado ? 0.5 : 1,
                     }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <LinearGradient colors={[`hsl(${hue},60%,50%)`, `hsl(${hue},50%,35%)`]}
@@ -719,6 +733,11 @@ export default function NovaComandaScreen() {
                         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }} numberOfLines={1}>
                           {fmtHora(ag1.data_hora_inicio)} · {ag1.servico?.nome ?? '—'}
                         </Text>
+                        {deOutra && !jaCobrado && (
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }} numberOfLines={1}>
+                            Atendimento de outra profissional
+                          </Text>
+                        )}
                       </View>
                       {jaCobrado ? (
                         <Check size={16} color={C.green} strokeWidth={2.5} />

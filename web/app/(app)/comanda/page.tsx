@@ -55,6 +55,7 @@ import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-res
 import { agruparValoresPorAgendamento, marcarAgendamentosFechados } from '@shared/comanda';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { podeMexerNoAgendamento } from '@shared/agendamentos';
 
 const supabase = createClient();
 
@@ -200,6 +201,8 @@ export default function ComandaPage() {
   const podeDesconto     = pode('comanda.desconto');
   const podeEditarFechada = pode('comanda.editar_fechada');
   const podeVenderPacote  = pode('pacotes.vender');
+  const podeOutras        = pode('agenda.gerenciar_outras');
+  const [meuUserId,         setMeuUserId]         = useState('');
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
@@ -256,6 +259,7 @@ export default function ComandaPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      setMeuUserId(user.id);
       const { data } = await supabase
         .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
@@ -425,11 +429,20 @@ export default function ComandaPage() {
     [agDia],
   );
 
-  /** Próximo cliente da fila: comanda ainda aberta e horário do atendimento já passou */
+  /**
+   * Atendimento de outra profissional sem `agenda.gerenciar_outras`: o banco recusaria o UPDATE
+   * do agendamento no fechamento (e a comanda já teria sido inserida — ficaria órfã). Trava antes.
+   */
+  function temAtendimentoDeOutra(c: ClienteComanda): boolean {
+    return c.agendamentos.some(a => !podeMexerNoAgendamento(a.profissional?.id, meuUserId, podeOutras));
+  }
+
+  /** Próximo cliente da fila: comanda ainda aberta, horário já passou e que a pessoa pode fechar */
   function proximoClienteAberto(excluirId: string): ClienteComanda | null {
     const agora = new Date();
     return clientesDia.find(c =>
       c.id !== excluirId &&
+      !temAtendimentoDeOutra(c) &&
       c.agendamentos.some(a => a.status !== 'concluido' || !a.comanda_id) &&
       c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
     ) ?? null;
@@ -1162,14 +1175,15 @@ export default function ComandaPage() {
                 const ativo  = clienteSel?.id === cliente.id;
                 const jaFeita = cliente.agendamentos.every(a => a.status === 'concluido');
                 // Comanda já fechada só reabre para quem pode editá-la; senão o card fica sem ação.
-                const semAcao = jaFeita ? !podeEditarFechada : !podeFechar;
+                const deOutra = temAtendimentoDeOutra(cliente);
+                const semAcao = deOutra || (jaFeita ? !podeEditarFechada : !podeFechar);
                 const primeiroAg = cliente.agendamentos[0];
                 return (
                   <button
                     key={cliente.id}
                     onClick={() => jaFeita ? abrirComandaFechada(cliente) : abrirComanda(cliente)}
                     disabled={semAcao}
-                    title={semAcao ? (jaFeita ? 'Comanda fechada' : 'Sem permissão para fechar comanda') : undefined}
+                    title={semAcao ? (deOutra ? 'Atendimento de outra profissional' : jaFeita ? 'Comanda fechada' : 'Sem permissão para fechar comanda') : undefined}
                     className={`w-full text-left rounded-xl p-3 transition-colors border ${
                       ativo
                         ? 'bg-primary-soft border-primary/30'
