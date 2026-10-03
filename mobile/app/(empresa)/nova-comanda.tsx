@@ -29,6 +29,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
+import { mensagemErroBanco } from '@shared/erros';
 import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { useQueryClient } from '@tanstack/react-query';
@@ -445,13 +446,16 @@ export default function NovaComandaScreen() {
 
     const extrasProdutos = extras.filter(i => i.tipo === 'produto' && i.produto_id);
     if (extrasProdutos.length > 0) {
-      await supabase.from('estoque_movimentos').insert(
+      const { error: errEst } = await supabase.from('estoque_movimentos').insert(
         extrasProdutos.map(i => ({
           produto_id: i.produto_id!, empresa_id: empresaId,
           tipo: 'saida', quantidade: i.quantidade,
           motivo: `Produto via comanda — ${i.descricao}`,
+          // Liga a baixa ao atendimento: é o ramo de RLS que deixa a profissional baixar estoque.
+          agendamento_id: agIds[0] ?? null,
         })),
       );
+      if (errEst) Alert.alert('Estoque', mensagemErroBanco(errEst, 'baixar o estoque dos produtos'));
       const totalProdutos = extrasProdutos.reduce((s, i) => s + i.valor * i.quantidade, 0);
       const { data: venda } = await supabase.from('vendas').insert({
         empresa_id: empresaId,

@@ -964,6 +964,8 @@ export default function ComandaPage() {
           tipo:       'saida',
           quantidade: i.quantidade,
           motivo:     `Produto via comanda — ${i.descricao}`,
+          // Liga a baixa ao atendimento: é o ramo de RLS que deixa a profissional baixar estoque.
+          agendamento_id: agIds[0] ?? null,
         }))
       );
       if (errEst) { setErro(errEst.message); setFechando(false); return; }
