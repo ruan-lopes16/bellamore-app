@@ -200,7 +200,9 @@ export async function PATCH(req: NextRequest) {
       const { error: errMembro } = await adminClient
         .from('empresa_membros')
         .update(patch)
-        .eq('id', membroId);
+        .eq('id', membroId)
+        // Só o vínculo na empresa onde a permissão foi conferida (membroId vem do corpo).
+        .eq('empresa_id', alvoMembro.empresa_id);
       if (errMembro) return NextResponse.json({ error: errMembro.message }, { status: 400 });
     }
 
