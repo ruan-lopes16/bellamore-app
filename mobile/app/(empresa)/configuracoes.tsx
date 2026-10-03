@@ -4,7 +4,7 @@ import {
   Alert, ActivityIndicator, StatusBar, Switch,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
@@ -26,6 +26,8 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
+import { SmoothTabs } from '@/components/SmoothTabs';
+import { PermissoesPanel } from '@/components/PermissoesPanel';
 import { supabase } from '@/lib/supabase';
 import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
 
@@ -120,10 +122,23 @@ export default function Configuracoes() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user, sair, roleAtivo, isOwner: souOwner, selecionarEmpresa } = useAuthStore();
   const qc = useQueryClient();
-  const { pode } = usePermissoes();
+  const { pode, papel } = usePermissoes();
+  const params = useLocalSearchParams<{ aba?: string; membro?: string }>();
   // Dados da empresa e horários são fixos da dona; as taxas seguem a chave config.taxas.
   const ehDona = pode('dona');
   const podeEditarTaxa = pode('config.taxas');
+  // Abas: Empresa (dona ou quem tem config.taxas), Permissões (dona/gestora), Meu perfil (todos).
+  const veEmpresa = pode('dona') || pode('config.taxas');
+  const vePermissoes = pode('dona') || papel === 'gestor';
+  const abasDisponiveis = [
+    ...(veEmpresa ? [{ key: 'empresa', label: 'Empresa' }] : []),
+    ...(vePermissoes ? [{ key: 'permissoes', label: 'Permissões' }] : []),
+    { key: 'perfil', label: 'Meu perfil' },
+  ];
+  const [abaEscolhida, setAbaEscolhida] = useState<string | null>(null);
+  // Aba pedida pela URL só vale se a pessoa tem permissão; senão cai na primeira disponível.
+  const abaInicial = abasDisponiveis.some(a => a.key === params.aba) ? (params.aba as string) : abasDisponiveis[0].key;
+  const aba = abaEscolhida && abasDisponiveis.some(a => a.key === abaEscolhida) ? abaEscolhida : abaInicial;
 
   // Dados da empresa
   const [nomeEmpresa,  setNomeEmpresa]  = useState(empresaAtiva?.nome ?? '');
@@ -341,6 +356,18 @@ export default function Configuracoes() {
             </MotiView>
           </LinearGradient>
 
+          {/* ── Abas ── */}
+          <View style={{ marginHorizontal: 24, marginTop: 16 }}>
+            <SmoothTabs tabs={abasDisponiveis} active={aba} onChange={setAbaEscolhida} />
+          </View>
+
+          {aba === 'permissoes' && vePermissoes && empresaAtiva && user && (
+            <View style={{ marginHorizontal: 24, marginTop: 16 }}>
+              <PermissoesPanel empresaId={empresaAtiva.id} meuUserId={user.id} membroInicial={params.membro || undefined} />
+            </View>
+          )}
+
+          {aba === 'empresa' && (<>
           {/* ── Dados da Empresa ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 60 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 20, marginBottom: 10, marginHorizontal: 24 }}>
@@ -579,6 +606,9 @@ export default function Configuracoes() {
             </View>
           </MotiView>
 
+          </>)}
+
+          {aba === 'perfil' && (<>
           {/* ── Minha Conta ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 180 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 20, marginBottom: 10, marginHorizontal: 24 }}>
@@ -671,6 +701,9 @@ export default function Configuracoes() {
             </View>
           </MotiView>
 
+          </>)}
+
+          {aba !== 'permissoes' && (<>
           {/* ── Botão Salvar ── */}
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 380, delay: 240 }}
             style={{ marginHorizontal: 24, marginTop: 20 }}
@@ -697,6 +730,10 @@ export default function Configuracoes() {
             </TouchableOpacity>
           </MotiView>
 
+          </>)}
+
+          {aba === 'perfil' && (
+          <>
           {/* ── Zona de perigo ── */}
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 380, delay: 300 }}
             style={{ marginHorizontal: 24, marginTop: 16 }}
@@ -718,6 +755,8 @@ export default function Configuracoes() {
               </Text>
             </TouchableOpacity>
           </MotiView>
+          </>
+          )}
 
         </ScrollView>
       </View>

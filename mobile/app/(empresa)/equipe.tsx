@@ -27,6 +27,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { supabase } from '@/lib/supabase';
+import { configVazia, contarExcecoes } from '@shared/permissoes';
+import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -193,8 +195,11 @@ function ModalComissao({ membro, onClose, onSalvar }: {
 
 // ── Card de profissional ──────────────────────────────────────
 
-function ProfCard({ membro, podeAlterarRole, podeGerenciar, onEditComissao, onToggle, onAlterarRole }: {
+function ProfCard({ membro, podeAlterarRole, podeGerenciar, excecoes, onVerExcecoes, onEditComissao, onToggle, onAlterarRole }: {
   membro: MembroEquipe;
+  /** Quantidade de exceções individuais de permissão (0 = sem selo). */
+  excecoes: number;
+  onVerExcecoes: () => void;
   /** 'equipe.gerenciar': editar, ajustar comissão e reativar. Sem ela o card é só leitura. */
   podeGerenciar: boolean;
   podeAlterarRole: boolean;
@@ -253,6 +258,16 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, onEditComissao, onTo
               {membro.ativo ? 'Ativa' : 'Inativa'}
             </Text>
           </View>
+          {excecoes > 0 && (
+            <TouchableOpacity
+              onPress={onVerExcecoes}
+              style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: C.primarySoft, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}
+            >
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.primary, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                {excecoes} {excecoes === 1 ? 'exceção' : 'exceções'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {podeGerenciar && (
@@ -369,12 +384,21 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, onEditComissao, onTo
 export default function Equipe() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva, isOwner } = useAuthStore();
-  const { pode } = usePermissoes();
+  const { pode, papel } = usePermissoes();
+  // O selo leva à aba Permissões, que só dona/gestora enxergam.
+  const veSeloExcecoes = isOwner || papel === 'gestor';
   const podeGerenciarEquipe = pode('equipe.gerenciar');
   const qc = useQueryClient();
 
   const { data: membros = [], isLoading, refetch } = useEquipe();
   const [editando, setEditando] = useState<MembroEquipe | null>(null);
+
+  const { data: cfgPermissoes } = useQuery({
+    queryKey: ['equipe-permissoes', empresaAtiva?.id],
+    enabled: !!empresaAtiva?.id && veSeloExcecoes,
+    staleTime: 1000 * 60,
+    queryFn: () => carregarConfigPermissoes(supabase, empresaAtiva!.id).catch(() => configVazia()),
+  });
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -501,6 +525,8 @@ export default function Equipe() {
               membro={m}
               podeAlterarRole={isOwner}
               podeGerenciar={podeGerenciarEquipe}
+              excecoes={veSeloExcecoes && cfgPermissoes ? contarExcecoes(cfgPermissoes, m.user_id) : 0}
+              onVerExcecoes={() => router.push(`/(empresa)/configuracoes?aba=permissoes&membro=${m.user_id}` as any)}
               onEditComissao={() => setEditando(m)}
               onToggle={() => toggleAtivo(m)}
               onAlterarRole={() => alterarRole(m)}
