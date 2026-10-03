@@ -20,7 +20,7 @@ describe('app Comissões = web Comissões', () => {
     for (const t of ['subMonths', 'border: 1', 'percentual}% de comissão']) expect(tela).not.toContain(t);
   });
   it('permissão, refresh, modal por id e aviso de sucesso', () => {
-    expect(tela).toContain("temPermissao(role, 'ver_comissoes_todas')");
+    expect(tela).toContain("pode('comissoes.ver_todas')");
     expect(tela).toContain('Sem permissão para ver as comissões da equipe');
     expect(tela).toContain('useComissoesGestor(periodo, deslocamento, podeVer)');
     expect(hook).toContain('enabled: !!empresaId && habilitado');

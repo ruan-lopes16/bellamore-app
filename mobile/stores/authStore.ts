@@ -2,12 +2,20 @@ import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 import type { User, Empresa, EmpresaMembro, AuthState } from '@/types';
 import type { PerfilRole } from '@/types';
+import { carregarMinhasPermissoes, papelDeRole } from '@shared/permissoes-consultas';
+import type { PermissoesUsuario } from '@shared/permissoes';
+
+const PERMISSOES_VAZIAS: PermissoesUsuario = { isOwner: false, papel: null, chaves: [] };
 
 interface AuthStore extends AuthState {
   // actions
   carregarSessao: (opts?: { manterEmpresaId?: string }) => Promise<void>;
   /** Logado, mas sem nenhuma empresa (owner ou membro). */
   semEmpresa: boolean;
+  /** Permissões efetivas da pessoa logada na empresa ativa (catálogo + exceções). */
+  permissoes: PermissoesUsuario;
+  /** Recarrega as permissões efetivas (ao entrar, trocar de empresa e voltar ao app). */
+  recarregarPermissoes: () => Promise<void>;
   selecionarEmpresa: (empresa: Empresa, role: PerfilRole, isOwner: boolean) => void;
   sair: () => Promise<void>;
   /** Zera o estado local de sessão (sem chamar o Supabase) — usado quando a sessão expira. */
@@ -23,6 +31,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   isOwner: false,
   empresasDisponiveis: [],
   semEmpresa: false,
+  permissoes: PERMISSOES_VAZIAS,
 
   carregarSessao: async (opts) => {
     const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -78,10 +87,20 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       isOwner: escolhida?.isOwner ?? false,
       semEmpresa: disponíveis.length === 0,
     });
+    await get().recarregarPermissoes();
   },
 
   selecionarEmpresa: (empresa, role, isOwner) => {
     set({ empresaAtiva: empresa, roleAtivo: role, isOwner });
+    void get().recarregarPermissoes();
+  },
+
+  recarregarPermissoes: async () => {
+    const { empresaAtiva, isOwner, roleAtivo } = get();
+    if (!empresaAtiva) return;
+    // Owner entra no store com roleAtivo 'gestor' (ver carregarSessao) — isOwner manda.
+    const permissoes = await carregarMinhasPermissoes(supabase, empresaAtiva.id, isOwner, isOwner ? null : papelDeRole(roleAtivo));
+    if (get().empresaAtiva?.id === empresaAtiva.id) set({ permissoes });
   },
 
   limparSessao: () => {
@@ -92,6 +111,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       isOwner: false,
       empresasDisponiveis: [],
       semEmpresa: false,
+      permissoes: PERMISSOES_VAZIAS,
     });
   },
 

@@ -1,80 +1,15 @@
+import { useMemo } from 'react';
 import { PerfilRole } from '@/types';
+import { useAuthStore } from '@/stores/authStore';
+import { pode, type Acesso } from '@shared/permissoes';
 
-// ============================================================
-// PERMISSÕES POR PERFIL
-// Centraliza toda a lógica de acesso — nunca dispersar no código
-// ============================================================
+export { pode };
+export type { Acesso };
 
-type Permissao =
-  | 'ver_financeiro_sensivel'   // CNPJ, dados bancários, faturamento bruto
-  | 'ver_despesas'
-  | 'ver_resumo_financeiro'
-  | 'ver_todos_agendamentos'
-  | 'ver_proprios_agendamentos'
-  | 'gerenciar_profissionais'
-  | 'gerenciar_servicos'
-  | 'ver_servicos'
-  | 'gerenciar_produtos'
-  | 'gerenciar_estoque'
-  | 'gerenciar_pacotes'
-  | 'ver_comissoes_todas'
-  | 'ver_propria_comissao'
-  | 'ver_todos_clientes'
-  | 'ver_anamnese'
-  | 'fechar_comanda'
-  | 'configurar_empresa';
-
-const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
-  owner: [
-    'ver_financeiro_sensivel',
-    'ver_despesas',
-    'ver_resumo_financeiro',
-    'ver_todos_agendamentos',
-    'ver_proprios_agendamentos',
-    'gerenciar_profissionais',
-    'gerenciar_servicos',
-    'ver_servicos',
-    'gerenciar_produtos',
-    'gerenciar_estoque',
-    'gerenciar_pacotes',
-    'ver_comissoes_todas',
-    'ver_propria_comissao',
-    'ver_todos_clientes',
-    'ver_anamnese',
-    'fechar_comanda',
-    'configurar_empresa',
-  ],
-  gestor: [
-    'ver_despesas',
-    'ver_resumo_financeiro',
-    'ver_todos_agendamentos',
-    'ver_proprios_agendamentos',
-    'gerenciar_profissionais',
-    'gerenciar_servicos',
-    'ver_servicos',
-    'gerenciar_produtos',
-    'gerenciar_estoque',
-    'gerenciar_pacotes',
-    'ver_comissoes_todas',
-    'ver_propria_comissao',
-    'ver_todos_clientes',
-    'ver_anamnese',
-    'fechar_comanda',
-  ],
-  profissional: [
-    'ver_proprios_agendamentos',
-    'ver_propria_comissao',
-    'ver_anamnese',
-    'fechar_comanda',
-    'ver_servicos',
-  ],
-};
-
-export function temPermissao(
-  role: PerfilRole | 'owner',
-  permissao: Permissao
-): boolean {
-  return PERMISSOES[role]?.includes(permissao) ?? false;
+/** `const { pode } = usePermissoes(); if (pode('clientes.arquivar')) ...` */
+export function usePermissoes() {
+  const p = useAuthStore(s => s.permissoes);
+  return useMemo(() => ({ ...p, pode: (a: Acesso) => pode(p, a) }), [p]);
 }
 
 // Retorna a rota inicial baseada no perfil

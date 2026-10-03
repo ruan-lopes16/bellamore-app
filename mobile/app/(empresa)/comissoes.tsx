@@ -20,8 +20,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { router } from 'expo-router';
-import { useAuthStore } from '@/stores/authStore';
-import { temPermissao } from '@/lib/permissions';
+import { usePermissoes } from '@/lib/permissions';
 import { useComissoesGestor } from '@/hooks/useComissoesGestor';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { SmoothTabs } from '@/components/SmoothTabs';
@@ -260,9 +259,8 @@ export default function Comissoes() {
   const [pagandoId, setPagandoId] = useState<string | null>(null);
 
   // Trava de permissão dentro da tela (a rota também é alcançável pela Equipe ou por deep link).
-  const { roleAtivo, isOwner } = useAuthStore();
-  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
-  const podeVer = temPermissao(role, 'ver_comissoes_todas');
+  const { pode } = usePermissoes();
+  const podeVer = pode('comissoes.ver_todas');
 
   const { limites, profissionais, resumo, categorias, pronto, isFetching, isError, erro, refetch, pagar } =
     useComissoesGestor(periodo, deslocamento, podeVer);

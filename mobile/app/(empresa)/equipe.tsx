@@ -24,6 +24,7 @@ import {
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { supabase } from '@/lib/supabase';
 
@@ -192,8 +193,10 @@ function ModalComissao({ membro, onClose, onSalvar }: {
 
 // ── Card de profissional ──────────────────────────────────────
 
-function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterarRole }: {
+function ProfCard({ membro, podeAlterarRole, podeGerenciar, onEditComissao, onToggle, onAlterarRole }: {
   membro: MembroEquipe;
+  /** 'equipe.gerenciar': editar, ajustar comissão e reativar. Sem ela o card é só leitura. */
+  podeGerenciar: boolean;
   podeAlterarRole: boolean;
   onEditComissao: () => void;
   onToggle: () => void;
@@ -252,9 +255,11 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
           </View>
         </View>
 
-        <TouchableOpacity onPress={() => router.push(`/(empresa)/editar-profissional/${membro.id}` as any)}>
-          <Edit3 size={16} color={C.text4} strokeWidth={2} />
-        </TouchableOpacity>
+        {podeGerenciar && (
+          <TouchableOpacity onPress={() => router.push(`/(empresa)/editar-profissional/${membro.id}` as any)}>
+            <Edit3 size={16} color={C.text4} strokeWidth={2} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Stats do mês */}
@@ -281,6 +286,7 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
       {/* Comissão */}
       <TouchableOpacity
         onPress={onEditComissao}
+        disabled={!podeGerenciar}
         style={{
           backgroundColor: membro.ativo ? C.primarySoft : '#F3F4F6',
           borderRadius: 12, padding: 12, paddingHorizontal: 14,
@@ -295,7 +301,7 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
         <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: membro.ativo ? C.primary : C.text4, letterSpacing: -0.5 }}>
           {membro.percentual_comissao}%
         </Text>
-        {membro.ativo && <Edit3 size={13} color={C.text3} strokeWidth={2} />}
+        {membro.ativo && podeGerenciar && <Edit3 size={13} color={C.text3} strokeWidth={2} />}
       </TouchableOpacity>
 
       {podeAlterarRole && (
@@ -338,7 +344,7 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
             </TouchableOpacity>
           ))}
         </View>
-      ) : (
+      ) : podeGerenciar && (
         <TouchableOpacity
           onPress={onToggle}
           style={{
@@ -363,6 +369,8 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
 export default function Equipe() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva, isOwner } = useAuthStore();
+  const { pode } = usePermissoes();
+  const podeGerenciarEquipe = pode('equipe.gerenciar');
   const qc = useQueryClient();
 
   const { data: membros = [], isLoading, refetch } = useEquipe();
@@ -437,6 +445,7 @@ export default function Equipe() {
               </Text>
             </View>
             <PrivacyToggle />
+            {podeGerenciarEquipe && (
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/convidar-profissional' as any)}
               style={{
@@ -448,6 +457,7 @@ export default function Equipe() {
             >
               <Plus size={18} color="#fff" strokeWidth={2.5} />
             </TouchableOpacity>
+            )}
           </View>
         </LinearGradient>
 
@@ -490,6 +500,7 @@ export default function Equipe() {
               key={m.id}
               membro={m}
               podeAlterarRole={isOwner}
+              podeGerenciar={podeGerenciarEquipe}
               onEditComissao={() => setEditando(m)}
               onToggle={() => toggleAtivo(m)}
               onAlterarRole={() => alterarRole(m)}
@@ -504,14 +515,16 @@ export default function Equipe() {
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
                 Nenhuma profissional na equipe ainda.
               </Text>
-              <TouchableOpacity
-                onPress={() => router.push('/(empresa)/convidar-profissional' as any)}
-                style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
-              >
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
-                  Adicionar profissional
-                </Text>
-              </TouchableOpacity>
+              {podeGerenciarEquipe && (
+                <TouchableOpacity
+                  onPress={() => router.push('/(empresa)/convidar-profissional' as any)}
+                  style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
+                >
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
+                    Adicionar profissional
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>

@@ -29,6 +29,7 @@ import { format, differenceInMinutes } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import type { AgendamentoStatus } from '@/types';
 import {
@@ -349,7 +350,8 @@ export default function AgendamentoDetalhe() {
   const modoComanda = tipo === 'comanda';
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
-  const { empresaAtiva, roleAtivo, isOwner } = useAuthStore();
+  const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
 
   const [atualizando, setAtualizando] = useState(false);
 
@@ -441,8 +443,7 @@ export default function AgendamentoDetalhe() {
   const estaConcluido  = ag.status === 'concluido';
   const estaCancelado  = ag.status === 'cancelado';
 
-  const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
-  const podeExcluir = podeExcluirAgendamento(ag.status, meuRole === 'owner' || meuRole === 'gestor');
+  const podeExcluir = podeExcluirAgendamento(ag.status, pode('agenda.excluir'));
 
   async function excluirAgendamento() {
     setAtualizando(true);

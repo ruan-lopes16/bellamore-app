@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
-import { temPermissao } from '@/lib/permissions';
+import { usePermissoes } from '@/lib/permissions';
 import { limitesDoPeriodo, uniaoLimites, hojeBRT, type PeriodoRelatorio, type OpcoesPeriodo } from '@shared/periodos';
 import {
   calcularKpisFinanceiros, recortarDados, rankingAtendimentos, clientesAtendidosNoPeriodo, metricasRetorno,
@@ -46,8 +46,8 @@ export interface ProfissionalRelatorio {
 export interface ClienteRelatorio { cliente_id: string; nome: string; visitas: number; total: number; percentual: number }
 
 export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo, aba: AbaRelatorio = 'financeiro') {
-  const { empresaAtiva, isOwner, roleAtivo } = useAuthStore();
-  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const { empresaAtiva, isOwner } = useAuthStore();
+  const { pode } = usePermissoes();
   const empresaId = empresaAtiva?.id;
   const qc = useQueryClient();
 
@@ -102,7 +102,7 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo, 
 
   const pagar = useMutation({
     mutationFn: async (ids: string[]) => {
-      if (!temPermissao(role, 'ver_comissoes_todas')) throw new Error('Sem permissão para pagar comissões.');
+      if (!pode('comissoes.pagar')) throw new Error('Sem permissão para pagar comissões.');
       if (ids.length === 0) return 0;
       const r = await pagarComissoes(supabase, empresaId!, ids);
       if (r.naoConfirmados.length > 0 || r.erro) throw new Error(r.erro ?? MENSAGEM_PAGAMENTO_PARCIAL);

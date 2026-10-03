@@ -27,6 +27,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { useQueryClient } from '@tanstack/react-query';
@@ -115,6 +116,9 @@ type Etapa = 'lista' | 'comanda' | 'sucesso';
 export default function NovaComandaScreen() {
   const insets = useSafeAreaInsets();
   const empresaAtiva = useAuthStore(s => s.empresaAtiva);
+  const { pode } = usePermissoes();
+  const podeFechar   = pode('comanda.fechar');
+  const podeDesconto = pode('comanda.desconto');
   const empresaId = empresaAtiva?.id ?? null;
   const qc = useQueryClient();
 
@@ -326,7 +330,7 @@ export default function NovaComandaScreen() {
   function removerSplit(idx: number) { setSplits(prev => prev.filter((_, i) => i !== idx)); }
 
   async function fecharComanda() {
-    if (!clienteSel || !empresaId || fechando) return;
+    if (!clienteSel || !empresaId || fechando || !podeFechar) return;
     setFechando(true);
 
     // Barra fechamento duplicado: se algum atendimento desta comanda já ganhou
@@ -884,6 +888,7 @@ export default function NovaComandaScreen() {
           </View>
 
           {/* ── Desconto ── */}
+          {podeDesconto && (
           <View>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Desconto</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: C.border }}>
@@ -898,6 +903,7 @@ export default function NovaComandaScreen() {
               />
             </View>
           </View>
+          )}
 
           {/* ── Resumo ── */}
           <View style={{ backgroundColor: C.bg, borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
@@ -927,7 +933,7 @@ export default function NovaComandaScreen() {
           <View>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Pagamento</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
-              {METODOS.map(m => (
+              {METODOS.filter(m => podeDesconto || m.key !== 'cortesia').map(m => (
                 <TouchableOpacity key={m.key} onPress={() => adicionarSplit(m.key)}
                   activeOpacity={0.7}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 14, backgroundColor: m.bg, borderWidth: 1, borderColor: C.border }}>
@@ -995,14 +1001,19 @@ export default function NovaComandaScreen() {
 
         {/* Footer — Fechar comanda */}
         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: insets.bottom + 12, paddingTop: 12, backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border }}>
+          {!podeFechar && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
+              Você não tem permissão para fechar comanda.
+            </Text>
+          )}
           <TouchableOpacity
             onPress={fecharComanda}
-            disabled={fechando || itens.length === 0}
+            disabled={fechando || itens.length === 0 || !podeFechar}
             activeOpacity={0.8}
             style={{
               height: 52, borderRadius: 16, backgroundColor: C.green,
               alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
-              opacity: (fechando || itens.length === 0) ? 0.5 : 1,
+              opacity: (fechando || itens.length === 0 || !podeFechar) ? 0.5 : 1,
             }}>
             {fechando ? (
               <ActivityIndicator color="#fff" />

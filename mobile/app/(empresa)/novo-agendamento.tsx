@@ -29,6 +29,7 @@ import {
 import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { useProfissionais } from '@/hooks/useAgenda';
 import { useServicosEmpresa } from '@/hooks/useServicosEmpresa';
 import { useClientes } from '@/hooks/useClientes';
@@ -134,7 +135,11 @@ function Secao({ numero, titulo, completo, children }: {
 
 export default function NovoAgendamento() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, user } = useAuthStore();
+  const { pode } = usePermissoes();
+  const podeOutras = pode('agenda.gerenciar_outras');
+  const podeCadastrarCliente = pode('clientes.cadastrar');
+  const podeVenderPacote = pode('pacotes.vender');
   const params = useLocalSearchParams<{ clienteId?: string; hora?: string }>();
 
   // Config de taxa de reserva da empresa
@@ -190,7 +195,16 @@ export default function NovoAgendamento() {
 
   // Dados
   const { data: clientes = [] }     = useClientes('todas', buscaCliente);
-  const { data: profissionais = [] } = useProfissionais();
+  const { data: todasProfissionais = [] } = useProfissionais();
+  // Sem 'agenda.gerenciar_outras' só aparece a própria pessoa (o banco recusa gravar para outra).
+  const profissionais = useMemo(
+    () => (podeOutras ? todasProfissionais : todasProfissionais.filter((p) => p.id === user?.id)),
+    [podeOutras, todasProfissionais, user?.id],
+  );
+  useEffect(() => {
+    if (podeOutras || profSelecionado || profissionais.length === 0) return;
+    setProfSelecionado({ id: profissionais[0].id, nome: profissionais[0].nome });
+  }, [podeOutras, profissionais, profSelecionado]);
   const { data: servicos = [] }     = useServicosEmpresa();
 
   // Catálogo de pacotes (uma vez, por empresa)
@@ -617,7 +631,7 @@ export default function NovoAgendamento() {
               </View>
             )}
 
-            {!pacoteClienteId && pacotesCatalogo.length > 0 && (
+            {!pacoteClienteId && pacotesCatalogo.length > 0 && podeVenderPacote && (
               <View>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Vender pacote agora
@@ -1128,7 +1142,7 @@ export default function NovoAgendamento() {
           ) : (
           <FlatList
             data={clientes}
-            ListHeaderComponent={() => (
+            ListHeaderComponent={() => !podeCadastrarCliente ? null : (
               <TouchableOpacity
                 onPress={() => setCriandoCliente(true)}
                 style={{

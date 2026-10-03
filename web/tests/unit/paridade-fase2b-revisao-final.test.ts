@@ -25,7 +25,7 @@ describe('Fase 2B — correções da revisão final', () => {
     expect(s).toContain('disabled={pagandoId !== null}');
   });
   it('Mais: badge de comissões só consulta com permissão', () => {
-    expect(ler('mobile/app/(empresa)/mais.tsx')).toContain("useResumoComissoesPendentes(temPermissao(role, 'ver_comissoes_todas'))");
+    expect(ler('mobile/app/(empresa)/mais.tsx')).toContain("useResumoComissoesPendentes(pode('comissoes.ver_todas'))");
   });
   it('Relatórios mobile: badge de variação só sem erro', () => {
     expect(ler('mobile/app/(empresa)/relatorios.tsx')).toContain('{dFat !== null && !isError && (<View style={{');

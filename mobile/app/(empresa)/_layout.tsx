@@ -1,10 +1,8 @@
 import { Tabs } from 'expo-router';
-import { useAuthStore } from '@/stores/authStore';
-import { temPermissao } from '@/lib/permissions';
+import { usePermissoes } from '@/lib/permissions';
 
 export default function EmpresaLayout() {
-  const { roleAtivo, isOwner } = useAuthStore();
-  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const { pode } = usePermissoes();
 
   return (
     <Tabs
@@ -19,7 +17,7 @@ export default function EmpresaLayout() {
       <Tabs.Screen name="agenda"      options={{ title: 'Agenda',       tabBarIcon: () => null }} />
       <Tabs.Screen name="clientes"    options={{ title: 'Clientes',     tabBarIcon: () => null }} />
       <Tabs.Screen name="financeiro"  options={{ title: 'Financeiro',   tabBarIcon: () => null,
-        href: temPermissao(role, 'ver_resumo_financeiro') ? undefined : null,
+        href: pode('financeiro.ver') ? undefined : null,
       }} />
       <Tabs.Screen name="mais"        options={{ title: 'Mais',         tabBarIcon: () => null }} />
       {/* Rotas que não são aba: sem isto o expo-router as exibe como abas */}

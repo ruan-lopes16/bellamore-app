@@ -23,6 +23,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
@@ -104,6 +105,7 @@ function Campo({
 export default function NovoCliente() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
   const qc = useQueryClient();
 
   const [nome, setNome]           = useState('');
@@ -124,6 +126,19 @@ export default function NovoCliente() {
   });
 
   if (!fontsLoaded) return null;
+
+  if (!pode('clientes.cadastrar')) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text3, textAlign: 'center' }}>
+          Você não tem permissão para cadastrar cliente.
+        </Text>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>Voltar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   async function salvar() {
     if (!nomeClienteValido(nome)) {
@@ -150,7 +165,8 @@ export default function NovoCliente() {
     if (error || !data) { Alert.alert('Erro', mensagemErroBanco(error, 'cadastrar cliente')); return; }
     qc.invalidateQueries({ queryKey: ['clientes'] });
     qc.invalidateQueries({ queryKey: ['clientes-stats'] });
-    router.replace(`/(empresa)/cliente/${data.id}/anamnese` as any);
+    // Sem permissão de anamnese, vai direto para o perfil da cliente recém-cadastrada.
+    router.replace((pode('anamnese.editar') ? `/(empresa)/cliente/${data.id}/anamnese` : `/(empresa)/cliente/${data.id}`) as any);
   }
 
   const podeSalvar = nomeClienteValido(nome);

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { AppState } from 'react-native';
 import { Stack, router, SplashScreen } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
@@ -40,6 +41,14 @@ export default function RootLayout() {
       }
     );
     return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    // Ao voltar ao app, relê as permissões (a dona pode ter mudado algo enquanto estava fechado).
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') void useAuthStore.getState().recarregarPermissoes();
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {

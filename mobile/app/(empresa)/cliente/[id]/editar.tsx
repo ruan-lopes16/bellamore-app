@@ -22,6 +22,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useClienteDetalhe } from '@/hooks/useClientes';
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
 import { aniversarioParaGravar, nomeClienteValido, partesAniversario, parseEndereco, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
@@ -68,6 +69,15 @@ export default function EditarCliente() {
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
   const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
+  const podeEditar = pode('clientes.editar');
+
+  // Sem permissão (ex.: deep link), volta com aviso em vez de abrir o formulário.
+  useEffect(() => {
+    if (podeEditar) return;
+    Alert.alert('Sem permissão', 'Você não tem permissão para editar cliente.');
+    router.back();
+  }, [podeEditar]);
 
   const { data: cliente } = useClienteDetalhe(id);
 

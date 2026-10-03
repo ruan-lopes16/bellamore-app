@@ -32,7 +32,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { useDashboard } from '@/hooks/useDashboard';
 import { useNotificacoes } from '@/hooks/useNotificacoes';
-import { temPermissao } from '@/lib/permissions';
+import { usePermissoes } from '@/lib/permissions';
 import TiltCard from '@/components/TiltCard';
 import { SparkLinha } from '@/components/SparkLinha';
 import { rotuloMesAno, horaBRT, rotuloDataHoraBRT } from '@shared/periodos';
@@ -104,11 +104,11 @@ const C = {
 
 export default function Dashboard() {
   const insets = useSafeAreaInsets();
-  const { user, empresaAtiva, isOwner: isOwnerStore, roleAtivo } = useAuthStore();
-  const role = isOwnerStore ? 'owner' : (roleAtivo ?? 'profissional');
-  const podeVerEstoque = temPermissao(role, 'gerenciar_estoque');
-  const podeVerFinanceiro = temPermissao(role, 'ver_resumo_financeiro');
-  const podeFecharComanda = temPermissao(role, 'fechar_comanda');
+  const { user, empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
+  const podeVerEstoque = pode('estoque.acessar');
+  const podeVerFinanceiro = pode('financeiro.ver');
+  const podeFecharComanda = pode('comanda.fechar');
   const [mesSolicitado, setMesSolicitado] = useState<string | null>(null);
 
   const {

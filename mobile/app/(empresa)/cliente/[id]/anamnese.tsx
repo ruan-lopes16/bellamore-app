@@ -21,6 +21,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { useClienteDetalhe } from '@/hooks/useClientes';
 import {
   ANAMNESE_VAZIA, normalizarAnamnese, ehRestricao, PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
@@ -75,6 +76,15 @@ export default function Anamnese() {
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
   const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
+  const podeEditarAnamnese = pode('anamnese.editar');
+
+  // Edição da ficha só com 'anamnese.editar'; sem ela, volta com aviso.
+  useEffect(() => {
+    if (podeEditarAnamnese) return;
+    Alert.alert('Sem permissão', 'Você não tem permissão para editar a ficha de anamnese.');
+    router.back();
+  }, [podeEditarAnamnese]);
 
   const { data: cliente } = useClienteDetalhe(id);
   const [respostas, setRespostas] = useState<AnamneseRespostas>(ANAMNESE_VAZIA);

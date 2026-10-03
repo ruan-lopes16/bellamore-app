@@ -23,8 +23,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useRelatorios } from '@/hooks/useRelatorios';
-import { useAuthStore } from '@/stores/authStore';
-import { temPermissao } from '@/lib/permissions';
+import { usePermissoes } from '@/lib/permissions';
 import {
   PERIODOS_RELATORIO, ROTULO_COMPARACAO, rotuloDoPeriodo, hojeBRT, rotuloDataBR, chaveDiaBRT, type PeriodoRelatorio,
 } from '@shared/periodos';
@@ -272,8 +271,8 @@ export default function Relatorios() {
   const [aba, setAba] = useState<AbaRelatorio>('financeiro');
   const r = useRelatorios(periodo, opcoes, aba);
   const { resumo, clientes, servicos, profissionais, mesesComFechamento, atual, isLoading, isError, refetch } = r;
-  const { isOwner, roleAtivo } = useAuthStore();
-  const podePagar = temPermissao(isOwner ? 'owner' : (roleAtivo ?? 'profissional'), 'ver_comissoes_todas');
+  const { pode } = usePermissoes();
+  const podePagar = pode('comissoes.pagar');
   const rotuloAtual = rotuloDoPeriodo(periodo, atual);
 
   const [fontsLoaded] = useFonts({

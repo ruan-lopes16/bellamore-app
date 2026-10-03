@@ -34,6 +34,7 @@ import {
   type AgendamentoCompleto, type ProfissionalAgenda, type BloqueioAgenda,
 } from '@/hooks/useAgenda';
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { agendarLembretesLocais } from '@/lib/notifications';
 import { motivoBloqueioLabel, bloqueioNoInstante } from '@shared/bloqueios';
 import { BloqueioModal } from '@/components/BloqueioModal';
@@ -207,10 +208,9 @@ function SlotVazio({ hora, dia, bloqueado }: { hora: number; dia: Date; bloquead
 
 export default function Agenda() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, user, roleAtivo, isOwner } = useAuthStore();
-  // `(empresa)` já barra o acesso por rota; o `?? 'profissional'` só alinha
-  // o branch (inalcançável) de null com o do hook useAgenda.ts.
-  const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const { empresaAtiva, user } = useAuthStore();
+  const { pode } = usePermissoes();
+  const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
 
   const [diaSelecionado, setDiaSelecionado] = useState(new Date());
   const [mesRef, setMesRef] = useState(new Date());
@@ -589,7 +589,7 @@ export default function Agenda() {
                   )}
                   {(bloqueiosPorHora[hora] ?? []).map((b) => {
                     const podeRemover =
-                      meuRole === 'owner' || meuRole === 'gestor'
+                      podeAprovarBloqueios
                       || (b.situacao === 'pendente' && b.criado_por === user?.id);
                     return (
                       <View key={b.id} style={{
@@ -628,7 +628,7 @@ export default function Agenda() {
       <BloqueioModal
         key={diaSelecionado.toISOString()}
         visible={modalBloqueio}
-        podeAprovarBloqueios={meuRole === 'owner' || meuRole === 'gestor'}
+        podeAprovarBloqueios={podeAprovarBloqueios}
         meuUserId={user?.id ?? ''}
         meuNome={user?.nome ?? 'Você'}
         membros={profissionais.map((p) => ({ id: p.id, nome: p.nome }))}
