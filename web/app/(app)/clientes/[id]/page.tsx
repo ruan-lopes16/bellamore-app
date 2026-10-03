@@ -16,6 +16,7 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { buscarTodasPaginas } from '@shared/paginacao';
+import { mensagemErroBanco } from '@shared/erros';
 import {
   aniversarioParaGravar, nomeClienteValido, parseEndereco, serializarEndereco,
   partesAniversario, diasNoMes, idadeCliente,
@@ -758,7 +759,7 @@ export default function ClientePerfilPage() {
       observacoes,
     }).eq('id', id).select('id');
     setSalvandoInfo(false);
-    if (error) { setErroInfo(error.message); return; }
+    if (error) { setErroInfo(mensagemErroBanco(error, 'editar cliente')); return; }
     if (!atualizadas || atualizadas.length === 0) { setErroInfo('Sem permissão para editar esta cliente.'); return; }
     setCliente(prev => prev ? {
       ...prev,
@@ -778,8 +779,9 @@ export default function ClientePerfilPage() {
   }
 
   async function confirmarArquivar() {
-    await supabase.from('clientes').update({ ativo: false }).eq('id', id);
+    const { data, error } = await supabase.from('clientes').update({ ativo: false }).eq('id', id).select('id');
     setConfirmArquivar(false);
+    if (error || !data || data.length === 0) { setErroExcluir(mensagemErroBanco(error ?? { code: '42501' }, 'arquivar cliente')); return; }
     router.push('/clientes');
   }
 

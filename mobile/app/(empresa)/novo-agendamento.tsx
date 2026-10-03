@@ -37,6 +37,7 @@ import SuccessCheck from '@/components/SuccessCheck';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { maskPhone } from '@shared/mascaras';
 import { nomeClienteValido } from '@shared/clientes';
+import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -264,7 +265,7 @@ export default function NovoAgendamento() {
       telefone: novoClienteTelefone.trim() || null,
     }).select('id, nome, telefone').single();
     setSalvandoCliente(false);
-    if (errNova || !nova) { Alert.alert('Erro', errNova?.message ?? 'Não foi possível cadastrar a cliente.'); return; }
+    if (errNova || !nova) { Alert.alert('Erro', mensagemErroBanco(errNova, 'cadastrar cliente')); return; }
 
     queryClient.invalidateQueries({ queryKey: ['clientes'] });
     setClienteSelecionado({ id: nova.id, nome: nova.nome, telefone: nova.telefone });

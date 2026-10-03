@@ -31,6 +31,7 @@ import { useClienteDetalhe, type ClienteTag } from '@/hooks/useClientes';
 import { descreverServicos } from '@shared/atendimento-detalhe';
 import { toWhatsApp } from '@shared/mascaras';
 import { idadeCliente, formatarAniversario, parseEndereco } from '@shared/clientes';
+import { mensagemErroBanco } from '@shared/erros';
 import { supabase } from '@/lib/supabase';
 import {
   normalizarAnamnese, restricoesAnamnese, anamnesePreenchida, ehRestricao,
@@ -168,8 +169,8 @@ export default function ClientePerfil() {
 
   async function arquivar() {
     setModalRemover(false);
-    const { error } = await supabase.from('clientes').update({ ativo: false }).eq('id', id);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    const { data, error } = await supabase.from('clientes').update({ ativo: false }).eq('id', id).select('id');
+    if (error || !data || data.length === 0) { Alert.alert('Erro', mensagemErroBanco(error ?? { code: '42501' }, 'arquivar cliente')); return; }
     qc.invalidateQueries({ queryKey: ['clientes'] });
     router.back();
   }
