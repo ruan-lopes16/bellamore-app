@@ -14,8 +14,7 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ExportButton } from '@/components/ExportButton';
 import { CategoriaPicker } from '@/components/CategoriaPicker';
 import { CategoriasManagerModal } from '@/components/CategoriasManagerModal';
-import { temPermissao } from '@/lib/permissions';
-import type { PerfilRole } from '@/types';
+import { usePermissoes } from '@/components/PermissoesProvider';
 import {
   resolverCategoriaServico, bgDaCor,
   type CategoriaCustom, type CategoriaResolvida,
@@ -576,7 +575,6 @@ export default function ServicosPage() {
   const [categorias,  setCategorias]  = useState<CategoriaCustom[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [empresaId,   setEmpresaId]   = useState<string | null>(null);
-  const [role,        setRole]        = useState<string | null>(null);
   const [modal,       setModal]       = useState<ModalState | null>(null);
   const [gerenciarCategorias, setGerenciarCategorias] = useState(false);
   const [colapsos,    setColapsos]    = useState<Set<string>>(new Set(CATEGORIAS.map(c => c.key)));
@@ -584,7 +582,8 @@ export default function ServicosPage() {
   const [toastErro,     setToastErro]     = useState('');
   const [toastSucesso,  setToastSucesso]  = useState('');
 
-  const podeGerenciar = temPermissao((role ?? 'profissional') as 'owner' | PerfilRole, 'gerenciar_servicos');
+  const { pode } = usePermissoes();
+  const podeGerenciar = pode('servicos.gerenciar');
 
   function toggleColapso(key: string) {
     setColapsos(prev => {
@@ -598,11 +597,10 @@ export default function ServicosPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id, role')
+      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
       setEmpresaId(membro.empresa_id);
-      setRole(membro.role);
       const [{ data: servs }, { data: cats }] = await Promise.all([
         supabase.from('servicos').select('*')
           .eq('empresa_id', membro.empresa_id).order('categoria').order('nome'),

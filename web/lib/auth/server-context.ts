@@ -1,6 +1,8 @@
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { carregarMinhasPermissoes, papelDeRole } from '@shared/permissoes-consultas';
+import type { PermissoesUsuario } from '@shared/permissoes';
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -17,6 +19,8 @@ export type AppContext = {
   user: { id: string };
   empresaId: string;
   role: string | null;
+  isOwner: boolean;
+  permissoes: PermissoesUsuario;
   empresa: AppEmpresaContext;
 };
 
@@ -52,11 +56,16 @@ export const getAppContext = cache(async (): Promise<AppContext> => {
     const empresa = membro.empresa as unknown as AppEmpresaContext | null;
     if (!empresa) redirect('/criar-empresa');
 
+    const isOwner = membro.role === 'owner';
+    const permissoes = await carregarMinhasPermissoes(supabase, membro.empresa_id, isOwner, papelDeRole(membro.role));
+
     return {
       supabase,
       user: { id: user.id },
       empresaId: membro.empresa_id,
       role: membro.role ?? null,
+      isOwner,
+      permissoes,
       empresa,
     };
   } catch (err) {

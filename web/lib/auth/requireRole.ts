@@ -1,10 +1,7 @@
 import { redirect } from 'next/navigation';
-import type { PerfilRole } from '@/types';
-import { temPermissao, rotaInicial, type Permissao } from '@/lib/permissions';
+import { pode, type Acesso, type PermissoesUsuario } from '@/lib/permissions';
 
-export async function exigirPermissao(role: string | null, permissao: Permissao) {
-  const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
-  if (!temPermissao(efetivo, permissao)) {
-    redirect(rotaInicial(efetivo));
-  }
+/** Redireciona para o Dashboard (liberado a todos) quando a pessoa não tem o acesso. */
+export function exigirAcesso(permissoes: PermissoesUsuario, acesso: Acesso): void {
+  if (!pode(permissoes, acesso)) redirect('/dashboard');
 }

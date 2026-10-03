@@ -29,8 +29,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { temPermissao } from '@/lib/permissions';
-import type { PerfilRole } from '@/types';
+import { usePermissoes } from '@/components/PermissoesProvider';
 
 const supabase = createClient();
 
@@ -82,6 +81,7 @@ function fmtData(d: string) {
 // ── Página ────────────────────────────────────────────────────
 
 export default function NotificacoesPage() {
+  const { pode } = usePermissoes();
 
   const [loading,       setLoading]       = useState(true);
   const [alertas,       setAlertas]       = useState<Alerta[]>([]);
@@ -98,13 +98,13 @@ export default function NotificacoesPage() {
       if (!user) return;
 
       const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id, role')
+        .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
 
       const empId = membro.empresa_id;
       setEmpresaId(empId);
-      const podeVerEstoque = temPermissao((membro.role ?? 'profissional') as 'owner' | PerfilRole, 'gerenciar_estoque');
+      const podeVerEstoque = pode('estoque.acessar');
 
       const hoje      = new Date();
       const hojeStr   = hoje.toISOString().slice(0, 10);

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createAdmin } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
-import { podeAtribuirRole } from '@/lib/permissions';
+import { podeAtribuirRole, pode } from '@/lib/permissions';
+import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
 
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -54,6 +55,11 @@ export async function POST(req: NextRequest) {
       .eq('ativo', true)
       .single();
     if (!membroReq) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const permsReq = await carregarPermissoesDoMembro(adminClient, empresaId, requesterId);
+    if (!permsReq || !pode(permsReq, 'equipe.gerenciar')) {
+      return NextResponse.json({ error: 'Você não tem permissão para gerenciar a equipe.' }, { status: 403 });
+    }
 
     const roleSolicitado: 'gestor' | 'profissional' = role === 'gestor' ? 'gestor' : 'profissional';
     if (!podeAtribuirRole(membroReq.role as 'owner' | 'gestor' | 'profissional', roleSolicitado)) {
@@ -170,6 +176,11 @@ export async function PATCH(req: NextRequest) {
     if (!alvoMembro) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const adminClient = createAdminClient();
+    const permsReq = await carregarPermissoesDoMembro(adminClient, alvoMembro.empresa_id, user.id);
+    if (!permsReq || !pode(permsReq, 'equipe.gerenciar')) {
+      return NextResponse.json({ error: 'Você não tem permissão para gerenciar a equipe.' }, { status: 403 });
+    }
+
     const { error } = await adminClient.from('users').update({
       nome:     nome.trim(),
       telefone: telefone?.trim() || null,

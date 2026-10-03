@@ -1,48 +1,6 @@
 import type { PerfilRole } from '@/types';
-
-export type Permissao =
-  | 'ver_financeiro_sensivel'
-  | 'ver_despesas'
-  | 'ver_resumo_financeiro'
-  | 'ver_todos_agendamentos'
-  | 'ver_proprios_agendamentos'
-  | 'gerenciar_profissionais'
-  | 'gerenciar_servicos'
-  | 'ver_servicos'
-  | 'gerenciar_produtos'
-  | 'gerenciar_estoque'
-  | 'gerenciar_pacotes'
-  | 'ver_comissoes_todas'
-  | 'ver_propria_comissao'
-  | 'ver_todos_clientes'
-  | 'ver_anamnese'
-  | 'fechar_comanda'
-  | 'configurar_empresa'
-  | 'gerenciar_vendas';
-
-const PERMISSOES: Record<'owner' | PerfilRole, Permissao[]> = {
-  owner: [
-    'ver_financeiro_sensivel', 'ver_despesas', 'ver_resumo_financeiro',
-    'ver_todos_agendamentos', 'ver_proprios_agendamentos',
-    'gerenciar_profissionais', 'gerenciar_servicos', 'ver_servicos', 'gerenciar_produtos',
-    'gerenciar_estoque', 'gerenciar_pacotes', 'ver_comissoes_todas', 'ver_propria_comissao',
-    'ver_todos_clientes', 'ver_anamnese', 'fechar_comanda', 'configurar_empresa',
-    'gerenciar_vendas',
-  ],
-  gestor: [
-    'ver_despesas', 'ver_resumo_financeiro',
-    'ver_todos_agendamentos', 'ver_proprios_agendamentos',
-    'gerenciar_profissionais', 'gerenciar_servicos', 'ver_servicos', 'gerenciar_produtos',
-    'gerenciar_estoque', 'gerenciar_pacotes', 'ver_comissoes_todas', 'ver_propria_comissao',
-    'ver_todos_clientes', 'ver_anamnese', 'fechar_comanda',
-    'gerenciar_vendas',
-  ],
-  profissional: ['ver_proprios_agendamentos', 'ver_propria_comissao', 'ver_anamnese', 'fechar_comanda', 'ver_servicos'],
-};
-
-export function temPermissao(role: PerfilRole | 'owner', permissao: Permissao): boolean {
-  return PERMISSOES[role]?.includes(permissao) ?? false;
-}
+export { pode } from '@shared/permissoes';
+export type { Acesso, PermissoesUsuario, ChavePermissao } from '@shared/permissoes';
 
 export function rotaInicial(role: PerfilRole | 'owner'): string {
   switch (role) {
@@ -53,6 +11,7 @@ export function rotaInicial(role: PerfilRole | 'owner'): string {
   }
 }
 
+/** Mudar/atribuir papel é fixo (fora do catálogo): gestora só convida profissional. */
 export function podeAtribuirRole(
   quemConvida: 'owner' | PerfilRole,
   roleAlvo: 'gestor' | 'profissional',
