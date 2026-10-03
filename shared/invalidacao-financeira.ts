@@ -22,9 +22,14 @@ export const CHAVES_FINANCEIRO = [
   'agendamentos-hoje',
   'rel-dados',
   'rel-sumidos',
+  'rel-comissoes',
   'comissoes-pendentes',
   'comissoes-gestor',
   'comandas-nao-fechadas',
+  'despesas-vencendo',
+  'dash-reconquista',
+  'prof-comissoes',
+  'prof-kpis-dia',
 ] as const;
 
 /** O mínimo de um QueryClient (TanStack Query) que esta função usa. */

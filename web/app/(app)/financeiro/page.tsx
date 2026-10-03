@@ -25,7 +25,8 @@ import { avancarComEnter } from '@/lib/formNav';
 import { KpisFinanceiroSkeleton, GraficosDespesasSkeleton } from './FinanceiroSkeleton';
 import { format, addMonths, subMonths, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, templatesRecorrentesParaLancar, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, proximaParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra, recorrentesParaLancarNoMes, montarLancamentosRecorrentes, textoRecorrentesPendentes, type DespesaRecorrenteTemplate } from '@shared/despesas';
+import { carregarHistoricoRecorrentesMensais, lancarRecorrentesMensais } from '@shared/despesas-consultas';
 import {
   somaDevolucoesPorRetirada, saldoEmprestimo, saldoDevedorTotal,
   statusParcela, montarRetiradaSociaInsert, montarDevolucaoInsert,
@@ -62,7 +63,7 @@ type Despesa = {
 };
 type TopServico = { nome: string; quantidade: number; receita: number; percentual: number };
 type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentual: number };
-type RecorrenteTemplate = { descricao: string; categoria?: string; valor: number; periodicidade?: string; data_vencimento?: string; recorrencia_ate?: string; parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number };
+type RecorrenteTemplate = DespesaRecorrenteTemplate;
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -1077,14 +1078,8 @@ export default function FinanceiroPage() {
           .eq('empresa_id', empId)
           .or(filtroDespesasDoMes(periodo))
           .order('status').order('data_vencimento'),
-        // Histórico de despesas mensais recorrentes (para auto-lançamento robusto)
-        supabase.from('despesas')
-          .select('descricao, categoria, valor, periodicidade, data_vencimento, recorrencia_ate, parcela_atual, total_parcelas, valor_total_compra')
-          .eq('empresa_id', empId).eq('recorrente', true).eq('periodicidade', 'mensal')
-          .lt('data_vencimento', periodo.startDate)   // somente meses passados
-          .order('data_vencimento', { ascending: false })
-          .limit(5000),  // teto explicito: a contagem derivada (calcularParcelaDerivada) depende
-                          // da linha mais antiga de cada serie estar presente no historico
+        // Histórico das recorrentes mensais (paginado, regra única de shared)
+        carregarHistoricoRecorrentesMensais(supabase, empId, periodo.startDate),
         // Lista de taxas de cancelamento do mês (pendentes + pagas)
         supabase.from('taxas_cancelamento')
           .select('*, cliente:clientes(nome)')
@@ -1111,7 +1106,7 @@ export default function FinanceiroPage() {
 
       // Erro em qualquer consulta direta aborta a carga: sem isso, despesas do mês
       // viram [] e o auto-lançamento proporia duplicar todas as recorrentes.
-      for (const r of [despLista, recMesAnt, taxasLista, reservaLista]) {
+      for (const r of [despLista, taxasLista, reservaLista]) {
         if (r.error) throw r.error;
       }
 
@@ -1127,14 +1122,10 @@ export default function FinanceiroPage() {
       setTaxasReserva((reservaLista.data ?? []) as TaxaReserva[]);
       setDespesas((despLista.data ?? []) as Despesa[]);
 
-      // Auto-lançamento robusto: pega o template mais recente por (descricao+categoria),
-      // independente de quantos meses foram pulados, ignorando recorrências já
-      // encerradas e as que já existem no mês atual. Composição coberta por teste em
-      // shared/despesas.ts::templatesRecorrentesParaLancar — não reordenar sem testes.
-      const todasMensais = (recMesAnt.data ?? []) as RecorrenteTemplate[];
-      const despAtual = (despLista.data ?? []) as { descricao: string; categoria?: string }[];
-      const chavesMesAtual = new Set(despAtual.map(d => `${d.descricao}||${d.categoria ?? ''}`));
-      setRecorrentesParaLancar(templatesRecorrentesParaLancar(todasMensais, chavesMesAtual, periodo.startDate));
+      // Auto-lançamento: regra única (shared/despesas). Só chega aqui se a lista
+      // de despesas do mês veio sem erro — com erro, nada é proposto.
+      const todasMensais = recMesAnt;
+      setRecorrentesParaLancar(recorrentesParaLancarNoMes(todasMensais, (despLista.data ?? []) as Despesa[], periodo.startDate));
       setHistoricoMensal(todasMensais);
 
       setRetiradasTodas(retiradasDados.rows as RetiradaSocia[]);
@@ -1155,36 +1146,18 @@ export default function FinanceiroPage() {
   function recarregar() { if (empresaId) carregar(empresaId, mesRef); }
 
   async function lancarRecorrentes() {
-    if (!empresaId || erroCarga || recorrentesParaLancar.length === 0) return;
+    if (!empresaId || erroCarga || loading || lancandoRec || recorrentesParaLancar.length === 0) return;
     setLancandoRec(true);
-    await supabase.from('despesas').insert(
-      recorrentesParaLancar.map(r => ({
-        empresa_id:      empresaId,
-        descricao:       r.descricao,
-        categoria:       r.categoria ?? null,
-        valor:           r.valor_total_compra != null && r.total_parcelas != null
-          ? dividirValorCompra(r.valor_total_compra, r.total_parcelas).valorBase
-          : r.valor,
-        recorrente:      true,
-        periodicidade:   r.periodicidade ?? 'mensal',
-        data_vencimento: (() => {
-          // Preserva o dia do template, mas força o ano/mês atual visualizado
-          const dia = r.data_vencimento ? parseInt(r.data_vencimento.slice(8, 10)) : 1;
-          const ano  = mesRef.getFullYear();
-          const mes  = mesRef.getMonth(); // 0-based
-          // Clamp: dia 31 em fevereiro → último dia do mês
-          const ultimo = new Date(ano, mes + 1, 0).getDate();
-          return format(new Date(ano, mes, Math.min(dia, ultimo)), 'yyyy-MM-dd');
-        })(),
-        recorrencia_ate: r.recorrencia_ate ?? null,
-        total_parcelas:  r.total_parcelas ?? null,
-        parcela_atual:   r.total_parcelas != null && r.parcela_atual != null && r.data_vencimento
-          ? proximaParcelaAtual(r.parcela_atual, r.total_parcelas, r.data_vencimento, mesRef.getFullYear(), mesRef.getMonth() + 1)
-          : null,
-        valor_total_compra: r.valor_total_compra ?? null,
-        status:          'pendente',
-      }))
-    );
+    const chaveMes = chaveDoMesExibido(mesRef);
+    const linhas = montarLancamentosRecorrentes(recorrentesParaLancar, empresaId, chaveMes);
+    try {
+      // Reconsulta o mês antes de inserir e descarta as que já existem (toque duplo / app em paralelo).
+      const { inseridas, jaExistiam } = await lancarRecorrentesMensais(supabase, empresaId, chaveMes, linhas);
+      alert(`${inseridas} despesa${inseridas !== 1 ? 's' : ''} lançada${inseridas !== 1 ? 's' : ''}.`
+        + (jaExistiam > 0 ? ` ${jaExistiam} já estava${jaExistiam !== 1 ? 'm' : ''} lançada${jaExistiam !== 1 ? 's' : ''}.` : ''));
+    } catch (e) {
+      alert(`Erro ao lançar as despesas recorrentes: ${(e as Error).message}`);
+    }
     setLancandoRec(false);
     setRecorrentesParaLancar([]);
     recarregar();
@@ -1473,7 +1446,7 @@ export default function FinanceiroPage() {
             <div className="flex items-center gap-3 px-5 py-3 bg-amber-soft border-b border-amber/20">
               <RefreshCw size={14} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
               <p className="text-xs text-amber font-semibold flex-1">
-                {recorrentesParaLancar.length} despesa{recorrentesParaLancar.length !== 1 ? 's' : ''} recorrente{recorrentesParaLancar.length !== 1 ? 's' : ''} do mês anterior não {recorrentesParaLancar.length !== 1 ? 'foram lançadas' : 'foi lançada'}.
+                {textoRecorrentesPendentes(recorrentesParaLancar.length)}
               </p>
               <button onClick={lancarRecorrentes} disabled={lancandoRec}
                 className="flex-shrink-0 text-xs font-bold text-amber hover:underline disabled:opacity-50">

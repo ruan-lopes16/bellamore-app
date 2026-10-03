@@ -137,17 +137,16 @@ describe('C2/C3 — comissão neutra + sem Funil', () => {
   });
 });
 
-describe('C1/C2/C3 mobile — Relatórios (no-op: padrões inexistentes no Expo)', () => {
-  // O relatorios.tsx do Expo é um design mais simples: ProfissionalRow não
-  // mostra comissão (logo não há cor de alerta a trocar), não existe card
-  // "Funil de atendimentos", e não há gráfico de barras verticais de evolução
-  // (ServicoRow usa barra horizontal por %, que funciona). Nada a mudar.
+describe('C1/C2/C3 mobile — Relatórios', () => {
+  // O app agora mostra a comissão por profissional na aba Equipe (mesma regra do web),
+  // sempre em cor neutra e sem o card "Funil de atendimentos".
   const src = read('../mobile/app/(empresa)/relatorios.tsx');
   it('não tem card Funil de atendimentos', () => {
     expect(src).not.toContain('Funil de atendimentos');
   });
-  it('ProfissionalRow não renderiza linha de comissão', () => {
-    expect(src).not.toMatch(/Comiss[ãa]o:\s*\{/);
+  it('comissão por profissional vem da regra única e sem cor de alerta', () => {
+    expect(src).toContain('p.comissao > 0');
+    expect(src).not.toContain('text-pink-500');
   });
 });
 

@@ -33,7 +33,7 @@ describe('web Financeiro usa os números únicos de shared', () => {
     expect(existsSync(join(raiz, 'web/lib/financeiro/periodo-mensal.ts'))).toBe(false);
   });
   it('checa .error das consultas diretas e zera o estado na falha', () => {
-    expect(src).toContain('[despLista, recMesAnt, taxasLista, reservaLista]');
+    expect(src).toContain('[despLista, taxasLista, reservaLista]');
     expect(src).toContain('if (r.error) throw r.error;');
     const catchBloco = src.slice(src.indexOf('} catch (e) {'));
     expect(catchBloco.slice(0, 700)).toContain('setKpis(KPIS_ZERADOS)');

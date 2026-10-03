@@ -19,7 +19,7 @@ describe('mobile invalidarFinanceiro', () => {
   });
 
   it('cada chave existe de fato em algum hook do mobile', () => {
-    const hooks = ['useFinanceiro', 'useDashboard', 'useRelatorios', 'useComissoesGestor']
+    const hooks = ['useFinanceiro', 'useDashboard', 'useProfissional', 'useRelatorios', 'useComissoesGestor']
       .map(h => ler('mobile', 'hooks', `${h}.ts`)).join('\n');
     for (const k of CHAVES_FINANCEIRO) expect(hooks).toContain(`'${k}'`);
   });
@@ -36,10 +36,10 @@ describe('mobile invalidarFinanceiro', () => {
 
 describe('web Relatórios: pagar comissão e carga', () => {
   const src = ler('web', 'app', '(app)', 'relatorios', 'page.tsx');
-  it('atualiza dados.comissoes (KPI) e reverte só os ids não confirmados', () => {
+  it('atualiza dados.comissoes (KPI) só com os ids confirmados pelo banco', () => {
     expect(src).toContain('comissoes: prev.comissoes.map');
     expect(src).toContain('ids.filter(id => !confirmados.has(id))');
-    expect(src).toContain("marcar(naoConfirmados, 'pendente')");
+    expect(src).toContain("marcar(r.confirmados, 'pago')");
   });
   it('descarta respostas velhas e bloqueia exportação com erro', () => {
     expect(src).toContain('const req = ++reqRef.current');
@@ -64,12 +64,13 @@ describe('mobile: dashboard, sumidas, período personalizado, gráfico vazio', (
   it('dashboard mostra — fora do sucesso', () => {
     const d = ler('mobile', 'app', '(empresa)', 'dashboard.tsx');
     expect(d).toContain("financeiroPronto ? formatBRL(receitaMes) : '—'");
-    expect(d).toContain("financeiroPronto ? formatBRL(receitaHoje) : '—'");
+    expect(d).toContain("hojePronto ? formatBRL(receitaHoje) : '—'");
     expect(d).not.toContain('{formatBRL(comissoesPendentes.total)}');
   });
   it('sumidas ignora cliente nulo e mostra — enquanto carrega', () => {
     const h = ler('mobile', 'hooks', 'useRelatorios.ts');
-    expect(h).toContain('a.cliente_id && !ultimo.has(a.cliente_id)');
+    expect(h).toContain('carregarUltimasVisitas(');
+    expect(ler('shared', 'dashboard-consultas.ts')).toContain('a.cliente_id && !mapa.has(a.cliente_id)');
     expect(h).toContain('sumidos: sumidosQ.data,');
     expect(ler('mobile', 'app', '(empresa)', 'relatorios.tsx')).toContain("clientes?.sumidos == null ? '—'");
   });

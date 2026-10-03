@@ -21,10 +21,8 @@ describe('web Relatórios usa períodos e números únicos de shared', () => {
     expect(src).not.toMatch(/\.slice\(0,\s*7\)/);
   });
   it('deltas vs período anterior (bruto, atendimentos, ticket)', () => {
-    expect(src).toContain('variacaoPercentual(kpis.bruto, kpisAnt.bruto)');
-    expect(src).toContain('variacaoPercentual(kpis.atendimentos, kpisAnt.atendimentos)');
-    expect(src).toContain('variacaoPercentual(kpis.ticketMedio, kpisAnt.ticketMedio)');
-    expect(src).toContain('ROTULO_COMPARACAO[periodo]');
+    expect(src).toContain('cartoesKpiRelatorio(kpis, kpisAnt');
+    expect(readFileSync(join(__dirname, '..', '..', '..', 'shared', 'relatorios.ts'), 'utf8')).toContain('ROTULO_COMPARACAO[o.periodo]');
   });
   it('"Única visita" virou "Novas" (retorno = atendida antes do período)', () => {
     expect(src).not.toContain('Única visita');

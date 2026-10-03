@@ -200,18 +200,25 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   const perdidos = cancelados + faltas;
   const baseComparecimento = concluidos.length + faltas;
 
+  // Lucro e líquido a partir das partes JÁ arredondadas: a conta que a tela
+  // mostra (bruto − cartão − comissões − despesas) fecha no centavo.
+  const brutoR = arredondar(bruto);
+  const cartaoR = arredondar(taxasCartao);
+  const comissoesR = arredondar(comissoes);
+  const despesasR = arredondar(despesas);
+
   return {
     receitaServicos: arredondar(receitaServicos),
     receitaVendas: arredondar(receitaVendas),
     receitaTaxasCancelamento: arredondar(receitaTaxasCancelamento),
     receitaTaxasReserva: arredondar(receitaTaxasReserva),
-    bruto: arredondar(bruto),
-    taxasCartao: arredondar(taxasCartao),
-    liquidoAposTaxas: arredondar(bruto - taxasCartao),
-    comissoes: arredondar(comissoes),
+    bruto: brutoR,
+    taxasCartao: cartaoR,
+    liquidoAposTaxas: arredondar(brutoR - cartaoR),
+    comissoes: comissoesR,
     comissoesPendentes: arredondar(comissoesPendentes),
-    despesas: arredondar(despesas),
-    lucro: arredondar(bruto - taxasCartao - comissoes - despesas),
+    despesas: despesasR,
+    lucro: arredondar(brutoR - cartaoR - comissoesR - despesasR),
     atendimentos: concluidos.length,
     atendimentosFaturaveis: faturaveis.length,
     ticketMedio: faturaveis.length > 0 ? arredondar(receitaServicos / faturaveis.length) : 0,

@@ -29,12 +29,14 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { addMonths, subMonths, format, isSameMonth, startOfMonth, endOfMonth } from 'date-fns';
+import { addMonths, subMonths, format, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useQueryClient } from '@tanstack/react-query';
 import { rotuloMesCurto, somarMeses } from '@shared/periodos';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { variacaoPercentual } from '@shared/kpis-financeiros';
+import { textoRecorrentesPendentes } from '@shared/despesas';
+import { CalendarioMesFinanceiro } from '@/components/CalendarioMesFinanceiro';
 
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
@@ -1336,6 +1338,7 @@ function ModalEditarDespesa({
 export default function Financeiro() {
   const insets = useSafeAreaInsets();
   const [mesRef, setMesRef] = useState(new Date());
+  const [calendarioAberto, setCalendarioAberto] = useState(false);
   const isHoje = isSameMonth(mesRef, new Date());
   const [despesaSelecionada, setDespesaSelecionada] = useState<DespesaItem | null>(null);
   const [despesaParaEditar,  setDespesaParaEditar]  = useState<DespesaItem | null>(null);
@@ -1348,6 +1351,7 @@ export default function Financeiro() {
   const qc = useQueryClient();
   const {
     resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, isError, erroKpis, refetch,
+    recorrentesParaLancar, lancarRecorrentes, lancandoRecorrentes,
     isOwner, retiradas, retiradasDevs, aDonaDeve, retiradasPeriodo,
   } = useFinanceiro(mesRef);
   const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
@@ -1462,51 +1466,15 @@ export default function Financeiro() {
           </View>
         </MotiView>
 
-        {/* ── Seletor de mês ── */}
-        <MotiView
-          from={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 350, delay: 60 }}
-          style={{ marginHorizontal: 24, marginBottom: 16 }}
-        >
-          <View style={{
-            backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-            borderRadius: 14, padding: 10, paddingHorizontal: 14,
-            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-            shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-          }}>
-            <TouchableOpacity
-              onPress={() => setMesRef((m) => subMonths(m, 1))}
-              style={{
-                width: 28, height: 28, borderRadius: 8,
-                borderWidth: 1, borderColor: C.border,
-                alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg,
-              }}
-            >
-              <ChevronLeft size={14} color={C.text2} strokeWidth={2.5} />
-            </TouchableOpacity>
-
-            <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>
-                {format(mesRef, 'MMMM yyyy', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
-              </Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
-                {format(startOfMonth(mesRef) as any, "dd/MM")} – {format(endOfMonth(mesRef) as any, "dd/MM")}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              onPress={() => setMesRef((m) => addMonths(m, 1))}
-              style={{
-                width: 28, height: 28, borderRadius: 8,
-                borderWidth: 1, borderColor: C.border,
-                alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg,
-              }}
-            >
-              <ChevronRight size={14} color={C.text2} strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
-        </MotiView>
+        {/* ── Seletor de mês + calendário (mesma grade do web) ── */}
+        <CalendarioMesFinanceiro
+          mes={mesRef}
+          aberto={calendarioAberto}
+          proximoDesabilitado={false}
+          onAlternar={() => setCalendarioAberto(a => !a)}
+          onMesAnterior={() => setMesRef(m => subMonths(m, 1))}
+          onProximoMes={() => setMesRef(m => addMonths(m, 1))}
+        />
 
         {/* ── Erro ao carregar: nunca mostrar zeros no lugar dos números ── */}
         {isError && (
@@ -1522,6 +1490,34 @@ export default function Financeiro() {
               {(erroKpis as Error | null)?.message ?? 'Falha ao buscar alguns dados'} · Toque para tentar de novo
             </Text>
           </TouchableOpacity>
+        )}
+
+        {/* ── Recorrentes do mês anterior não lançadas (mesma regra do web) ── */}
+        {!isError && recorrentesParaLancar.length > 0 && (
+          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.2)', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <RefreshCw size={14} color={C.amber} strokeWidth={2} />
+            <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.amber }}>
+              {textoRecorrentesPendentes(recorrentesParaLancar.length)}
+            </Text>
+            <TouchableOpacity
+              disabled={lancandoRecorrentes}
+              onPress={async () => {
+                try {
+                  const { inseridas, jaExistiam } = await lancarRecorrentes();
+                  Alert.alert(
+                    'Despesas recorrentes',
+                    `${inseridas} despesa${inseridas !== 1 ? 's' : ''} lançada${inseridas !== 1 ? 's' : ''}.`
+                      + (jaExistiam > 0 ? ` ${jaExistiam} já estava${jaExistiam !== 1 ? 'm' : ''} lançada${jaExistiam !== 1 ? 's' : ''}.` : ''),
+                  );
+                } catch (e) { Alert.alert('Erro ao lançar as despesas recorrentes', (e as Error).message); }
+              }}
+              style={{ backgroundColor: C.amber, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, opacity: lancandoRecorrentes ? 0.6 : 1 }}
+            >
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: '#fff' }}>
+                {lancandoRecorrentes ? 'Lançando...' : 'Lançar agora'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* ── Resumo ── */}

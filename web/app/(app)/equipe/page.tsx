@@ -9,7 +9,12 @@ import { ExportButton } from '@/components/ExportButton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format } from 'date-fns';
+import Link from 'next/link';
+import { hojeBRT, limitesMes } from '@shared/periodos';
+import { pendentesPorProfissional, MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
+import { carregarComissoesPendentes } from '@shared/kpis-financeiros-consultas';
+import { pagarComissoes } from '@shared/comissoes-consultas';
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
@@ -33,7 +38,10 @@ type Profissional = {
   user: { id: string; nome: string; telefone?: string; email?: string };
   total_mes: number;
   atendimentos_mes: number;
+  /** Pendentes do MÊS ATUAL (Brasília): é o que "Pagar" marca. */
   comissao_pendente: number;
+  comissao_pendente_anterior: number;
+  ids_pendentes_mes: string[];
 };
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -479,7 +487,7 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             </span>
             {temPendente && !expandido && (
               <span style={{ display: 'inline-flex', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 6, background: 'rgba(217,119,6,0.12)', color: '#B45309' }}>
-                <Secret>{fmtBRL(prof.comissao_pendente)}</Secret> pendente
+                <Secret>{fmtBRL(prof.comissao_pendente)}</Secret> pendente no mês
               </span>
             )}
           </div>
@@ -531,12 +539,18 @@ function ProfCard({ prof, podeAlterarRole, onEditInfo, onToggle, onPagar, onAlte
             <button onClick={handlePagar} disabled={pagando}
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, height: 40, borderRadius: 14, fontSize: 12, fontWeight: 700, cursor: pagando ? 'default' : 'pointer', transition: 'all 0.15s', border: 'none', background: pagando ? 'var(--color-bg2)' : '#B45309', color: pagando ? 'var(--color-ink4)' : '#fff', fontFamily: 'var(--font-sans)', marginBottom: 10, opacity: pagando ? 0.7 : 1 }}>
               <CheckCircle2 size={14} strokeWidth={2.5}/>
-              {pagando ? 'Registrando...' : <>Pagar <Secret>{fmtBRL(prof.comissao_pendente)}</Secret></>}
+              {pagando ? 'Registrando...' : <>Pagar <Secret>{fmtBRL(prof.comissao_pendente)}</Secret> do mês</>}
             </button>
           )}
 
+          {prof.ativo && prof.comissao_pendente_anterior > 0 && (
+            <Link href="/comissoes" style={{ display: 'block', fontSize: 11, color: '#B45309', marginBottom: 10, fontFamily: 'var(--font-sans)' }}>
+              + <Secret>{fmtBRL(prof.comissao_pendente_anterior)}</Secret> de meses anteriores — pague em Comissões
+            </Link>
+          )}
+
           {/* Comissão em dia */}
-          {prof.ativo && !temPendente && (
+          {prof.ativo && !temPendente && prof.comissao_pendente_anterior === 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 14, background: 'var(--color-green-soft)', marginBottom: 12, fontSize: 11.5, color: 'var(--color-green)', fontWeight: 600 }}>
               <CheckCircle2 size={13} strokeWidth={2.5}/>
               Comissão em dia
@@ -599,7 +613,7 @@ export default function EquipePage() {
   async function carregarEquipe(empId: string) {
     setLoading(true);
 
-    const { data: membros } = await supabase
+    const { data: membros, error: erroMembros } = await supabase
       .from('empresa_membros')
       .select('id, user_id, role, percentual_comissao, tipo_contrato, ativo, created_at, user:users(id, nome, telefone, email)')
       .eq('empresa_id', empId)
@@ -607,40 +621,40 @@ export default function EquipePage() {
       .order('ativo', { ascending: false })
       .order('created_at');
 
-    const inicio = startOfMonth(new Date()).toISOString();
-    const fim    = endOfMonth(new Date()).toISOString();
+    if (erroMembros) {
+      alert(`Erro ao carregar a equipe: ${erroMembros.message}`);
+      setLoading(false);
+      return;
+    }
 
-    const [{ data: ags }, { data: comsPend }] = await Promise.all([
-      supabase.from('agendamentos')
-        .select('profissional_id, valor')
-        .eq('empresa_id', empId)
-        .eq('status', 'concluido')
-        .gte('data_hora_inicio', inicio)
-        .lte('data_hora_inicio', fim),
-      supabase.from('comissoes')
-        .select('profissional_id, valor_comissao')
-        .eq('empresa_id', empId)
-        .eq('status', 'pendente'),
-    ]);
-
-    const stats: Record<string, { total: number; count: number }> = {};
-    ((ags ?? []) as { profissional_id: string; valor: number }[]).forEach(a => {
-      if (!stats[a.profissional_id]) stats[a.profissional_id] = { total: 0, count: 0 };
-      stats[a.profissional_id].total += Number(a.valor);
-      stats[a.profissional_id].count += 1;
-    });
-
-    const pendMap: Record<string, number> = {};
-    ((comsPend ?? []) as { profissional_id: string; valor_comissao: number }[]).forEach(c => {
-      pendMap[c.profissional_id] = (pendMap[c.profissional_id] ?? 0) + Number(c.valor_comissao);
-    });
-
-    setProfs(((membros ?? []) as any[]).map(m => ({
-      ...m,
-      total_mes:         stats[m.user_id]?.total ?? 0,
-      atendimentos_mes:  stats[m.user_id]?.count ?? 0,
-      comissao_pendente: pendMap[m.user_id]   ?? 0,
-    })));
+    // Mês atual em Brasília: é o "período exibido" da Equipe (Pagar = pendentes dele).
+    const mesAtual = limitesMes(hojeBRT().slice(0, 7));
+    try {
+      const [rAgs, pendentes] = await Promise.all([
+        supabase.from('agendamentos').select('profissional_id, valor')
+          .eq('empresa_id', empId).eq('status', 'concluido')
+          .gte('data_hora_inicio', mesAtual.startIso).lte('data_hora_inicio', mesAtual.endIso),
+        carregarComissoesPendentes(supabase, empId),
+      ]);
+      if (rAgs.error) throw new Error(rAgs.error.message);
+      const stats: Record<string, { total: number; count: number }> = {};
+      ((rAgs.data ?? []) as { profissional_id: string; valor: number }[]).forEach(a => {
+        if (!stats[a.profissional_id]) stats[a.profissional_id] = { total: 0, count: 0 };
+        stats[a.profissional_id].total += Number(a.valor);
+        stats[a.profissional_id].count += 1;
+      });
+      const pend = pendentesPorProfissional(pendentes, mesAtual);
+      setProfs(((membros ?? []) as any[]).map(m => ({
+        ...m,
+        total_mes:                  stats[m.user_id]?.total ?? 0,
+        atendimentos_mes:           stats[m.user_id]?.count ?? 0,
+        comissao_pendente:          pend[m.user_id]?.valorDoPeriodo ?? 0,
+        comissao_pendente_anterior: pend[m.user_id]?.valorAnterior ?? 0,
+        ids_pendentes_mes:          pend[m.user_id]?.idsDoPeriodo ?? [],
+      })));
+    } catch (e) {
+      alert(`Erro ao carregar a equipe: ${(e as Error).message}`);
+    }
     setLoading(false);
   }
 
@@ -681,15 +695,14 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
     setEditandoInfo(null);
   }
 
-  async function pagarComissoes(profUserId: string) {
-    if (!empresaId) return;
-    setProfs(prev => prev.map(p => p.user_id === profUserId ? { ...p, comissao_pendente: 0 } : p));
-    const { error } = await supabase.from('comissoes')
-      .update({ status: 'pago' })
-      .eq('empresa_id', empresaId)
-      .eq('profissional_id', profUserId)
-      .eq('status', 'pendente');
-    if (error) await carregarEquipe(empresaId);
+  /** Pagar = só as pendentes do MÊS ATUAL (decisão do dono); as anteriores ficam para a tela Comissões. */
+  async function pagarComissoesDoMes(prof: Profissional) {
+    if (!empresaId || prof.ids_pendentes_mes.length === 0) return;
+    const r = await pagarComissoes(supabase, empresaId, prof.ids_pendentes_mes);
+    if (r.naoConfirmados.length > 0) {
+      alert(r.erro ? `Erro ao registrar o pagamento: ${r.erro}` : MENSAGEM_PAGAMENTO_PARCIAL);
+    }
+    await carregarEquipe(empresaId);
   }
 
   function onProfSalva(nova: Profissional, mensagem?: string) {
@@ -808,7 +821,7 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
                   podeAlterarRole={meuRole === 'owner' && p.user_id !== meuUserId}
                   onEditInfo={() => setEditandoInfo(p)}
                   onToggle={() => toggleAtivo(p)}
-                  onPagar={() => pagarComissoes(p.user_id)}
+                  onPagar={() => pagarComissoesDoMes(p)}
                   onAlterarRole={() => alterarRole(p)}
                 />
               </div>

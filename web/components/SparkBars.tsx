@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState } from 'react';
+import { geometriaSparkline } from '@shared/dashboard';
 
 export function SparkBars({
   data = [],
@@ -24,35 +25,8 @@ export function SparkBars({
     requestAnimationFrame(tick);
   }, []);
 
-  const padL = 8, padR = 10, padT = 12, padB = 6;
-  const plotW = width - padL - padR;
-  const plotH = height - padT - padB;
-  const baseline = padT + plotH;
-
-  const maxVal = Math.max(...data, 1);
-  const allZero = data.every(v => v === 0);
-  const n = data.length;
-
-  // Monta pontos: sempre começa na origem (0, baseline)
-  const pts: { x: number; y: number }[] = [{ x: padL, y: baseline }];
-
-  if (!allZero && n > 0) {
-    data.forEach((v, i) => {
-      const x = padL + ((i + 1) / n) * plotW;
-      // Interpola de baseline para o valor real conforme o progresso
-      const targetY = baseline - (v / maxVal) * plotH;
-      const y = baseline + (targetY - baseline) * progress;
-      pts.push({ x, y });
-    });
-  } else {
-    // Linha flat no fundo quando não há dados
-    pts.push({ x: padL + plotW, y: baseline });
-  }
-
-  const pathD   = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-  const last    = pts[pts.length - 1];
-  const areaD   = `${pathD} L${last.x.toFixed(1)},${baseline} L${padL},${baseline} Z`;
-  const showDot = progress > 0.05 && !allZero;
+  const { linha: pathD, area: areaD, ultimo: last, vazio } = geometriaSparkline(data, width, height, progress);
+  const showDot = progress > 0.05 && !vazio;
 
   return (
     <svg

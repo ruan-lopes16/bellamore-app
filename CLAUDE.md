@@ -807,6 +807,80 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-01/02 — Paridade Fase 2B (funcionalidades financeiras)
+
+*Escopo: 17 tasks via superpowers:subagent-driven-development (plano em*
+*`docs/superpowers/plans/2026-10-01-paridade-fase2b-funcionalidades-financeiras.md`). Comissões*
+*unificadas (web e app, gestor e profissional), lançamento de despesas recorrentes e calendário do mês*
+*no app, Dashboard completo nas duas plataformas, 7 abas dos Relatórios no app, Sumidas +60d e Taxa de*
+*retorno no web. Tudo pelas mesmas funções de `shared/`, travado por teste cruzado*
+*(`web/tests/unit/paridade-fase2b-cruzada.test.ts`).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; mobile caiu de 8 para 6 erros pré-existentes (`comissoes.tsx` e `relatorios.tsx` reescritos), nenhum novo |
+| UX / Padrões    | 9.0  | Mesmos períodos, abas, cartões e avisos nas duas plataformas; erro/carregamento mostram "—" em vez de zero |
+| Segurança       | 9.0  | Sem migration; consultas novas validadas só com leitura em produção; telas do app checam permissão dentro da tela |
+| Documentação    | 9.0  | JSDoc pt-BR nos módulos novos de `shared/`; plano, inventário e este registro atualizados |
+| Arquitetura     | 9.5  | Listas únicas `cartoesKpiDashboard`, `cartoesKpiRelatorio`, `linhasResumoFinanceiro`; teste cruzado por varredura de código |
+| Performance     | 8.5  | Consultas paginadas; refetch só de consultas ativas; comandas não fechadas e últimas visitas ainda paginam tudo a cada carga |
+| Visual (UI)     | —    | Não executado (sem conta de teste local) |
+| **Completude**  | 8.5  | Funcionalidades entregues; exportação do app fica na Fase 2C |
+| **Proatividade**| 9.0  | Revisões acharam e corrigiram "Pagar" da Equipe, comissões de inativas, aba Avaliações quebrada, corrida de lançamento duplo |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Decisões novas:**
+- "Pagar" = só as pendentes do período exibido, inclusive na Equipe (que paga apenas o mês corrente e mostra "+ R$ X de meses anteriores — pague em Comissões").
+- "Pagar" nunca vira "pago" de forma otimista em nenhuma tela (web Comissões, Equipe, Relatórios; app Comissões, Relatórios): só as linhas que o banco confirmou. O código do plano (Task 14) tinha flip otimista e foi sobrescrito por consistência.
+- Exportação do app = Fase 2C.
+- Períodos de comissão de calendário (dia, semana, mês, trimestre, semestre, ano) com navegação; "próximo" desabilitado em deslocamento 0.
+- Calendário do Financeiro do app igual ao web (`gradeCalendarioMes`).
+- Regras do Dashboard: reconquista 45 dias, despesas vencendo em 7 dias, aniversário 29/02 → 28/02 em ano não bissexto. Reconquista e "Sumidas" ignoram clientes arquivadas (`ativo=false`).
+- Lançamento de recorrentes `lancarRecorrentesMensais(db, empresaId, mesChave, linhas)` reconsulta o mês no banco imediatamente antes de inserir e descarta chaves já existentes (anti duplo lançamento web+app). Sugestão ao dono (exige migration, não feita): índice único eliminaria a corrida residual.
+- Telas do app: permissão dentro da tela (Comissões: `ver_comissoes_todas`) e consultas do Dashboard habilitadas por permissão; refetch só das consultas ativas; navegação de mês com keepPreviousData, nunca mostrando números antigos sob rótulo novo (`!isPlaceholderData`).
+
+**Módulos de `shared/`:** `comissoes.ts`, `comissoes-consultas.ts`, `despesas-consultas.ts`, `dashboard.ts`, `dashboard-consultas.ts`, `relatorios.ts`, `relatorios-consultas.ts`, extensões de `periodos.ts` (períodos de comissão, grade do calendário) e `invalidacao-financeira.ts`. Removidos `somarPeriodoComFechamentos`/`resolveFinanceiroKpis`.
+
+**Bugs corrigidos:**
+- Lançamento de recorrentes do web não checava erro.
+- "Pagar" da Equipe pagava todas as pendentes, de qualquer mês.
+- Comissões de profissional inativa sumiam da tela de gestão.
+- Comissões com limites no fuso do navegador/aparelho (inclusive `useBloqueiosProfissionalDia`, achado pelo teste cruzado).
+- Aba Avaliações do web sempre com erro (embed `empresa_membros(nome)`).
+- Horários do Dashboard web em UTC; badge de despesas da Sidebar em UTC.
+- `.limit(3000)` dos inativos sem paginação.
+- `useDiasProfissional` sem empresa e em horário local.
+- Instantes sem fuso lidos no fuso do aparelho.
+- Lucro com 1 centavo de diferença das partes.
+
+**Conferência em produção (somente leitura):** select de detalhe de comissões, estoque e avaliações executados sem erro. `avaliacoes` tem 0 linhas: o INSERT do web grava `users.id` em `avaliacoes.profissional_id` (FK para `empresa_membros`), então as notas nunca foram salvas — corrigir na fase Agenda.
+
+**Pendências para fases seguintes:**
+- Fase 2C — Exportação no app (PDF/XLSX nas 9 telas, botões de Download hoje mortos) e formatação monetária única em `shared/` (Financeiro do app ainda abrevia "k").
+- Comanda/PDV: pagamento obrigatório, bandeira/parcelas/taxa, valor cobrado gravado, desconto %×R$, erros não conferidos, Vendas avulsas no app.
+- Estoque: produto de venda, categorias/unidades, "baixo" `<=`, saída negativa, Movimentações.
+- Equipe: editar/desativar profissional no app, comissão e `tipo_contrato` no cadastro, convite que zera `percentual_comissao`, pagar pela Equipe no app.
+- Agenda: `weekStartsOn: 1` e limites locais no app; gravação de avaliação (`users.id` x `empresa_membros`).
+- Clientes: segmentação unificada, aniversariantes do mês, lista de sumidas.
+- Serviços/Pacotes; Configurações/Notificações/Papéis: meta mensal editável no app, empresa ativa no web (`.limit(1)` em várias telas).
+
+**Pendências menores (da revisão):**
+- Cards por profissional e componentes da receita arredondados separado do total (soma pode diferir 1 centavo).
+- `normalizarComissao` trata status diferente de pago como pendente (em produção só existem pendente/pago).
+- `carregarEquipe` sem contador de requisição; export do Gestor pode usar dados do período anterior se clicado no meio da carga.
+- Badges da Sidebar sem checar `.error`; comandas sem gate `fechar_comanda`.
+- Alerta de lançamento "0 lançadas" quando tudo já existia merece mensagem própria.
+- Sparkline 200x80 do Dashboard do app pode sobrepor texto em telas estreitas; ~30 rótulos do gráfico do mês em Relatórios podem se sobrepor; badge de delta do hero sem gate por erro; mensagens de erro duplicadas (banner + aba).
+- `resumoAvaliacoes` devolve média sem arredondar (telas formatam); `notaMedia` vazio = null.
+- Testes de fuso dependem de `process.env.TZ`; nomes obsoletos `recMesAnt`/`RecorrenteTemplate` no app.
+
+**Revisão final da branch (opus):** nada Critical; os 5 caminhos de "Pagar" e o lançamento de recorrentes conferidos de ponta a ponta. Corrigido antes do PR (commit d596908):
+- **Bug de dinheiro pré-existente no web (desde antes da 2A):** recorrente paga com atraso no mês seguinte (venc. 30/09, pago 02/10) caía na lista de outubro e fazia o lançamento achar que outubro já existia — o mês seria pulado para sempre (despesa faltando, lucro inflado). `recorrentesParaLancarNoMes` agora considera só o vencimento no mês, igual à reconsulta do servidor. Varredura em produção (somente leitura, 8 recorrentes / 24 lançamentos): nenhum mês pulado até hoje.
+- Comissões da profissional (app) e Início mostravam R$ 0 e "Nenhuma comissão" durante o carregamento → '—'.
+- Pagar dos Relatórios web travado durante a chamada; badge de comissões do menu do app só busca com permissão; delta do hero sem erro; chaves `dash-reconquista`/`prof-comissoes`/`prof-kpis-dia` em `CHAVES_FINANCEIRO`.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

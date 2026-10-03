@@ -1,16 +1,10 @@
 'use client';
 
-import {
-  eachDayOfInterval,
-  endOfMonth,
-  format,
-  isSameDay,
-  isSameMonth,
-  startOfMonth,
-  startOfWeek,
-} from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  chaveDoMesExibido, chaveDiaExibido, gradeCalendarioMes, rotuloIntervaloMes, rotuloMesAno, rotuloDiaExtenso,
+  DIAS_SEMANA_ABREV,
+} from '@shared/periodos';
 
 export type FinanceMonthCalendarProps = {
   month: Date;
@@ -21,22 +15,10 @@ export type FinanceMonthCalendarProps = {
   onNextMonth: () => void;
 };
 
-const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
-
-function monthLabel(month: Date) {
-  return format(month, 'MMMM yyyy', { locale: ptBR });
-}
-
-function monthGrid(month: Date) {
-  const start = startOfWeek(startOfMonth(month), { weekStartsOn: 0 });
-  const end = new Date(start);
-  end.setDate(start.getDate() + 41);
-
-  return eachDayOfInterval({ start, end });
-}
-
 /**
- * Visual-only month calendar for Financeiro; the page still filters by month.
+ * Seletor de mês do Financeiro com calendário (só visual: a tela filtra o mês
+ * inteiro). Grade, rótulos e semana no domingo vêm de @shared/periodos — o app
+ * usa as mesmas funções (mobile/components/CalendarioMesFinanceiro.tsx).
  */
 export function FinanceMonthCalendar({
   month,
@@ -46,10 +28,10 @@ export function FinanceMonthCalendar({
   onPreviousMonth,
   onNextMonth,
 }: FinanceMonthCalendarProps) {
-  const label = monthLabel(month);
-  const labelTitle = label.charAt(0).toUpperCase() + label.slice(1);
-  const rangeLabel = `${format(startOfMonth(month), 'dd/MM')} - ${format(endOfMonth(month), 'dd/MM')}`;
-  const gridDays = monthGrid(month);
+  const chave = chaveDoMesExibido(month);
+  const labelTitle = rotuloMesAno(chave);
+  const rangeLabel = rotuloIntervaloMes(chave);
+  const gridDays = gradeCalendarioMes(chave, chaveDiaExibido(month));
 
   return (
     <div className="flex flex-col items-center mb-6">
@@ -72,7 +54,7 @@ export function FinanceMonthCalendar({
           className="min-h-11 min-w-[180px] px-3 rounded-[14px] text-center hover:bg-bg focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
         >
           <span className="flex items-center justify-center gap-1.5 text-sm font-semibold capitalize text-text">
-            {label}
+            {labelTitle}
             <ChevronDown
               size={14}
               aria-hidden="true"
@@ -101,7 +83,7 @@ export function FinanceMonthCalendar({
             aria-label={`Calendario de ${labelTitle}`}
             className="grid grid-cols-7 gap-1"
           >
-            {WEEKDAYS.map(day => (
+            {DIAS_SEMANA_ABREV.map(day => (
               <div
                 key={day}
                 role="columnheader"
@@ -111,28 +93,23 @@ export function FinanceMonthCalendar({
               </div>
             ))}
 
-            {gridDays.map(day => {
-              const inCurrentMonth = isSameMonth(day, month);
-              const isSelected = isSameDay(day, month);
-
-              return (
-                <div
-                  key={day.toISOString()}
-                  role="gridcell"
-                  aria-label={format(day, "d 'de' MMMM 'de' yyyy", { locale: ptBR })}
-                  aria-current={isSelected ? 'date' : undefined}
-                  data-outside-month={inCurrentMonth ? undefined : 'true'}
-                  className={`relative min-h-11 min-w-11 flex items-center justify-center rounded-xl text-sm font-bold transition
-                    ${isSelected
-                      ? 'bg-primary text-white shadow-sm'
-                      : inCurrentMonth
-                        ? 'text-text-2'
-                        : 'text-text-4 opacity-60'}`}
-                >
-                  {format(day, 'd')}
-                </div>
-              );
-            })}
+            {gridDays.map(c => (
+              <div
+                key={c.dia}
+                role="gridcell"
+                aria-label={rotuloDiaExtenso(c.dia)}
+                aria-current={c.destacado ? 'date' : undefined}
+                data-outside-month={c.foraDoMes ? 'true' : undefined}
+                className={`relative min-h-11 min-w-11 flex items-center justify-center rounded-xl text-sm font-bold transition
+                  ${c.destacado
+                    ? 'bg-primary text-white shadow-sm'
+                    : !c.foraDoMes
+                      ? 'text-text-2'
+                      : 'text-text-4 opacity-60'}`}
+              >
+                {c.numero}
+              </div>
+            ))}
           </div>
         </div>
       )}

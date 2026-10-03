@@ -21,6 +21,7 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { temPermissao, rotaInicial } from '@/lib/permissions';
+import { useResumoComissoesPendentes } from '@/hooks/useDashboard';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -38,8 +39,9 @@ const C = {
 // ── Item de menu ─────────────────────────────────────────────
 
 function MenuItem({
-  icon, label, sublabel, iconBg, iconColor, onPress, danger = false,
+  icon, label, sublabel, iconBg, iconColor, onPress, danger = false, badge,
 }: {
+  badge?: number;
   icon: React.ReactNode;
   label: string;
   sublabel?: string;
@@ -80,6 +82,11 @@ function MenuItem({
           </Text>
         )}
       </View>
+      {!!badge && badge > 0 && (
+        <View style={{ minWidth: 20, height: 20, borderRadius: 10, backgroundColor: C.amber, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: '#fff' }}>{badge > 99 ? '99+' : badge}</Text>
+        </View>
+      )}
       <ChevronRight size={16} color={C.text4} strokeWidth={2} />
     </TouchableOpacity>
   );
@@ -106,6 +113,9 @@ export default function Mais() {
     if (r === 'profissional') return 'Profissional';
     return 'Cliente';
   }
+
+  // Badge do menu = TODAS as pendentes (mesma regra do alerta do Dashboard e do badge da Sidebar web).
+  const { data: pendentes } = useResumoComissoesPendentes(temPermissao(role, 'ver_comissoes_todas'));
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -314,6 +324,16 @@ export default function Mais() {
                 iconBg={C.primarySoft} iconColor={C.accent}
                 onPress={() => router.push('/(empresa)/equipe' as any)}
               />
+              {temPermissao(role, 'ver_comissoes_todas') && (
+                <MenuItem
+                  icon={<DollarSign size={16} color={C.amber} strokeWidth={2} />}
+                  label="Comissões"
+                  sublabel="Repasses da equipe"
+                  iconBg={C.amberSoft} iconColor={C.amber}
+                  badge={pendentes?.quantidade ?? 0}
+                  onPress={() => router.push('/(empresa)/comissoes' as any)}
+                />
+              )}
               <MenuItem
                 icon={<Package size={16} color={C.amber} strokeWidth={2} />}
                 label="Produtos & Estoque"

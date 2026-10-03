@@ -21,10 +21,10 @@ describe('web Dashboard usa os números únicos de shared', () => {
     expect(src).not.toContain('async function buscarTodasPaginas');
   });
   it('lucro do mês compara com o lucro do mês anterior (não com bruto − gastos)', () => {
-    expect(src).toContain('variacaoPercentual(lucro, kpisAnt.lucro)');
+    expect(src).toContain('cartoesKpiDashboard(kpis, kpisAnt');
   });
   it('card "Líquido após taxas" no lugar do antigo "Fat. Líquido" (bruto − comissões)', () => {
-    expect(src).toContain("label: 'Líquido após taxas'");
+    expect(readFileSync(join(__dirname, '..', '..', '..', 'shared', 'dashboard.ts'), 'utf8')).toContain("rotulo: 'Líquido após taxas'");
     expect(src).not.toContain("label: 'Fat. Líquido'");
   });
   it('erros de consulta viram estado de erro visível (nada de zeros silenciosos)', () => {

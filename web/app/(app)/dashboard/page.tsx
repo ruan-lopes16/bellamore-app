@@ -12,14 +12,21 @@ import {
   CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, ChevronLeft, Target,
   UserMinus, Cake, XCircle,
 } from 'lucide-react';
-import { format, differenceInDays } from 'date-fns';
+import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { somaDevolucoesPorRetirada, saldoDevedorTotal } from '@shared/retiradas-socia';
 import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
-import { hojeBRT, limitesMes, limitesDias, somarMeses, somarDias, uniaoLimites } from '@shared/periodos';
+import { hojeBRT, limitesMes, limitesDias, uniaoLimites, rotuloMesAno, horaBRT, rotuloDataHoraBRT } from '@shared/periodos';
+import {
+  navegacaoMesDashboard, clientesParaReconquistar, aniversariantesProximos, resumoComandasNaoFechadas,
+  progressoMetaEmpresa, rotuloProgressoMeta, cartoesKpiDashboard,
+} from '@shared/dashboard';
+import {
+  carregarUltimasVisitas, carregarAniversariantes, carregarDespesasVencendo, carregarComandasNaoFechadas,
+} from '@shared/dashboard-consultas';
 import {
   calcularKpisFinanceiros, variacaoPercentual, receitaAcumuladaPorDia, resumoComissoesPendentes,
-  retiradasDoPeriodo, resultadoAposRetiradas,
+  retiradasDoPeriodo,
 } from '@shared/kpis-financeiros';
 import {
   carregarDadosFinanceiros, carregarComissoesPendentes, carregarRetiradas,
@@ -78,20 +85,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   // Mês em exibição: navegável via ?mes=yyyy-MM, padrão = mês atual, sem ir ao futuro.
   const { mes: mesParam } = await searchParams;
-  const mesAtualKey = hojeStr.slice(0, 7);
-  const mesRefKey = mesParam && /^\d{4}-\d{2}$/.test(mesParam) && mesParam <= mesAtualKey ? mesParam : mesAtualKey;
+  const nav           = navegacaoMesDashboard(mesParam, hojeStr);
+  const mesRefKey     = nav.chave;
   const mesRef        = new Date(`${mesRefKey}-01T12:00:00`);
-  const isMesAtual    = mesRefKey === mesAtualKey;
-  const mesRefLabel   = format(mesRef, "MMMM 'de' yyyy", { locale: ptBR });
-  const paramAnterior = somarMeses(mesRefKey, -1);
-  const paramSeguinte = somarMeses(mesRefKey, 1);
+  const isMesAtual    = nav.isMesAtual;
+  const mesRefLabel   = rotuloMesAno(mesRefKey);
+  const paramAnterior = nav.anterior;
+  const paramSeguinte = nav.seguinte;
 
   const limMes  = limitesMes(mesRefKey);
   const limAnt  = limitesMes(paramAnterior);
   const limHoje = limitesDias(hojeStr, hojeStr);
-  const daqui7  = somarDias(hojeStr, 7);
-
-  const metaMensal = Number(empresa.meta_mensal ?? 0);
 
   // Qualquer falha de consulta vira tela de erro — nunca números zerados apresentados como reais.
   let carga;
@@ -112,17 +116,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         .eq('empresa_id', empresaId).eq('ativo', true),
       supabase.from('v_produtos_estoque_baixo').select('id,nome,estoque_atual,estoque_minimo')
         .eq('empresa_id', empresaId).eq('ativo', true),
-      supabase.from('despesas').select('id,descricao,valor,data_vencimento')
-        .eq('empresa_id', empresaId).eq('status', 'pendente')
-        .gte('data_vencimento', hojeStr).lte('data_vencimento', daqui7).order('data_vencimento'),
-      supabase.from('agendamentos')
-        .select('cliente_id, data_hora_inicio, cliente:clientes!agendamentos_cliente_id_fkey(id, nome)')
-        .eq('empresa_id', empresaId).eq('status', 'concluido')
-        .order('data_hora_inicio', { ascending: false }).limit(3000),
-      supabase.from('clientes')
-        .select('id, nome, data_nascimento, telefone')
-        .eq('empresa_id', empresaId).eq('ativo', true)
-        .not('data_nascimento', 'is', null),
+      carregarDespesasVencendo(supabase, empresaId, hojeStr),
+      carregarUltimasVisitas(supabase, empresaId),
+      carregarAniversariantes(supabase, empresaId),
       // Mês exibido + anterior (comparativo) numa busca só — mesmas linhas do Financeiro.
       carregarDadosFinanceiros(supabase, empresaId, uniaoLimites(limAnt, limMes)),
       // "Fat. hoje" quando o mês exibido não é o atual.
@@ -132,10 +128,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       isOwnerCarga
         ? carregarRetiradas(supabase, empresaId)
         : Promise.resolve({ rows: [] as RetiradaSociaRow[], devs: [] as RetiradaSociaDevolucaoRow[] }),
+      carregarComandasNaoFechadas(supabase, empresaId, new Date().toISOString()),
     ] as const);
 
     // Erro em qualquer consulta direta aborta a carga (sem isso viraria "sem dados").
-    for (const r of [resultado[0], resultado[1], resultado[2], resultado[3], resultado[4], resultado[5]]) {
+    for (const r of [resultado[0], resultado[1], resultado[2]]) {
       if (r.error) throw r.error;
     }
     carga = { resultado, isOwnerCarga };
@@ -160,69 +157,41 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const isOwner = carga.isOwnerCarga;
   const [
-    agendamentosHoje, totalClientes, estoqueBaixo, despPendentes,
-    todasAgsCompletas, clientesComAniversario,
-    dados, dadosDeHoje, comissoesPendentesRows, retiradasDados,
+    agendamentosHoje, totalClientes, estoqueBaixo, despVencendo,
+    ultimasVisitas, clientesComAniversario,
+    dados, dadosDeHoje, comissoesPendentesRows, retiradasDados, comandasRows,
   ] = carga.resultado;
 
   // KPIs — mesmas funções do Financeiro, Relatórios e app mobile.
   const kpis     = calcularKpisFinanceiros(dados, limMes);
   const kpisAnt  = calcularKpisFinanceiros(dados, limAnt);
   const kpisHoje = calcularKpisFinanceiros(dadosDeHoje ?? dados, limHoje);
-  const { bruto, lucro, liquidoAposTaxas } = kpis;
+  const { bruto, lucro } = kpis;
   const pctBruto = variacaoPercentual(bruto, kpisAnt.bruto);
-  const pctLucro = variacaoPercentual(lucro, kpisAnt.lucro);
 
   // Retiradas/empréstimos da dona (owner-only) — linhas ADITIVAS, não mudam o lucro.
   const retiradasMes       = retiradasDoPeriodo(retiradasDados.rows, retiradasDados.devs, limMes);
   const emprestimosAbertos = saldoDevedorTotal(retiradasDados.rows, somaDevolucoesPorRetirada(retiradasDados.devs));
-  const lucroAposRetiradas = resultadoAposRetiradas(lucro, retiradasMes);
 
   const agsHoje       = agendamentosHoje.data ?? [];
   const agsConcluidos = agsHoje.filter(a => a.status === 'concluido');
   const fatHoje       = kpisHoje.bruto;
 
   const estoqueBaixoItems  = estoqueBaixo.data ?? [];
-  const despPendentesItems = despPendentes.data ?? [];
+  const despPendentesItems = despVencendo;
   const totalComPendente   = resumoComissoesPendentes(comissoesPendentesRows).total;
-  const totalComMes        = kpis.comissoes;          // já com fechamento importado
-  const comPendenteMes     = kpis.comissoesPendentes;
-  const totalAlertas       = estoqueBaixoItems.length + despPendentesItems.length + (totalComPendente > 0 ? 1 : 0);
+  // Só quem fecha comanda recebe o alerta (hoje: owner/gestor, que já veem o Dashboard financeiro).
+  const comandas           = temPermissao(efetivo, 'fechar_comanda')
+    ? resumoComandasNaoFechadas(comandasRows)
+    : { quantidade: 0, maisAntiga: null };
+  const totalAlertas       = estoqueBaixoItems.length + despPendentesItems.length + (totalComPendente > 0 ? 1 : 0)
+    + (comandas.quantidade > 0 ? 1 : 0);
 
-  const perdidosMes     = kpis.perdidos;
-  const pctCancelamento = kpis.pctCancelamento;
-
-  // Clientes inativos: última visita há mais de 45 dias
-  const cutoff45 = new Date(Date.now() - 45 * 86400000);
-  const lastVisitMap = new Map<string, { nome: string; lastVisit: string }>();
-  for (const ag of (todasAgsCompletas.data ?? [])) {
-    const c = ag.cliente as any;
-    if (c && !lastVisitMap.has(ag.cliente_id)) {
-      lastVisitMap.set(ag.cliente_id, { nome: c.nome, lastVisit: ag.data_hora_inicio });
-    }
-  }
-  const clientesInativos = Array.from(lastVisitMap.entries())
-    .filter(([, v]) => new Date(v.lastVisit) < cutoff45)
-    .sort((a, b) => new Date(a[1].lastVisit).getTime() - new Date(b[1].lastVisit).getTime())
-    .slice(0, 5)
-    .map(([clienteId, v]) => ({ clienteId, ...v }));
-
-  // Aniversariantes nos próximos 7 dias
-  const todayMidnight = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
-  const aniversariantes = (clientesComAniversario.data ?? [])
-    .map(c => {
-      const parts = (c.data_nascimento as string).split('-');
-      const mes = parseInt(parts[1]) - 1;
-      const dia = parseInt(parts[2]);
-      let bDay = new Date(hoje.getFullYear(), mes, dia);
-      if (bDay < todayMidnight) bDay = new Date(hoje.getFullYear() + 1, mes, dia);
-      const diasAte = Math.round((bDay.getTime() - todayMidnight.getTime()) / 86400000);
-      return { ...c, diasAte, mes, dia };
-    })
-    .filter(c => c.diasAte >= 0 && c.diasAte <= 7)
-    .sort((a, b) => a.diasAte - b.diasAte)
-    .slice(0, 8);
-
+  // Reconquista (inativos > 45 dias) e aniversariantes (7 dias): regras únicas de shared, em Brasília.
+  const clientesInativos = clientesParaReconquistar(ultimasVisitas, hojeStr);
+  const aniversariantes  = aniversariantesProximos(clientesComAniversario, hojeStr);
+  const meta             = progressoMetaEmpresa(bruto, empresa.meta_mensal);
+  const cartoesMes       = cartoesKpiDashboard(kpis, kpisAnt, { isOwner, retiradasMes, emprestimosAbertos, fmt });
 
   // Receita acumulada dia a dia (mês atual: até hoje · mês passado: completo), em Brasília.
   const sparkData = receitaAcumuladaPorDia(dados, limMes, isMesAtual ? hojeStr : limMes.endDate);
@@ -242,7 +211,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
             {mesRefLabel}
           </p>
-          {!isMesAtual ? (
+          {!isMesAtual && paramSeguinte ? (
             <Link href={`/dashboard?mes=${paramSeguinte}`} aria-label="Próximo mês"
               className="flex items-center justify-center rounded-md transition-colors hover:bg-[var(--color-bg2)]"
               style={{ width: 22, height: 22, color: 'var(--color-ink4)' }}>
@@ -311,25 +280,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {/* ── KPIs do mês ── */}
       {/* "Fat. Bruto" saiu daqui: repete o valor do card hero (Receita) logo acima. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4">
-        {[
-          { label: 'Líquido após taxas', value: fmt(liquidoAposTaxas), color: 'var(--color-primary)', delta: null,     sub: null,         icon: Wallet          },
-          { label: 'Lucro do mês',  value: fmt(lucro),       color: lucro >= 0 ? 'var(--color-primary)' : 'var(--color-rose)', delta: pctLucro, sub: isOwner && retiradasMes > 0 ? `Após retiradas ${fmt(lucroAposRetiradas)}` : null, icon: Wallet },
-          { label: 'Comissões',     value: fmt(totalComMes), color: 'var(--color-amber)',   delta: null,     sub: comPendenteMes > 0 ? `${fmt(comPendenteMes)} de ${fmt(totalComMes)} pendente` : 'Em dia', icon: BadgeDollarSign },
-          { label: '% Cancelamento', value: `${pctCancelamento.toFixed(1)}%`, color: 'var(--color-rose)', delta: null, sub: perdidosMes > 0 ? `${perdidosMes} perdido(s)` : null, icon: XCircle },
-          ...(isOwner && emprestimosAbertos > 0 ? [{
-            label: 'A dona deve', value: fmt(emprestimosAbertos), color: 'var(--color-amber)',
-            delta: null as number | null, sub: 'empréstimos em aberto', icon: BadgeDollarSign,
-          }] : []),
-        ].map(({ label, value, color, delta, sub, icon: Icon }, i, arr) => (
-          <div key={label} className={`rounded-2xl p-3 md:p-5 bm-stagger min-w-0 ${
+        {cartoesMes.map(({ id, rotulo, valor, sub, subDestaque, delta, tom }, i, arr) => {
+          const Icon = id === 'cancelamento' ? XCircle : id === 'comissoes' || id === 'donaDeve' ? BadgeDollarSign : Wallet;
+          const color = tom === 'negativo' ? 'var(--color-rose)' : tom === 'alerta' ? 'var(--color-amber)' : 'var(--color-primary)';
+          return (
+          <div key={id} className={`rounded-2xl p-3 md:p-5 bm-stagger min-w-0 ${
             i === arr.length - 1 && arr.length % 2 === 1 ? 'col-span-2 lg:col-span-1' : ''
           }`}
             style={{ '--bm-i': i, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>
             <div className="flex items-start justify-between mb-2 gap-1">
-              <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+              <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 9, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{rotulo}</p>
               <Icon size={12} style={{ color, opacity: 0.7, flexShrink: 0 }} strokeWidth={2} />
             </div>
-            <p className="whitespace-nowrap tabular-nums" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{value}</Secret></p>
+            <p className="whitespace-nowrap tabular-nums" style={{ fontFamily: 'var(--font-sans)', fontSize: 15, fontWeight: 700, color, letterSpacing: '-0.03em', lineHeight: 1 }}><Secret>{valor}</Secret></p>
             {delta !== null && (
               <span className="flex items-center gap-0.5 mt-1.5" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 600, color: delta >= 0 ? 'var(--color-green)' : 'var(--color-rose)' }}>
                 {delta >= 0 ? <ArrowUp size={9} /> : <ArrowDown size={9} />}
@@ -337,10 +300,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               </span>
             )}
             {sub !== null && (
-              <p className="mt-1.5 leading-tight sm:truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: comPendenteMes > 0 && label === 'Comissões' ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: comPendenteMes > 0 && label === 'Comissões' ? 600 : 400 }}><Secret>{sub}</Secret></p>
+              <p className="mt-1.5 leading-tight sm:truncate" style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: subDestaque ? 'var(--color-amber)' : 'var(--color-ink4)', fontWeight: subDestaque ? 600 : 400 }}><Secret>{sub}</Secret></p>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── KPIs do dia ── */}
@@ -363,31 +327,27 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
 
       {/* ── Meta mensal ── */}
-      {metaMensal > 0 && (() => {
-        const pctMeta = Math.min((bruto / metaMensal) * 100, 100);
-        const atingida = bruto >= metaMensal;
-        return (
+      {meta.temMeta && (
           <div className="mb-4 rounded-2xl p-4 md:p-5"
             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' }}>
             <div className="flex items-center gap-2 mb-3">
-              <Target size={13} style={{ color: atingida ? 'var(--color-green)' : 'var(--color-accent)', flexShrink: 0 }} strokeWidth={2}/>
+              <Target size={13} style={{ color: meta.atingida ? 'var(--color-green)' : 'var(--color-accent)', flexShrink: 0 }} strokeWidth={2}/>
               <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.08em', flex: 1 }}>
                 Meta do mês
               </p>
-              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 700, color: atingida ? 'var(--color-green)' : 'var(--color-ink2)' }}>
-                <Secret>{fmt(bruto)} / {fmt(metaMensal)}</Secret>
+              <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 700, color: meta.atingida ? 'var(--color-green)' : 'var(--color-ink2)' }}>
+                <Secret>{fmt(bruto)} / {fmt(Number(empresa.meta_mensal))}</Secret>
               </p>
             </div>
             <div className="relative h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-bg)' }}>
               <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
-                style={{ width: `${pctMeta}%`, background: atingida ? 'var(--color-green)' : 'linear-gradient(90deg, var(--color-primary), var(--color-accent))' }}/>
+                style={{ width: `${meta.percentual}%`, background: meta.atingida ? 'var(--color-green)' : 'linear-gradient(90deg, var(--color-primary), var(--color-accent))' }}/>
             </div>
-            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: atingida ? 'var(--color-green)' : 'var(--color-ink4)', marginTop: 6, fontWeight: atingida ? 700 : 400 }}>
-              <Secret>{atingida ? `Meta atingida! +${fmt(bruto - metaMensal)} acima` : `${pctMeta.toFixed(0)}% concluído · faltam ${fmt(metaMensal - bruto)}`}</Secret>
+            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: meta.atingida ? 'var(--color-green)' : 'var(--color-ink4)', marginTop: 6, fontWeight: meta.atingida ? 700 : 400 }}>
+              <Secret>{rotuloProgressoMeta(meta, fmt)}</Secret>
             </p>
           </div>
-        );
-      })()}
+      )}
 
       {/* ── Ações rápidas ── */}
       <div className="mb-7">
@@ -435,7 +395,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               </div>
               <div className="flex flex-col gap-2">
                 {clientesInativos.map(c => {
-                  const dias = differenceInDays(hoje, new Date(c.lastVisit));
                   return (
                     <Link key={c.clienteId} href={`/clientes/${c.clienteId}`}
                       className="flex items-center gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
@@ -446,7 +405,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                       </div>
                       <div className="flex-1 min-w-0">
                         <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, color: 'var(--color-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</p>
-                        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>Sem visita há {dias} dias</p>
+                        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>Sem visita há {c.diasSemVisita} dias</p>
                       </div>
                       <ChevronRight size={13} style={{ color: 'var(--color-ink4)', flexShrink: 0 }} strokeWidth={2} />
                     </Link>
@@ -473,8 +432,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <div className="flex flex-col gap-2">
                 {aniversariantes.map(c => {
                   const isToday = c.diasAte === 0;
-                  const label = isToday ? '🎂 Hoje!' : c.diasAte === 1 ? 'Amanhã' : `Em ${c.diasAte} dias`;
-                  const dateStr = format(new Date(hoje.getFullYear(), c.mes, c.dia), "dd/MM", { locale: ptBR });
+                  const label = c.rotulo;
+                  const dateStr = `${c.dataAniversario.slice(8, 10)}/${c.dataAniversario.slice(5, 7)}`;
                   return (
                     <Link key={c.id} href={`/clientes/${c.id}`}
                       className="flex items-center gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
@@ -521,7 +480,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           {agsHoje.length > 0 ? (
             <div className="flex flex-col gap-2">
               {agsHoje.map((a: any, i: number) => {
-                const horario = format(new Date(a.data_hora_inicio), 'HH:mm');
+                const horario = horaBRT(a.data_hora_inicio);
                 return (
                   <div key={a.id} className="flex items-center gap-3 p-3 rounded-xl bm-stagger"
                     style={{ '--bm-i': i, '--bm-step': '70ms', background: 'var(--color-bg)', border: '1px solid var(--color-border-soft)' } as React.CSSProperties}>
@@ -599,14 +558,30 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <div className="min-w-0">
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-rose)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.descricao}</p>
                   <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
-                    Vence {format(new Date(d.data_vencimento + 'T12:00:00'), 'dd/MM', { locale: ptBR })} · <Secret>{fmt(Number(d.valor))}</Secret>
+                    Vence {d.data_vencimento.slice(8, 10)}/{d.data_vencimento.slice(5, 7)} · <Secret>{fmt(Number(d.valor))}</Secret>
                   </p>
                 </div>
               </Link>
             ))}
 
+            {comandas.quantidade > 0 && comandas.maisAntiga && (
+              <Link href="/comanda"
+                className="flex items-start gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
+                style={{ background: 'var(--color-rose-soft)', border: '1px solid rgba(201,82,127,0.13)' }}>
+                <Receipt size={13} style={{ color: 'var(--color-rose)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />
+                <div className="min-w-0">
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fontWeight: 700, color: 'var(--color-rose)' }}>
+                    {comandas.quantidade} {comandas.quantidade === 1 ? 'comanda não fechada' : 'comandas não fechadas'}
+                  </p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11, color: 'var(--color-ink3)', marginTop: 1 }}>
+                    Mais antiga: {rotuloDataHoraBRT(comandas.maisAntiga.data_hora_inicio)}
+                  </p>
+                </div>
+              </Link>
+            )}
+
             {totalComPendente > 0 && (
-              <Link href="/equipe"
+              <Link href="/comissoes"
                 className="flex items-start gap-3 p-3 rounded-xl transition-opacity hover:opacity-80"
                 style={{ background: 'var(--color-primary-soft)', border: '1px solid rgba(44,23,80,0.1)' }}>
                 <Wallet size={13} style={{ color: 'var(--color-primary)', flexShrink: 0, marginTop: 1 }} strokeWidth={2} />

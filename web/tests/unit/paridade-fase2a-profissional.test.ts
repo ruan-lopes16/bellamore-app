@@ -35,7 +35,8 @@ describe('dinheiro da profissional igual nas duas plataformas', () => {
   });
   it('resumo do mês confere o erro da consulta (nunca zeros silenciosos)', () => {
     const trecho = hook.slice(hook.indexOf('export function useResumoComissoes'), hook.indexOf('export function useDiasProfissional'));
-    expect(trecho).toContain('if (error) throw error');
+    expect(trecho).toContain('consultaComissoesProfissional(');
+    expect(hook).toContain('carregarComissoesDoPeriodo(');
   });
   it('telas da profissional mostram erro visível e protegem valores com SecretText', () => {
     expect(inicio).toContain('isError');
