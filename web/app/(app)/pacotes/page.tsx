@@ -33,8 +33,8 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { avancarComEnter } from '@/lib/formNav';
-import type { Cliente as ClienteBase, Servico as ServicoBase, PerfilRole } from '@/types';
-import { temPermissao } from '@/lib/permissions';
+import type { Cliente as ClienteBase, Servico as ServicoBase } from '@/types';
+import { usePermissoes } from '@/components/PermissoesProvider';
 import { ExportButton } from '@/components/ExportButton';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -733,11 +733,11 @@ function SessoesModal({
 
 export default function PacotesPage() {
   const [empresaId, setEmpresaId] = useState<string | null>(null);
-  const [role,      setRole]      = useState<string | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [aba,       setAba]       = useState<'catalogo' | 'vendidos' | 'relatorio'>('catalogo');
 
-  const podeGerenciarCatalogo = temPermissao((role ?? 'profissional') as 'owner' | PerfilRole, 'gerenciar_pacotes');
+  const { pode } = usePermissoes();
+  const podeGerenciarCatalogo = pode('pacotes.gerenciar');
 
   // Dados
   const [pacotes,   setPacotes]   = useState<Pacote[]>([]);
@@ -770,9 +770,9 @@ export default function PacotesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data } = await supabase
-        .from('empresa_membros').select('empresa_id, role')
+        .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (data) { setEmpresaId(data.empresa_id); setRole(data.role); }
+      if (data) setEmpresaId(data.empresa_id);
     })();
   }, []);
 
@@ -1129,13 +1129,15 @@ export default function PacotesPage() {
 
                   {/* Ações */}
                   <div className="flex gap-2 pt-2 border-t border-border">
-                    <button
-                      onClick={() => p.ativo && p.servicos.length > 0 && setModalVender(p)}
-                      disabled={!p.ativo || p.servicos.length === 0}
-                      title={p.servicos.length === 0 ? 'Adicione serviços antes de vender' : ''}
-                      className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition disabled:opacity-40">
-                      {p.servicos.length === 0 ? '⚠ Sem serviços' : 'Vender'}
-                    </button>
+                    {pode('pacotes.vender') && (
+                      <button
+                        onClick={() => p.ativo && p.servicos.length > 0 && setModalVender(p)}
+                        disabled={!p.ativo || p.servicos.length === 0}
+                        title={p.servicos.length === 0 ? 'Adicione serviços antes de vender' : ''}
+                        className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition disabled:opacity-40">
+                        {p.servicos.length === 0 ? '⚠ Sem serviços' : 'Vender'}
+                      </button>
+                    )}
                     {podeGerenciarCatalogo && (
                       <>
                         <button onClick={() => setModalPacote(p)}

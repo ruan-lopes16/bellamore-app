@@ -60,6 +60,7 @@ import { carregarUltimasVisitas } from '@shared/dashboard-consultas';
 import { datasDasUltimasVisitas } from '@shared/dashboard';
 import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
 import { Secret, PrivacyToggle } from '@/components/privacy';
+import { usePermissoes } from '@/components/PermissoesProvider';
 
 const supabase = createClient();
 
@@ -221,6 +222,8 @@ function ChartBar({ label, value, maxValue }: { label: string; value: number; ma
 // ── Página principal ──────────────────────────────────────────
 
 export default function RelatoriosPage() {
+  // O UPDATE de `comissoes` no banco exige `comissoes.pagar` (igual ao app e às outras telas de pagar).
+  const podePagarComissoes = usePermissoes().pode('comissoes.pagar');
 
 
   // ── Estado
@@ -463,7 +466,7 @@ export default function RelatoriosPage() {
   // ── Marcar comissões como pagas (optimistic UI) — só as pendentes do período exibido
   const [pagandoId, setPagandoId] = useState<string | null>(null);
   async function marcarComoPago(profissionalId: string) {
-    if (pagandoId) return;
+    if (pagandoId || !podePagarComissoes) return;
     const prof = comissoesPorProf.find(p => p.profissionalId === profissionalId);
     if (!empresaId || !prof) return;
     const ids = prof.idsPendentes;
@@ -1079,7 +1082,7 @@ export default function RelatoriosPage() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {prof.pendente > 0 && (
+                    {prof.pendente > 0 && podePagarComissoes && (
                       <button
                         onClick={() => marcarComoPago(prof.profissionalId)}
                         disabled={pagandoId !== null}

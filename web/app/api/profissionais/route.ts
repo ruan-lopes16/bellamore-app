@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createAdmin } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
-import { podeAtribuirRole } from '@/lib/permissions';
+import { podeAtribuirRole, pode } from '@/lib/permissions';
+import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
+import { podeGerenciarMembro } from '@shared/permissoes';
 
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -54,6 +56,11 @@ export async function POST(req: NextRequest) {
       .eq('ativo', true)
       .single();
     if (!membroReq) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const permsReq = await carregarPermissoesDoMembro(adminClient, empresaId, requesterId);
+    if (!permsReq || !pode(permsReq, 'equipe.gerenciar')) {
+      return NextResponse.json({ error: 'Você não tem permissão para gerenciar a equipe.' }, { status: 403 });
+    }
 
     const roleSolicitado: 'gestor' | 'profissional' = role === 'gestor' ? 'gestor' : 'profissional';
     if (!podeAtribuirRole(membroReq.role as 'owner' | 'gestor' | 'profissional', roleSolicitado)) {
@@ -170,6 +177,24 @@ export async function PATCH(req: NextRequest) {
     if (!alvoMembro) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const adminClient = createAdminClient();
+    const permsReq = await carregarPermissoesDoMembro(adminClient, alvoMembro.empresa_id, user.id);
+    if (!permsReq || !pode(permsReq, 'equipe.gerenciar')) {
+      return NextResponse.json({ error: 'Você não tem permissão para gerenciar a equipe.' }, { status: 403 });
+    }
+
+    // Mesma regra da policy de UPDATE de empresa_membros (083): quem não é a dona só mexe em
+    // profissionais que não sejam ela mesma (nunca na dona, em outra gestora ou no próprio vínculo).
+    const [rDona, rAlvo] = await Promise.all([
+      adminClient.from('empresas').select('owner_id').eq('id', alvoMembro.empresa_id).maybeSingle(),
+      adminClient.from('empresa_membros').select('role')
+        .eq('empresa_id', alvoMembro.empresa_id).eq('user_id', userId).limit(1).maybeSingle(),
+    ]);
+    const alvoEhDona = (rDona.data as { owner_id?: string } | null)?.owner_id === userId;
+    const roleAlvo = alvoEhDona ? 'owner' : ((rAlvo.data as { role?: string } | null)?.role ?? '');
+    if (!podeGerenciarMembro({ isOwner: permsReq.isOwner, userId: user.id }, true, { role: roleAlvo, userId })) {
+      return NextResponse.json({ error: 'Você só pode editar profissionais da equipe (não a dona, outra gestora ou você mesma).' }, { status: 403 });
+    }
+
     const { error } = await adminClient.from('users').update({
       nome:     nome.trim(),
       telefone: telefone?.trim() || null,
@@ -189,7 +214,11 @@ export async function PATCH(req: NextRequest) {
       const { error: errMembro } = await adminClient
         .from('empresa_membros')
         .update(patch)
-        .eq('id', membroId);
+        .eq('id', membroId)
+        .eq('user_id', userId)
+        // Só o vínculo da pessoa conferida acima, na empresa onde a permissão foi conferida
+        // (membroId vem do corpo e não pode apontar para o vínculo de outra pessoa).
+        .eq('empresa_id', alvoMembro.empresa_id);
       if (errMembro) return NextResponse.json({ error: errMembro.message }, { status: 400 });
     }
 

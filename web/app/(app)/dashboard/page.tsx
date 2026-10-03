@@ -1,6 +1,5 @@
 import { getAppContext } from '@/lib/auth/server-context';
-import { temPermissao } from '@/lib/permissions';
-import type { PerfilRole } from '@/types';
+import { pode } from '@/lib/permissions';
 import DashboardProfissionalView from './DashboardProfissionalView';
 import Link from 'next/link';
 import { CountUp } from '@/components/CountUp';
@@ -71,10 +70,9 @@ function StatusChip({ status }: { status: string }) {
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ mes?: string }> }) {
-  const { supabase, empresaId, empresa, user, role } = await getAppContext();
+  const { supabase, empresaId, empresa, user, permissoes } = await getAppContext();
 
-  const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
-  if (!temPermissao(efetivo, 'ver_resumo_financeiro')) {
+  if (!pode(permissoes, 'financeiro.ver')) {
     return <DashboardProfissionalView supabase={supabase} empresaId={empresaId} userId={user.id} />;
   }
 
@@ -181,7 +179,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const despPendentesItems = despVencendo;
   const totalComPendente   = resumoComissoesPendentes(comissoesPendentesRows).total;
   // Só quem fecha comanda recebe o alerta (hoje: owner/gestor, que já veem o Dashboard financeiro).
-  const comandas           = temPermissao(efetivo, 'fechar_comanda')
+  const comandas           = pode(permissoes, 'comanda.fechar')
     ? resumoComandasNaoFechadas(comandasRows)
     : { quantidade: 0, maisAntiga: null };
   const totalAlertas       = estoqueBaixoItems.length + despPendentesItems.length + (totalComPendente > 0 ? 1 : 0)

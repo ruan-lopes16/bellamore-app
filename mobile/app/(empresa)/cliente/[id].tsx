@@ -33,6 +33,7 @@ import { toWhatsApp } from '@shared/mascaras';
 import { idadeCliente, formatarAniversario, parseEndereco } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 import { supabase } from '@/lib/supabase';
+import { usePermissoes } from '@/lib/permissions';
 import {
   normalizarAnamnese, restricoesAnamnese, anamnesePreenchida, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
@@ -161,6 +162,7 @@ export default function ClientePerfil() {
   const insets = useSafeAreaInsets();
   const [aba, setAba] = useState<Aba>('perfil');
   const qc = useQueryClient();
+  const { pode } = usePermissoes();
 
   const { data: cliente, isLoading } = useClienteDetalhe(id);
 
@@ -335,7 +337,10 @@ export default function ClientePerfil() {
               { icon: <Phone size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => cliente.telefone && Linking.openURL(`tel:${cliente.telefone}`) },
               { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => cliente.telefone && Linking.openURL(`https://wa.me/${toWhatsApp(cliente.telefone ?? '')}`) },
               { icon: <CalendarPlus size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Agendar', onPress: () => router.push(`/(empresa)/novo-agendamento?clienteId=${id}` as any) },
-              { icon: <MoreHorizontal size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mais', onPress: () => setModalRemover(true) },
+              // "Mais" só abre arquivar/excluir: some se a pessoa não pode nenhum dos dois.
+              ...((pode('clientes.arquivar') || pode('clientes.excluir'))
+                ? [{ icon: <MoreHorizontal size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mais', onPress: () => setModalRemover(true) }]
+                : []),
             ].map((a) => (
               <TouchableOpacity
                 key={a.label}
@@ -409,7 +414,7 @@ export default function ClientePerfil() {
           borderRadius: 12, padding: 3, flexDirection: 'row',
           shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
         }}>
-          {(['perfil', 'historico', 'anamnese', 'fotos'] as Aba[]).map((a) => (
+          {(['perfil', 'historico', 'anamnese', 'fotos'] as Aba[]).filter((a) => a !== 'anamnese' || pode('anamnese.ver')).map((a) => (
             <TouchableOpacity
               key={a}
               onPress={() => setAba(a)}
@@ -450,11 +455,13 @@ export default function ClientePerfil() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
                   Dados Pessoais
                 </Text>
-                <TouchableOpacity onPress={() => router.push(`/(empresa)/cliente/${id}/editar` as any)}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.accent }}>
-                    Editar
-                  </Text>
-                </TouchableOpacity>
+                {pode('clientes.editar') && (
+                  <TouchableOpacity onPress={() => router.push(`/(empresa)/cliente/${id}/editar` as any)}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.accent }}>
+                      Editar
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
               <InfoRow icon={<Edit3 size={13} color={C.primary} strokeWidth={2} />} label="Nome completo" value={cliente.nome ?? '—'} iconBg={C.primarySoft} iconColor={C.primary} />
               {cliente.telefone && <InfoRow icon={<Phone size={13} color={C.green} strokeWidth={2} />} label="Telefone" value={cliente.telefone} iconBg={C.greenSoft} iconColor={C.green} />}
@@ -477,7 +484,7 @@ export default function ClientePerfil() {
             </View>
 
             {/* Alerta se tiver alertas na anamnese */}
-            {restricoes.length > 0 && (
+            {restricoes.length > 0 && pode('anamnese.ver') && (
               <TouchableOpacity
                 onPress={() => setAba('anamnese')}
                 style={{
@@ -640,7 +647,7 @@ export default function ClientePerfil() {
         )}
 
         {/* ── Aba: Anamnese ── */}
-        {aba === 'anamnese' && (
+        {aba === 'anamnese' && pode('anamnese.ver') && (
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300 }}>
             <View style={{ paddingHorizontal: 24 }}>
               {!temAnamnese ? (
@@ -651,17 +658,19 @@ export default function ClientePerfil() {
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
                     Ficha de anamnese não preenchida
                   </Text>
-                  <TouchableOpacity
-                    onPress={() => router.push(`/(empresa)/cliente/${id}/anamnese` as any)}
-                    style={{
-                      backgroundColor: C.primary, borderRadius: 12,
-                      paddingHorizontal: 20, paddingVertical: 10,
-                    }}
-                  >
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
-                      Preencher agora
-                    </Text>
-                  </TouchableOpacity>
+                  {pode('anamnese.editar') && (
+                    <TouchableOpacity
+                      onPress={() => router.push(`/(empresa)/cliente/${id}/anamnese` as any)}
+                      style={{
+                        backgroundColor: C.primary, borderRadius: 12,
+                        paddingHorizontal: 20, paddingVertical: 10,
+                      }}
+                    >
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
+                        Preencher agora
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ) : (
                 <>
@@ -672,9 +681,11 @@ export default function ClientePerfil() {
                     <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5 }}>
                       Ficha de Anamnese
                     </Text>
-                    <TouchableOpacity onPress={() => router.push(`/(empresa)/cliente/${id}/anamnese` as any)}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.accent }}>Editar</Text>
-                    </TouchableOpacity>
+                    {pode('anamnese.editar') && (
+                      <TouchableOpacity onPress={() => router.push(`/(empresa)/cliente/${id}/anamnese` as any)}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.accent }}>Editar</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   <View style={{
                     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -759,6 +770,7 @@ export default function ClientePerfil() {
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, marginBottom: 14 }}>
               O que você deseja fazer com "{cliente?.nome}"?
             </Text>
+            {pode('clientes.arquivar') && (
             <TouchableOpacity onPress={arquivar}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}>
               <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.amberSoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -769,6 +781,8 @@ export default function ClientePerfil() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>Some das listas, mas o histórico é mantido</Text>
               </View>
             </TouchableOpacity>
+            )}
+            {pode('clientes.excluir') && (
             <TouchableOpacity onPress={pedirExclusao} disabled={excluindo}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, opacity: excluindo ? 0.6 : 1 }}>
               <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.roseSoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -779,6 +793,7 @@ export default function ClientePerfil() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>Apaga para sempre — só é possível sem histórico</Text>
               </View>
             </TouchableOpacity>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>

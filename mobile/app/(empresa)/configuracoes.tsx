@@ -4,7 +4,7 @@ import {
   Alert, ActivityIndicator, StatusBar, Switch,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
@@ -25,8 +25,12 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
+import { SmoothTabs } from '@/components/SmoothTabs';
+import { PermissoesPanel } from '@/components/PermissoesPanel';
 import { supabase } from '@/lib/supabase';
 import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
+import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -74,7 +78,7 @@ function initials(nome: string) {
 // ── Campo de formulário ───────────────────────────────────────
 
 function Campo({
-  label, icon, value, onChange, placeholder, secureTextEntry = false, keyboardType = 'default',
+  label, icon, value, onChange, placeholder, secureTextEntry = false, keyboardType = 'default', editavel = true,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -83,6 +87,8 @@ function Campo({
   placeholder: string;
   secureTextEntry?: boolean;
   keyboardType?: 'default' | 'phone-pad' | 'numeric' | 'decimal-pad';
+  /** false = somente leitura (quem não é a dona vê os dados da empresa, mas não edita). */
+  editavel?: boolean;
 }) {
   return (
     <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border }}>
@@ -100,6 +106,7 @@ function Campo({
           placeholderTextColor={C.text4}
           secureTextEntry={secureTextEntry}
           keyboardType={keyboardType}
+          editable={editavel}
           style={{
             flex: 1,
             fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text,
@@ -116,7 +123,23 @@ export default function Configuracoes() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user, sair, roleAtivo, isOwner: souOwner, selecionarEmpresa } = useAuthStore();
   const qc = useQueryClient();
-  const podeEditarTaxa = souOwner || roleAtivo === 'gestor';
+  const { pode, papel } = usePermissoes();
+  const params = useLocalSearchParams<{ aba?: string; membro?: string }>();
+  // Dados da empresa e horários são fixos da dona; as taxas seguem a chave config.taxas.
+  const ehDona = pode('dona');
+  const podeEditarTaxa = pode('config.taxas');
+  // Abas: Empresa (dona ou quem tem config.taxas), Permissões (dona/gestora), Meu perfil (todos).
+  const veEmpresa = pode('dona') || pode('config.taxas');
+  const vePermissoes = pode('dona') || papel === 'gestor';
+  const abasDisponiveis = [
+    ...(veEmpresa ? [{ key: 'empresa', label: 'Empresa' }] : []),
+    ...(vePermissoes ? [{ key: 'permissoes', label: 'Permissões' }] : []),
+    { key: 'perfil', label: 'Meu perfil' },
+  ];
+  const [abaEscolhida, setAbaEscolhida] = useState<string | null>(null);
+  // Aba pedida pela URL só vale se a pessoa tem permissão; senão cai na primeira disponível.
+  const abaInicial = abasDisponiveis.some(a => a.key === params.aba) ? (params.aba as string) : abasDisponiveis[0].key;
+  const aba = abaEscolhida && abasDisponiveis.some(a => a.key === abaEscolhida) ? abaEscolhida : abaInicial;
 
   // Dados da empresa
   const [nomeEmpresa,  setNomeEmpresa]  = useState(empresaAtiva?.nome ?? '');
@@ -174,10 +197,12 @@ export default function Configuracoes() {
 
   // ── Toggle de dia ─────────────────────────────────────────
   function toggleDia(dia: Dia) {
+    if (!ehDona) return;
     setHorarios((h) => ({ ...h, [dia]: { ...h[dia], aberto: !h[dia].aberto } }));
   }
 
   function setHorarioDia(dia: Dia, campo: 'inicio' | 'fim', val: string) {
+    if (!ehDona) return;
     setHorarios((h) => ({ ...h, [dia]: { ...h[dia], [campo]: val } }));
   }
 
@@ -186,23 +211,32 @@ export default function Configuracoes() {
     if (!empresaAtiva || !user) return;
     setSalvando(true);
 
+    // Empresa: dados e horários só a dona; taxas só com config.taxas (permissão só de tela: o UPDATE de `empresas` no banco
+    // é liberado a dona/gestora — migration 049).
+    const dadosEmpresa = ehDona ? {
+      nome:                 nomeEmpresa.trim(),
+      telefone:             telefoneEmp.trim() || null,
+      endereco:             endereco.trim() || null,
+      cnpj:                 cnpj.trim() || null,
+      horario_funcionamento: horarios,
+    } : {};
+    const taxasEmpresa = podeEditarTaxa ? {
+      taxa_cancelamento_ativa:            taxaAtiva,
+      taxa_cancelamento_modo:             taxaModo,
+      taxa_cancelamento_valor:            parseValorMonetario(taxaValor) ?? 0,
+      taxa_cancelamento_aplica_cancelado: taxaAplicaCancelado,
+      taxa_cancelamento_aplica_faltou:    taxaAplicaFaltou,
+      taxa_reserva_ativa:   reservaAtiva,
+      taxa_reserva_modo:    reservaModo,
+      taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
+    } : {};
+    const payloadEmpresa = { ...dadosEmpresa, ...taxasEmpresa };
+
     const ops: Promise<any>[] = [
-      // Atualiza empresa
-      supabase.from('empresas').update({
-        nome:                 nomeEmpresa.trim(),
-        telefone:             telefoneEmp.trim() || null,
-        endereco:             endereco.trim() || null,
-        cnpj:                 cnpj.trim() || null,
-        horario_funcionamento: horarios,
-        taxa_cancelamento_ativa:            taxaAtiva,
-        taxa_cancelamento_modo:             taxaModo,
-        taxa_cancelamento_valor:            parseValorMonetario(taxaValor) ?? 0,
-        taxa_cancelamento_aplica_cancelado: taxaAplicaCancelado,
-        taxa_cancelamento_aplica_faltou:    taxaAplicaFaltou,
-        taxa_reserva_ativa:   reservaAtiva,
-        taxa_reserva_modo:    reservaModo,
-        taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
-      }).eq('id', empresaAtiva.id),
+      // Atualiza empresa (só se a pessoa pode editar alguma coisa dela)
+      ...(Object.keys(payloadEmpresa).length > 0
+        ? [supabase.from('empresas').update(payloadEmpresa).eq('id', empresaAtiva.id).select('id')]
+        : []),
 
       // Atualiza perfil do usuário
       supabase.from('users').update({
@@ -223,7 +257,12 @@ export default function Configuracoes() {
 
     const erros = results.filter((r) => r.error);
     if (erros.length > 0) {
-      Alert.alert('Erro ao salvar', erros[0].error.message);
+      Alert.alert('Erro ao salvar', mensagemErroBanco(erros[0].error, 'salvar as configurações'));
+      return;
+    }
+    // UPDATE de empresas recusado pelo RLS volta sem erro e sem linha: não finge que salvou.
+    if (Object.keys(payloadEmpresa).length > 0 && (results[0]?.data?.length ?? 0) === 0) {
+      Alert.alert('Erro ao salvar', mensagemErroBanco({ code: '42501' }, 'salvar as configurações da empresa'));
       return;
     }
 
@@ -324,6 +363,18 @@ export default function Configuracoes() {
             </MotiView>
           </LinearGradient>
 
+          {/* ── Abas ── */}
+          <View style={{ marginHorizontal: 24, marginTop: 16 }}>
+            <SmoothTabs tabs={abasDisponiveis} active={aba} onChange={setAbaEscolhida} />
+          </View>
+
+          {aba === 'permissoes' && vePermissoes && empresaAtiva && user && (
+            <View style={{ marginHorizontal: 24, marginTop: 16 }}>
+              <PermissoesPanel empresaId={empresaAtiva.id} meuUserId={user.id} membroInicial={params.membro || undefined} />
+            </View>
+          )}
+
+          {aba === 'empresa' && (<>
           {/* ── Dados da Empresa ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 60 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 20, marginBottom: 10, marginHorizontal: 24 }}>
@@ -335,14 +386,14 @@ export default function Configuracoes() {
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
             }}>
               <Campo label="Nome" icon={<Store size={13} color={C.primary} strokeWidth={1.8} />}
-                value={nomeEmpresa} onChange={setNomeEmpresa} placeholder="Nome do estúdio" />
+                value={nomeEmpresa} onChange={setNomeEmpresa} placeholder="Nome do estúdio" editavel={ehDona} />
               <Campo label="Telefone" icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
-                value={telefoneEmp} onChange={setTelefoneEmp} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
+                value={telefoneEmp} onChange={setTelefoneEmp} placeholder="(00) 00000-0000" keyboardType="phone-pad" editavel={ehDona} />
               <Campo label="Endereço" icon={<MapPin size={13} color={C.primary} strokeWidth={1.8} />}
-                value={endereco} onChange={setEndereco} placeholder="Rua, número — Cidade" />
+                value={endereco} onChange={setEndereco} placeholder="Rua, número — Cidade" editavel={ehDona} />
               <View style={{ borderBottomWidth: 0 }}>
                 <Campo label="CNPJ" icon={<FileText size={13} color={C.primary} strokeWidth={1.8} />}
-                  value={cnpj} onChange={setCnpj} placeholder="00.000.000/0001-00" keyboardType="numeric" />
+                  value={cnpj} onChange={setCnpj} placeholder="00.000.000/0001-00" keyboardType="numeric" editavel={ehDona} />
               </View>
             </View>
           </MotiView>
@@ -380,6 +431,7 @@ export default function Configuracoes() {
                     <Switch
                       value={h.aberto}
                       onValueChange={() => toggleDia(dia)}
+                      disabled={!ehDona}
                       trackColor={{ false: C.border, true: C.green }}
                       thumbColor="#fff"
                       style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
@@ -391,6 +443,7 @@ export default function Configuracoes() {
                         <TextInput
                           value={h.inicio}
                           onChangeText={(v) => setHorarioDia(dia, 'inicio', v)}
+                          editable={ehDona}
                           style={{
                             backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
                             borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
@@ -404,6 +457,7 @@ export default function Configuracoes() {
                         <TextInput
                           value={h.fim}
                           onChangeText={(v) => setHorarioDia(dia, 'fim', v)}
+                          editable={ehDona}
                           style={{
                             backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
                             borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
@@ -559,6 +613,9 @@ export default function Configuracoes() {
             </View>
           </MotiView>
 
+          </>)}
+
+          {aba === 'perfil' && (<>
           {/* ── Minha Conta ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 180 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 20, marginBottom: 10, marginHorizontal: 24 }}>
@@ -651,6 +708,9 @@ export default function Configuracoes() {
             </View>
           </MotiView>
 
+          </>)}
+
+          {aba !== 'permissoes' && (<>
           {/* ── Botão Salvar ── */}
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 380, delay: 240 }}
             style={{ marginHorizontal: 24, marginTop: 20 }}
@@ -677,6 +737,10 @@ export default function Configuracoes() {
             </TouchableOpacity>
           </MotiView>
 
+          </>)}
+
+          {aba === 'perfil' && (
+          <>
           {/* ── Zona de perigo ── */}
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 380, delay: 300 }}
             style={{ marginHorizontal: 24, marginTop: 16 }}
@@ -698,6 +762,8 @@ export default function Configuracoes() {
               </Text>
             </TouchableOpacity>
           </MotiView>
+          </>
+          )}
 
         </ScrollView>
       </View>

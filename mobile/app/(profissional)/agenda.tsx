@@ -463,7 +463,7 @@ export default function AgendaProfissional() {
       <BloqueioModal
         key={diaSelecionado.toISOString()}
         visible={modalBloqueio}
-        role="profissional"
+        podeAprovarBloqueios={false}
         meuUserId={user?.id ?? ''}
         meuNome={user?.nome ?? 'Você'}
         membros={[]}

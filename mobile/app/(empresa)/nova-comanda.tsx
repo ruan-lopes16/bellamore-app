@@ -27,6 +27,9 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
+import { podeMexerNoAgendamento } from '@shared/agendamentos';
+import { mensagemErroBanco } from '@shared/erros';
 import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { useQueryClient } from '@tanstack/react-query';
@@ -115,6 +118,12 @@ type Etapa = 'lista' | 'comanda' | 'sucesso';
 export default function NovaComandaScreen() {
   const insets = useSafeAreaInsets();
   const empresaAtiva = useAuthStore(s => s.empresaAtiva);
+  const meuUserId = useAuthStore(s => s.user?.id ?? '');
+  const { pode } = usePermissoes();
+  const podeOutras = pode('agenda.gerenciar_outras');
+  const podeFechar   = pode('comanda.fechar');
+  const podeDesconto = pode('comanda.desconto');
+  const podeVenderPacote = pode('pacotes.vender');
   const empresaId = empresaAtiva?.id ?? null;
   const qc = useQueryClient();
 
@@ -234,6 +243,7 @@ export default function NovaComandaScreen() {
     const agora = new Date();
     return clientesDia.find(c =>
       c.id !== excluirId &&
+      !temAtendimentoDeOutra(c) &&
       c.agendamentos.some(a => a.status !== 'concluido' || !a.comanda_id) &&
       c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
     ) ?? null;
@@ -249,6 +259,14 @@ export default function NovaComandaScreen() {
     }, 1800);
     return () => clearTimeout(t);
   }, [etapa, proximoCliente]);
+
+  /**
+   * Atendimento de outra profissional sem 'agenda.gerenciar_outras': o banco recusaria o UPDATE
+   * do agendamento no fechamento (e a comanda já teria sido inserida — ficaria órfã). Trava antes.
+   */
+  function temAtendimentoDeOutra(c: ClienteComanda): boolean {
+    return c.agendamentos.some(a => !podeMexerNoAgendamento(a.profissional?.id, meuUserId, podeOutras));
+  }
 
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
@@ -326,7 +344,13 @@ export default function NovaComandaScreen() {
   function removerSplit(idx: number) { setSplits(prev => prev.filter((_, i) => i !== idx)); }
 
   async function fecharComanda() {
-    if (!clienteSel || !empresaId || fechando) return;
+    if (!clienteSel || !empresaId || fechando || !podeFechar) return;
+    // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois
+    // de a comanda já ter sido criada — barra antes de gravar qualquer coisa.
+    if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
+      Alert.alert('Sem permissão', 'Você não tem permissão para vender pacotes. Remova o pacote da comanda para fechar.');
+      return;
+    }
     setFechando(true);
 
     // Barra fechamento duplicado: se algum atendimento desta comanda já ganhou
@@ -422,13 +446,16 @@ export default function NovaComandaScreen() {
 
     const extrasProdutos = extras.filter(i => i.tipo === 'produto' && i.produto_id);
     if (extrasProdutos.length > 0) {
-      await supabase.from('estoque_movimentos').insert(
+      const { error: errEst } = await supabase.from('estoque_movimentos').insert(
         extrasProdutos.map(i => ({
           produto_id: i.produto_id!, empresa_id: empresaId,
           tipo: 'saida', quantidade: i.quantidade,
           motivo: `Produto via comanda — ${i.descricao}`,
+          // Liga a baixa ao atendimento: é o ramo de RLS que deixa a profissional baixar estoque.
+          agendamento_id: agIds[0] ?? null,
         })),
       );
+      if (errEst) Alert.alert('Estoque', mensagemErroBanco(errEst, 'baixar o estoque dos produtos'));
       const totalProdutos = extrasProdutos.reduce((s, i) => s + i.valor * i.quantidade, 0);
       const { data: venda } = await supabase.from('vendas').insert({
         empresa_id: empresaId,
@@ -680,6 +707,8 @@ export default function NovaComandaScreen() {
               // nunca fechar) ainda tem algo a cobrar — não pode travar a
               // linha, senão não existe outro jeito de fechar essa comanda.
               const jaCobrado = cliente.agendamentos.every(a => a.status === 'concluido' && a.comanda_id);
+              const deOutra = temAtendimentoDeOutra(cliente);
+              const travado = jaCobrado || deOutra;
               const ag1 = cliente.agendamentos[0];
               const hue = avatarHue(cliente.nome);
               return (
@@ -688,13 +717,13 @@ export default function NovaComandaScreen() {
                   animate={{ opacity: 1, translateY: 0 }}
                   transition={{ type: 'timing', duration: 300, delay: idx * 60 }}>
                   <TouchableOpacity
-                    onPress={() => !jaCobrado && abrirComanda(cliente)}
-                    disabled={jaCobrado}
+                    onPress={() => !travado && abrirComanda(cliente)}
+                    disabled={travado}
                     activeOpacity={0.7}
                     style={{
                       backgroundColor: C.surface, borderRadius: 16, padding: 14,
                       borderWidth: 1, borderColor: C.border,
-                      opacity: jaCobrado ? 0.5 : 1,
+                      opacity: travado ? 0.5 : 1,
                     }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <LinearGradient colors={[`hsl(${hue},60%,50%)`, `hsl(${hue},50%,35%)`]}
@@ -708,6 +737,11 @@ export default function NovaComandaScreen() {
                         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }} numberOfLines={1}>
                           {fmtHora(ag1.data_hora_inicio)} · {ag1.servico?.nome ?? '—'}
                         </Text>
+                        {deOutra && !jaCobrado && (
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }} numberOfLines={1}>
+                            Atendimento de outra profissional
+                          </Text>
+                        )}
                       </View>
                       {jaCobrado ? (
                         <Check size={16} color={C.green} strokeWidth={2.5} />
@@ -867,7 +901,7 @@ export default function NovaComandaScreen() {
                     ))}
                   </>
                 )}
-                {pacotesCat.length > 0 && clienteSel && clienteSel.id !== '__sem__' && (
+                {podeVenderPacote && pacotesCat.length > 0 && clienteSel && clienteSel.id !== '__sem__' && (
                   <>
                     <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8, marginBottom: 4 }}>Pacotes</Text>
                     {pacotesCat.map(p => (
@@ -884,6 +918,7 @@ export default function NovaComandaScreen() {
           </View>
 
           {/* ── Desconto ── */}
+          {podeDesconto && (
           <View>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Desconto</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: C.border }}>
@@ -898,6 +933,7 @@ export default function NovaComandaScreen() {
               />
             </View>
           </View>
+          )}
 
           {/* ── Resumo ── */}
           <View style={{ backgroundColor: C.bg, borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
@@ -927,7 +963,7 @@ export default function NovaComandaScreen() {
           <View>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Pagamento</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
-              {METODOS.map(m => (
+              {METODOS.filter(m => podeDesconto || m.key !== 'cortesia').map(m => (
                 <TouchableOpacity key={m.key} onPress={() => adicionarSplit(m.key)}
                   activeOpacity={0.7}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 14, backgroundColor: m.bg, borderWidth: 1, borderColor: C.border }}>
@@ -995,14 +1031,19 @@ export default function NovaComandaScreen() {
 
         {/* Footer — Fechar comanda */}
         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: insets.bottom + 12, paddingTop: 12, backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border }}>
+          {!podeFechar && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
+              Você não tem permissão para fechar comanda.
+            </Text>
+          )}
           <TouchableOpacity
             onPress={fecharComanda}
-            disabled={fechando || itens.length === 0}
+            disabled={fechando || itens.length === 0 || !podeFechar}
             activeOpacity={0.8}
             style={{
               height: 52, borderRadius: 16, backgroundColor: C.green,
               alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
-              opacity: (fechando || itens.length === 0) ? 0.5 : 1,
+              opacity: (fechando || itens.length === 0 || !podeFechar) ? 0.5 : 1,
             }}>
             {fechando ? (
               <ActivityIndicator color="#fff" />

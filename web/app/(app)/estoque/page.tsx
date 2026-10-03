@@ -39,6 +39,7 @@ import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
+import { mensagemErroBanco } from '@shared/erros';
 import {
   format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO,
 } from 'date-fns';
@@ -171,13 +172,14 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
       const { data, error } = await supabase.from('produtos')
         .update(payload).eq('id', ed.id).eq('empresa_id', empresaId).select().single();
       setSalvando(false);
-      if (error) { setErro(error.message); return; }
+      // PGRST116 = nenhuma linha voltou do UPDATE (RLS sem estoque.acessar).
+      if (error) { setErro(mensagemErroBanco(error.code === 'PGRST116' ? { code: '42501' } : error, 'salvar este produto')); return; }
       onSalvo(data as Produto);
     } else {
       const { data, error } = await supabase.from('produtos')
         .insert(payload).select().single();
       setSalvando(false);
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro(mensagemErroBanco(error, 'cadastrar produto')); return; }
       onSalvo(data as Produto);
     }
   }
@@ -185,14 +187,18 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
   async function excluir() {
     if (!ed) return;
     setExcluindo(true);
-    const { error } = await supabase.from('produtos')
-      .delete().eq('id', ed.id).eq('empresa_id', empresaId);
-    if (error) {
-      // Produto tem movimentações/vendas/comandas vinculadas (FK) — desativa em vez de excluir
-      const { error: errDesativar } = await supabase.from('produtos')
-        .update({ ativo: false }).eq('id', ed.id).eq('empresa_id', empresaId);
+    const { data: apagados, error } = await supabase.from('produtos')
+      .delete().eq('id', ed.id).eq('empresa_id', empresaId).select('id');
+    // Erro = produto tem movimentações/vendas/comandas vinculadas (FK). 0 linhas sem erro = só a
+    // dona apaga (RLS). Nos dois casos desativa em vez de excluir.
+    if (error || !apagados || apagados.length === 0) {
+      const { data: desativados, error: errDesativar } = await supabase.from('produtos')
+        .update({ ativo: false }).eq('id', ed.id).eq('empresa_id', empresaId).select('id');
       setExcluindo(false);
-      if (errDesativar) { setErro(errDesativar.message); return; }
+      if (errDesativar || !desativados || desativados.length === 0) {
+        setErro(mensagemErroBanco(errDesativar ?? { code: '42501' }, 'desativar este produto'));
+        return;
+      }
       setConfirmExcluir(false);
       onExcluido(ed.id);
       return;
@@ -442,7 +448,7 @@ function MovModal({ produto, onClose, onSalvo }: {
       motivo: obs.trim() || null,
     });
     setSalvando(false);
-    if (errMov) { setErro(errMov.message); return; }
+    if (errMov) { setErro(mensagemErroBanco(errMov, 'movimentar o estoque')); return; }
 
     // Mostra confirmação de sucesso antes de fechar o modal
     setSucesso({ tipo, qtd: qtdNum, novoEstoque });

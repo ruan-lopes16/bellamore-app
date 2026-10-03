@@ -54,6 +54,8 @@ import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { agruparValoresPorAgendamento, marcarAgendamentosFechados } from '@shared/comanda';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { usePermissoes } from '@/components/PermissoesProvider';
+import { podeMexerNoAgendamento } from '@shared/agendamentos';
 
 const supabase = createClient();
 
@@ -194,6 +196,13 @@ function gerarTextoRecibo(s: SucessoRecibo): string {
 // ── Componente principal ──────────────────────────────────────
 
 export default function ComandaPage() {
+  const { pode } = usePermissoes();
+  const podeFechar       = pode('comanda.fechar');
+  const podeDesconto     = pode('comanda.desconto');
+  const podeEditarFechada = pode('comanda.editar_fechada');
+  const podeVenderPacote  = pode('pacotes.vender');
+  const podeOutras        = pode('agenda.gerenciar_outras');
+  const [meuUserId,         setMeuUserId]         = useState('');
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
@@ -250,6 +259,7 @@ export default function ComandaPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      setMeuUserId(user.id);
       const { data } = await supabase
         .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
@@ -419,11 +429,20 @@ export default function ComandaPage() {
     [agDia],
   );
 
-  /** Próximo cliente da fila: comanda ainda aberta e horário do atendimento já passou */
+  /**
+   * Atendimento de outra profissional sem `agenda.gerenciar_outras`: o banco recusaria o UPDATE
+   * do agendamento no fechamento (e a comanda já teria sido inserida — ficaria órfã). Trava antes.
+   */
+  function temAtendimentoDeOutra(c: ClienteComanda): boolean {
+    return c.agendamentos.some(a => !podeMexerNoAgendamento(a.profissional?.id, meuUserId, podeOutras));
+  }
+
+  /** Próximo cliente da fila: comanda ainda aberta, horário já passou e que a pessoa pode fechar */
   function proximoClienteAberto(excluirId: string): ClienteComanda | null {
     const agora = new Date();
     return clientesDia.find(c =>
       c.id !== excluirId &&
+      !temAtendimentoDeOutra(c) &&
       c.agendamentos.some(a => a.status !== 'concluido' || !a.comanda_id) &&
       c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
     ) ?? null;
@@ -817,6 +836,12 @@ export default function ComandaPage() {
   async function fecharComanda() {
     if (!clienteSel || !empresaId || fechando) return;
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
+    // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois de a
+    // comanda já ter sido criada — barra antes de gravar qualquer coisa.
+    if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
+      setErro('Você não tem permissão para vender pacotes. Remova o pacote da comanda para fechar.');
+      return;
+    }
     setFechando(true); setErro('');
 
     // 0. Barra fechamento duplicado: se algum atendimento desta comanda já
@@ -939,6 +964,8 @@ export default function ComandaPage() {
           tipo:       'saida',
           quantidade: i.quantidade,
           motivo:     `Produto via comanda — ${i.descricao}`,
+          // Liga a baixa ao atendimento: é o ramo de RLS que deixa a profissional baixar estoque.
+          agendamento_id: agIds[0] ?? null,
         }))
       );
       if (errEst) { setErro(errEst.message); setFechando(false); return; }
@@ -1149,11 +1176,16 @@ export default function ComandaPage() {
               {clientesDia.map(cliente => {
                 const ativo  = clienteSel?.id === cliente.id;
                 const jaFeita = cliente.agendamentos.every(a => a.status === 'concluido');
+                // Comanda já fechada só reabre para quem pode editá-la; senão o card fica sem ação.
+                const deOutra = temAtendimentoDeOutra(cliente);
+                const semAcao = deOutra || (jaFeita ? !podeEditarFechada : !podeFechar);
                 const primeiroAg = cliente.agendamentos[0];
                 return (
                   <button
                     key={cliente.id}
                     onClick={() => jaFeita ? abrirComandaFechada(cliente) : abrirComanda(cliente)}
+                    disabled={semAcao}
+                    title={semAcao ? (deOutra ? 'Atendimento de outra profissional' : jaFeita ? 'Comanda fechada' : 'Sem permissão para fechar comanda') : undefined}
                     className={`w-full text-left rounded-xl p-3 transition-colors border ${
                       ativo
                         ? 'bg-primary-soft border-primary/30'
@@ -1180,7 +1212,9 @@ export default function ComandaPage() {
                       {jaFeita ? (
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <Check size={12} className="text-green" strokeWidth={2.5}/>
-                          <Pencil size={11} className="text-text-4" strokeWidth={2}/>
+                          {podeEditarFechada
+                            ? <Pencil size={11} className="text-text-4" strokeWidth={2}/>
+                            : <span className="text-[10px] font-semibold text-text-4">Comanda fechada</span>}
                         </div>
                       ) : (
                         <ChevronRight size={14} className="text-text-4 flex-shrink-0"/>
@@ -1506,7 +1540,7 @@ export default function ComandaPage() {
                       placeholder="+ Adicionar produto / bebida..."
                     />
                     {/* Vender pacote (requer cliente cadastrado) */}
-                    {clienteSel && clienteSel.id !== '__sem__' && (
+                    {podeVenderPacote && clienteSel && clienteSel.id !== '__sem__' && (
                       <SearchSelect
                         options={pacotesCat.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
                         value=""
@@ -1518,6 +1552,7 @@ export default function ComandaPage() {
                 </section>
 
                 {/* ── Seção: Desconto ── */}
+                {podeDesconto && (
                 <section>
                   <p className="text-xs font-bold text-text-3 uppercase tracking-widest mb-3">
                     Desconto
@@ -1537,6 +1572,7 @@ export default function ComandaPage() {
                     </div>
                   </div>
                 </section>
+                )}
 
                 {/* ── Seção: Resumo de valores ── */}
                 <section className="bg-bg rounded-xl border border-border overflow-hidden">
@@ -1570,7 +1606,7 @@ export default function ComandaPage() {
 
                   {/* Chips de método */}
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {METODOS_PAG.map(({ key, label, icon: Icon, cor, bg }) => (
+                    {METODOS_PAG.filter(m => podeDesconto || m.key !== 'cortesia').map(({ key, label, icon: Icon, cor, bg }) => (
                       <button key={key} onClick={() => adicionarSplit(key)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border text-sm font-semibold transition hover:border-accent"
                         style={{ background: bg, color: cor }}>
@@ -1706,7 +1742,8 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || !empresaId || (total > 0.01 && (splits.length === 0 || restante > 0.01))}
+                  disabled={fechando || itens.length === 0 || !empresaId || (total > 0.01 && (splits.length === 0 || restante > 0.01)) || (!comandaExistenteId && !podeFechar)}
+                  title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {fechando ? (

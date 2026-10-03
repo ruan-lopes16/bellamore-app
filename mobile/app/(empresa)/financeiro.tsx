@@ -40,6 +40,7 @@ import { CalendarioMesFinanceiro } from '@/components/CalendarioMesFinanceiro';
 
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
+import { usePermissoes } from '@/lib/permissions';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
 import {
@@ -201,8 +202,10 @@ function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean })
 // ── Despesa row ──────────────────────────────────────────────
 
 function DespesaRow({
-  item, isLast, hojeIso, historico, onMarcarPago, onEditar,
+  item, isLast, hojeIso, historico, onMarcarPago, onEditar, podeGerenciar,
 }: {
+  /** 'despesas.gerenciar': sem ela a linha é só leitura (sem pagar nem editar). */
+  podeGerenciar: boolean;
   item: DespesaItem;
   isLast: boolean;
   hojeIso: string;
@@ -231,8 +234,8 @@ function DespesaRow({
       position: 'relative',
     }}>
       <TouchableOpacity
-        activeOpacity={pago ? 1 : 0.7}
-        onPress={() => !pago && onMarcarPago(item)}
+        activeOpacity={pago || !podeGerenciar ? 1 : 0.7}
+        onPress={() => !pago && podeGerenciar && onMarcarPago(item)}
         style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}
       >
         <View style={{
@@ -281,21 +284,23 @@ function DespesaRow({
               color: pago ? C.green : C.amber,
               textTransform: 'uppercase',
             }}>
-              {pago ? 'Pago' : 'Toque p/ pagar'}
+              {pago ? 'Pago' : podeGerenciar ? 'Toque p/ pagar' : 'Pendente'}
             </Text>
           </View>
         </View>
       </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => onEditar(item)}
-        style={{
-          width: 28, height: 28, borderRadius: 8,
-          backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
-          alignItems: 'center', justifyContent: 'center',
-        }}
-      >
-        <Pencil size={12} color={C.text3} strokeWidth={2} />
-      </TouchableOpacity>
+      {podeGerenciar && (
+        <TouchableOpacity
+          onPress={() => onEditar(item)}
+          style={{
+            width: 28, height: 28, borderRadius: 8,
+            backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <Pencil size={12} color={C.text3} strokeWidth={2} />
+        </TouchableOpacity>
+      )}
       {progresso !== null && (
         <View style={{
           position: 'absolute', left: 16, right: 16, bottom: 0,
@@ -314,8 +319,10 @@ function DespesaRow({
 // ── Taxa de cancelamento row ─────────────────────────────────
 
 function TaxaCancelamentoRow({
-  item, isLast, onMarcarPago,
+  item, isLast, onMarcarPago, podeMarcar,
 }: {
+  /** 'taxas.marcar_pagas': sem ela a linha é só leitura. */
+  podeMarcar: boolean;
   item: TaxaCancelamento & { cliente: { nome: string } | null };
   isLast: boolean;
   onMarcarPago: (item: TaxaCancelamento & { cliente: { nome: string } | null }) => void;
@@ -324,8 +331,8 @@ function TaxaCancelamentoRow({
 
   return (
     <TouchableOpacity
-      activeOpacity={pago ? 1 : 0.7}
-      onPress={() => !pago && onMarcarPago(item)}
+      activeOpacity={pago || !podeMarcar ? 1 : 0.7}
+      onPress={() => !pago && podeMarcar && onMarcarPago(item)}
       style={{
         paddingVertical: 11, paddingHorizontal: 16,
         flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -367,7 +374,7 @@ function TaxaCancelamentoRow({
             color: pago ? C.green : C.amber,
             textTransform: 'uppercase',
           }}>
-            {pago ? 'Paga' : 'Toque p/ pagar'}
+            {pago ? 'Paga' : podeMarcar ? 'Toque p/ pagar' : 'Pendente'}
           </Text>
         </View>
       </View>
@@ -378,15 +385,17 @@ function TaxaCancelamentoRow({
 // ── Taxa de reserva row ───────────────────────────────────────
 
 function TaxaReservaRow({
-  item, isLast, onMarcarPago,
+  item, isLast, onMarcarPago, podeMarcar,
 }: {
+  /** 'taxas.marcar_pagas': sem ela a linha é só leitura. */
+  podeMarcar: boolean;
   item: TaxaReserva & { cliente: { nome: string } | null };
   isLast: boolean;
   onMarcarPago: (item: TaxaReserva & { cliente: { nome: string } | null }) => void;
 }) {
   const pago = item.status === 'pago';
   const retida = item.status === 'retida';
-  const acionavel = item.status === 'pendente';
+  const acionavel = item.status === 'pendente' && podeMarcar;
   const corFundo = pago ? C.greenSoft : retida ? C.border : C.amberSoft;
   const corTexto = pago ? C.green : retida ? C.text3 : C.amber;
 
@@ -437,7 +446,7 @@ function TaxaReservaRow({
             color: corTexto,
             textTransform: 'uppercase',
           }}>
-            {pago ? 'Paga' : retida ? 'Retida' : 'Toque p/ pagar'}
+            {pago ? 'Paga' : retida ? 'Retida' : podeMarcar ? 'Toque p/ pagar' : 'Pendente'}
           </Text>
         </View>
       </View>
@@ -1337,6 +1346,10 @@ function ModalEditarDespesa({
 
 export default function Financeiro() {
   const insets = useSafeAreaInsets();
+  const { pode } = usePermissoes();
+  const podeDespesas = pode('despesas.gerenciar');
+  const podeMarcarTaxas = pode('taxas.marcar_pagas');
+  const ehDona = pode('dona');
   const [mesRef, setMesRef] = useState(new Date());
   const [calendarioAberto, setCalendarioAberto] = useState(false);
   const isHoje = isSameMonth(mesRef, new Date());
@@ -1352,7 +1365,7 @@ export default function Financeiro() {
   const {
     resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, isError, erroKpis, refetch,
     recorrentesParaLancar, lancarRecorrentes, lancandoRecorrentes,
-    isOwner, retiradas, retiradasDevs, aDonaDeve, retiradasPeriodo,
+    retiradas, retiradasDevs, aDonaDeve, retiradasPeriodo,
   } = useFinanceiro(mesRef);
   const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
   const despesasPendentes = despesas.filter(d => d.status === 'pendente');
@@ -1493,7 +1506,7 @@ export default function Financeiro() {
         )}
 
         {/* ── Recorrentes do mês anterior não lançadas (mesma regra do web) ── */}
-        {!isError && recorrentesParaLancar.length > 0 && (
+        {!isError && podeDespesas && recorrentesParaLancar.length > 0 && (
           <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.2)', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <RefreshCw size={14} color={C.amber} strokeWidth={2} />
             <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.amber }}>
@@ -1551,7 +1564,7 @@ export default function Financeiro() {
               delta: null,
               color: C.primary,
               bg: C.primarySoft,
-              sub: resumo && isOwner && retiradasPeriodo > 0 ? `Após retiradas ${formatBRL(resumo?.aposRetiradas ?? 0)}` : null,
+              sub: resumo && ehDona && retiradasPeriodo > 0 ? `Após retiradas ${formatBRL(resumo?.aposRetiradas ?? 0)}` : null,
             },
           ].map((s) => (
             <View key={s.label} style={{
@@ -1804,6 +1817,7 @@ export default function Financeiro() {
                 </Text>
               )}
             </View>
+            {podeDespesas && (
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/nova-despesa' as any)}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
@@ -1813,6 +1827,7 @@ export default function Financeiro() {
                 Nova
               </Text>
             </TouchableOpacity>
+            )}
           </View>
 
           <View style={{
@@ -1836,6 +1851,7 @@ export default function Financeiro() {
                   historico={despesasHistorico}
                   onMarcarPago={setDespesaSelecionada}
                   onEditar={setDespesaParaEditar}
+                  podeGerenciar={podeDespesas}
                 />
               ))
             )}
@@ -1866,6 +1882,7 @@ export default function Financeiro() {
                   item={item}
                   isLast={i === arr.length - 1}
                   onMarcarPago={setConfirmarTaxaCanc}
+                  podeMarcar={podeMarcarTaxas}
                 />
               ))}
             </View>
@@ -1896,6 +1913,7 @@ export default function Financeiro() {
                   item={item}
                   isLast={i === arr.length - 1}
                   onMarcarPago={setConfirmarTaxaReserva}
+                  podeMarcar={podeMarcarTaxas}
                 />
               ))}
             </View>
@@ -1903,7 +1921,7 @@ export default function Financeiro() {
         )}
 
         {/* ── Retiradas da dona (owner-only) ── */}
-        {isOwner && (
+        {ehDona && (
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}

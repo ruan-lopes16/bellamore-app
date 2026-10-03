@@ -24,8 +24,12 @@ import {
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { supabase } from '@/lib/supabase';
+import { configVazia, contarExcecoes, podeGerenciarMembro } from '@shared/permissoes';
+import { mensagemErroBanco } from '@shared/erros';
+import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -192,8 +196,13 @@ function ModalComissao({ membro, onClose, onSalvar }: {
 
 // ── Card de profissional ──────────────────────────────────────
 
-function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterarRole }: {
+function ProfCard({ membro, podeAlterarRole, podeGerenciar, excecoes, onVerExcecoes, onEditComissao, onToggle, onAlterarRole }: {
   membro: MembroEquipe;
+  /** Quantidade de exceções individuais de permissão (0 = sem selo). */
+  excecoes: number;
+  onVerExcecoes: () => void;
+  /** 'equipe.gerenciar': editar, ajustar comissão e reativar. Sem ela o card é só leitura. */
+  podeGerenciar: boolean;
   podeAlterarRole: boolean;
   onEditComissao: () => void;
   onToggle: () => void;
@@ -250,11 +259,23 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
               {membro.ativo ? 'Ativa' : 'Inativa'}
             </Text>
           </View>
+          {excecoes > 0 && (
+            <TouchableOpacity
+              onPress={onVerExcecoes}
+              style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: C.primarySoft, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}
+            >
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.primary, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                {excecoes} {excecoes === 1 ? 'exceção' : 'exceções'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        <TouchableOpacity onPress={() => router.push(`/(empresa)/editar-profissional/${membro.id}` as any)}>
-          <Edit3 size={16} color={C.text4} strokeWidth={2} />
-        </TouchableOpacity>
+        {podeGerenciar && (
+          <TouchableOpacity onPress={() => router.push(`/(empresa)/editar-profissional/${membro.id}` as any)}>
+            <Edit3 size={16} color={C.text4} strokeWidth={2} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Stats do mês */}
@@ -281,6 +302,7 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
       {/* Comissão */}
       <TouchableOpacity
         onPress={onEditComissao}
+        disabled={!podeGerenciar}
         style={{
           backgroundColor: membro.ativo ? C.primarySoft : '#F3F4F6',
           borderRadius: 12, padding: 12, paddingHorizontal: 14,
@@ -295,7 +317,7 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
         <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: membro.ativo ? C.primary : C.text4, letterSpacing: -0.5 }}>
           {membro.percentual_comissao}%
         </Text>
-        {membro.ativo && <Edit3 size={13} color={C.text3} strokeWidth={2} />}
+        {membro.ativo && podeGerenciar && <Edit3 size={13} color={C.text3} strokeWidth={2} />}
       </TouchableOpacity>
 
       {podeAlterarRole && (
@@ -338,7 +360,7 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
             </TouchableOpacity>
           ))}
         </View>
-      ) : (
+      ) : podeGerenciar && (
         <TouchableOpacity
           onPress={onToggle}
           style={{
@@ -362,11 +384,22 @@ function ProfCard({ membro, podeAlterarRole, onEditComissao, onToggle, onAlterar
 
 export default function Equipe() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, isOwner } = useAuthStore();
+  const { empresaAtiva, isOwner, user } = useAuthStore();
+  const { pode, papel } = usePermissoes();
+  // O selo leva à aba Permissões, que só dona/gestora enxergam.
+  const veSeloExcecoes = isOwner || papel === 'gestor';
+  const podeGerenciarEquipe = pode('equipe.gerenciar');
   const qc = useQueryClient();
 
   const { data: membros = [], isLoading, refetch } = useEquipe();
   const [editando, setEditando] = useState<MembroEquipe | null>(null);
+
+  const { data: cfgPermissoes } = useQuery({
+    queryKey: ['equipe-permissoes', empresaAtiva?.id],
+    enabled: !!empresaAtiva?.id && veSeloExcecoes,
+    staleTime: 1000 * 60,
+    queryFn: () => carregarConfigPermissoes(supabase, empresaAtiva!.id).catch(() => configVazia()),
+  });
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -384,22 +417,31 @@ export default function Equipe() {
   const inativos = membros.length - ativos;
 
   async function toggleAtivo(m: MembroEquipe) {
-    const { error } = await supabase
+    // .select('id') + guarda de 0 linhas: RLS recusando UPDATE volta sem erro e sem linha.
+    const { data, error } = await supabase
       .from('empresa_membros')
       .update({ ativo: !m.ativo })
-      .eq('id', m.id);
-    if (error) { Alert.alert('Erro', error.message); return; }
+      .eq('id', m.id)
+      .select('id');
+    if (error || !data || data.length === 0) {
+      Alert.alert('Erro', mensagemErroBanco(error ?? { code: '42501' }, m.ativo ? 'desativar esta pessoa' : 'reativar esta pessoa'));
+      return;
+    }
     qc.invalidateQueries({ queryKey: ['equipe'] });
     qc.invalidateQueries({ queryKey: ['profissionais'] });
   }
 
   async function salvarComissao(membro: MembroEquipe, pct: number) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('empresa_membros')
       .update({ percentual_comissao: pct })
-      .eq('id', membro.id);
+      .eq('id', membro.id)
+      .select('id');
     setEditando(null);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error || !data || data.length === 0) {
+      Alert.alert('Erro', mensagemErroBanco(error ?? { code: '42501' }, 'alterar a comissão desta pessoa'));
+      return;
+    }
     qc.invalidateQueries({ queryKey: ['equipe'] });
   }
 
@@ -437,6 +479,7 @@ export default function Equipe() {
               </Text>
             </View>
             <PrivacyToggle />
+            {podeGerenciarEquipe && (
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/convidar-profissional' as any)}
               style={{
@@ -448,6 +491,7 @@ export default function Equipe() {
             >
               <Plus size={18} color="#fff" strokeWidth={2.5} />
             </TouchableOpacity>
+            )}
           </View>
         </LinearGradient>
 
@@ -490,6 +534,9 @@ export default function Equipe() {
               key={m.id}
               membro={m}
               podeAlterarRole={isOwner}
+              podeGerenciar={podeGerenciarMembro({ isOwner, userId: user?.id ?? '' }, podeGerenciarEquipe, { role: m.role, userId: m.user_id })}
+              excecoes={veSeloExcecoes && cfgPermissoes ? contarExcecoes(cfgPermissoes, m.user_id) : 0}
+              onVerExcecoes={() => router.push(`/(empresa)/configuracoes?aba=permissoes&membro=${m.user_id}` as any)}
               onEditComissao={() => setEditando(m)}
               onToggle={() => toggleAtivo(m)}
               onAlterarRole={() => alterarRole(m)}
@@ -504,14 +551,16 @@ export default function Equipe() {
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
                 Nenhuma profissional na equipe ainda.
               </Text>
-              <TouchableOpacity
-                onPress={() => router.push('/(empresa)/convidar-profissional' as any)}
-                style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
-              >
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
-                  Adicionar profissional
-                </Text>
-              </TouchableOpacity>
+              {podeGerenciarEquipe && (
+                <TouchableOpacity
+                  onPress={() => router.push('/(empresa)/convidar-profissional' as any)}
+                  style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
+                >
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
+                    Adicionar profissional
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>

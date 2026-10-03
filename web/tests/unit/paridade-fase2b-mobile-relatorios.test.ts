@@ -15,7 +15,7 @@ describe('app Relatórios: dados das abas pelas funções do web', () => {
       expect(hook).toContain(t);
   });
   it('erro e refetch só das consultas ativas; pagar só com permissão', () => {
-    expect(hook).toContain("temPermissao(role, 'ver_comissoes_todas')");
+    expect(hook).toContain("pode('comissoes.pagar')");
     expect(hook).toContain('ativas');
   });
   it('pagar invalida a aba de comissões', () => {

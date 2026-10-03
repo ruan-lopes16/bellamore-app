@@ -44,7 +44,7 @@ import {
   resolverCategoriaServico, bgDaCor,
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
-import { podeExcluirAgendamento, motivoExclusaoBloqueada } from '@shared/agendamentos';
+import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
 import { mensagemErroBanco } from '@shared/erros';
 import {
   MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
@@ -52,6 +52,7 @@ import {
   type EscopoBloqueio,
 } from '@shared/bloqueios';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { usePermissoes } from '@/components/PermissoesProvider';
 
 const supabase = createClient();
 
@@ -171,14 +172,20 @@ const STATUS_OPCOES = [
   { key: 'faltou',     label: 'Faltou',     cor: 'text-red'     },
 ];
 
-function AgCard({ ag, empresaId, onStatus, onEditar, statusInline = false }: {
+function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline = false, somenteLeitura = false }: {
   ag: Ag;
   empresaId: string;
   onStatus: (id: string, s: string) => void;
   onEditar?: (ag: Ag) => void;
   /** No modal mobile de Detalhes: mostra o status como lista embutida em vez de dropdown flutuante (que era cortado). */
   statusInline?: boolean;
+  /**
+   * Atendimento de outra profissional sem `agenda.gerenciar_outras`: o banco recusaria editar
+   * e mudar status (policy "agendamentos: equipe atualiza"), então o card só mostra.
+   */
+  somenteLeitura?: boolean;
 }) {
+  const onEditar = somenteLeitura ? undefined : onEditarProp;
   const [menuAberto, setMenuAberto] = useState(false);
   const inicio = format(parseISO(ag.data_hora_inicio), 'HH:mm');
   const fim    = format(parseISO(ag.data_hora_fim), 'HH:mm');
@@ -215,8 +222,8 @@ function AgCard({ ag, empresaId, onStatus, onEditar, statusInline = false }: {
                   <Pencil size={11} strokeWidth={2.5}/>
                 </button>
               )}
-              {/* Badge de status — dropdown no desktop, estático no modo inline */}
-              {statusInline ? (
+              {/* Badge de status — dropdown no desktop, estático no modo inline ou somente leitura */}
+              {statusInline || somenteLeitura ? (
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${st.bg} ${st.text}`}>
                   {st.label}
                 </span>
@@ -258,7 +265,7 @@ function AgCard({ ag, empresaId, onStatus, onEditar, statusInline = false }: {
             {ag.profissional && <span className="flex items-center gap-1"><User size={10} strokeWidth={2}/>{ag.profissional.nome.split(' ')[0]}</span>}
             <span className="ml-auto font-semibold text-text-2">{fmtBRL(ag.valor)}</span>
           </div>
-          {statusInline && (
+          {statusInline && !somenteLeitura && (
             <div className="mt-3 pt-3 border-t border-border">
               <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1.5">Mudar status</p>
               <div className="flex flex-col gap-1.5">
@@ -290,24 +297,26 @@ type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: n
 type ConflitoDet  = { inicio: string; fim: string; cliente: string; servico: string };
 
 function NovoAgModal({
-  data, empresaId, onClose, onSalvo, agEditar, horaInicial, profIdInicial, meuRole, onExcluido,
+  data, empresaId, onClose, onSalvo, agEditar, horaInicial, profIdInicial, meuUserId, onExcluido,
 }: {
   data: Date; empresaId: string;
   onClose: () => void; onSalvo: () => void;
   agEditar?: Ag;
   horaInicial?: string;
   profIdInicial?: string;
-  meuRole: string;
+  meuUserId: string;
   onExcluido: () => void;
 }) {
   useScrollLock();
+  const { pode } = usePermissoes();
+  const podeOutras = pode('agenda.gerenciar_outras');
   const [clientes,      setClientes]      = useState<ClienteOpt[]>([]);
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<Servico[]>([]);
 
   const [dataSel,   setDataSel]   = useState(() => agEditar ? parseISO(agEditar.data_hora_inicio) : data);
   const [clienteId, setClienteId] = useState(() => agEditar?.cliente?.id ?? '');
-  const [profId,    setProfId]    = useState(() => agEditar?.profissional?.id ?? (profIdInicial ?? ''));
+  const [profId,    setProfId]    = useState(() => agEditar?.profissional?.id ?? (podeOutras ? (profIdInicial ?? '') : meuUserId));
   const [hora,      setHora]      = useState(() => agEditar ? format(parseISO(agEditar.data_hora_inicio), 'HH:mm') : (horaInicial ?? '09:00'));
   const [obs,       setObs]       = useState(() => agEditar?.observacao ?? '');
   const [salvando,  setSalvando]  = useState(false);
@@ -316,7 +325,7 @@ function NovoAgModal({
   const [excluindo,        setExcluindo]        = useState(false);
   const [avisoTaxaExcluir, setAvisoTaxaExcluir] = useState('');
 
-  const podeExcluir = !!agEditar && podeExcluirAgendamento(agEditar.status, meuRole);
+  const podeExcluir = !!agEditar && podeExcluirAgendamento(agEditar.status, pode('agenda.excluir'));
   const motivoBloqueioExcluir = agEditar ? motivoExclusaoBloqueada(agEditar.status) : null;
 
   async function abrirConfirmExcluir() {
@@ -600,7 +609,7 @@ function NovoAgModal({
     }
 
     if (agEditar) {
-      const { error } = await supabase.from('agendamentos').update({
+      const { data: atualizados, error } = await supabase.from('agendamentos').update({
         cliente_id:        clienteId,
         profissional_id:   profId,
         servico_id:        filled[0]?.servico_id ?? null,
@@ -609,8 +618,12 @@ function NovoAgModal({
         valor:             filled.reduce((s, l) => s + l.valor, 0),
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
-      }).eq('id', agEditar.id);
-      if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'salvar agendamento')); return; }
+      }).eq('id', agEditar.id).select('id');
+      // 0 linhas sem erro = RLS recusou (agenda de outra profissional sem a permissão). Para aqui,
+      // antes de apagar/regravar os serviços — senão os serviços mudavam e o cabeçalho não.
+      if (error || !atualizados || atualizados.length === 0) {
+        setSalvando(false); setErro(mensagemErroBanco(error ?? { code: '42501' }, 'salvar este agendamento')); return;
+      }
       await supabase.from('agendamento_servicos').delete().eq('agendamento_id', agEditar.id);
       agId = agEditar.id;
     } else {
@@ -736,7 +749,10 @@ function NovoAgModal({
 
   const inputClass = "w-full min-w-0 max-w-full h-10 px-3 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
   const clienteOpts = clientes.map(c => ({ value: c.id, label: c.nome, sub: c.telefone }));
-  const profOpts    = profissionais.map(p => ({ value: p.id, label: p.nome }));
+  // Sem 'agenda.gerenciar_outras' o seletor fica travado nela mesma (ou na dona do agendamento já existente).
+  const profOpts    = profissionais
+    .filter(p => podeOutras || p.id === meuUserId || p.id === agEditar?.profissional?.id)
+    .map(p => ({ value: p.id, label: p.nome }));
   const servicoOpts = servicos.map(s => ({ value: s.id, label: s.nome }));
 
   // Portaliza o modal para <body>: dentro de <main> (que tem overflow-x-hidden)
@@ -846,7 +862,7 @@ function NovoAgModal({
                   <Check size={12} strokeWidth={3}/>
                   {clienteCriadoFlash} cadastrada
                 </span>
-              ) : !criandoCliente && (
+              ) : !criandoCliente && pode('clientes.cadastrar') && (
                 <button type="button"
                   onClick={() => { setCriandoCliente(true); setErroCliente(''); }}
                   className="flex items-center gap-1 text-xs font-semibold text-accent hover:text-accent-dark transition">
@@ -950,7 +966,7 @@ function NovoAgModal({
             </div>
           )}
 
-          {clienteId && !pacoteClienteId && pacotesCatalogo.length > 0 && (
+          {clienteId && !pacoteClienteId && pacotesCatalogo.length > 0 && pode('pacotes.vender') && (
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">
                 Pacote
@@ -1121,7 +1137,7 @@ function NovoAgModal({
                 <Trash2 size={14} strokeWidth={2}/> Excluir
               </button>
             )}
-            {agEditar && !podeExcluir && motivoBloqueioExcluir && meuRole !== 'profissional' && (
+            {agEditar && !podeExcluir && motivoBloqueioExcluir && pode('agenda.excluir') && (
               <span className="text-xs text-text-4" title={motivoBloqueioExcluir}>Não pode excluir</span>
             )}
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
@@ -1223,10 +1239,9 @@ function computeLanes(colAgs: Ag[]): Map<string, { lane: number; totalLanes: num
 
 // ── Modal de bloqueio ─────────────────────────────────────────
 
-function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membros, onClose, onSalvo }: {
+function NovoBloqueioModal({ data, empresaId, meuUserId, meuNome, membros, onClose, onSalvo }: {
   data: Date;
   empresaId: string;
-  meuRole: string;
   meuUserId: string;
   meuNome: string;
   membros: { id: string; nome: string }[];
@@ -1234,7 +1249,8 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
   onSalvo: (b: Bloqueio) => void;
 }) {
   useScrollLock();
-  const ehGestao = podeSelecionarEscopoGeral(meuRole);
+  const { pode } = usePermissoes();
+  const ehGestao = podeSelecionarEscopoGeral(pode('agenda.aprovar_bloqueios'));
 
   const [escopo,   setEscopo]   = useState<EscopoBloqueio>('profissional');
   const [profId,   setProfId]   = useState('');
@@ -1260,7 +1276,7 @@ function NovoBloqueioModal({ data, empresaId, meuRole, meuUserId, meuNome, membr
     }
 
     const insert = montarInsertBloqueio({
-      role: meuRole,
+      podeAprovarBloqueios: ehGestao,
       meuUserId,
       empresaId,
       escopo,
@@ -1483,7 +1499,7 @@ function calcHoraTimeline(y: number): string {
 }
 
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuRole, meuUserId,
+  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuUserId, podeAlterar,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
   loading: boolean; empresaId: string;
@@ -1494,8 +1510,12 @@ function TimelineView({
   onNovo: (params: { hora: string; profId: string }) => void;
   onPedirRemoverBloqueio: (b: Bloqueio) => void;
   onAvisoBloqueio: (msg: string) => void;
-  meuRole: string; meuUserId: string;
+  meuUserId: string;
+  /** Falso = atendimento de outra profissional sem `agenda.gerenciar_outras` (só leitura). */
+  podeAlterar: (ag: Ag) => boolean;
 }) {
+  const { pode } = usePermissoes();
+  const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
   // O painel Detalhes so vira modal no mobile/tablet (lg:hidden). No desktop ele e um
   // painel lateral e travar a pagina seria bug — foi exatamente o problema que
@@ -1696,14 +1716,14 @@ function TimelineView({
                       // aprovados: todos veem. Pendentes: só a gestão ou quem criou.
                       // A RLS já filtra isso no servidor; este filtro é defesa em profundidade visual.
                       b.situacao === 'aprovado'
-                      || meuRole === 'owner' || meuRole === 'gestor'
+                      || podeAprovarBloqueios
                       || b.criado_por === meuUserId,
                     )
                     .map(bl => {
                       const topBl = tlTopISO(bl.data_inicio);
                       const hBl   = tlHeightISO(bl.data_inicio, bl.data_fim);
                       const pendente    = bl.situacao === 'pendente';
-                      const podeRemover = meuRole === 'owner' || meuRole === 'gestor'
+                      const podeRemover = podeAprovarBloqueios
                         || (pendente && bl.criado_por === meuUserId);
                       return (
                         <div key={bl.id}
@@ -1756,7 +1776,7 @@ function TimelineView({
                       <button
                         key={ag.id}
                         onClick={e => { e.stopPropagation(); setAgSel(selecionado ? null : ag); }}
-                        onDoubleClick={e => { e.stopPropagation(); onEditar?.(ag); }}
+                        onDoubleClick={e => { e.stopPropagation(); if (podeAlterar(ag)) onEditar?.(ag); }}
                         style={{
                           top:         top + 2,
                           height:      h - 4,
@@ -1826,7 +1846,7 @@ function TimelineView({
                 </button>
               </div>
               <div className="p-4 overflow-y-auto flex-1">
-                <AgCard ag={agSel} empresaId={empresaId} statusInline
+                <AgCard ag={agSel} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agSel)}
                   onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                   onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
               </div>
@@ -1843,7 +1863,7 @@ function TimelineView({
                   <X size={12} />
                 </button>
               </div>
-              <AgCard ag={agSel} empresaId={empresaId}
+              <AgCard ag={agSel} empresaId={empresaId} somenteLeitura={!podeAlterar(agSel)}
                 onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                 onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
             </div>
@@ -1858,10 +1878,12 @@ function TimelineView({
 
 // ── Lista do dia ─────────────────────────────────────────────
 
-function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar }: {
+function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar, podeAlterar }: {
   ags: Ag[]; loading: boolean; dataSel: Date; empresaId: string;
   onNovo: () => void; onStatus: (id: string, s: string) => void;
   onEditar?: (ag: Ag) => void;
+  /** Falso = atendimento de outra profissional sem `agenda.gerenciar_outras` (só leitura). */
+  podeAlterar: (ag: Ag) => boolean;
 }) {
   return (
     <div>
@@ -1893,7 +1915,7 @@ function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar
         <div className="flex flex-col gap-3">
           {ags.map((ag, idx) => (
             <div key={ag.id} className="bm-stagger" style={{ '--bm-i': idx, '--bm-step': '60ms' } as React.CSSProperties}>
-              <AgCard ag={ag} empresaId={empresaId} onStatus={onStatus} onEditar={onEditar}/>
+              <AgCard ag={ag} empresaId={empresaId} onStatus={onStatus} onEditar={onEditar} somenteLeitura={!podeAlterar(ag)}/>
             </div>
           ))}
           {/* Slot livre */}
@@ -1996,7 +2018,6 @@ export default function AgendaPage() {
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
-  const [meuRole,   setMeuRole]   = useState<string>('profissional');
   const [meuUserId, setMeuUserId] = useState<string>('');
   // Profissional cuja agenda está sendo exibida — sempre a própria pra quem
   // é profissional (só ela mesma existe na lista pra escolher); pra
@@ -2018,7 +2039,13 @@ export default function AgendaPage() {
   const [bloqueiosPendentes, setBloqueiosPendentes] = useState<BloqueioPendente[]>([]);
   const [bloqueioParaRemover, setBloqueioParaRemover] = useState<Bloqueio | null>(null);
 
-  const ehGestao = meuRole === 'owner' || meuRole === 'gestor';
+  const { pode } = usePermissoes();
+  // Ver a agenda da equipe e aprovar bloqueios são permissões independentes.
+  const ehGestao = pode('agenda.ver_equipe');
+  const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
+  const podeOutras = pode('agenda.gerenciar_outras');
+  /** Mesma regra da policy de UPDATE de agendamentos: própria agenda sempre; a de outra só com a chave. */
+  const podeAlterarAg = (ag: Ag) => podeMexerNoAgendamento(ag.profissional?.id, meuUserId, podeOutras);
 
   // Cancelado não aparece na agenda — vive só no histórico da cliente.
   // `ags` cru continua sendo a fonte de verdade do revert otimista em
@@ -2037,14 +2064,13 @@ export default function AgendaPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id, role')
+      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
       setMeuUserId(user.id);
       setProfFiltro(user.id);
-      setMeuRole((membro?.role as string) ?? 'profissional');
       if (membro?.empresa_id) {
-        const souGestao = membro.role === 'owner' || membro.role === 'gestor';
+        const souGestao = ehGestao;
         const [{ data: cats }, { data: profs }] = await Promise.all([
           supabase.from('categorias_servico').select('*')
             .eq('empresa_id', membro.empresa_id).order('nome'),
@@ -2150,13 +2176,13 @@ export default function AgendaPage() {
   }, [empresaId]);
 
   useEffect(() => {
-    if (!empresaId || !ehGestao) return;
+    if (!empresaId || !podeAprovarBloqueios) return;
     recarregarPendentes();
     const tick = () => { if (document.visibilityState === 'visible') recarregarPendentes(); };
     const iv = setInterval(tick, 30_000);
     window.addEventListener('focus', tick);
     return () => { clearInterval(iv); window.removeEventListener('focus', tick); };
-  }, [empresaId, ehGestao, recarregarPendentes]);
+  }, [empresaId, podeAprovarBloqueios, recarregarPendentes]);
 
   useEffect(() => {
     if (!empresaId) return;
@@ -2186,15 +2212,21 @@ export default function AgendaPage() {
     // Salva o status original ANTES de atualizar (necessário para revert)
     const ag = ags.find(a => a.id === id);
     const statusOriginal = ag?.status ?? '';
+    if (ag && !podeAlterarAg(ag)) {
+      showErro(mensagemErroBanco({ code: '42501' }, 'mudar o status de agendamento de outra profissional'));
+      return;
+    }
     // Otimista: atualiza local imediatamente
     setAgs(prev => prev.map(a => a.id === id ? { ...a, status } : a));
-    const { error } = await supabase
+    // .select('id') + guarda de 0 linhas: RLS recusando UPDATE devolve sucesso sem linha.
+    const { data: rows, error } = await supabase
       .from('agendamentos')
       .update({ status })
-      .eq('id', id);
-    if (error) {
+      .eq('id', id)
+      .select('id');
+    if (error || !rows || rows.length === 0) {
       setAgs(prev => prev.map(a => a.id === id ? { ...a, status: statusOriginal } : a));
-      showErro(`Erro ao salvar status: ${error.message}`);
+      showErro(mensagemErroBanco(error ?? { code: '42501' }, 'mudar o status deste agendamento'));
       return;
     }
     if (status === 'concluido' && ag?.cliente) {
@@ -2314,7 +2346,7 @@ export default function AgendaPage() {
             title="Bloquear horário">
             <Ban size={14} strokeWidth={2}/><span>Bloquear</span>
           </button>
-          {ehGestao && (
+          {podeAprovarBloqueios && (
             <PendentesBloqueioBtn
               pendentes={bloqueiosPendentes}
               onAprovar={aprovarBloqueio}
@@ -2364,7 +2396,7 @@ export default function AgendaPage() {
       )}
 
       {view === 'semana' ? (
-        <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)}/>
+        <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg}/>
       ) : view === 'timeline' ? (
         <TimelineView
           ags={agsVisiveis}
@@ -2376,11 +2408,18 @@ export default function AgendaPage() {
           onStatus={mudarStatus}
           dataSel={dataSel}
           onEditar={ag => setAgEditar(ag)}
-          onNovo={({ hora, profId }) => { setModalParams({ hora, profId }); setModal(true); }}
+          onNovo={({ hora, profId }) => {
+            // Sem a permissão, o modal travaria a profissional nela mesma em silêncio — avisa em vez disso.
+            if (profId && profId !== meuUserId && !podeOutras) {
+              showErro('Você só pode agendar na sua própria agenda. Fale com a dona ou a gestora.');
+              return;
+            }
+            setModalParams({ hora, profId }); setModal(true);
+          }}
           onPedirRemoverBloqueio={setBloqueioParaRemover}
           onAvisoBloqueio={showErro}
-          meuRole={meuRole}
           meuUserId={meuUserId}
+          podeAlterar={podeAlterarAg}
         />
       ) : (
         <>
@@ -2401,7 +2440,7 @@ export default function AgendaPage() {
             <MesView mes={dataSel} agsPorDia={agsMes} diaSel={dataSel} onDiaClick={selecionarDia}/>
           </div>
           </div>
-          <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)}/>
+          <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg}/>
         </>
       )}
 
@@ -2412,7 +2451,7 @@ export default function AgendaPage() {
           empresaId={empresaId}
           horaInicial={modalParams.hora}
           profIdInicial={modalParams.profId}
-          meuRole={meuRole}
+          meuUserId={meuUserId}
           onClose={() => { setModal(false); setAgEditar(null); setModalParams({}); }}
           onSalvo={() => {
             setModal(false);
@@ -2459,7 +2498,6 @@ export default function AgendaPage() {
         <NovoBloqueioModal
           data={dataSel}
           empresaId={empresaId}
-          meuRole={meuRole}
           meuUserId={meuUserId}
           meuNome={membrosAtivos.find(m => m.id === meuUserId)?.nome ?? 'Você'}
           membros={membrosAtivos}

@@ -22,7 +22,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
-import { temPermissao } from '@/lib/permissions';
+import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import {
   usePacotes, usePacotesVendidos,
@@ -671,9 +671,10 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
 
 export default function Pacotes() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, roleAtivo, isOwner } = useAuthStore();
+  const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
   const empresaId = empresaAtiva?.id;
-  const podeGerenciarCatalogo = temPermissao(isOwner ? 'owner' : (roleAtivo ?? 'profissional'), 'gerenciar_pacotes');
+  const podeGerenciarCatalogo = pode('pacotes.gerenciar');
   const qc = useQueryClient();
 
   const [aba, setAba] = useState<'catalogo' | 'vendidos'>('catalogo');

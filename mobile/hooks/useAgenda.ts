@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { startOfDay, endOfDay, format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import type { Agendamento } from '@/types';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bloqueios';
@@ -246,9 +247,10 @@ export function useBloqueiosDia(dia: Date) {
  * "Profissional".
  */
 export function useBloqueiosPendentes() {
-  const { empresaAtiva, roleAtivo, isOwner } = useAuthStore();
+  const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
   const empresaId = empresaAtiva?.id;
-  const ehGestao = isOwner || roleAtivo === 'gestor';
+  const ehGestao = pode('agenda.aprovar_bloqueios');
   return useQuery({
     queryKey: ['bloqueios-pendentes', empresaId],
     enabled: !!empresaId && ehGestao,
@@ -276,16 +278,17 @@ export function useBloqueiosPendentes() {
  * ou quando o insert não devolve linha (RLS barrou) para a tela avisar.
  */
 export function useCriarBloqueio() {
-  const { empresaAtiva, user, roleAtivo, isOwner } = useAuthStore();
+  const { empresaAtiva, user } = useAuthStore();
+  const { pode } = usePermissoes();
   const qc = useQueryClient();
-  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
   return useMutation({
     mutationFn: async (
-      input: Omit<MontarInsertBloqueioInput, 'role' | 'meuUserId' | 'empresaId'>,
+      input: Omit<MontarInsertBloqueioInput, 'podeAprovarBloqueios' | 'meuUserId' | 'empresaId'>,
     ) => {
       const insert = montarInsertBloqueio({
         ...input,
-        role,
+        podeAprovarBloqueios,
         meuUserId: user!.id,
         empresaId: empresaAtiva!.id,
       });

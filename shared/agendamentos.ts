@@ -12,10 +12,9 @@
 /** Status cujo agendamento NÃO pode ser apagado (tem financeiro vinculado). */
 export const STATUS_NAO_EXCLUIVEL = ['concluido'] as const;
 
-/** true se este papel pode apagar de vez um agendamento neste status. */
-export function podeExcluirAgendamento(status: string, role: string): boolean {
-  const ehGestao = role === 'owner' || role === 'gestor';
-  return ehGestao && !(STATUS_NAO_EXCLUIVEL as readonly string[]).includes(status);
+/** Pode excluir quem tem a permissão `agenda.excluir`, nunca um atendimento concluído. */
+export function podeExcluirAgendamento(status: string, podeExcluir: boolean): boolean {
+  return podeExcluir && !(STATUS_NAO_EXCLUIVEL as readonly string[]).includes(status);
 }
 
 /** Texto do porquê a exclusão está bloqueada por status, ou null se o status permite. */
@@ -24,4 +23,22 @@ export function motivoExclusaoBloqueada(status: string): string | null {
     return 'Atendimento concluído tem comissão e financeiro vinculados. Reverta o status antes de excluir.';
   }
   return null;
+}
+
+/**
+ * Pode alterar (editar, mudar status, fechar comanda de) este agendamento?
+ * Espelha a policy "agendamentos: equipe atualiza" (migration 083): a própria agenda é
+ * sempre liberada; a de outra profissional exige `agenda.gerenciar_outras`.
+ *
+ * @param profissionalId  dona do agendamento (`agendamentos.profissional_id`)
+ * @param meuUserId       quem está logado (vazio enquanto carrega = nunca libera por igualdade)
+ * @param podeGerenciarOutras  `pode('agenda.gerenciar_outras')`
+ */
+export function podeMexerNoAgendamento(
+  profissionalId: string | null | undefined,
+  meuUserId: string,
+  podeGerenciarOutras: boolean,
+): boolean {
+  if (podeGerenciarOutras) return true;
+  return !!profissionalId && !!meuUserId && profissionalId === meuUserId;
 }

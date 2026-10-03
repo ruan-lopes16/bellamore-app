@@ -4,29 +4,22 @@ import {
 } from '@shared/agendamentos';
 
 describe('podeExcluirAgendamento', () => {
-  it('permite owner/gestor em status nao-concluido', () => {
-    for (const role of ['owner', 'gestor']) {
-      for (const st of ['agendado', 'confirmado', 'cancelado', 'faltou']) {
-        expect(podeExcluirAgendamento(st, role)).toBe(true);
-      }
+  it('permite quem tem a permissao em status nao-concluido', () => {
+    for (const st of ['agendado', 'confirmado', 'cancelado', 'faltou']) {
+      expect(podeExcluirAgendamento(st, true)).toBe(true);
     }
   });
 
   it('nunca permite status concluido, mesmo para owner', () => {
-    expect(podeExcluirAgendamento('concluido', 'owner')).toBe(false);
-    expect(podeExcluirAgendamento('concluido', 'gestor')).toBe(false);
+    expect(podeExcluirAgendamento('concluido', true)).toBe(false);
   });
 
-  it('nunca permite profissional, seja qual for o status', () => {
+  it('nunca permite sem a permissao, seja qual for o status', () => {
     for (const st of ['agendado', 'confirmado', 'cancelado', 'faltou', 'concluido']) {
-      expect(podeExcluirAgendamento(st, 'profissional')).toBe(false);
+      expect(podeExcluirAgendamento(st, false)).toBe(false);
     }
   });
 
-  it('role desconhecido nao pode', () => {
-    expect(podeExcluirAgendamento('cancelado', 'cliente')).toBe(false);
-    expect(podeExcluirAgendamento('cancelado', '')).toBe(false);
-  });
 });
 
 describe('motivoExclusaoBloqueada', () => {

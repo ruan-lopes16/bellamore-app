@@ -48,6 +48,7 @@ import type {
   RetiradaSociaTipo, MetodoPagamentoRetirada,
 } from '@/types';
 import { Secret, PrivacyToggle } from '@/components/privacy';
+import { usePermissoes } from '@/components/PermissoesProvider';
 
 const supabase = createClient();
 
@@ -1001,9 +1002,11 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 export default function FinanceiroPage() {
   const [mesRef,   setMesRef]   = useState(new Date());
   const [empresaId,setEmpresaId]= useState<string | null>(null);
-  // null = ainda não resolvido: a 1ª carga espera, senão as retiradas da dona seriam
-  // buscadas como não-dona e depois sobrescritas (ou vice-versa).
-  const [isOwner,  setIsOwner]  = useState<boolean | null>(null);
+  // As permissões já vêm resolvidas do servidor (contexto), então a 1ª carga não precisa esperar.
+  const { pode } = usePermissoes();
+  const isOwner = pode('dona');
+  const podeDespesas = pode('despesas.gerenciar');
+  const podeMarcarTaxas = pode('taxas.marcar_pagas');
   // Contador de requisições: respostas de cargas antigas (mês trocado rápido) são descartadas.
   const reqRef = useRef(0);
   const [loading,  setLoading]  = useState(true);
@@ -1047,15 +1050,12 @@ export default function FinanceiroPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (membro) {
         setEmpresaId(membro.empresa_id);
-        const { data: emp } = await supabase.from('empresas')
-          .select('owner_id').eq('id', membro.empresa_id).single();
-        setIsOwner(!!emp && emp.owner_id === user.id);
       }
     })();
   }, []);
 
   useEffect(() => {
-    if (!empresaId || isOwner === null) return;
+    if (!empresaId) return;
     carregar(empresaId, mesRef);
   }, [empresaId, mesRef, isOwner]);
 
@@ -1433,11 +1433,13 @@ export default function FinanceiroPage() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setModalDespesa(true)}
-                className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
-                style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
-                <Plus size={13} strokeWidth={2.5}/> Nova
-              </button>
+              {podeDespesas && (
+                <button onClick={() => setModalDespesa(true)}
+                  className="press flex items-center gap-1.5 px-3 h-8 rounded-xl text-white text-xs font-bold"
+                  style={{ background: 'var(--color-primary)', boxShadow: '0 4px 14px rgba(44,23,80,0.18)' }}>
+                  <Plus size={13} strokeWidth={2.5}/> Nova
+                </button>
+              )}
             </div>
           </div>
 
@@ -1448,10 +1450,12 @@ export default function FinanceiroPage() {
               <p className="text-xs text-amber font-semibold flex-1">
                 {textoRecorrentesPendentes(recorrentesParaLancar.length)}
               </p>
-              <button onClick={lancarRecorrentes} disabled={lancandoRec}
-                className="flex-shrink-0 text-xs font-bold text-amber hover:underline disabled:opacity-50">
-                {lancandoRec ? 'Lançando...' : 'Lançar agora'}
-              </button>
+              {podeDespesas && (
+                <button onClick={lancarRecorrentes} disabled={lancandoRec}
+                  className="flex-shrink-0 text-xs font-bold text-amber hover:underline disabled:opacity-50">
+                  {lancandoRec ? 'Lançando...' : 'Lançar agora'}
+                </button>
+              )}
             </div>
           )}
 
@@ -1460,9 +1464,11 @@ export default function FinanceiroPage() {
           ) : despesas.length === 0 ? (
             <div className="p-8 text-center">
               <p className="text-sm text-text-4 italic mb-2">Nenhuma despesa neste mês.</p>
-              <button onClick={() => setModalDespesa(true)} className="text-accent text-sm font-semibold hover:underline">
-                + Registrar despesa
-              </button>
+              {podeDespesas && (
+                <button onClick={() => setModalDespesa(true)} className="text-accent text-sm font-semibold hover:underline">
+                  + Registrar despesa
+                </button>
+              )}
             </div>
           ) : (
             despesas.map((d, i) => {
@@ -1482,8 +1488,8 @@ export default function FinanceiroPage() {
                 <div key={d.id}
                   className={`relative flex items-center gap-2 px-4 py-3 ${i < despesas.length - 1 ? 'border-b border-border' : ''}`}>
                   <div
-                    className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                    onClick={() => d.status === 'pendente' && setMarcarPago(d)}>
+                    className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${d.status === 'pendente' && podeDespesas ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                    onClick={() => d.status === 'pendente' && podeDespesas && setMarcarPago(d)}>
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${d.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                       {d.status === 'pago'
                         ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
@@ -1515,16 +1521,18 @@ export default function FinanceiroPage() {
                       <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
                         d.status === 'pago' ? 'bg-green-soft text-green' : 'bg-amber-soft text-amber'
                       }`}>
-                        {d.status === 'pago' ? 'Pago' : 'Toque p/ pagar'}
+                        {d.status === 'pago' ? 'Pago' : podeDespesas ? 'Toque p/ pagar' : 'Pendente'}
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setEditarDespesa(d)}
-                    title="Editar despesa"
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
-                    <Pencil size={12} strokeWidth={2}/>
-                  </button>
+                  {podeDespesas && (
+                    <button
+                      onClick={() => setEditarDespesa(d)}
+                      title="Editar despesa"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:bg-bg hover:text-text-2 transition flex-shrink-0">
+                      <Pencil size={12} strokeWidth={2}/>
+                    </button>
+                  )}
                   {progresso !== null && (
                     <div className="absolute left-4 right-4 bottom-0 h-0.5 rounded-full overflow-hidden bg-border">
                       <div className={`h-full ${dias !== null && dias < 0 ? 'bg-red' : 'bg-amber'}`} style={{ width: `${progresso * 100}%` }}/>
@@ -1547,8 +1555,8 @@ export default function FinanceiroPage() {
               <div key={t.id}
                 className={`flex items-center gap-2 px-4 py-3 ${i < taxasCancelamento.length - 1 ? 'border-b border-border' : ''}`}>
                 <div
-                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => t.status === 'pendente' && setConfirmarTaxaCanc(t)}>
+                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' && podeMarcarTaxas ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                  onClick={() => t.status === 'pendente' && podeMarcarTaxas && setConfirmarTaxaCanc(t)}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.status === 'pago' ? 'bg-green-soft' : 'bg-amber-soft'}`}>
                     {t.status === 'pago'
                       ? <CheckCircle2 size={14} strokeWidth={2} className="text-green"/>
@@ -1589,8 +1597,8 @@ export default function FinanceiroPage() {
               <div key={t.id}
                 className={`flex items-center gap-2 px-4 py-3 ${i < taxasReserva.length - 1 ? 'border-b border-border' : ''}`}>
                 <div
-                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' ? 'cursor-pointer hover:bg-bg transition' : ''}`}
-                  onClick={() => t.status === 'pendente' && setConfirmarTaxaReserva(t)}>
+                  className={`flex items-center gap-3 flex-1 min-w-0 rounded-lg ${t.status === 'pendente' && podeMarcarTaxas ? 'cursor-pointer hover:bg-bg transition' : ''}`}
+                  onClick={() => t.status === 'pendente' && podeMarcarTaxas && setConfirmarTaxaReserva(t)}>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                     t.status === 'pago' ? 'bg-green-soft' : t.status === 'retida' ? 'bg-border' : 'bg-amber-soft'
                   }`}>

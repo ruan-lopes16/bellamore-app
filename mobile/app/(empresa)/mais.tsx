@@ -20,7 +20,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
-import { temPermissao, rotaInicial } from '@/lib/permissions';
+import { usePermissoes, rotaInicial } from '@/lib/permissions';
 import { useResumoComissoesPendentes } from '@/hooks/useDashboard';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -98,6 +98,7 @@ export default function Mais() {
   const insets = useSafeAreaInsets();
   const { user, empresaAtiva, roleAtivo, isOwner, sair, selecionarEmpresa, empresasDisponiveis } = useAuthStore();
   const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const { pode } = usePermissoes();
 
   const AVATAR_BG = ['#2C1654', '#0D7E5F', '#B45309', '#7C3AED', '#C0392B'];
 
@@ -115,7 +116,7 @@ export default function Mais() {
   }
 
   // Badge do menu = TODAS as pendentes (mesma regra do alerta do Dashboard e do badge da Sidebar web).
-  const { data: pendentes } = useResumoComissoesPendentes(temPermissao(role, 'ver_comissoes_todas'));
+  const { data: pendentes } = useResumoComissoesPendentes(pode('comissoes.ver_todas'));
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -284,8 +285,8 @@ export default function Mais() {
         )}
 
         {/* ── Gestão ── */}
-        {temPermissao(role, 'ver_resumo_financeiro') && (
-          <MotiView
+        {/* Serviços e Pacotes são sempre visíveis; os demais itens seguem as chaves de permissão. */}
+        <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'timing', duration: 350, delay: 100 }}
@@ -317,14 +318,16 @@ export default function Mais() {
                 iconBg={C.primarySoft} iconColor={C.accent}
                 onPress={() => router.push('/(empresa)/pacotes' as any)}
               />
-              <MenuItem
-                icon={<Users size={16} color={C.accent} strokeWidth={2} />}
-                label="Equipe"
-                sublabel="Profissionais e comissões"
-                iconBg={C.primarySoft} iconColor={C.accent}
-                onPress={() => router.push('/(empresa)/equipe' as any)}
-              />
-              {temPermissao(role, 'ver_comissoes_todas') && (
+              {pode('equipe.gerenciar') && (
+                <MenuItem
+                  icon={<Users size={16} color={C.accent} strokeWidth={2} />}
+                  label="Equipe"
+                  sublabel="Profissionais e comissões"
+                  iconBg={C.primarySoft} iconColor={C.accent}
+                  onPress={() => router.push('/(empresa)/equipe' as any)}
+                />
+              )}
+              {pode('comissoes.ver_todas') && (
                 <MenuItem
                   icon={<DollarSign size={16} color={C.amber} strokeWidth={2} />}
                   label="Comissões"
@@ -334,14 +337,16 @@ export default function Mais() {
                   onPress={() => router.push('/(empresa)/comissoes' as any)}
                 />
               )}
-              <MenuItem
-                icon={<Package size={16} color={C.amber} strokeWidth={2} />}
-                label="Produtos & Estoque"
-                sublabel="Controle de insumos"
-                iconBg={C.amberSoft} iconColor={C.amber}
-                onPress={() => router.push('/(empresa)/estoque' as any)}
-              />
-              <View style={{ borderBottomWidth: 0 }}>
+              {pode('estoque.acessar') && (
+                <MenuItem
+                  icon={<Package size={16} color={C.amber} strokeWidth={2} />}
+                  label="Produtos & Estoque"
+                  sublabel="Controle de insumos"
+                  iconBg={C.amberSoft} iconColor={C.amber}
+                  onPress={() => router.push('/(empresa)/estoque' as any)}
+                />
+              )}
+              {pode('financeiro.ver') && (
                 <MenuItem
                   icon={<BarChart2 size={16} color={C.green} strokeWidth={2} />}
                   label="Relatórios"
@@ -349,10 +354,9 @@ export default function Mais() {
                   iconBg={C.greenSoft} iconColor={C.green}
                   onPress={() => router.push('/(empresa)/relatorios' as any)}
                 />
-              </View>
+              )}
             </View>
-          </MotiView>
-        )}
+        </MotiView>
 
         {/* ── Configurações ── */}
         <MotiView

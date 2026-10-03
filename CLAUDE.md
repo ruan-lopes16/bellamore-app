@@ -881,6 +881,64 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-02/03 — Bugs de RLS (cliente/agendamento) + permissões configuráveis
+
+*Escopo: (1) bug de produção "profissionais não conseguem cadastrar clientes" → PR #142 (migrations 081/082 + `shared/erros.ts`),*
+*aplicadas no banco em 02/10; (2) feature: Configurações → Permissões (por papel + exceção por pessoa, 27 chaves, histórico),*
+*web/PWA e app, aplicada no banco via `tem_permissao`. Spec `docs/superpowers/specs/2026-10-02-permissoes-configuraveis-design.md`,*
+*plano (10 tasks) `docs/superpowers/plans/2026-10-02-permissoes-configuraveis.md`, subagent-driven-development com revisão por task*
+*e revisão final de branch (opus). Estado real das policies de produção salvo em `docs/superpowers/notes/2026-10-02-pg-policies-producao.csv`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; mobile com os mesmos 6 erros pré-existentes, nenhum novo |
+| UX / Padrões    | 9.0  | Painel com SmoothTabs/SearchSelect/Skeleton; rascunho com barra "N alterações não salvas"; erros de permissão em português (`mensagemErroBanco`) |
+| Segurança       | 9.5  | RLS por `tem_permissao` (dona → exceção → papel → padrão); escrita só pela RPC `salvar_permissoes` (gestora só papel Profissional e profissionais ≠ ela, e só concede o que ela mesma tem); papel de alguém só a dona muda |
+| Documentação    | 9.0  | Spec, plano, CSV de produção; cabeçalho da 083 com rollback e notas; JSDoc pt-BR em `shared/permissoes*.ts` |
+| Arquitetura     | 9.5  | Catálogo único em `shared/permissoes.ts`, travado contra o SQL por teste; fallback para os padrões quando a 083 não existe (deploy em qualquer ordem) |
+| Performance     | 8.5  | `tem_permissao` é plpgsql por linha nas policies (até 4 buscas indexadas); medir com EXPLAIN após aplicar (conferência 7 abaixo) |
+| Visual (UI)     | —    | Sem conta de teste para login local — não executado |
+| **Completude**  | 9.0  | Web + app, painel nas duas plataformas, selo na Equipe, todas as telas ligadas às chaves |
+| **Proatividade**| 9.5  | Achado e corrigido sem pedido: agendamentos sem policy de escrita para profissional/gestora em produção (comandas em dobro de 29/09); baixa de estoque da comanda da profissional recusada; trigger `atualizar_estoque` sem `security definer` (saldo não baixava); PATCH de profissional sem filtro de empresa |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Bugs de produção encontrados (todos corrigidos):**
+- `clientes` INSERT/UPDATE só dona/gestora (006), com botão visível para todos → 081.
+- `agendamentos` sem INSERT/UPDATE para profissional/gestora; a única policy de escrita ("gestor pode gerenciar agendamentos", manual) só valia para a dona → concluir/fechar comanda afetava 0 linhas em silêncio → 082.
+- Baixa de estoque dos produtos extras da comanda sem `agendamento_id` → recusada para a profissional (web parava com a comanda gravada; app engolia o erro).
+- `atualizar_estoque` sem `security definer` → saldo de `produtos` não baixava na comanda da profissional (corrigido na 083).
+- `PATCH /api/profissionais` alterava vínculo de outra empresa (sem filtro de `empresa_id`).
+
+**Revisão final de branch (opus):** sem Critical; 5 Important corrigidos antes do PR — editar/status de atendimento de colega sem `agenda.gerenciar_outras` falhava calado (e regravava serviços); chaves "de tela" que o banco recusava (estoque, vendas, config.taxas → viraram de banco); gestora concedia o que não tinha; Pagar dos Relatórios web sem `comissoes.pagar`; `equipe.gerenciar` permitia desativar a dona e mudar a própria comissão.
+
+**Mudanças de comportamento para a gestora (com os padrões):** não altera mais o vínculo de outra gestora nem o próprio (inclusive a própria comissão); em Configurações → Empresa só grava as taxas. Em produção não há gestora hoje.
+
+**Pendências para produção (ordem obrigatória):**
+1. Merge do #142 e depois deste PR; deploy do web (Vercel **Ready**).
+2. Rodar `080_anamnese_fichas_fonte_unica.sql` (ver backup e conferências na sessão 2026-09-29/30 — ainda pendente).
+3. Rodar `083_permissoes_configuraveis.sql`.
+4. Conferências somente leitura (resultado esperado ao lado):
+   ```sql
+   select tablename, policyname from pg_policies where schemaname='public' and policyname in
+    ('clientes: gestor pode inserir','clientes: gestor pode atualizar','clientes: owner pode deletar','pacote_clientes: membro gerencia'); -- 0 linhas
+   select (select count(*) from permissoes_papel), (select count(*) from permissoes_membro), (select count(*) from permissoes_historico); -- 0,0,0
+   select proname, prosecdef from pg_proc where proname in ('tem_permissao','minhas_permissoes','salvar_permissoes','atualizar_estoque'); -- prosecdef = true
+   select m.* from empresa_membros m join empresas e on e.id=m.empresa_id where m.role='owner' and m.user_id<>e.owner_id; -- 0 linhas
+   ```
+5. Pedir a uma profissional: cadastrar cliente, criar e concluir agendamento, fechar comanda com produto extra.
+
+**Pendências menores registradas (não bloqueiam):**
+- Área `(profissional)` do app não tem "Toda a agenda" nem aprova bloqueio mesmo com a exceção (decisão de não criar telas lá).
+- `financeiro.fechamentos` sem tela (importação é por suporte).
+- Telas do app alcançáveis por deep link sem guarda própria (estoque, financeiro, relatórios, novo-serviço/pacote) — chaves valem no banco.
+- Badge "comandas não fechadas" da Sidebar não respeita `comanda.fechar`; Equipe mostra pendente R$ 0 de colegas sem `comissoes.ver_todas`.
+- Painel: rascunho perdido ao trocar de aba sem aviso; `Suspense fallback={null}`; dica "Escolha uma pessoa" faltando no app.
+- Comanda sem agendamento (venda avulsa pela comanda) com produto extra: a profissional sem `estoque.acessar`/`vendas.acessar` continua sem conseguir baixar o estoque.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
@@ -912,4 +970,4 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - [x] ~~Conectar extensão "Claude in Chrome"~~ — conectado pelo usuário em 2026-06-06
 
 ### Features planejadas — próximas sessões
-- [ ] **Controle de acesso por role** — diferenciar UI/ações com base em `empresa_membros.role` (`owner`/`gestor`/`profissional`). Ex: profissionais só veem a própria agenda e comissões; apenas gestores/owners editam serviços, equipe e financeiro. Requer: ler `role` no contexto da sessão (já disponível em `empresa_membros`) e condicionar renderização/rotas.
+- [x] ~~**Controle de acesso por role**~~ — resolvido em 2026-10-03 (permissões configuráveis por papel e por pessoa) — diferenciar UI/ações com base em `empresa_membros.role` (`owner`/`gestor`/`profissional`). Ex: profissionais só veem a própria agenda e comissões; apenas gestores/owners editam serviços, equipe e financeiro. Requer: ler `role` no contexto da sessão (já disponível em `empresa_membros`) e condicionar renderização/rotas.

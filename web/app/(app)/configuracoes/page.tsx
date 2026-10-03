@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
@@ -9,6 +9,9 @@ import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2,
 import { validaCNPJ, maskMoeda, parseMoeda, formatMoeda, maskComCursor } from '@/lib/masks';
 import { registrarEInscrever } from '@/components/SwRegister';
 import Image from 'next/image';
+import { usePermissoes } from '@/components/PermissoesProvider';
+import { PermissoesPanel } from '@/components/permissoes/PermissoesPanel';
+import { mensagemErroBanco } from '@shared/erros';
 
 const supabase = createClient();
 
@@ -180,10 +183,29 @@ function CardPreferenciasNotificacao({ notifResumo, notifLembrete, onChange }: {
   );
 }
 
-export default function ConfiguracoesPage() {
-  const router = useRouter();
+type AbaConfig = 'empresa' | 'permissoes' | 'perfil';
 
-  const [aba,      setAba]      = useState<'empresa' | 'perfil'>('empresa');
+/** useSearchParams exige Suspense nesta versão do Next (build estático). */
+export default function ConfiguracoesPage() {
+  return <Suspense fallback={null}><ConfiguracoesConteudo/></Suspense>;
+}
+
+function ConfiguracoesConteudo() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { pode, papel } = usePermissoes();
+  const verEmpresa    = pode('dona') || pode('config.taxas');
+  const verPermissoes = pode('dona') || papel === 'gestor';
+  const abaDaUrl = params.get('aba');
+  const membroDaUrl = params.get('membro');
+
+  // Aba inicial: a da URL (se o usuário puder vê-la), senão Empresa (quem puder) ou Meu perfil.
+  const [aba,      setAba]      = useState<AbaConfig>(() => {
+    if (abaDaUrl === 'permissoes' && verPermissoes) return 'permissoes';
+    if (abaDaUrl === 'perfil') return 'perfil';
+    if (abaDaUrl === 'empresa' && verEmpresa) return 'empresa';
+    return verEmpresa ? 'empresa' : 'perfil';
+  });
   const [loading,  setLoading]  = useState(true);
   const [darkMode, setDarkMode] = useState(false);
 
@@ -202,8 +224,9 @@ export default function ConfiguracoesPage() {
 
   const [empresaId, setEmpresaId] = useState('');
   const [userId,    setUserId]    = useState('');
-  const [isOwner,   setIsOwner]   = useState(false);
-  const [podeEditarTaxa, setPodeEditarTaxa] = useState(false);
+  // Dados da empresa: só a dona. Taxas de reserva/cancelamento: chave 'config.taxas' (a dona sempre tem).
+  const isOwner = pode('dona');
+  const podeEditarTaxa = pode('config.taxas');
 
   // Campos taxa de cancelamento
   const [taxaAtiva, setTaxaAtiva] = useState(false);
@@ -276,7 +299,7 @@ export default function ConfiguracoesPage() {
       setEmailPendente(user.new_email ?? '');
 
       const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id, role')
+        .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
 
@@ -295,7 +318,6 @@ export default function ConfiguracoesPage() {
         setTelefone(maskPhone(empresa.telefone ?? ''));
         setLogoUrl(empresa.logo_url ?? '');
         setLogoPreview(empresa.logo_url ?? '');
-        setIsOwner(empresa.owner_id === user.id);
         setMetaMensal(empresa.meta_mensal ? formatMoeda(Number(empresa.meta_mensal)) : '');
 
         setTaxaAtiva(empresa.taxa_cancelamento_ativa ?? false);
@@ -308,7 +330,6 @@ export default function ConfiguracoesPage() {
         setReservaModo((empresa.taxa_reserva_modo as 'percentual' | 'fixo') ?? 'percentual');
         setReservaValor(String(empresa.taxa_reserva_valor ?? 0).replace('.', ','));
 
-        setPodeEditarTaxa(empresa.owner_id === user.id || membro.role === 'gestor');
         if (empresa.horario_funcionamento) {
           setHorarios({ ...HORARIO_DEFAULT, ...(empresa.horario_funcionamento as Horarios) });
         }
@@ -441,12 +462,15 @@ export default function ConfiguracoesPage() {
   async function salvarEmpresa(e: React.FormEvent) {
     e.preventDefault();
     if (!isOwner && !podeEditarTaxa) { setErro('Você não tem permissão para editar as configurações.'); return; }
-    if (cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
+    // O CNPJ só é enviado pela dona; a gestora nem vê o campo, então não pode travar nele.
+    if (isOwner && cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
     setSalvando(true); setErro('');
 
     const enderecoFinal = [rua, numero, complemento, bairro, localidade].filter(Boolean).join(', ');
 
-    const { error } = await supabase.from('empresas').update({
+    // Dados da empresa só a dona. Quem salva só com config.taxas manda SÓ as colunas taxa_*
+    // (o trigger da 083 recusa qualquer outra coluna vinda de quem não é a dona).
+    const dadosEmpresa = isOwner ? {
       nome:                  nome.trim(),
       segmento:              segmento        || 'Estúdio',
       cnpj:                  cnpj.trim()     || null,
@@ -455,6 +479,9 @@ export default function ConfiguracoesPage() {
       logo_url:              logoUrl         || null,
       horario_funcionamento: horarios,
       meta_mensal:           parseMoeda(metaMensal),
+    } : {};
+    const { data: atualizadas, error } = await supabase.from('empresas').update({
+      ...dadosEmpresa,
       taxa_cancelamento_ativa:             taxaAtiva,
       taxa_cancelamento_modo:              taxaModo,
       taxa_cancelamento_valor:             parseFloat(taxaValor.replace(',', '.')) || 0,
@@ -463,10 +490,14 @@ export default function ConfiguracoesPage() {
       taxa_reserva_ativa: reservaAtiva,
       taxa_reserva_modo:  reservaModo,
       taxa_reserva_valor: parseFloat(reservaValor.replace(',', '.')) || 0,
-    }).eq('id', empresaId);
+    }).eq('id', empresaId).select('id');
 
     setSalvando(false);
-    if (error) { setErro(error.message); return; }
+    // 0 linhas sem erro = RLS recusou (sem config.taxas no banco): não mostra "salvas".
+    if (error || !atualizadas || atualizadas.length === 0) {
+      setErro(mensagemErroBanco(error ?? { code: '42501' }, 'salvar as configurações da empresa'));
+      return;
+    }
     showToast('Configurações salvas!');
     setTimeout(() => window.location.reload(), 1000);
   }
@@ -561,21 +592,20 @@ export default function ConfiguracoesPage() {
       <SmoothTabs
         variant="underline"
         className="mb-8"
-        tabs={[{ key: 'empresa', label: 'Empresa' }, { key: 'perfil', label: 'Meu perfil' }]}
+        tabs={[
+          ...(verEmpresa ? [{ key: 'empresa', label: 'Empresa' }] : []),
+          ...(verPermissoes ? [{ key: 'permissoes', label: 'Permissões' }] : []),
+          { key: 'perfil', label: 'Meu perfil' },
+        ]}
         active={aba}
-        onChange={key => { setAba(key as 'empresa' | 'perfil'); setErro(''); }}
+        onChange={key => { setAba(key as AbaConfig); setErro(''); }}
       />
 
       {/* ══ TAB: EMPRESA ══ */}
-      {aba === 'empresa' && (
+      {aba === 'empresa' && verEmpresa && (
         <form onSubmit={salvarEmpresa} className="max-w-2xl flex flex-col gap-6">
 
-          {!isOwner && (
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              <AlertCircle size={15} className="text-amber-500 flex-shrink-0"/>
-              <p className="text-sm text-amber-700">Somente o dono da empresa pode editar estas configurações.</p>
-            </div>
-          )}
+          {isOwner && (<>
 
           {/* Logo — primeiro para reflexo imediato */}
           <SectionCard title="Logo" icon={ImageIcon} color="accent">
@@ -723,6 +753,8 @@ export default function ConfiguracoesPage() {
             </div>
           </SectionCard>
 
+          </>)}
+
           {/* Taxa de cancelamento */}
           <SectionCard title="Taxa de cancelamento" icon={Ban} color="rose">
             <p className="text-xs text-text-3 -mt-2">
@@ -838,6 +870,7 @@ export default function ConfiguracoesPage() {
             )}
           </SectionCard>
 
+          {isOwner && (<>
           {/* Horários */}
           <SectionCard title="Horários de funcionamento" icon={Clock} color="green">
             <div className="flex flex-col gap-3">
@@ -871,6 +904,8 @@ export default function ConfiguracoesPage() {
             </div>
           </SectionCard>
 
+          </>)}
+
           {erro && (
             <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
               <AlertCircle size={14} className="text-red flex-shrink-0"/>
@@ -888,6 +923,11 @@ export default function ConfiguracoesPage() {
             </div>
           )}
         </form>
+      )}
+
+      {/* ══ TAB: PERMISSÕES ══ */}
+      {aba === 'permissoes' && verPermissoes && empresaId && userId && (
+        <PermissoesPanel empresaId={empresaId} meuUserId={userId} membroInicial={membroDaUrl ?? undefined}/>
       )}
 
       {/* ══ TAB: MEU PERFIL ══ */}

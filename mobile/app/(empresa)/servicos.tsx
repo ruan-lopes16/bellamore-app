@@ -21,7 +21,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
-import { temPermissao } from '@/lib/permissions';
+import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { CategoriasManagerModal } from '@/components/CategoriasManagerModal';
@@ -160,14 +160,15 @@ function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
 
 export default function Servicos() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, roleAtivo, isOwner } = useAuthStore();
+  const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
   const qc = useQueryClient();
 
   const { data, isLoading, refetch } = useServicos();
   const servicos = data?.servicos ?? [];
   const categorias = data?.categorias ?? [];
   const [gerenciar, setGerenciar] = useState(false);
-  const podeGerenciar = temPermissao(isOwner ? 'owner' : (roleAtivo ?? 'profissional'), 'gerenciar_servicos');
+  const podeGerenciar = pode('servicos.gerenciar');
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,

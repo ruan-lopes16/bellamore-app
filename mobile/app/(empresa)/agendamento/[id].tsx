@@ -29,13 +29,15 @@ import { format, differenceInMinutes } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import type { AgendamentoStatus } from '@/types';
 import {
   descreverServicos, montarDetalheAtendimento,
   type DetalheAtendimento,
 } from '@shared/atendimento-detalhe';
-import { podeExcluirAgendamento } from '@shared/agendamentos';
+import { podeExcluirAgendamento, podeMexerNoAgendamento } from '@shared/agendamentos';
+import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -349,7 +351,8 @@ export default function AgendamentoDetalhe() {
   const modoComanda = tipo === 'comanda';
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
-  const { empresaAtiva, roleAtivo, isOwner } = useAuthStore();
+  const { empresaAtiva, user } = useAuthStore();
+  const { pode } = usePermissoes();
 
   const [atualizando, setAtualizando] = useState(false);
 
@@ -412,13 +415,18 @@ export default function AgendamentoDetalhe() {
 
   async function atualizarStatus(novoStatus: AgendamentoStatus) {
     setAtualizando(true);
-    const { error } = await supabase
+    // .select('id') + guarda de 0 linhas: RLS recusando UPDATE devolve sucesso sem linha.
+    const { data: rows, error } = await supabase
       .from('agendamentos')
       .update({ status: novoStatus })
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
     setAtualizando(false);
 
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error || !rows || rows.length === 0) {
+      Alert.alert('Erro', mensagemErroBanco(error ?? { code: '42501' }, 'mudar o status deste agendamento'));
+      return;
+    }
 
     // Invalida caches relevantes
     qc.invalidateQueries({ queryKey: ['agendamento', id] });
@@ -434,6 +442,11 @@ export default function AgendamentoDetalhe() {
     ]);
   }
 
+  // Agendamento de outra profissional sem 'agenda.gerenciar_outras': o banco recusaria o UPDATE
+  // (policy "agendamentos: equipe atualiza"), então as ações de status nem aparecem.
+  const podeAlterar = podeMexerNoAgendamento(
+    ag.profissional_id ?? ag.profissional?.id, user?.id ?? '', pode('agenda.gerenciar_outras'),
+  );
   const podeConfirmar  = ag.status === 'agendado';
   const podeConcluir   = ag.status === 'agendado' || ag.status === 'confirmado';
   const podeFaltou     = ag.status === 'agendado' || ag.status === 'confirmado';
@@ -441,8 +454,7 @@ export default function AgendamentoDetalhe() {
   const estaConcluido  = ag.status === 'concluido';
   const estaCancelado  = ag.status === 'cancelado';
 
-  const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
-  const podeExcluir = podeExcluirAgendamento(ag.status, meuRole);
+  const podeExcluir = podeExcluirAgendamento(ag.status, pode('agenda.excluir'));
 
   async function excluirAgendamento() {
     setAtualizando(true);
@@ -612,7 +624,7 @@ export default function AgendamentoDetalhe() {
         <SecoesComanda detalhe={detalhe} />
 
         {/* ── Ações de status ── */}
-        {!estaConcluido && !estaCancelado && (
+        {podeAlterar && !estaConcluido && !estaCancelado && (
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}

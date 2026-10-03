@@ -23,7 +23,7 @@ describe('agenda: bloqueio com tipos + aprovacao', () => {
 
 describe('agenda: NovoBloqueioModal reescrito (escopo + motivo + papel)', () => {
   it('gate do toggle de escopo pelo helper de papel', () => {
-    expect(src).toMatch(/const ehGestao = podeSelecionarEscopoGeral\(meuRole\)/);
+    expect(src).toMatch(/const ehGestao = podeSelecionarEscopoGeral\(pode\('agenda\.aprovar_bloqueios'\)\)/);
   });
   it('oferece o toggle "Um profissional" / "Toda a agenda"', () => {
     expect(src).toContain('Um profissional');
@@ -65,7 +65,7 @@ describe('agenda: pílula + modal de bloqueios pendentes (aprovar/recusar)', () 
     expect(src).toMatch(/async function recusarBloqueio\(id: string\)[\s\S]*?\.delete\(\)[\s\S]*?\.select\('id'\);[\s\S]*?if \(error \|\| !rows \|\| rows\.length === 0\)/);
   });
   it('pílula só renderiza para a gestão', () => {
-    expect(src).toMatch(/ehGestao && \(\s*<PendentesBloqueioBtn/);
+    expect(src).toMatch(/podeAprovarBloqueios && \(\s*<PendentesBloqueioBtn/);
   });
   it('componente esconde-se quando não há pendentes e usa o rótulo de motivo compartilhado', () => {
     expect(src).toMatch(/if \(pendentes\.length === 0\) return null/);
@@ -78,10 +78,10 @@ describe('agenda: pílula + modal de bloqueios pendentes (aprovar/recusar)', () 
 });
 
 describe('agenda: TimelineView desenha bloqueio pendente + trava do remover', () => {
-  it('TimelineView recebe meuRole e meuUserId (destructure + type + call site)', () => {
-    expect(src).toMatch(/function TimelineView\(\{[\s\S]*?meuRole, meuUserId,[\s\S]*?\}: \{/);
-    expect(src).toMatch(/onPedirRemoverBloqueio: \(b: Bloqueio\) => void;\s*onAvisoBloqueio: \(msg: string\) => void;\s*meuRole: string; meuUserId: string;/);
-    expect(src).toMatch(/<TimelineView[\s\S]*?meuRole=\{meuRole\}[\s\S]*?meuUserId=\{meuUserId\}[\s\S]*?\/>/);
+  it('TimelineView recebe meuUserId e consulta a permissão pelo contexto (destructure + type + call site)', () => {
+    expect(src).toMatch(/function TimelineView\(\{[\s\S]*?onAvisoBloqueio, meuUserId,[\s\S]*?\}: \{/);
+    expect(src).toMatch(/onPedirRemoverBloqueio: \(b: Bloqueio\) => void;\s*onAvisoBloqueio: \(msg: string\) => void;\s*meuUserId: string;\s*(?:\/\*\*[\s\S]*?\*\/\s*podeAlterar: \(ag: Ag\) => boolean;\s*)?\}\) \{\s*const \{ pode \} = usePermissoes\(\);\s*const podeAprovarBloqueios = pode\('agenda\.aprovar_bloqueios'\);/);
+    expect(src).toMatch(/<TimelineView[\s\S]*?meuUserId=\{meuUserId\}[\s\S]*?\/>/);
   });
 
   it('clique em horário bloqueado avisa e não abre o modal (guarda bloqueioNoInstante)', () => {
@@ -93,11 +93,11 @@ describe('agenda: TimelineView desenha bloqueio pendente + trava do remover', ()
   });
 
   it('filtro visual esconde pendente de quem não é gestão nem criador', () => {
-    expect(src).toMatch(/\.filter\(b =>[\s\S]*?b\.situacao === 'aprovado'[\s\S]*?meuRole === 'owner' \|\| meuRole === 'gestor'[\s\S]*?b\.criado_por === meuUserId,\s*\)/);
+    expect(src).toMatch(/\.filter\(b =>[\s\S]*?b\.situacao === 'aprovado'[\s\S]*?\|\| podeAprovarBloqueios[\s\S]*?b\.criado_por === meuUserId,\s*\)/);
   });
 
   it('podeRemover libera o "X" para gestão ou para o criador do bloco ainda pendente', () => {
-    expect(src).toMatch(/const podeRemover = meuRole === 'owner' \|\| meuRole === 'gestor'\s*\|\| \(pendente && bl\.criado_por === meuUserId\)/);
+    expect(src).toMatch(/const podeRemover = podeAprovarBloqueios\s*\|\| \(pendente && bl\.criado_por === meuUserId\)/);
     expect(src).toMatch(/\{podeRemover && \([\s\S]*?onPedirRemoverBloqueio\(bl\)/);
   });
 

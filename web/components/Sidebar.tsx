@@ -14,35 +14,34 @@ import { aplicarFiltroComandasNaoFechadas, aplicarFiltroDespesasVencendo } from 
 import { useScrollLock } from '@/lib/useScrollLock';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { temPermissao, type Permissao } from '@/lib/permissions';
-import type { PerfilRole } from '@/types';
+import { pode, type Acesso, type PermissoesUsuario } from '@/lib/permissions';
 
 const supabase = createClient();
 
 // Itens principais da sidebar desktop
-const NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
+const NAV: { href: string; label: string; icon: React.ElementType; permissao?: Acesso }[] = [
   { href: '/dashboard',    label: 'Dashboard',   icon: LayoutDashboard },
   { href: '/agenda',       label: 'Agenda',       icon: CalendarDays    },
   { href: '/comanda',      label: 'Comanda',      icon: Receipt         },
-  { href: '/vendas',       label: 'Vendas',       icon: ShoppingCart,    permissao: 'gerenciar_vendas'       },
+  { href: '/vendas',       label: 'Vendas',       icon: ShoppingCart,    permissao: 'vendas.acessar' },
   { href: '/clientes',     label: 'Clientes',     icon: Users           },
-  { href: '/financeiro',   label: 'Financeiro',   icon: DollarSign,      permissao: 'ver_resumo_financeiro' },
-  { href: '/servicos',     label: 'Serviços',     icon: Scissors,        permissao: 'ver_servicos'     },
+  { href: '/financeiro',   label: 'Financeiro',   icon: DollarSign,      permissao: 'financeiro.ver' },
+  { href: '/servicos',     label: 'Serviços',     icon: Scissors },
   { href: '/pacotes',      label: 'Pacotes',      icon: Gift            },
-  { href: '/equipe',       label: 'Equipe',       icon: UserCog,         permissao: 'gerenciar_profissionais' },
-  { href: '/comissoes',    label: 'Comissões',    icon: Banknote,        permissao: 'ver_propria_comissao'   },
-  { href: '/estoque',      label: 'Estoque',      icon: Package,         permissao: 'gerenciar_estoque'      },
-  { href: '/relatorios',   label: 'Relatórios',   icon: BarChart2,       permissao: 'ver_resumo_financeiro'  },
+  { href: '/equipe',       label: 'Equipe',       icon: UserCog,         permissao: 'equipe.gerenciar' },
+  { href: '/comissoes',    label: 'Comissões',    icon: Banknote },
+  { href: '/estoque',      label: 'Estoque',      icon: Package,         permissao: 'estoque.acessar' },
+  { href: '/relatorios',   label: 'Relatórios',   icon: BarChart2,       permissao: 'financeiro.ver' },
 ];
 
-const BOTTOM_NAV_DESKTOP: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
+const BOTTOM_NAV_DESKTOP: { href: string; label: string; icon: React.ElementType; permissao?: Acesso }[] = [
   { href: '/notificacoes',  label: 'Notificações', icon: Bell     },
-  { href: '/configuracoes', label: 'Configurações', icon: Settings, permissao: 'configurar_empresa' },
+  { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ];
 
 // 5 abas do bottom nav mobile (design Bellamore) — sem permissão condicionada.
 // Comanda no bottom nav; Financeiro vive em "Mais" e some de lá quando restrito.
-const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
+const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Acesso }[] = [
   { href: '/dashboard',  label: 'Início',   icon: LayoutDashboard },
   { href: '/agenda',     label: 'Agenda',   icon: CalendarDays    },
   { href: '/clientes',   label: 'Clientes', icon: Users           },
@@ -51,17 +50,17 @@ const MOBILE_NAV: { href: string; label: string; icon: React.ElementType; permis
 ];
 
 // Itens do drawer "Mais" (mobile)
-const MAIS_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Permissao }[] = [
-  { href: '/financeiro',   label: 'Financeiro',    icon: DollarSign,   permissao: 'ver_resumo_financeiro'  },
-  { href: '/vendas',       label: 'Vendas',        icon: ShoppingCart, permissao: 'gerenciar_vendas'        },
-  { href: '/servicos',     label: 'Serviços',      icon: Scissors,     permissao: 'ver_servicos'     },
+const MAIS_NAV: { href: string; label: string; icon: React.ElementType; permissao?: Acesso }[] = [
+  { href: '/financeiro',   label: 'Financeiro',    icon: DollarSign,   permissao: 'financeiro.ver' },
+  { href: '/vendas',       label: 'Vendas',        icon: ShoppingCart, permissao: 'vendas.acessar' },
+  { href: '/servicos',     label: 'Serviços',      icon: Scissors },
   { href: '/pacotes',      label: 'Pacotes',       icon: Gift         },
-  { href: '/equipe',       label: 'Equipe',        icon: UserCog,      permissao: 'gerenciar_profissionais' },
-  { href: '/comissoes',    label: 'Comissões',     icon: Banknote,     permissao: 'ver_propria_comissao'   },
-  { href: '/estoque',      label: 'Estoque',       icon: Package,      permissao: 'gerenciar_estoque'      },
-  { href: '/relatorios',   label: 'Relatórios',    icon: BarChart2,    permissao: 'ver_resumo_financeiro'  },
+  { href: '/equipe',       label: 'Equipe',        icon: UserCog,      permissao: 'equipe.gerenciar' },
+  { href: '/comissoes',    label: 'Comissões',     icon: Banknote },
+  { href: '/estoque',      label: 'Estoque',       icon: Package,      permissao: 'estoque.acessar' },
+  { href: '/relatorios',   label: 'Relatórios',    icon: BarChart2,    permissao: 'financeiro.ver' },
   { href: '/notificacoes', label: 'Notificações',  icon: Bell         },
-  { href: '/configuracoes',label: 'Configurações', icon: Settings,     permissao: 'configurar_empresa'     },
+  { href: '/configuracoes',label: 'Configurações', icon: Settings },
 ];
 
 export default function Sidebar({
@@ -69,13 +68,13 @@ export default function Sidebar({
   empresaNome,
   empresaLogo,
   empresaSegmento,
-  role,
+  permissoes,
 }: {
   empresaId: string;
   empresaNome: string;
   empresaLogo: string | null;
   empresaSegmento: string;
-  role: string | null;
+  permissoes: PermissoesUsuario;
 }) {
   const pathname        = usePathname();
   const router          = useRouter();
@@ -86,12 +85,11 @@ export default function Sidebar({
   // O drawer "Mais" e lg:hidden — so existe no mobile/tablet.
   useScrollLock(maisAberto, { apenasMobile: true });
 
-  const efetivo = (role ?? 'profissional') as 'owner' | PerfilRole;
-  const podeVerEstoque = temPermissao(efetivo, 'gerenciar_estoque');
-  const navFiltrado          = NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
-  const bottomNavFiltrado    = BOTTOM_NAV_DESKTOP.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
-  const mobileNavFiltrado    = MOBILE_NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
-  const maisNavFiltrado      = MAIS_NAV.filter(item => !item.permissao || temPermissao(efetivo, item.permissao));
+  const podeVerEstoque = pode(permissoes, 'estoque.acessar');
+  const navFiltrado          = NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
+  const bottomNavFiltrado    = BOTTOM_NAV_DESKTOP.filter(item => !item.permissao || pode(permissoes, item.permissao));
+  const mobileNavFiltrado    = MOBILE_NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
+  const maisNavFiltrado      = MAIS_NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
 
   useEffect(() => {
     (async () => {

@@ -34,6 +34,7 @@ import {
   type AgendamentoCompleto, type ProfissionalAgenda, type BloqueioAgenda,
 } from '@/hooks/useAgenda';
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { agendarLembretesLocais } from '@/lib/notifications';
 import { motivoBloqueioLabel, bloqueioNoInstante } from '@shared/bloqueios';
 import { BloqueioModal } from '@/components/BloqueioModal';
@@ -207,14 +208,16 @@ function SlotVazio({ hora, dia, bloqueado }: { hora: number; dia: Date; bloquead
 
 export default function Agenda() {
   const insets = useSafeAreaInsets();
-  const { empresaAtiva, user, roleAtivo, isOwner } = useAuthStore();
-  // `(empresa)` já barra o acesso por rota; o `?? 'profissional'` só alinha
-  // o branch (inalcançável) de null com o do hook useAgenda.ts.
-  const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const { empresaAtiva, user } = useAuthStore();
+  const { pode } = usePermissoes();
+  const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
+  // Sem `agenda.ver_equipe` só a própria agenda (igual ao web): sem chips de equipe.
+  const podeVerEquipe = pode('agenda.ver_equipe');
 
   const [diaSelecionado, setDiaSelecionado] = useState(new Date());
   const [mesRef, setMesRef] = useState(new Date());
-  const [profFiltro, setProfFiltro] = useState<string | undefined>(undefined);
+  const [profFiltroSel, setProfFiltro] = useState<string | undefined>(undefined);
+  const profFiltro = podeVerEquipe ? profFiltroSel : user?.id;
   const [modalBloqueio, setModalBloqueio] = useState(false);
   const [sheetPendentes, setSheetPendentes] = useState(false);
   const remover = useRemoverBloqueio();
@@ -504,6 +507,7 @@ export default function Agenda() {
           </ScrollView>
 
           {/* Filtro profissional */}
+          {podeVerEquipe && (
           <ScrollView
             horizontal showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 24, gap: 6, paddingBottom: 14 }}
@@ -551,6 +555,7 @@ export default function Agenda() {
               );
             })}
           </ScrollView>
+          )}
         </View>
 
         {/* ── Timeline ── */}
@@ -589,7 +594,7 @@ export default function Agenda() {
                   )}
                   {(bloqueiosPorHora[hora] ?? []).map((b) => {
                     const podeRemover =
-                      meuRole === 'owner' || meuRole === 'gestor'
+                      podeAprovarBloqueios
                       || (b.situacao === 'pendente' && b.criado_por === user?.id);
                     return (
                       <View key={b.id} style={{
@@ -628,7 +633,7 @@ export default function Agenda() {
       <BloqueioModal
         key={diaSelecionado.toISOString()}
         visible={modalBloqueio}
-        role={meuRole}
+        podeAprovarBloqueios={podeAprovarBloqueios}
         meuUserId={user?.id ?? ''}
         meuNome={user?.nome ?? 'Você'}
         membros={profissionais.map((p) => ({ id: p.id, nome: p.nome }))}

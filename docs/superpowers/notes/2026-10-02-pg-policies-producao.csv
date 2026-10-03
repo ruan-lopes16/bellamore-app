@@ -1,0 +1,98 @@
+tabela,regra,tipo,using_,check_
+agenda_bloqueios,bloqueios: aprovar,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+agenda_bloqueios,bloqueios: criar,INSERT,-,((empresa_id IN ( SELECT minha_empresas() AS minha_empresas)) AND (is_gestor_ou_owner(empresa_id) OR ((escopo = 'profissional'::text) AND (profissional_id = auth.uid()) AND (criado_por = auth.uid()) AND (situacao = 'pendente'::text) AND (motivo IS NOT NULL))))
+agenda_bloqueios,bloqueios: excluir,DELETE,(is_gestor_ou_owner(empresa_id) OR ((criado_por = auth.uid()) AND (situacao = 'pendente'::text))),-
+agenda_bloqueios,bloqueios: ver,SELECT,((empresa_id IN ( SELECT minha_empresas() AS minha_empresas)) AND ((situacao = 'aprovado'::text) OR (criado_por = auth.uid()) OR is_gestor_ou_owner(empresa_id))),-
+agendamentos,agendamentos: gestor ou owner exclui,DELETE,is_gestor_ou_owner(empresa_id),-
+agendamentos,agendamentos: ver,SELECT,((profissional_id = auth.uid()) OR (cliente_id = auth.uid()) OR is_gestor_ou_owner(empresa_id)),-
+agendamentos,gestor pode gerenciar agendamentos,ALL,"(empresa_id IN ( SELECT empresas.id
+   FROM empresas
+  WHERE (empresas.owner_id = auth.uid())))","(empresa_id IN ( SELECT empresas.id
+   FROM empresas
+  WHERE (empresas.owner_id = auth.uid())))"
+anamnese_fichas,anamnese: ver,SELECT,((cliente_id = auth.uid()) OR (empresa_id IN ( SELECT minha_empresas() AS minha_empresas))),-
+categorias_servico,categorias_servico: gestor atualiza,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+categorias_servico,categorias_servico: gestor deleta,DELETE,is_gestor_ou_owner(empresa_id),-
+categorias_servico,categorias_servico: gestor insere,INSERT,-,is_gestor_ou_owner(empresa_id)
+categorias_servico,categorias_servico: membro ve,SELECT,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),-
+clientes,clientes: gestor pode atualizar,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+clientes,clientes: gestor pode inserir,INSERT,-,is_gestor_ou_owner(empresa_id)
+clientes,clientes: membro ve,SELECT,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),-
+clientes,clientes: owner pode deletar,DELETE,"(EXISTS ( SELECT 1
+   FROM empresas
+  WHERE ((empresas.id = clientes.empresa_id) AND (empresas.owner_id = auth.uid()))))",-
+comanda_itens,comanda_itens: membro insere,INSERT,-,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
+comanda_itens,comanda_itens: profissional ou gestor atualiza,UPDATE,(is_gestor_ou_owner(empresa_id) OR comanda_pertence_ao_profissional(comanda_id)),-
+comanda_itens,comanda_itens: profissional ou gestor deleta,DELETE,(is_gestor_ou_owner(empresa_id) OR comanda_pertence_ao_profissional(comanda_id)),-
+comanda_itens,comanda_itens: profissional ou gestor ve,SELECT,(is_gestor_ou_owner(empresa_id) OR comanda_pertence_ao_profissional(comanda_id)),-
+comandas,comandas: membro insere,INSERT,-,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
+comandas,comandas: profissional ou gestor atualiza,UPDATE,(is_gestor_ou_owner(empresa_id) OR (profissional_id = auth.uid()) OR comanda_pertence_ao_profissional(id)),-
+comandas,comandas: profissional ou gestor deleta,DELETE,(is_gestor_ou_owner(empresa_id) OR (profissional_id = auth.uid()) OR comanda_pertence_ao_profissional(id)),-
+comandas,comandas: profissional ou gestor ve,SELECT,(is_gestor_ou_owner(empresa_id) OR (profissional_id = auth.uid()) OR comanda_pertence_ao_profissional(id)),-
+comissoes,comissoes: gestor ou owner atualiza,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+comissoes,comissoes: membro insere,INSERT,-,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
+comissoes,comissoes: ver,SELECT,((profissional_id = auth.uid()) OR is_gestor_ou_owner(empresa_id)),-
+comissoes,gestor pode gerenciar comissoes,ALL,"(empresa_id IN ( SELECT empresas.id
+   FROM empresas
+  WHERE (empresas.owner_id = auth.uid())))","(empresa_id IN ( SELECT empresas.id
+   FROM empresas
+  WHERE (empresas.owner_id = auth.uid())))"
+despesas,despesas: gestor ou owner ve,SELECT,is_gestor_ou_owner(empresa_id),-
+despesas,despesas: gestor pode atualizar,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+despesas,despesas: gestor pode inserir,INSERT,-,is_gestor_ou_owner(empresa_id)
+despesas,despesas: owner pode deletar,DELETE,"(EXISTS ( SELECT 1
+   FROM empresas
+  WHERE ((empresas.id = despesas.empresa_id) AND (empresas.owner_id = auth.uid()))))",-
+empresa_membros,membros: gestor ou owner atualiza,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+empresa_membros,membros: gestor ou owner convida,INSERT,-,"((role = ANY (ARRAY['gestor'::perfil_role, 'profissional'::perfil_role])) AND is_gestor_ou_owner(empresa_id) AND ((role = 'profissional'::perfil_role) OR (EXISTS ( SELECT 1
+   FROM empresas
+  WHERE ((empresas.id = empresa_membros.empresa_id) AND (empresas.owner_id = auth.uid()))))))"
+empresa_membros,membros: ver da empresa,SELECT,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),-
+empresas,empresas: gestor pode atualizar,UPDATE,is_gestor_ou_owner(id),is_gestor_ou_owner(id)
+empresas,empresas: membro pode ver,SELECT,(id IN ( SELECT minha_empresas() AS minha_empresas)),-
+empresas,empresas: owner pode editar,ALL,(owner_id = auth.uid()),-
+estoque_movimentos,estoque_movimentos: gestor pode atualizar,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+estoque_movimentos,estoque_movimentos: gestor pode inserir,INSERT,-,"(is_gestor_ou_owner(empresa_id) OR ((tipo = 'saida'::movimento_tipo) AND (agendamento_id IS NOT NULL) AND (EXISTS ( SELECT 1
+   FROM agendamentos
+  WHERE ((agendamentos.id = estoque_movimentos.agendamento_id) AND (agendamentos.profissional_id = auth.uid()) AND (agendamentos.empresa_id = estoque_movimentos.empresa_id))))))"
+estoque_movimentos,estoque_movimentos: owner pode deletar,DELETE,"(EXISTS ( SELECT 1
+   FROM empresas
+  WHERE ((empresas.id = estoque_movimentos.empresa_id) AND (empresas.owner_id = auth.uid()))))",-
+financeiro_ajustes_mensais,financeiro_ajustes_mensais: gestor pode atualizar,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+financeiro_ajustes_mensais,financeiro_ajustes_mensais: gestor pode inserir,INSERT,-,is_gestor_ou_owner(empresa_id)
+financeiro_ajustes_mensais,financeiro_ajustes_mensais: membro ve,SELECT,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),-
+financeiro_ajustes_mensais,financeiro_ajustes_mensais: owner pode deletar,DELETE,"(EXISTS ( SELECT 1
+   FROM empresas
+  WHERE ((empresas.id = financeiro_ajustes_mensais.empresa_id) AND (empresas.owner_id = auth.uid()))))",-
+pacote_clientes,pacote_clientes: membro gerencia,ALL,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
+pacote_servicos,pacote_servicos: gestor gerencia,ALL,"(EXISTS ( SELECT 1
+   FROM pacotes p
+  WHERE ((p.id = pacote_servicos.pacote_id) AND is_gestor_ou_owner(p.empresa_id))))","(EXISTS ( SELECT 1
+   FROM pacotes p
+  WHERE ((p.id = pacote_servicos.pacote_id) AND is_gestor_ou_owner(p.empresa_id))))"
+pacote_servicos,pacote_servicos: membro ve,SELECT,"(EXISTS ( SELECT 1
+   FROM pacotes p
+  WHERE ((p.id = pacote_servicos.pacote_id) AND (p.empresa_id IN ( SELECT minha_empresas() AS minha_empresas)))))",-
+pacote_uso,pacote_uso: membro gerencia,ALL,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
+pacotes,pacotes: gestor gerencia,ALL,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+pacotes,pacotes: membro ve,SELECT,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),-
+pagamentos,pagamentos: membro insere,INSERT,-,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
+pagamentos,pagamentos: profissional ou gestor deleta,DELETE,(is_gestor_ou_owner(empresa_id) OR ((comanda_id IS NOT NULL) AND comanda_pertence_ao_profissional(comanda_id))),-
+pagamentos,pagamentos: profissional ou gestor ve,SELECT,(is_gestor_ou_owner(empresa_id) OR ((comanda_id IS NOT NULL) AND comanda_pertence_ao_profissional(comanda_id))),-
+produtos,produtos: gestor pode atualizar,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+produtos,produtos: gestor pode inserir,INSERT,-,is_gestor_ou_owner(empresa_id)
+produtos,produtos: membro ve,SELECT,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),-
+produtos,produtos: owner pode deletar,DELETE,"(EXISTS ( SELECT 1
+   FROM empresas
+  WHERE ((empresas.id = produtos.empresa_id) AND (empresas.owner_id = auth.uid()))))",-
+servicos,servicos: gestor gerencia,ALL,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+servicos,servicos: membro ve,SELECT,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),-
+taxas_cancelamento,taxas_cancelamento: gestor ou owner atualiza,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+taxas_cancelamento,taxas_cancelamento: gestor ou owner ve,SELECT,is_gestor_ou_owner(empresa_id),-
+taxas_reserva,taxas_reserva: gestor ou owner atualiza,UPDATE,is_gestor_ou_owner(empresa_id),is_gestor_ou_owner(empresa_id)
+taxas_reserva,taxas_reserva: membro insere,INSERT,-,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
+taxas_reserva,taxas_reserva: profissional ou gestor ve,SELECT,"(is_gestor_ou_owner(empresa_id) OR (EXISTS ( SELECT 1
+   FROM agendamentos a
+  WHERE ((a.id = taxas_reserva.agendamento_id) AND (a.profissional_id = auth.uid())))))",-
+venda_itens,venda_itens: membro gerencia,ALL,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
+vendas,vendas: membro gerencia,ALL,(empresa_id IN ( SELECT minha_empresas() AS minha_empresas)),(empresa_id IN ( SELECT minha_empresas() AS minha_empresas))
