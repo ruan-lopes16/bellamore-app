@@ -54,6 +54,7 @@ import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { agruparValoresPorAgendamento, marcarAgendamentosFechados } from '@shared/comanda';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { usePermissoes } from '@/components/PermissoesProvider';
 
 const supabase = createClient();
 
@@ -194,6 +195,10 @@ function gerarTextoRecibo(s: SucessoRecibo): string {
 // ── Componente principal ──────────────────────────────────────
 
 export default function ComandaPage() {
+  const { pode } = usePermissoes();
+  const podeFechar       = pode('comanda.fechar');
+  const podeDesconto     = pode('comanda.desconto');
+  const podeEditarFechada = pode('comanda.editar_fechada');
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
@@ -1149,11 +1154,15 @@ export default function ComandaPage() {
               {clientesDia.map(cliente => {
                 const ativo  = clienteSel?.id === cliente.id;
                 const jaFeita = cliente.agendamentos.every(a => a.status === 'concluido');
+                // Comanda já fechada só reabre para quem pode editá-la; senão o card fica sem ação.
+                const semAcao = jaFeita ? !podeEditarFechada : !podeFechar;
                 const primeiroAg = cliente.agendamentos[0];
                 return (
                   <button
                     key={cliente.id}
                     onClick={() => jaFeita ? abrirComandaFechada(cliente) : abrirComanda(cliente)}
+                    disabled={semAcao}
+                    title={semAcao ? (jaFeita ? 'Comanda fechada' : 'Sem permissão para fechar comanda') : undefined}
                     className={`w-full text-left rounded-xl p-3 transition-colors border ${
                       ativo
                         ? 'bg-primary-soft border-primary/30'
@@ -1180,7 +1189,9 @@ export default function ComandaPage() {
                       {jaFeita ? (
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <Check size={12} className="text-green" strokeWidth={2.5}/>
-                          <Pencil size={11} className="text-text-4" strokeWidth={2}/>
+                          {podeEditarFechada
+                            ? <Pencil size={11} className="text-text-4" strokeWidth={2}/>
+                            : <span className="text-[10px] font-semibold text-text-4">Comanda fechada</span>}
                         </div>
                       ) : (
                         <ChevronRight size={14} className="text-text-4 flex-shrink-0"/>
@@ -1518,6 +1529,7 @@ export default function ComandaPage() {
                 </section>
 
                 {/* ── Seção: Desconto ── */}
+                {podeDesconto && (
                 <section>
                   <p className="text-xs font-bold text-text-3 uppercase tracking-widest mb-3">
                     Desconto
@@ -1537,6 +1549,7 @@ export default function ComandaPage() {
                     </div>
                   </div>
                 </section>
+                )}
 
                 {/* ── Seção: Resumo de valores ── */}
                 <section className="bg-bg rounded-xl border border-border overflow-hidden">
@@ -1570,7 +1583,7 @@ export default function ComandaPage() {
 
                   {/* Chips de método */}
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {METODOS_PAG.map(({ key, label, icon: Icon, cor, bg }) => (
+                    {METODOS_PAG.filter(m => podeDesconto || m.key !== 'cortesia').map(({ key, label, icon: Icon, cor, bg }) => (
                       <button key={key} onClick={() => adicionarSplit(key)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border text-sm font-semibold transition hover:border-accent"
                         style={{ background: bg, color: cor }}>
@@ -1706,7 +1719,8 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || !empresaId || (total > 0.01 && (splits.length === 0 || restante > 0.01))}
+                  disabled={fechando || itens.length === 0 || !empresaId || (total > 0.01 && (splits.length === 0 || restante > 0.01)) || (!comandaExistenteId && !podeFechar)}
+                  title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {fechando ? (

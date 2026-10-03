@@ -9,6 +9,7 @@ import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2,
 import { validaCNPJ, maskMoeda, parseMoeda, formatMoeda, maskComCursor } from '@/lib/masks';
 import { registrarEInscrever } from '@/components/SwRegister';
 import Image from 'next/image';
+import { usePermissoes } from '@/components/PermissoesProvider';
 
 const supabase = createClient();
 
@@ -202,8 +203,10 @@ export default function ConfiguracoesPage() {
 
   const [empresaId, setEmpresaId] = useState('');
   const [userId,    setUserId]    = useState('');
-  const [isOwner,   setIsOwner]   = useState(false);
-  const [podeEditarTaxa, setPodeEditarTaxa] = useState(false);
+  // Dados da empresa: só a dona. Taxas de reserva/cancelamento: chave 'config.taxas' (a dona sempre tem).
+  const { pode } = usePermissoes();
+  const isOwner = pode('dona');
+  const podeEditarTaxa = pode('config.taxas');
 
   // Campos taxa de cancelamento
   const [taxaAtiva, setTaxaAtiva] = useState(false);
@@ -276,7 +279,7 @@ export default function ConfiguracoesPage() {
       setEmailPendente(user.new_email ?? '');
 
       const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id, role')
+        .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
 
@@ -295,7 +298,6 @@ export default function ConfiguracoesPage() {
         setTelefone(maskPhone(empresa.telefone ?? ''));
         setLogoUrl(empresa.logo_url ?? '');
         setLogoPreview(empresa.logo_url ?? '');
-        setIsOwner(empresa.owner_id === user.id);
         setMetaMensal(empresa.meta_mensal ? formatMoeda(Number(empresa.meta_mensal)) : '');
 
         setTaxaAtiva(empresa.taxa_cancelamento_ativa ?? false);
@@ -308,7 +310,6 @@ export default function ConfiguracoesPage() {
         setReservaModo((empresa.taxa_reserva_modo as 'percentual' | 'fixo') ?? 'percentual');
         setReservaValor(String(empresa.taxa_reserva_valor ?? 0).replace('.', ','));
 
-        setPodeEditarTaxa(empresa.owner_id === user.id || membro.role === 'gestor');
         if (empresa.horario_funcionamento) {
           setHorarios({ ...HORARIO_DEFAULT, ...(empresa.horario_funcionamento as Horarios) });
         }

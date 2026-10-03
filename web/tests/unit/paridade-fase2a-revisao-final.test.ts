@@ -51,9 +51,9 @@ describe('web Relatórios: pagar comissão e carga', () => {
 
 describe('web Financeiro: respostas velhas e dono resolvido', () => {
   const src = ler('web', 'app', '(app)', 'financeiro', 'page.tsx');
-  it('contador de requisição e espera de isOwner', () => {
-    expect(src).toContain('useState<boolean | null>(null)');
-    expect(src).toContain('if (!empresaId || isOwner === null) return;');
+  it('contador de requisição e dona vinda do contexto de permissões (resolvida já no 1º render)', () => {
+    expect(src).toContain("const isOwner = pode('dona');");
+    expect(src).toContain('if (!empresaId) return;');
     expect(src).toContain('const req = ++reqRef.current');
     expect((src.match(/if \(req !== reqRef\.current\) return/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(src).toContain('if (req === reqRef.current) setLoading(false)');

@@ -1129,13 +1129,15 @@ export default function PacotesPage() {
 
                   {/* Ações */}
                   <div className="flex gap-2 pt-2 border-t border-border">
-                    <button
-                      onClick={() => p.ativo && p.servicos.length > 0 && setModalVender(p)}
-                      disabled={!p.ativo || p.servicos.length === 0}
-                      title={p.servicos.length === 0 ? 'Adicione serviços antes de vender' : ''}
-                      className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition disabled:opacity-40">
-                      {p.servicos.length === 0 ? '⚠ Sem serviços' : 'Vender'}
-                    </button>
+                    {pode('pacotes.vender') && (
+                      <button
+                        onClick={() => p.ativo && p.servicos.length > 0 && setModalVender(p)}
+                        disabled={!p.ativo || p.servicos.length === 0}
+                        title={p.servicos.length === 0 ? 'Adicione serviços antes de vender' : ''}
+                        className="flex-1 h-8 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition disabled:opacity-40">
+                        {p.servicos.length === 0 ? '⚠ Sem serviços' : 'Vender'}
+                      </button>
+                    )}
                     {podeGerenciarCatalogo && (
                       <>
                         <button onClick={() => setModalPacote(p)}

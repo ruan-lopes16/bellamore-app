@@ -14,6 +14,7 @@ import { montarAniversario, diasNoMes, nomeClienteValido } from '@shared/cliente
 import { mensagemErroBanco } from '@shared/erros';
 import { avancarComEnter } from '@/lib/formNav';
 import { ExportButton } from '@/components/ExportButton';
+import { usePermissoes } from '@/components/PermissoesProvider';
 
 const supabase = createClient();
 
@@ -157,6 +158,7 @@ function NovoClienteModal({ empresaId, onClose }: {
 
 export default function ClientesPage() {
   const router    = useRouter();
+  const { pode } = usePermissoes();
   const [clientes,       setClientes]       = useState<Cliente[]>([]);
   const [loading,        setLoading]        = useState(true);
   const [busca,          setBusca]          = useState('');
@@ -292,10 +294,12 @@ export default function ClientesPage() {
             ]}
             getData={() => filtrados}
           />
-          <button onClick={() => setModal(true)} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
-            style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)' }}>
-            <UserPlus size={15} strokeWidth={2.5}/>Novo cliente
-          </button>
+          {pode('clientes.cadastrar') && (
+            <button onClick={() => setModal(true)} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
+              style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)' }}>
+              <UserPlus size={15} strokeWidth={2.5}/>Novo cliente
+            </button>
+          )}
         </div>
       </div>
 

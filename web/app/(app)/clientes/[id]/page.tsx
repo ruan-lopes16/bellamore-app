@@ -14,6 +14,7 @@ import { Sk } from '@/components/Skeleton';
 import { Secret } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { usePermissoes } from '@/components/PermissoesProvider';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { mensagemErroBanco } from '@shared/erros';
@@ -521,6 +522,7 @@ export default function ClientePerfilPage() {
   const router       = useRouter();
   const { id }       = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const { pode } = usePermissoes();
 
   const [cliente,  setCliente]  = useState<Cliente | null>(null);
   const [loading,  setLoading]  = useState(true);
@@ -540,7 +542,7 @@ export default function ClientePerfilPage() {
 
   // ── Anamnese ────────────────────────────────────────────────
   const [anamnese,   setAnamnese]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
-  const [editAn,     setEditAn]     = useState(searchParams.get('editar') === '1' && searchParams.get('aba') === 'anamnese');
+  const [editAn,     setEditAn]     = useState(searchParams.get('editar') === '1' && searchParams.get('aba') === 'anamnese' && pode('anamnese.editar'));
   const [rascunho,   setRascunho]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
   const [erroAn,     setErroAn]     = useState('');
   const [erroCargaAn, setErroCargaAn] = useState('');
@@ -940,11 +942,13 @@ export default function ClientePerfilPage() {
                   </p>
                 )}
               </div>
-              <button onClick={desativar}
-                className="press"
-                style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', border: 'none', flexShrink: 0 }}>
-                <Trash2 size={14} strokeWidth={2}/>
-              </button>
+              {(pode('clientes.arquivar') || pode('clientes.excluir')) && (
+                <button onClick={desativar}
+                  className="press"
+                  style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', border: 'none', flexShrink: 0 }}>
+                  <Trash2 size={14} strokeWidth={2}/>
+                </button>
+              )}
             </div>
 
             {/* Action buttons */}
@@ -997,7 +1001,7 @@ export default function ClientePerfilPage() {
               { key: 'info',      label: 'Informações' },
               { key: 'historico', label: 'Histórico'   },
               { key: 'anamnese',  label: 'Anamnese'    },
-            ] as const).map(({ key, label }) => (
+            ] as const).filter(({ key }) => key !== 'anamnese' || pode('anamnese.ver')).map(({ key, label }) => (
               <button key={key} onClick={() => setAbaAtiva(key)}
                 className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
                   abaAtiva === key ? 'bg-primary text-white' : 'text-text-3 hover:text-text-2'
@@ -1010,7 +1014,7 @@ export default function ClientePerfilPage() {
             <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <p className="font-semibold text-text text-sm">Dados cadastrais</p>
-                {!editInfo && (
+                {!editInfo && pode('clientes.editar') && (
                   <button onClick={() => setEditInfo(true)}
                     className="flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline">
                     <Edit3 size={12}/> Editar
@@ -1351,7 +1355,7 @@ export default function ClientePerfilPage() {
           )}
 
           {/* Aba: Anamnese */}
-          {abaAtiva === 'anamnese' && (
+          {abaAtiva === 'anamnese' && pode('anamnese.ver') && (
             <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div>
@@ -1362,7 +1366,7 @@ export default function ClientePerfilPage() {
                     </p>
                   )}
                 </div>
-                {!editAn && !erroCargaAn && (
+                {!editAn && !erroCargaAn && pode('anamnese.editar') && (
                   <button onClick={() => { setRascunho({ ...anamnese }); setEditAn(true); }}
                     className="flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline">
                     <Edit3 size={12}/> Editar
@@ -1529,7 +1533,7 @@ export default function ClientePerfilPage() {
                       </div>
                     </div>
 
-                    {!anamnesePreenchida(anamnese) && !erroCargaAn && (
+                    {!anamnesePreenchida(anamnese) && !erroCargaAn && pode('anamnese.editar') && (
                       <button onClick={() => { setRascunho({ ...anamnese }); setEditAn(true); }}
                         className="text-accent text-sm font-semibold hover:underline self-start">
                         + Preencher ficha
@@ -1603,6 +1607,7 @@ export default function ClientePerfilPage() {
           </div>
 
           {/* Status anamnese */}
+          {pode('anamnese.ver') && (
           <div className={`border rounded-2xl p-4 shadow-sm ${anamnesePreenchida(anamnese) ? 'bg-green-soft border-green/20' : 'bg-amber-soft border-amber/20'}`}>
             <div className="flex items-center gap-2 mb-1">
               <ShieldCheck size={14} className={anamnesePreenchida(anamnese) ? 'text-green' : 'text-amber'} strokeWidth={2}/>
@@ -1622,13 +1627,14 @@ export default function ClientePerfilPage() {
                 ))}
               </ul>
             )}
-            {!anamnesePreenchida(anamnese) && !erroCargaAn && (
+            {!anamnesePreenchida(anamnese) && !erroCargaAn && pode('anamnese.editar') && (
               <button onClick={() => { setAbaAtiva('anamnese'); setRascunho({ ...anamnese }); setEditAn(true); }}
                 className="text-xs font-semibold text-amber mt-2 hover:underline">
                 Preencher agora →
               </button>
             )}
           </div>
+          )}
 
         </div>{/* fim col direita */}
 
@@ -1696,6 +1702,7 @@ export default function ClientePerfilPage() {
             </div>
             <div className="p-5 flex flex-col gap-3">
               <p className="text-sm text-text-3">O que você deseja fazer com "{cliente?.nome}"?</p>
+              {pode('clientes.arquivar') && (
               <button onClick={() => { setModalRemover(false); setConfirmArquivar(true); }}
                 className="flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-bg transition text-left">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-amber-soft)' }}>
@@ -1706,6 +1713,8 @@ export default function ClientePerfilPage() {
                   <p className="text-xs text-text-4">Some das listas, mas o histórico é mantido</p>
                 </div>
               </button>
+              )}
+              {pode('clientes.excluir') && (
               <button onClick={pedirExclusao}
                 className="flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-rose-soft transition text-left">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-rose-soft)' }}>
@@ -1716,6 +1725,7 @@ export default function ClientePerfilPage() {
                   <p className="text-xs text-text-4">Apaga para sempre — só é possível sem histórico</p>
                 </div>
               </button>
+              )}
             </div>
           </div>
         </div>
