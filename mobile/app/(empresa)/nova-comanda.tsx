@@ -119,6 +119,7 @@ export default function NovaComandaScreen() {
   const { pode } = usePermissoes();
   const podeFechar   = pode('comanda.fechar');
   const podeDesconto = pode('comanda.desconto');
+  const podeVenderPacote = pode('pacotes.vender');
   const empresaId = empresaAtiva?.id ?? null;
   const qc = useQueryClient();
 
@@ -331,6 +332,12 @@ export default function NovaComandaScreen() {
 
   async function fecharComanda() {
     if (!clienteSel || !empresaId || fechando || !podeFechar) return;
+    // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois
+    // de a comanda já ter sido criada — barra antes de gravar qualquer coisa.
+    if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
+      Alert.alert('Sem permissão', 'Você não tem permissão para vender pacotes. Remova o pacote da comanda para fechar.');
+      return;
+    }
     setFechando(true);
 
     // Barra fechamento duplicado: se algum atendimento desta comanda já ganhou
@@ -871,7 +878,7 @@ export default function NovaComandaScreen() {
                     ))}
                   </>
                 )}
-                {pacotesCat.length > 0 && clienteSel && clienteSel.id !== '__sem__' && (
+                {podeVenderPacote && pacotesCat.length > 0 && clienteSel && clienteSel.id !== '__sem__' && (
                   <>
                     <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8, marginBottom: 4 }}>Pacotes</Text>
                     {pacotesCat.map(p => (

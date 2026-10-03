@@ -105,7 +105,7 @@ function Campo({
 export default function NovoCliente() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
-  const { pode } = usePermissoes();
+  const { pode, permissoesCarregadas } = usePermissoes();
   const qc = useQueryClient();
 
   const [nome, setNome]           = useState('');
@@ -126,6 +126,14 @@ export default function NovoCliente() {
   });
 
   if (!fontsLoaded) return null;
+
+  if (!permissoesCarregadas) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.primary} />
+      </View>
+    );
+  }
 
   if (!pode('clientes.cadastrar')) {
     return (

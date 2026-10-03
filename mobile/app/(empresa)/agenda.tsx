@@ -211,10 +211,13 @@ export default function Agenda() {
   const { empresaAtiva, user } = useAuthStore();
   const { pode } = usePermissoes();
   const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
+  // Sem `agenda.ver_equipe` só a própria agenda (igual ao web): sem chips de equipe.
+  const podeVerEquipe = pode('agenda.ver_equipe');
 
   const [diaSelecionado, setDiaSelecionado] = useState(new Date());
   const [mesRef, setMesRef] = useState(new Date());
-  const [profFiltro, setProfFiltro] = useState<string | undefined>(undefined);
+  const [profFiltroSel, setProfFiltro] = useState<string | undefined>(undefined);
+  const profFiltro = podeVerEquipe ? profFiltroSel : user?.id;
   const [modalBloqueio, setModalBloqueio] = useState(false);
   const [sheetPendentes, setSheetPendentes] = useState(false);
   const remover = useRemoverBloqueio();
@@ -504,6 +507,7 @@ export default function Agenda() {
           </ScrollView>
 
           {/* Filtro profissional */}
+          {podeVerEquipe && (
           <ScrollView
             horizontal showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 24, gap: 6, paddingBottom: 14 }}
@@ -551,6 +555,7 @@ export default function Agenda() {
               );
             })}
           </ScrollView>
+          )}
         </View>
 
         {/* ── Timeline ── */}

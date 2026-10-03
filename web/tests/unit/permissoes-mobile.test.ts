@@ -11,6 +11,13 @@ describe('app: permissões na sessão', () => {
     expect(s).toContain('carregarMinhasPermissoes(');
     expect(s).toContain('recarregarPermissoes');
   });
+  it('authStore expõe permissoesCarregadas e as telas que expulsam esperam por ela', () => {
+    expect(ler('stores/authStore.ts')).toContain('permissoesCarregadas');
+    expect(ler('lib/permissions.ts')).toContain('permissoesCarregadas');
+    for (const arq of ['app/(empresa)/cliente/[id]/editar.tsx', 'app/(empresa)/cliente/[id]/anamnese.tsx', 'app/(empresa)/novo-cliente.tsx']) {
+      expect(ler(arq)).toContain('permissoesCarregadas');
+    }
+  });
   it('_layout raiz recarrega ao voltar ao app', () => {
     expect(ler('app/_layout.tsx')).toMatch(/AppState[\s\S]*recarregarPermissoes/);
   });
@@ -25,7 +32,8 @@ describe('app: botões consultam a chave certa', () => {
   const esperado: [string, string[]][] = [
     ['app/(empresa)/_layout.tsx', ['financeiro.ver']],
     ['app/(empresa)/agendamento/[id].tsx', ['agenda.excluir']],
-    ['app/(empresa)/comissoes.tsx', ['comissoes.ver_todas']],
+    ['app/(empresa)/comissoes.tsx', ['comissoes.ver_todas', 'comissoes.pagar']],
+    ['app/(empresa)/agenda.tsx', ['agenda.ver_equipe']],
     ['app/(empresa)/configuracoes.tsx', ['config.taxas']],
     ['app/(empresa)/dashboard.tsx', ['estoque.acessar', 'financeiro.ver', 'comanda.fechar']],
     ['app/(empresa)/mais.tsx', ['financeiro.ver', 'comissoes.ver_todas']],
@@ -34,7 +42,7 @@ describe('app: botões consultam a chave certa', () => {
     ['app/(empresa)/servicos.tsx', ['servicos.gerenciar']],
     ['app/(empresa)/novo-agendamento.tsx', ['clientes.cadastrar']],
     ['app/(empresa)/cliente/[id].tsx', ['clientes.arquivar', 'clientes.excluir', 'clientes.editar']],
-    ['app/(empresa)/nova-comanda.tsx', ['comanda.desconto']],
+    ['app/(empresa)/nova-comanda.tsx', ['comanda.desconto', 'pacotes.vender']],
     ['hooks/useAgenda.ts', ['agenda.aprovar_bloqueios']],
   ];
   for (const [arq, chaves] of esperado) {

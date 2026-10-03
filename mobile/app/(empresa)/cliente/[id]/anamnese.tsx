@@ -76,15 +76,15 @@ export default function Anamnese() {
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
   const { empresaAtiva } = useAuthStore();
-  const { pode } = usePermissoes();
+  const { pode, permissoesCarregadas } = usePermissoes();
   const podeEditarAnamnese = pode('anamnese.editar');
 
   // Edição da ficha só com 'anamnese.editar'; sem ela, volta com aviso.
   useEffect(() => {
-    if (podeEditarAnamnese) return;
+    if (!permissoesCarregadas || podeEditarAnamnese) return;
     Alert.alert('Sem permissão', 'Você não tem permissão para editar a ficha de anamnese.');
     router.back();
-  }, [podeEditarAnamnese]);
+  }, [podeEditarAnamnese, permissoesCarregadas]);
 
   const { data: cliente } = useClienteDetalhe(id);
   const [respostas, setRespostas] = useState<AnamneseRespostas>(ANAMNESE_VAZIA);

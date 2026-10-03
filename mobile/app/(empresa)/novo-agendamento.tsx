@@ -198,8 +198,14 @@ export default function NovoAgendamento() {
   const { data: todasProfissionais = [] } = useProfissionais();
   // Sem 'agenda.gerenciar_outras' só aparece a própria pessoa (o banco recusa gravar para outra).
   const profissionais = useMemo(
-    () => (podeOutras ? todasProfissionais : todasProfissionais.filter((p) => p.id === user?.id)),
-    [podeOutras, todasProfissionais, user?.id],
+    () => {
+      if (podeOutras) return todasProfissionais;
+      // useProfissionais só traz role='profissional': gestora sem a chave não estaria na lista.
+      const eu = todasProfissionais.find((p) => p.id === user?.id)
+        ?? (user ? { id: user.id, nome: user.nome, foto_url: user.foto_url ?? undefined } : null);
+      return eu ? [eu] : [];
+    },
+    [podeOutras, todasProfissionais, user],
   );
   useEffect(() => {
     if (podeOutras || profSelecionado || profissionais.length === 0) return;

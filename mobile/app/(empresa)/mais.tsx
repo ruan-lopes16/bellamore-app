@@ -286,8 +286,7 @@ export default function Mais() {
 
         {/* ── Gestão ── */}
         {/* Serviços e Pacotes são sempre visíveis; os demais itens seguem as chaves de permissão. */}
-        {(
-          <MotiView
+        <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'timing', duration: 350, delay: 100 }}
@@ -357,8 +356,7 @@ export default function Mais() {
                 />
               )}
             </View>
-          </MotiView>
-        )}
+        </MotiView>
 
         {/* ── Configurações ── */}
         <MotiView

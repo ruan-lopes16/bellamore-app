@@ -16,6 +16,7 @@ import { pendentesPorProfissional, MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/co
 import { carregarComissoesPendentes } from '@shared/kpis-financeiros-consultas';
 import { pagarComissoes } from '@shared/comissoes-consultas';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
+import { usePermissoes } from '@/components/PermissoesProvider';
 import { configVazia, contarExcecoes, type ConfigPermissoes } from '@shared/permissoes';
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
@@ -442,6 +443,8 @@ function ProfCard({ prof, excecoes, podeAlterarRole, onEditInfo, onToggle, onPag
 }) {
   const [expandido, setExpandido] = useState(false);
   const [pagando,   setPagando]   = useState(false);
+  // O UPDATE de `comissoes` no banco exige `comissoes.pagar`.
+  const podePagar = usePermissoes().pode('comissoes.pagar');
 
   let hue = 0;
   for (let i = 0; i < prof.user.nome.length; i++) hue = (hue * 31 + prof.user.nome.charCodeAt(i)) % 360;
@@ -546,7 +549,7 @@ function ProfCard({ prof, excecoes, podeAlterarRole, onEditInfo, onToggle, onPag
           )}
 
           {/* Pagar comissão */}
-          {prof.ativo && temPendente && (
+          {prof.ativo && temPendente && podePagar && (
             <button onClick={handlePagar} disabled={pagando}
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, height: 40, borderRadius: 14, fontSize: 12, fontWeight: 700, cursor: pagando ? 'default' : 'pointer', transition: 'all 0.15s', border: 'none', background: pagando ? 'var(--color-bg2)' : '#B45309', color: pagando ? 'var(--color-ink4)' : '#fff', fontFamily: 'var(--font-sans)', marginBottom: 10, opacity: pagando ? 0.7 : 1 }}>
               <CheckCircle2 size={14} strokeWidth={2.5}/>

@@ -69,15 +69,15 @@ export default function EditarCliente() {
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
   const { empresaAtiva } = useAuthStore();
-  const { pode } = usePermissoes();
+  const { pode, permissoesCarregadas } = usePermissoes();
   const podeEditar = pode('clientes.editar');
 
   // Sem permissão (ex.: deep link), volta com aviso em vez de abrir o formulário.
   useEffect(() => {
-    if (podeEditar) return;
+    if (!permissoesCarregadas || podeEditar) return;
     Alert.alert('Sem permissão', 'Você não tem permissão para editar cliente.');
     router.back();
-  }, [podeEditar]);
+  }, [podeEditar, permissoesCarregadas]);
 
   const { data: cliente } = useClienteDetalhe(id);
 

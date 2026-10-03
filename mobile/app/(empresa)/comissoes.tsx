@@ -66,7 +66,7 @@ function initials(nome: string) {
 // ── Card do profissional ──────────────────────────────────────
 
 function ProfCard({
-  item, index, filtro, periodo, categorias, onPagar,
+  item, index, filtro, periodo, categorias, onPagar, podePagar,
 }: {
   item: ComissoesDaProfissional;
   index: number;
@@ -74,6 +74,8 @@ function ProfCard({
   periodo: PeriodoComissao;
   categorias: CategoriaCustom[];
   onPagar: () => void;
+  /** `comissoes.pagar` — o banco exige essa chave no UPDATE de `comissoes`. */
+  podePagar: boolean;
 }) {
   const [from, to] = AVATAR_COLORS[index % AVATAR_COLORS.length];
   const grupos = agruparComissoesPorData(filtrarComissoes(item.itens, filtro), periodo);
@@ -111,7 +113,7 @@ function ProfCard({
         </View>
 
         {/* Pagar — visível direto no cabeçalho, sem precisar rolar até o rodapé */}
-        {temPendente ? (
+        {temPendente ? (podePagar ? (
           <TouchableOpacity
             onPress={onPagar}
             style={{ backgroundColor: C.green, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}
@@ -119,7 +121,7 @@ function ProfCard({
             <Banknote size={12} color="#fff" strokeWidth={2} />
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: '#fff' }}>Pagar</Text>
           </TouchableOpacity>
-        ) : (
+        ) : null) : (
           <View style={{ backgroundColor: C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             <CircleCheck size={12} color={C.green} strokeWidth={2} />
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.green }}>Pago</Text>
@@ -261,6 +263,7 @@ export default function Comissoes() {
   // Trava de permissão dentro da tela (a rota também é alcançável pela Equipe ou por deep link).
   const { pode } = usePermissoes();
   const podeVer = pode('comissoes.ver_todas');
+  const podePagar = pode('comissoes.pagar');
 
   const { limites, profissionais, resumo, categorias, pronto, isFetching, isError, erro, refetch, pagar } =
     useComissoesGestor(periodo, deslocamento, podeVer);
@@ -396,6 +399,7 @@ export default function Comissoes() {
               periodo={periodo}
               categorias={categorias}
               onPagar={() => setPagando(p)}
+              podePagar={podePagar}
             />
           ))
         }

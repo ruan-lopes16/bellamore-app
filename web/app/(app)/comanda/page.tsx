@@ -199,6 +199,7 @@ export default function ComandaPage() {
   const podeFechar       = pode('comanda.fechar');
   const podeDesconto     = pode('comanda.desconto');
   const podeEditarFechada = pode('comanda.editar_fechada');
+  const podeVenderPacote  = pode('pacotes.vender');
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
@@ -822,6 +823,12 @@ export default function ComandaPage() {
   async function fecharComanda() {
     if (!clienteSel || !empresaId || fechando) return;
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
+    // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois de a
+    // comanda já ter sido criada — barra antes de gravar qualquer coisa.
+    if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
+      setErro('Você não tem permissão para vender pacotes. Remova o pacote da comanda para fechar.');
+      return;
+    }
     setFechando(true); setErro('');
 
     // 0. Barra fechamento duplicado: se algum atendimento desta comanda já
@@ -1517,7 +1524,7 @@ export default function ComandaPage() {
                       placeholder="+ Adicionar produto / bebida..."
                     />
                     {/* Vender pacote (requer cliente cadastrado) */}
-                    {clienteSel && clienteSel.id !== '__sem__' && (
+                    {podeVenderPacote && clienteSel && clienteSel.id !== '__sem__' && (
                       <SearchSelect
                         options={pacotesCat.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
                         value=""

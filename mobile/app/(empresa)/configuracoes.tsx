@@ -210,7 +210,8 @@ export default function Configuracoes() {
     if (!empresaAtiva || !user) return;
     setSalvando(true);
 
-    // Empresa: dados e horários só a dona; taxas só com config.taxas (o banco também confere).
+    // Empresa: dados e horários só a dona; taxas só com config.taxas (permissão só de tela: o UPDATE de `empresas` no banco
+    // é liberado a dona/gestora — migration 049).
     const dadosEmpresa = ehDona ? {
       nome:                 nomeEmpresa.trim(),
       telefone:             telefoneEmp.trim() || null,

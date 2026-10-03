@@ -9,7 +9,8 @@ export type { Acesso };
 /** `const { pode } = usePermissoes(); if (pode('clientes.arquivar')) ...` */
 export function usePermissoes() {
   const p = useAuthStore(s => s.permissoes);
-  return useMemo(() => ({ ...p, pode: (a: Acesso) => pode(p, a) }), [p]);
+  const permissoesCarregadas = useAuthStore(s => s.permissoesCarregadas);
+  return useMemo(() => ({ ...p, permissoesCarregadas, pode: (a: Acesso) => pode(p, a) }), [p, permissoesCarregadas]);
 }
 
 // Retorna a rota inicial baseada no perfil

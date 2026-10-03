@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
+import { usePermissoes } from '@/components/PermissoesProvider';
 import { ExportButton } from '@/components/ExportButton';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
@@ -41,6 +42,9 @@ function avatarGradient(nome: string) {
 }
 
 export default function ComissoesGestorView() {
+  const { pode } = usePermissoes();
+  // O UPDATE de `comissoes` no banco exige `comissoes.pagar` (ver_todas só lista).
+  const podePagar = pode('comissoes.pagar');
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [periodo, setPeriodo] = useState<PeriodoComissao>('mes');
@@ -366,7 +370,7 @@ export default function ComissoesGestorView() {
                   </button>
 
                   {/* Pagar — visível direto no cabeçalho, sem precisar expandir */}
-                  {temPendente && (
+                  {temPendente && podePagar && (
                     <button onClick={() => setPagando(prof.profissionalId)}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-white text-xs font-bold hover:opacity-90 transition flex-shrink-0"
                       style={{ background: 'var(--color-green)' }}>
