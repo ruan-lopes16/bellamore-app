@@ -17,14 +17,26 @@
 --  6. Policies dos itens "Banco" do catálogo trocam is_gestor_ou_owner por tem_permissao,
 --     com o MESMO nome e o resto da condição idêntico. Sem linhas gravadas, tem_permissao
 --     devolve os padrões = comportamento de antes, então nada muda no dia em que roda.
+--  7. (Revisão final) estoque.acessar, vendas.acessar e config.taxas passam a valer no banco
+--     (produtos, estoque_movimentos, empresas); pagamentos SELECT usa financeiro.ver; trigger
+--     em empresas deixa quem não é a dona mudar só as colunas taxa_*; atualizar_estoque vira
+--     security definer; salvar_permissoes recusa a gestora ligar chave que ela não tem;
+--     UPDATE de empresa_membros por não-dona só em profissionais que não sejam ela mesma.
+--     Únicas mudanças de comportamento com os padrões: a gestora deixa de alterar o vínculo
+--     de outras gestoras e o próprio (ex.: a própria comissão), e de regravar dados da empresa
+--     que não sejam taxas — as telas já não ofereciam isso.
 --
 -- Rollback: recriar as policies listadas abaixo exatamente como estão no CSV de 2026-10-02
 -- (mais 080/081/082), e então:
+--   drop trigger if exists trg_empresas_nao_dona_so_taxas on public.empresas;
+--   drop function if exists public.fn_empresas_nao_dona_so_taxas();
+--   (atualizar_estoque: recriar o corpo da 001 sem security definer)
 --   drop trigger if exists trg_membros_papel_so_dona on public.empresa_membros;
 --   drop function if exists public.fn_membros_papel_so_dona();
 --   drop function if exists public.salvar_permissoes(uuid, jsonb);
 --   drop function if exists public.minhas_permissoes(uuid);
 --   drop table if exists public.permissoes_historico, public.permissoes_membro, public.permissoes_papel;
+--   drop function if exists public.eh_dona_da_empresa(uuid);   (depois de recriar a policy de membros)
 --   drop function if exists public.tem_permissao(uuid, text);
 --   drop function if exists public.permissao_padrao(text, text);
 --   drop function if exists public.permissoes_chaves();
@@ -150,6 +162,19 @@ begin
 end;
 $$;
 
+-- Dona = empresas.owner_id ou vínculo ativo com papel 'owner' (mesma regra do topo de tem_permissao).
+-- security definer: é usada dentro de policy de empresa_membros sem recursão de RLS.
+create or replace function public.eh_dona_da_empresa(p_empresa uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select auth.uid() is not null and (
+    exists (select 1 from public.empresas where id = p_empresa and owner_id = auth.uid())
+    or exists (select 1 from public.empresa_membros
+               where empresa_id = p_empresa and user_id = auth.uid() and ativo = true and role::text = 'owner')
+  );
+$$;
+
 -- ── 4. minhas_permissoes / salvar_permissoes ──────────────────
 
 create or replace function public.minhas_permissoes(p_empresa uuid)
@@ -164,7 +189,8 @@ grant execute on function public.minhas_permissoes(uuid) to authenticated;
  * p_mudancas: [{ "tipo": "papel"|"membro", "alvo": "<papel ou user_id>", "chave": "...",
  *                "permitido": true|false|null }]   (null só para membro = volta ao padrão)
  * Dona: tudo (menos a própria dona como alvo). Gestora: só papel 'profissional' e membros
- * 'profissional' que não sejam ela. Demais: recusa. Tudo numa transação, com histórico.
+ * 'profissional' que não sejam ela, e só LIGA chaves que ela mesma tem (senão seria escalada:
+ * conceder a outra o que ela não pode). Demais: recusa. Tudo numa transação, com histórico.
  */
 create or replace function public.salvar_permissoes(p_empresa uuid, p_mudancas jsonb)
 returns void
@@ -218,6 +244,9 @@ begin
         where empresa_id = p_empresa and papel = v_alvo and chave = v_chave;
       if not found then v_de := public.permissao_padrao(v_alvo, v_chave); end if;
       if v_de is distinct from v_para then
+        if not v_owner and v_para is true and not public.tem_permissao(p_empresa, v_chave) then
+          raise exception 'A gestora só concede permissões que ela mesma tem (%)', v_chave using errcode = '42501';
+        end if;
         insert into public.permissoes_papel (empresa_id, papel, chave, permitido, alterado_por, alterado_em)
           values (p_empresa, v_alvo, v_chave, v_para, auth.uid(), now())
           on conflict (empresa_id, papel, chave)
@@ -242,6 +271,9 @@ begin
         where empresa_id = p_empresa and user_id = v_alvo_user and chave = v_chave;
       if not found then v_de := null; end if;
       if v_de is distinct from v_para then
+        if not v_owner and v_para is true and not public.tem_permissao(p_empresa, v_chave) then
+          raise exception 'A gestora só concede permissões que ela mesma tem (%)', v_chave using errcode = '42501';
+        end if;
         if v_para is null then
           delete from public.permissoes_membro
             where empresa_id = p_empresa and user_id = v_alvo_user and chave = v_chave;
@@ -489,11 +521,21 @@ create policy "financeiro_ajustes_mensais: gestor pode atualizar" on public.fina
   using (tem_permissao(empresa_id, 'financeiro.fechamentos'))
   with check (tem_permissao(empresa_id, 'financeiro.fechamentos'));
 
--- empresa_membros (043, conforme produção)
+-- empresa_membros (043, conforme produção). Quem não é a dona só altera vínculos de
+-- PROFISSIONAIS que não sejam o próprio (senão "equipe.gerenciar" desativava a dona — que
+-- perde o acesso ao web — ou mudava a própria comissão). A dona continua livre.
 drop policy if exists "membros: gestor ou owner atualiza" on public.empresa_membros;
 create policy "membros: gestor ou owner atualiza" on public.empresa_membros for update
-  using (tem_permissao(empresa_id, 'equipe.gerenciar'))
-  with check (tem_permissao(empresa_id, 'equipe.gerenciar'));
+  using (
+    tem_permissao(empresa_id, 'equipe.gerenciar')
+    and (eh_dona_da_empresa(empresa_id)
+         or (role = 'profissional'::perfil_role and user_id <> auth.uid()))
+  )
+  with check (
+    tem_permissao(empresa_id, 'equipe.gerenciar')
+    and (eh_dona_da_empresa(empresa_id)
+         or (role = 'profissional'::perfil_role and user_id <> auth.uid()))
+  );
 drop policy if exists "membros: gestor ou owner convida" on public.empresa_membros;
 create policy "membros: gestor ou owner convida" on public.empresa_membros for insert with check (
   role = any (array['gestor'::perfil_role, 'profissional'::perfil_role])
@@ -511,5 +553,108 @@ drop policy if exists "comissoes: gestor ou owner atualiza" on public.comissoes;
 create policy "comissoes: gestor ou owner atualiza" on public.comissoes for update
   using (tem_permissao(empresa_id, 'comissoes.pagar'))
   with check (tem_permissao(empresa_id, 'comissoes.pagar'));
+
+-- ── 7. Chaves que eram só "Tela" e o banco recusava (revisão final) ──
+-- Antes: o painel deixava ligar estoque.acessar / vendas.acessar / config.taxas para a
+-- Profissional, mas as policies abaixo eram is_gestor_ou_owner — a tela fingia sucesso
+-- (0 linhas) ou parava no meio (venda gravada sem baixa de estoque nem pagamento).
+-- Com os padrões, gestora ✔ e profissional ✘ nas três = exatamente is_gestor_ou_owner.
+
+-- produtos (004, conforme produção). DELETE continua só da dona.
+drop policy if exists "produtos: gestor pode inserir" on public.produtos;
+create policy "produtos: gestor pode inserir" on public.produtos for insert
+  with check (tem_permissao(empresa_id, 'estoque.acessar'));
+drop policy if exists "produtos: gestor pode atualizar" on public.produtos;
+create policy "produtos: gestor pode atualizar" on public.produtos for update
+  using (tem_permissao(empresa_id, 'estoque.acessar'))
+  with check (tem_permissao(empresa_id, 'estoque.acessar'));
+
+-- estoque_movimentos (004, conforme produção). DELETE continua só da dona.
+-- INSERT: (a) estoque.acessar; (b) ramo de produção PRESERVADO — saída ligada ao próprio
+-- atendimento (baixa de insumos da comanda da profissional); (c) novo: saída de venda
+-- avulsa para quem tem vendas.acessar (a tela Vendas grava a saída sem agendamento_id).
+drop policy if exists "estoque_movimentos: gestor pode inserir" on public.estoque_movimentos;
+create policy "estoque_movimentos: gestor pode inserir" on public.estoque_movimentos for insert with check (
+  tem_permissao(empresa_id, 'estoque.acessar')
+  or (tipo = 'saida'::movimento_tipo and agendamento_id is not null
+      and exists (select 1 from public.agendamentos
+                  where agendamentos.id = estoque_movimentos.agendamento_id
+                    and agendamentos.profissional_id = auth.uid()
+                    and agendamentos.empresa_id = estoque_movimentos.empresa_id))
+  or (tipo = 'saida'::movimento_tipo and tem_permissao(empresa_id, 'vendas.acessar'))
+);
+drop policy if exists "estoque_movimentos: gestor pode atualizar" on public.estoque_movimentos;
+create policy "estoque_movimentos: gestor pode atualizar" on public.estoque_movimentos for update
+  using (tem_permissao(empresa_id, 'estoque.acessar'))
+  with check (tem_permissao(empresa_id, 'estoque.acessar'));
+
+-- Trigger de 001 que atualiza produtos.estoque_atual: rodava como quem inseriu o movimento,
+-- então o UPDATE em produtos (só estoque.acessar) acertava 0 linhas em silêncio para quem
+-- entrou pelos ramos (b) ou (c) acima — movimento gravado, saldo intacto. Como definer,
+-- vale para todo movimento que já passou na policy de INSERT. Corpo idêntico ao da 001.
+create or replace function public.atualizar_estoque()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if NEW.tipo = 'entrada' then
+    update public.produtos set estoque_atual = estoque_atual + NEW.quantidade
+    where id = NEW.produto_id;
+  elsif NEW.tipo = 'saida' then
+    update public.produtos set estoque_atual = estoque_atual - NEW.quantidade
+    where id = NEW.produto_id;
+  elsif NEW.tipo = 'ajuste' then
+    update public.produtos set estoque_atual = NEW.quantidade
+    where id = NEW.produto_id;
+  end if;
+  return NEW;
+end;
+$$;
+
+-- empresas (049, conforme produção). "empresas: owner pode editar" (ALL, dona) fica como está.
+-- Quem não é a dona atualiza só com config.taxas, e o trigger abaixo garante que só as
+-- colunas taxa_* mudam (dados da empresa, logo, horários e meta são só da dona).
+drop policy if exists "empresas: gestor pode atualizar" on public.empresas;
+create policy "empresas: gestor pode atualizar" on public.empresas for update
+  using (tem_permissao(id, 'config.taxas'))
+  with check (tem_permissao(id, 'config.taxas'));
+
+create or replace function public.fn_empresas_nao_dona_so_taxas()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_taxas text[];
+begin
+  -- Sem sessão (service role, cron, SQL Editor) e a dona: livres.
+  if auth.uid() is null or public.eh_dona_da_empresa(old.id) then
+    return new;
+  end if;
+  select coalesce(array_agg(k), '{}'::text[]) into v_taxas
+    from jsonb_object_keys(to_jsonb(new)) as k
+    where k like 'taxa\_%';
+  if (to_jsonb(new) - v_taxas) is distinct from (to_jsonb(old) - v_taxas) then
+    raise exception 'Só a dona altera os dados da empresa; as taxas dependem da permissão "Editar taxas"'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists trg_empresas_nao_dona_so_taxas on public.empresas;
+create trigger trg_empresas_nao_dona_so_taxas
+  before update on public.empresas
+  for each row execute function public.fn_empresas_nao_dona_so_taxas();
+
+-- pagamentos (075, conforme produção). Antes: gestor/dona ou comanda própria. A taxa de
+-- cartão dos números financeiros depende desta leitura. Ramo da comanda própria mantido.
+-- Pagamentos de COMANDA também para quem gerencia a agenda de outras (mesma lógica de
+-- taxas_reserva acima): a gestora sem financeiro.ver segue editando comanda de colega vendo
+-- os pagamentos que vai substituir. Com os padrões não muda nada (gestora já tem financeiro.ver).
+drop policy if exists "pagamentos: profissional ou gestor ve" on public.pagamentos;
+create policy "pagamentos: profissional ou gestor ve" on public.pagamentos for select using (
+  tem_permissao(empresa_id, 'financeiro.ver')
+  or (comanda_id is not null and comanda_pertence_ao_profissional(comanda_id))
+  or (comanda_id is not null and tem_permissao(empresa_id, 'agenda.gerenciar_outras'))
+);
 
 notify pgrst, 'reload schema';

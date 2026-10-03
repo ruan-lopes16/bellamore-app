@@ -78,26 +78,31 @@ travá-la no banco quebraria essa operação.
 | `comanda.fechar` | Fechar comanda (profissional: só as próprias) | ✔ | ✔ | Banco (073/075) |
 | `comanda.desconto` | Dar desconto / cortesia | ✔ | ✔ | Tela |
 | `comanda.editar_fechada` | Editar comanda já fechada (profissional: só as próprias) | ✔ | ✔ | Tela* |
-| `vendas.acessar` | Tela Vendas (registrar e ver vendas avulsas) | ✔ | ✘ | Tela*** |
+| `vendas.acessar` | Tela Vendas (registrar e ver vendas avulsas) | ✔ | ✘ | Banco (INSERT `estoque_movimentos` de saída, 083) + Tela*** |
 | `servicos.gerenciar` | Gerenciar serviços e categorias | ✔ | ✘ | Banco (078, 063) |
 | `pacotes.gerenciar` | Gerenciar catálogo de pacotes | ✔ | ✘ | Banco (078) |
 | `pacotes.vender` | Vender pacote para cliente | ✔ | ✔ | Banco (`pacote_clientes`) |
-| `estoque.acessar` | Ver e movimentar estoque | ✔ | ✘ | Tela** |
-| `financeiro.ver` | Ver Financeiro, Relatórios e números do Dashboard | ✔ | ✘ | Banco (SELECT despesas e taxas) + Tela |
+| `estoque.acessar` | Ver e movimentar estoque | ✔ | ✘ | Banco (INSERT/UPDATE `produtos` e `estoque_movimentos`, 083)** |
+| `financeiro.ver` | Ver Financeiro, Relatórios e números do Dashboard (os de toda a equipe pedem também `agenda.ver_equipe` e `comissoes.ver_todas`) | ✔ | ✘ | Banco (SELECT despesas, taxas e `pagamentos`) + Tela |
 | `despesas.gerenciar` | Lançar, editar e pagar despesas | ✔ | ✘ | Banco (003) |
 | `taxas.marcar_pagas` | Marcar taxas de reserva/cancelamento como pagas | ✔ | ✘ | Banco (047/054) |
 | `financeiro.fechamentos` | Importar fechamentos mensais | ✔ | ✘ | Banco (040) |
-| `equipe.gerenciar` | Gerenciar equipe (convidar, editar, desativar) | ✔ | ✘ | Banco (043) |
+| `equipe.gerenciar` | Gerenciar equipe (convidar, editar, desativar, alterar comissão) — quem não é a dona só sobre profissionais que não sejam ela mesma | ✔ | ✘ | Banco (043 + 083) |
 | `comissoes.ver_todas` | Ver comissões de todas | ✔ | ✘ | Banco (042) |
 | `comissoes.pagar` | Pagar comissões | ✔ | ✘ | Banco (042) |
-| `config.taxas` | Editar taxas de reserva e cancelamento | ✔ | ✘ | Tela (UPDATE `empresas` já é gestor/owner, 049) |
+| `config.taxas` | Editar taxas de reserva e cancelamento | ✔ | ✘ | Banco (UPDATE `empresas` + trigger que só deixa mudar `taxa_*`, 083) |
 
 \* Editar e fechar usam as mesmas policies de `comandas` (073/075), sem coluna que distinga
 as duas operações no banco.
-\*\* A comanda de qualquer profissional baixa estoque (`estoque_movimentos`/`produtos`), então
-travar no banco quebraria o fechamento.
-\*\*\* A comanda da profissional grava `vendas` e lê de volta (`insert(...).select()`); travar o
-SELECT quebraria o fechamento. A 046, que restringia isso, nunca foi aplicada em produção.
+\*\* A baixa de insumos da comanda da profissional continua pelo ramo de produção "saída ligada
+ao próprio agendamento", preservado na policy; o trigger `atualizar_estoque` passou a
+`security definer` para o saldo de `produtos` acompanhar todo movimento aceito.
+\*\*\* `vendas`/`venda_itens` seguem "membro gerencia": a comanda da profissional grava `vendas` e lê
+de volta (`insert(...).select()`); travar o SELECT quebraria o fechamento. A 046, que restringia
+isso, nunca foi aplicada em produção. No banco, `vendas.acessar` libera a saída de estoque da venda.
+
+**Revisão final (083):** a gestora só liga para profissionais as chaves que ela mesma tem
+(`salvar_permissoes` recusa com 42501; os painéis travam via `podeConcederChave`).
 
 **Fixo, só com a dona, fora da tabela:** dados da empresa (nome, CNPJ, endereço, horário, logo,
 segmento, meta), retiradas da sócia, valores sensíveis (`ver_financeiro_sensivel`), promover
