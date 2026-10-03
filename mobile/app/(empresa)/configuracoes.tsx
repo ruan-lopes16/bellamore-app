@@ -30,6 +30,7 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import { PermissoesPanel } from '@/components/PermissoesPanel';
 import { supabase } from '@/lib/supabase';
 import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
+import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -234,7 +235,7 @@ export default function Configuracoes() {
     const ops: Promise<any>[] = [
       // Atualiza empresa (só se a pessoa pode editar alguma coisa dela)
       ...(Object.keys(payloadEmpresa).length > 0
-        ? [supabase.from('empresas').update(payloadEmpresa).eq('id', empresaAtiva.id)]
+        ? [supabase.from('empresas').update(payloadEmpresa).eq('id', empresaAtiva.id).select('id')]
         : []),
 
       // Atualiza perfil do usuário
@@ -256,7 +257,12 @@ export default function Configuracoes() {
 
     const erros = results.filter((r) => r.error);
     if (erros.length > 0) {
-      Alert.alert('Erro ao salvar', erros[0].error.message);
+      Alert.alert('Erro ao salvar', mensagemErroBanco(erros[0].error, 'salvar as configurações'));
+      return;
+    }
+    // UPDATE de empresas recusado pelo RLS volta sem erro e sem linha: não finge que salvou.
+    if (Object.keys(payloadEmpresa).length > 0 && (results[0]?.data?.length ?? 0) === 0) {
+      Alert.alert('Erro ao salvar', mensagemErroBanco({ code: '42501' }, 'salvar as configurações da empresa'));
       return;
     }
 

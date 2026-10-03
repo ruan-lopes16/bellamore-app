@@ -11,6 +11,7 @@ import { registrarEInscrever } from '@/components/SwRegister';
 import Image from 'next/image';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { PermissoesPanel } from '@/components/permissoes/PermissoesPanel';
+import { mensagemErroBanco } from '@shared/erros';
 
 const supabase = createClient();
 
@@ -461,12 +462,15 @@ function ConfiguracoesConteudo() {
   async function salvarEmpresa(e: React.FormEvent) {
     e.preventDefault();
     if (!isOwner && !podeEditarTaxa) { setErro('Você não tem permissão para editar as configurações.'); return; }
-    if (cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
+    // O CNPJ só é enviado pela dona; a gestora nem vê o campo, então não pode travar nele.
+    if (isOwner && cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
     setSalvando(true); setErro('');
 
     const enderecoFinal = [rua, numero, complemento, bairro, localidade].filter(Boolean).join(', ');
 
-    const { error } = await supabase.from('empresas').update({
+    // Dados da empresa só a dona. Quem salva só com config.taxas manda SÓ as colunas taxa_*
+    // (o trigger da 083 recusa qualquer outra coluna vinda de quem não é a dona).
+    const dadosEmpresa = isOwner ? {
       nome:                  nome.trim(),
       segmento:              segmento        || 'Estúdio',
       cnpj:                  cnpj.trim()     || null,
@@ -475,6 +479,9 @@ function ConfiguracoesConteudo() {
       logo_url:              logoUrl         || null,
       horario_funcionamento: horarios,
       meta_mensal:           parseMoeda(metaMensal),
+    } : {};
+    const { data: atualizadas, error } = await supabase.from('empresas').update({
+      ...dadosEmpresa,
       taxa_cancelamento_ativa:             taxaAtiva,
       taxa_cancelamento_modo:              taxaModo,
       taxa_cancelamento_valor:             parseFloat(taxaValor.replace(',', '.')) || 0,
@@ -483,10 +490,14 @@ function ConfiguracoesConteudo() {
       taxa_reserva_ativa: reservaAtiva,
       taxa_reserva_modo:  reservaModo,
       taxa_reserva_valor: parseFloat(reservaValor.replace(',', '.')) || 0,
-    }).eq('id', empresaId);
+    }).eq('id', empresaId).select('id');
 
     setSalvando(false);
-    if (error) { setErro(error.message); return; }
+    // 0 linhas sem erro = RLS recusou (sem config.taxas no banco): não mostra "salvas".
+    if (error || !atualizadas || atualizadas.length === 0) {
+      setErro(mensagemErroBanco(error ?? { code: '42501' }, 'salvar as configurações da empresa'));
+      return;
+    }
     showToast('Configurações salvas!');
     setTimeout(() => window.location.reload(), 1000);
   }
