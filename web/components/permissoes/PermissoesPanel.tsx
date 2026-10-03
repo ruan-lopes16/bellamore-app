@@ -9,7 +9,7 @@ import { SkCardList } from '@/components/Skeleton';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import {
   CATALOGO_PERMISSOES, GRUPOS_PERMISSAO, aplicarMudancas, chaveMudanca, configVazia, contarExcecoes,
-  descreverHistorico, estadoDoMembro, podeEditarAlvo, valorDoPapel,
+  descreverHistorico, estadoDoMembro, podeConcederChave, podeEditarAlvo, valorDoPapel,
   type ChavePermissao, type ConfigPermissoes, type EstadoExcecao, type LinhaHistorico,
   type MudancaPermissao, type Papel,
 } from '@shared/permissoes';
@@ -24,9 +24,9 @@ type SubAba = 'papel' | 'pessoa' | 'historico';
 const ROTULO_ESTADO: Record<EstadoExcecao, string> = { padrao: 'Padrão', permitir: 'Permitir', bloquear: 'Bloquear' };
 
 /** Liga/desliga no mesmo visual do ToggleLinha de Configurações. */
-function Switch({ ligado, disabled, onChange, rotulo }: { ligado: boolean; disabled?: boolean; onChange: (v: boolean) => void; rotulo: string }) {
+function Switch({ ligado, disabled, onChange, rotulo, dica }: { ligado: boolean; disabled?: boolean; onChange: (v: boolean) => void; rotulo: string; dica?: string }) {
   return (
-    <button type="button" role="switch" aria-checked={ligado} aria-label={rotulo} disabled={disabled}
+    <button type="button" role="switch" aria-checked={ligado} aria-label={rotulo} disabled={disabled} title={dica}
       onClick={() => onChange(!ligado)}
       className={`relative w-10 h-5 rounded-full transition flex-shrink-0 ${ligado ? 'bg-primary' : 'bg-border'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
       <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${ligado ? 'left-[22px]' : 'left-0.5'}`}/>
@@ -40,8 +40,12 @@ function Switch({ ligado, disabled, onChange, rotulo }: { ligado: boolean; disab
  * que chama a RPC salvar_permissoes (valida no banco e grava o histórico).
  */
 export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empresaId: string; meuUserId: string; membroInicial?: string }) {
-  const { isOwner, papel } = usePermissoes();
+  const { isOwner, papel, chaves } = usePermissoes();
   const editor = { isOwner, papel, userId: meuUserId };
+  /** A gestora não liga o que ela mesma não tem (salvar_permissoes recusaria). Já gravado ligado pode ficar. */
+  const travaLigar = (chave: ChavePermissao, gravadoLigado: boolean) =>
+    !podeConcederChave(editor, chaves, chave) && !gravadoLigado;
+  const DICA_SEM_CHAVE = 'Você só pode conceder permissões que você mesma tem.';
 
   const [sub, setSub] = useState<SubAba>(membroInicial ? 'pessoa' : 'papel');
   const [loading, setLoading] = useState(true);
@@ -127,7 +131,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
       {sub === 'papel' && (
         <div className="flex flex-col gap-4">
           {!isOwner && (
-            <p className="text-xs text-text-3">Como gestora, você altera só o papel Profissional. A coluna Gestora é somente leitura.</p>
+            <p className="text-xs text-text-3">Como gestora, você altera só o papel Profissional e só liga o que você mesma tem. A coluna Gestora é somente leitura.</p>
           )}
           {GRUPOS_PERMISSAO.map(grupo => (
             <section key={grupo} className="bg-surface border border-border rounded-2xl overflow-hidden">
@@ -142,14 +146,19 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
                     <p className="text-[13px] font-semibold text-text">{p.rotulo}</p>
                     {p.descricao && <p className="text-[11.5px] text-text-3">{p.descricao}</p>}
                   </div>
-                  {(['gestor', 'profissional'] as Papel[]).map(pp => (
-                    <div key={pp} className="w-20 flex justify-center">
-                      <Switch rotulo={`${p.rotulo} — ${pp === 'gestor' ? 'Gestora' : 'Profissional'}`}
-                        ligado={valorDoPapel(visivel, pp, p.chave)}
-                        disabled={!podeEditarAlvo(editor, { tipo: 'papel', papel: pp })}
-                        onChange={v => mudar({ tipo: 'papel', alvo: pp, chave: p.chave, permitido: v })}/>
-                    </div>
-                  ))}
+                  {(['gestor', 'profissional'] as Papel[]).map(pp => {
+                    const ligado = valorDoPapel(visivel, pp, p.chave);
+                    const semChave = !ligado && travaLigar(p.chave, valorDoPapel(cfg, pp, p.chave));
+                    return (
+                      <div key={pp} className="w-20 flex justify-center">
+                        <Switch rotulo={`${p.rotulo} — ${pp === 'gestor' ? 'Gestora' : 'Profissional'}`}
+                          ligado={ligado}
+                          disabled={!podeEditarAlvo(editor, { tipo: 'papel', papel: pp }) || semChave}
+                          dica={semChave && podeEditarAlvo(editor, { tipo: 'papel', papel: pp }) ? DICA_SEM_CHAVE : undefined}
+                          onChange={v => mudar({ tipo: 'papel', alvo: pp, chave: p.chave, permitido: v })}/>
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </section>
@@ -182,13 +191,16 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
                   <div key={p.chave} className="flex flex-wrap items-center gap-2 px-4 py-3 border-t border-border">
                     <p className="flex-1 min-w-[180px] text-[13px] font-semibold text-text">{p.rotulo}</p>
                     <div className="flex gap-1">
-                      {(['padrao', 'permitir', 'bloquear'] as EstadoExcecao[]).map(e => (
-                        <button key={e} type="button"
+                      {(['padrao', 'permitir', 'bloquear'] as EstadoExcecao[]).map(e => {
+                        const semChave = e === 'permitir' && travaLigar(p.chave, cfg.membros[membroAtual.user_id]?.[p.chave] === true);
+                        return (
+                        <button key={e} type="button" disabled={semChave} title={semChave ? DICA_SEM_CHAVE : undefined}
                           onClick={() => mudar({ tipo: 'membro', alvo: membroAtual.user_id, chave: p.chave, permitido: e === 'padrao' ? null : e === 'permitir' })}
-                          className={`press px-2.5 py-1 rounded-full text-[11.5px] font-semibold border transition ${estado === e ? 'border-primary bg-primary-soft text-primary' : 'border-border text-text-2'}`}>
+                          className={`press px-2.5 py-1 rounded-full text-[11.5px] font-semibold border transition disabled:opacity-40 disabled:cursor-not-allowed ${estado === e ? 'border-primary bg-primary-soft text-primary' : 'border-border text-text-2'}`}>
                           {e === 'padrao' ? `${ROTULO_ESTADO[e]} (${padrao ? '✔' : '✘'})` : ROTULO_ESTADO[e]}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );

@@ -43,16 +43,16 @@ export const CATALOGO_PERMISSOES = [
   { chave: 'comanda.fechar', grupo: 'Comanda', rotulo: 'Fechar comanda', descricao: 'Profissional fecha só as comandas dos próprios atendimentos.', padrao: SIM_SIM },
   { chave: 'comanda.desconto', grupo: 'Comanda', rotulo: 'Dar desconto e cortesia', descricao: 'Campo de desconto e forma de pagamento "Cortesia".', padrao: SIM_SIM },
   { chave: 'comanda.editar_fechada', grupo: 'Comanda', rotulo: 'Editar comanda já fechada', descricao: 'Profissional edita só as comandas dos próprios atendimentos.', padrao: SIM_SIM },
-  { chave: 'vendas.acessar', grupo: 'Vendas', rotulo: 'Registrar e ver vendas avulsas', descricao: 'Tela Vendas.', padrao: SIM_NAO },
+  { chave: 'vendas.acessar', grupo: 'Vendas', rotulo: 'Registrar e ver vendas avulsas', descricao: 'Tela Vendas, com a baixa de estoque dos produtos vendidos.', padrao: SIM_NAO },
   { chave: 'servicos.gerenciar', grupo: 'Serviços e pacotes', rotulo: 'Criar e editar serviços e categorias', descricao: 'Ver a lista de serviços é sempre liberado.', padrao: SIM_NAO },
   { chave: 'pacotes.gerenciar', grupo: 'Serviços e pacotes', rotulo: 'Criar e editar o catálogo de pacotes', descricao: 'Ver os pacotes é sempre liberado.', padrao: SIM_NAO },
   { chave: 'pacotes.vender', grupo: 'Serviços e pacotes', rotulo: 'Vender pacote para cliente', descricao: 'Na tela Pacotes, na agenda e na comanda.', padrao: SIM_SIM },
   { chave: 'estoque.acessar', grupo: 'Estoque', rotulo: 'Ver e movimentar estoque', descricao: 'A baixa automática de insumos na comanda continua para todos.', padrao: SIM_NAO },
-  { chave: 'financeiro.ver', grupo: 'Financeiro', rotulo: 'Ver Financeiro, Relatórios e números da empresa', descricao: 'Inclui os cartões financeiros do Dashboard.', padrao: SIM_NAO },
+  { chave: 'financeiro.ver', grupo: 'Financeiro', rotulo: 'Ver Financeiro, Relatórios e números da empresa', descricao: 'Inclui os cartões financeiros do Dashboard. Para os números de toda a equipe, ligue também "Ver agenda de toda a equipe" e "Ver comissões de todas" (sem elas, receita e comissões contam só as dela).', padrao: SIM_NAO },
   { chave: 'despesas.gerenciar', grupo: 'Financeiro', rotulo: 'Lançar, editar e pagar despesas', descricao: 'Excluir despesa continua só com a dona.', padrao: SIM_NAO },
   { chave: 'taxas.marcar_pagas', grupo: 'Financeiro', rotulo: 'Marcar taxas de reserva e cancelamento como pagas', descricao: '', padrao: SIM_NAO },
   { chave: 'financeiro.fechamentos', grupo: 'Financeiro', rotulo: 'Importar fechamentos mensais', descricao: '', padrao: SIM_NAO },
-  { chave: 'equipe.gerenciar', grupo: 'Equipe e comissões', rotulo: 'Convidar, editar e desativar pessoas da equipe', descricao: 'Promover alguém a gestora é sempre só da dona.', padrao: SIM_NAO },
+  { chave: 'equipe.gerenciar', grupo: 'Equipe e comissões', rotulo: 'Convidar, editar e desativar pessoas da equipe', descricao: 'Só sobre profissionais (nunca a dona, outra gestora ou o próprio vínculo); inclui alterar a comissão delas. Promover alguém a gestora é sempre só da dona.', padrao: SIM_NAO },
   { chave: 'comissoes.ver_todas', grupo: 'Equipe e comissões', rotulo: 'Ver comissões de todas', descricao: 'A própria comissão é sempre liberada.', padrao: SIM_NAO },
   { chave: 'comissoes.pagar', grupo: 'Equipe e comissões', rotulo: 'Pagar comissões', descricao: '', padrao: SIM_NAO },
   { chave: 'config.taxas', grupo: 'Configurações', rotulo: 'Editar taxas de reserva e cancelamento', descricao: 'Os demais dados da empresa são só da dona.', padrao: SIM_NAO },
@@ -173,6 +173,37 @@ export function podeEditarAlvo(editor: EditorPermissoes, alvo: AlvoPermissao): b
   if (editor.papel !== 'gestor') return false;
   if (alvo.tipo === 'papel') return alvo.papel === 'profissional';
   return alvo.papel === 'profissional' && alvo.userId !== editor.userId;
+}
+
+/**
+ * Pode LIGAR esta chave para alguém (papel ou exceção)? A dona concede tudo; a gestora só
+ * concede o que ela mesma tem — espelha a recusa de salvar_permissoes (migration 083), que
+ * fecha a única via de escalada. Desligar e voltar ao padrão não passam por aqui.
+ *
+ * @param chavesDoEditor  permissões efetivas de quem edita (`usePermissoes().chaves`)
+ */
+export function podeConcederChave(
+  editor: { isOwner: boolean },
+  chavesDoEditor: readonly ChavePermissao[],
+  chave: ChavePermissao,
+): boolean {
+  return editor.isOwner || chavesDoEditor.includes(chave);
+}
+
+/**
+ * Pode alterar o vínculo (ativar/desativar, comissão, contrato, dados) desta pessoa da equipe?
+ * Espelha a policy "membros: gestor ou owner atualiza" (migration 083): a dona altera qualquer
+ * vínculo; com `equipe.gerenciar`, as demais só alteram profissionais que não sejam elas mesmas.
+ *
+ * @param podeEquipe  `pode('equipe.gerenciar')`
+ */
+export function podeGerenciarMembro(
+  editor: { isOwner: boolean; userId: string },
+  podeEquipe: boolean,
+  alvo: { role: string; userId: string },
+): boolean {
+  if (editor.isOwner) return true;
+  return podeEquipe && alvo.role === 'profissional' && alvo.userId !== editor.userId;
 }
 
 // ── Histórico ───────────────────────────────────────────────────

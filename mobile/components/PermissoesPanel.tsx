@@ -6,8 +6,8 @@ import { usePermissoes } from '@/lib/permissions';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   CATALOGO_PERMISSOES, GRUPOS_PERMISSAO, aplicarMudancas, chaveMudanca, configVazia, contarExcecoes,
-  descreverHistorico, estadoDoMembro, podeEditarAlvo, valorDoPapel,
-  type ConfigPermissoes, type EstadoExcecao, type LinhaHistorico, type MudancaPermissao, type Papel,
+  descreverHistorico, estadoDoMembro, podeConcederChave, podeEditarAlvo, valorDoPapel,
+  type ChavePermissao, type ConfigPermissoes, type EstadoExcecao, type LinhaHistorico, type MudancaPermissao, type Papel,
 } from '@shared/permissoes';
 import { carregarConfigPermissoes, carregarHistoricoPermissoes, salvarPermissoes } from '@shared/permissoes-consultas';
 import { mensagemErroBanco } from '@shared/erros';
@@ -26,8 +26,11 @@ const F = { r: 'PlusJakartaSans_400Regular', s: 'PlusJakartaSans_600SemiBold', b
 
 /** Aba Permissões do app — mesma regra e mesmo fluxo de rascunho/salvar do web. */
 export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empresaId: string; meuUserId: string; membroInicial?: string }) {
-  const { isOwner, papel } = usePermissoes();
+  const { isOwner, papel, chaves } = usePermissoes();
   const editor = { isOwner, papel, userId: meuUserId };
+  /** A gestora não liga o que ela mesma não tem (salvar_permissoes recusaria). Já gravado ligado pode ficar. */
+  const travaLigar = (chave: ChavePermissao, gravadoLigado: boolean) =>
+    !podeConcederChave(editor, chaves, chave) && !gravadoLigado;
 
   const [sub, setSub] = useState<SubAba>(membroInicial ? 'pessoa' : 'papel');
   const [loading, setLoading] = useState(true);
@@ -106,7 +109,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
 
       {sub === 'papel' && (
         <View>
-          {!isOwner && <Text style={{ fontFamily: F.r, fontSize: 12, color: C.text3 }}>Como gestora, você altera só o papel Profissional.</Text>}
+          {!isOwner && <Text style={{ fontFamily: F.r, fontSize: 12, color: C.text3 }}>Como gestora, você altera só o papel Profissional e só liga o que você mesma tem.</Text>}
           {GRUPOS_PERMISSAO.map(g => (
             <View key={g}>
               {tituloGrupo(g)}
@@ -119,7 +122,8 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
                       <View key={pp} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Switch
                           value={valorDoPapel(visivel, pp, p.chave)}
-                          disabled={!podeEditarAlvo(editor, { tipo: 'papel', papel: pp })}
+                          disabled={!podeEditarAlvo(editor, { tipo: 'papel', papel: pp })
+                            || (!valorDoPapel(visivel, pp, p.chave) && travaLigar(p.chave, valorDoPapel(cfg, pp, p.chave)))}
                           onValueChange={v => mudar({ tipo: 'papel', alvo: pp, chave: p.chave, permitido: v })}
                           trackColor={{ true: C.primary, false: C.border }}
                         />
@@ -163,16 +167,19 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
                   <View key={p.chave} style={{ paddingVertical: 10, borderBottomWidth: 1, borderColor: C.border }}>
                     <Text style={{ fontFamily: F.s, fontSize: 14, color: C.text }}>{p.rotulo}</Text>
                     <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-                      {(['padrao', 'permitir', 'bloquear'] as EstadoExcecao[]).map(e => (
-                        <Pressable key={e}
+                      {(['padrao', 'permitir', 'bloquear'] as EstadoExcecao[]).map(e => {
+                        const semChave = e === 'permitir' && travaLigar(p.chave, cfg.membros[membroAtual.user_id]?.[p.chave] === true);
+                        return (
+                        <Pressable key={e} disabled={semChave}
                           onPress={() => mudar({ tipo: 'membro', alvo: membroAtual.user_id, chave: p.chave, permitido: e === 'padrao' ? null : e === 'permitir' })}
-                          style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, borderWidth: 1,
+                          style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, borderWidth: 1, opacity: semChave ? 0.4 : 1,
                                    borderColor: estado === e ? C.primary : C.border, backgroundColor: estado === e ? C.primarySoft : 'transparent' }}>
                           <Text style={{ fontFamily: F.s, fontSize: 11.5, color: estado === e ? C.primary : C.text2 }}>
                             {e === 'padrao' ? `${ROTULO_ESTADO[e]} (${padrao ? '✔' : '✘'})` : ROTULO_ESTADO[e]}
                           </Text>
                         </Pressable>
-                      ))}
+                        );
+                      })}
                     </View>
                   </View>
                 );
