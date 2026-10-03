@@ -61,3 +61,5 @@ drop trigger if exists trg_clientes_ativo_so_gestor on public.clientes;
 create trigger trg_clientes_ativo_so_gestor
   before update of ativo on public.clientes
   for each row execute function public.fn_clientes_ativo_so_gestor();
+
+notify pgrst, 'reload schema';

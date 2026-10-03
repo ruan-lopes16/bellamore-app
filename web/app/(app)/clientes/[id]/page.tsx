@@ -195,7 +195,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
       data_hora_fim: fim.toISOString(), status: 'agendado',
       valor: parseFloat(valor) || 0, observacao: obs.trim() || null,
     }).select().single();
-    if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
+    if (error || !ag) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
 
     // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
     if (aplicarTaxaReserva) {

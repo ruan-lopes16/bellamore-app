@@ -380,7 +380,7 @@ export default function NovoAgendamento() {
       } else if (error.message.includes('Horário bloqueado')) {
         Alert.alert('Horário bloqueado', 'Esse horário está bloqueado na agenda. Remova o bloqueio para agendar nesse período.');
       } else {
-        Alert.alert('Erro', error.message);
+        Alert.alert('Erro', mensagemErroBanco(error, 'criar agendamento'));
       }
       return;
     }

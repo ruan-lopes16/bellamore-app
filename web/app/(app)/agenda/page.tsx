@@ -610,7 +610,7 @@ function NovoAgModal({
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       }).eq('id', agEditar.id);
-      if (error) { setSalvando(false); setErro(error.message); return; }
+      if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'salvar agendamento')); return; }
       await supabase.from('agendamento_servicos').delete().eq('agendamento_id', agEditar.id);
       agId = agEditar.id;
     } else {
@@ -626,7 +626,7 @@ function NovoAgModal({
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       }).select().single();
-      if (error || !ag) { setSalvando(false); setErro(error?.message ?? 'Erro'); return; }
+      if (error || !ag) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
       agId = ag.id;
 
       // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
