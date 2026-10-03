@@ -11,6 +11,7 @@ import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { maskPhone } from '@/lib/masks';
 import { montarAniversario, diasNoMes, nomeClienteValido } from '@shared/clientes';
+import { mensagemErroBanco } from '@shared/erros';
 import { avancarComEnter } from '@/lib/formNav';
 import { ExportButton } from '@/components/ExportButton';
 
@@ -59,7 +60,7 @@ function NovoClienteModal({ empresaId, onClose }: {
       observacoes: obs.trim() || null,
     }).select().single();
     setSalvando(false);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(mensagemErroBanco(error, 'cadastrar cliente')); return; }
     setSucesso({ nome: (data as Cliente).nome, id: (data as Cliente).id });
   }
 
