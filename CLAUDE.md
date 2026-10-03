@@ -874,6 +874,11 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - `resumoAvaliacoes` devolve média sem arredondar (telas formatam); `notaMedia` vazio = null.
 - Testes de fuso dependem de `process.env.TZ`; nomes obsoletos `recMesAnt`/`RecorrenteTemplate` no app.
 
+**Revisão final da branch (opus):** nada Critical; os 5 caminhos de "Pagar" e o lançamento de recorrentes conferidos de ponta a ponta. Corrigido antes do PR (commit d596908):
+- **Bug de dinheiro pré-existente no web (desde antes da 2A):** recorrente paga com atraso no mês seguinte (venc. 30/09, pago 02/10) caía na lista de outubro e fazia o lançamento achar que outubro já existia — o mês seria pulado para sempre (despesa faltando, lucro inflado). `recorrentesParaLancarNoMes` agora considera só o vencimento no mês, igual à reconsulta do servidor. Varredura em produção (somente leitura, 8 recorrentes / 24 lançamentos): nenhum mês pulado até hoje.
+- Comissões da profissional (app) e Início mostravam R$ 0 e "Nenhuma comissão" durante o carregamento → '—'.
+- Pagar dos Relatórios web travado durante a chamada; badge de comissões do menu do app só busca com permissão; delta do hero sem erro; chaves `dash-reconquista`/`prof-comissoes`/`prof-kpis-dia` em `CHAVES_FINANCEIRO`.
+
 ---
 
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
