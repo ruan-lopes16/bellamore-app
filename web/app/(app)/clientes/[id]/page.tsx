@@ -121,6 +121,8 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   onClose: () => void; onSalvo: () => void;
 }) {
   useScrollLock();
+  const { pode } = usePermissoes();
+  const podeOutras = pode('agenda.gerenciar_outras');
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<ServicoOpt[]>([]);
   const [servicoId,  setServicoId]  = useState('');
@@ -151,11 +153,17 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
         .eq('empresa_id', empresaId).in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true),
       supabase.from('servicos').select('id, nome, preco, duracao_minutos')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
-    ]).then(([p, s]) => {
-      setProfissionais((p.data ?? []).map((m: any) => ({ id: m.user.id, nome: m.user.nome })));
+      supabase.auth.getUser(),
+    ]).then(([p, s, u]) => {
+      const todos = (p.data ?? []).map((m: any) => ({ id: m.user.id, nome: m.user.nome }));
+      // Sem 'agenda.gerenciar_outras' (RLS 082/083) só dá para agendar para si mesma.
+      const meuId = u.data.user?.id;
+      const lista = podeOutras ? todos : todos.filter((m: { id: string }) => m.id === meuId);
+      setProfissionais(lista);
+      if (!podeOutras && meuId) setProfId(meuId);
       setServicos((s.data ?? []) as ServicoOpt[]);
     });
-  }, [empresaId]);
+  }, [empresaId, podeOutras]);
 
   // Configuração de taxa de reserva da empresa
   useEffect(() => {
@@ -527,7 +535,7 @@ export default function ClientePerfilPage() {
   const [cliente,  setCliente]  = useState<Cliente | null>(null);
   const [loading,  setLoading]  = useState(true);
   const [abaAtiva, setAbaAtiva] = useState<'info' | 'historico' | 'anamnese'>(
-    searchParams.get('aba') === 'anamnese' ? 'anamnese' : 'info'
+    searchParams.get('aba') === 'anamnese' && pode('anamnese.ver') ? 'anamnese' : 'info'
   );
 
   // ── Info edit ──────────────────────────────────────────────

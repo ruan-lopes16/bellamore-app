@@ -10,7 +10,7 @@ const ler = (p: string) => readFileSync(join(app, p), 'utf8');
 const esperado: [string, string[]][] = [
   ['agenda/page.tsx', ['agenda.ver_equipe', 'agenda.gerenciar_outras', 'agenda.excluir', 'agenda.aprovar_bloqueios', 'clientes.cadastrar', 'pacotes.vender']],
   ['clientes/page.tsx', ['clientes.cadastrar']],
-  ['clientes/[id]/page.tsx', ['clientes.editar', 'clientes.arquivar', 'clientes.excluir', 'anamnese.ver', 'anamnese.editar']],
+  ['clientes/[id]/page.tsx', ['clientes.editar', 'clientes.arquivar', 'clientes.excluir', 'anamnese.ver', 'anamnese.editar', 'agenda.gerenciar_outras']],
   ['comanda/page.tsx', ['comanda.desconto', 'comanda.editar_fechada', 'comanda.fechar']],
   ['pacotes/page.tsx', ['pacotes.gerenciar', 'pacotes.vender']],
   ['financeiro/page.tsx', ['despesas.gerenciar', 'taxas.marcar_pagas', 'dona']],
