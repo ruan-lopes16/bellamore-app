@@ -133,12 +133,14 @@ export default function Comissoes() {
   const podeAvancar = deslocamento < 0;
 
   const { data: itens = [], isLoading, isError: erroLista, error: errLista, refetch } = useComissoesProfissional(l);
-  const { data: resumo, isError: erroResumo, error: errResumo, refetch: refetchResumo } = useResumoComissoes(l);
+  const { data: resumo, isLoading: carregandoResumo, isError: erroResumo, error: errResumo, refetch: refetchResumo } = useResumoComissoes(l);
   const comissoes = filtrarComissoes(itens, filtro);
   const erro = erroResumo || erroLista;
+  // Sem número (erro, carregando ou sem resumo): "—", nunca zeros enganosos.
+  const semNumero = erro || isLoading || carregandoResumo || !resumo;
   // Nunca mostrar R$ 0 no lugar dos números quando a consulta falha.
-  const fmtRes = (n: number) => (erro ? '—' : formatBRL(n));
-  const numRes = (n: number) => (erro ? '—' : String(n));
+  const fmtRes = (n: number) => (semNumero ? '—' : formatBRL(n));
+  const numRes = (n: number) => (semNumero ? '—' : String(n));
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -234,7 +236,7 @@ export default function Comissoes() {
               Não foi possível carregar suas comissões
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text2 }}>
-              {(errResumo ?? errLista)?.message ?? 'Falha ao buscar os dados'} · Tentar de novo
+              {[errResumo, errLista].filter(Boolean).map(e => (e as Error).message).join(" · ") || "Falha ao buscar os dados"} · Tentar de novo
             </Text>
           </TouchableOpacity>
         )}
@@ -325,11 +327,11 @@ export default function Comissoes() {
         <View style={{ paddingHorizontal: 24 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 18, color: C.text }}>
-              {erro ? '—' : comissoes.length} {filtro === 'todas' ? 'comissões' : filtro === 'pendentes' ? 'pendentes' : 'pagas'}
+              {semNumero ? '—' : comissoes.length} {filtro === 'todas' ? 'comissões' : filtro === 'pendentes' ? 'pendentes' : 'pagas'}
             </Text>
           </View>
 
-          {erro ? null : comissoes.length === 0 ? (
+          {semNumero ? (isLoading && !erro ? <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>Carregando…</Text> : null) : comissoes.length === 0 ? (
             <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 24, alignItems: 'center' }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
                 Nenhuma comissão neste período.

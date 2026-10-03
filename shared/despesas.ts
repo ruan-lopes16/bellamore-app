@@ -301,9 +301,13 @@ export function chaveDespesa(d: { descricao: string; categoria?: string | null }
  * (CARREGADA COM SUCESSO — com erro, não chame: duplicaria tudo).
  */
 export function recorrentesParaLancarNoMes<T extends RecorrenteTemplateHistorico>(
-  historico: T[], despesasDoMes: { descricao: string; categoria?: string | null }[], inicioMes: string,
+  historico: T[], despesasDoMes: { descricao: string; categoria?: string | null; data_vencimento?: string | null }[], inicioMes: string,
 ): T[] {
-  return templatesRecorrentesParaLancar(historico, new Set(despesasDoMes.map(chaveDespesa)), inicioMes);
+  // Só conta quem VENCE no mês: a lista do mês também traz despesas de outro mês pagas
+  // nele, e essas não podem bloquear o lançamento (o servidor só olha data_vencimento).
+  const mes = inicioMes.slice(0, 7);
+  const doMes = despesasDoMes.filter(d => d.data_vencimento == null || d.data_vencimento.slice(0, 7) === mes);
+  return templatesRecorrentesParaLancar(historico, new Set(doMes.map(chaveDespesa)), inicioMes);
 }
 
 /** Dia do vencimento do template no mês 'yyyy-MM' (dia 31 em fevereiro → último dia). */

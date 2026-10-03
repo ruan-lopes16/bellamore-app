@@ -117,9 +117,10 @@ export default function Inicio() {
   const mesAtual = limitesMes(hojeBRT().slice(0, 7));
 
   const { data: agendaHoje, isLoading: loadingAgenda, refetch: refetchAgenda, isError: erroAgenda, error: errAgenda } = useAgendaProfissional(hoje);
-  const { data: kpisDia, refetch: refetchKpis, isError: erroKpis, error: errKpis } = useKpisDiaProfissional(hoje);
-  const { data: resumoMes, refetch: refetchResumo, isError: erroResumo, error: errResumo } = useResumoComissoes(mesAtual);
+  const { data: kpisDia, isLoading: carregandoKpis, refetch: refetchKpis, isError: erroKpis, error: errKpis } = useKpisDiaProfissional(hoje);
+  const { data: resumoMes, isLoading: carregandoResumo, refetch: refetchResumo, isError: erroResumo, error: errResumo } = useResumoComissoes(mesAtual);
   // Nunca mostrar zeros no lugar dos números quando a consulta falha.
+  const semResumo = erroResumo || carregandoResumo || !resumoMes;
   const isError = erroKpis || erroResumo || erroAgenda;
   const erro = errKpis ?? errResumo ?? errAgenda;
   const { data: meta, refetch: refetchMeta } = useMetaPessoal();
@@ -182,9 +183,9 @@ export default function Inicio() {
         <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 16, flexWrap: 'wrap' }}>
           {[
             { value: erroAgenda ? '—' : String(ags.length),                          label: 'Agenda hoje',       color: C.accent },
-            { value: fmtBRL(kpisDia?.receitaDia ?? 0),              label: 'Fat. hoje',         color: C.primary },
-            { value: fmtBRL(resumoMes?.faturamentoBruto ?? 0),      label: 'Fat. bruto do mês', color: C.primary },
-            { value: fmtBRL(resumoMes?.total ?? 0), label: 'Comissão do mês', color: C.green },
+            { value: erroKpis || carregandoKpis || !kpisDia ? '—' : fmtBRL(kpisDia.receitaDia),             label: 'Fat. hoje',         color: C.primary },
+            { value: semResumo ? '—' : fmtBRL(resumoMes.faturamentoBruto),     label: 'Fat. bruto do mês', color: C.primary },
+            { value: semResumo ? '—' : fmtBRL(resumoMes.total), label: 'Comissão do mês', color: C.green },
           ].map((s) => (
             <View key={s.label} style={{
               width: '47%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,

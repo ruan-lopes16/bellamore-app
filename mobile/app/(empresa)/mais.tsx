@@ -115,7 +115,7 @@ export default function Mais() {
   }
 
   // Badge do menu = TODAS as pendentes (mesma regra do alerta do Dashboard e do badge da Sidebar web).
-  const { data: pendentes } = useResumoComissoesPendentes();
+  const { data: pendentes } = useResumoComissoesPendentes(temPermissao(role, 'ver_comissoes_todas'));
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,

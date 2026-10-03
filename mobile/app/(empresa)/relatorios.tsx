@@ -444,7 +444,7 @@ export default function Relatorios() {
                 {resumo && !isError ? formatBRL(resumo.faturamento) : '—'}
               </SecretText>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={{
+                {dFat !== null && !isError && (<View style={{
                   backgroundColor: 'rgba(110,231,183,0.2)', borderRadius: 6,
                   paddingHorizontal: 8, paddingVertical: 3,
                   flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -456,7 +456,7 @@ export default function Relatorios() {
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: (dFat ?? 0) >= 0 ? '#6EE7B7' : '#FCA5A5' }}>
                     {dFat !== null ? `${dFat >= 0 ? '+' : ''}${dFat}%` : '—'}
                   </Text>
-                </View>
+                </View>)}
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
                   {ROTULO_COMPARACAO[periodo]}
                 </Text>

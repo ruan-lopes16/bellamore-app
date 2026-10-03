@@ -461,7 +461,9 @@ export default function RelatoriosPage() {
   const resumoCom = useMemo(() => resumoComissoes(comissoes), [comissoes]);
 
   // ── Marcar comissões como pagas (optimistic UI) — só as pendentes do período exibido
+  const [pagandoId, setPagandoId] = useState<string | null>(null);
   async function marcarComoPago(profissionalId: string) {
+    if (pagandoId) return;
     const prof = comissoesPorProf.find(p => p.profissionalId === profissionalId);
     if (!empresaId || !prof) return;
     const ids = prof.idsPendentes;
@@ -478,7 +480,9 @@ export default function RelatoriosPage() {
     };
     const req = reqRef.current;
     // pagarComissoes confere as linhas afetadas.
-    const r = await pagarComissoes(supabase, empresaId, ids);
+    setPagandoId(profissionalId);
+    let r: Awaited<ReturnType<typeof pagarComissoes>>;
+    try { r = await pagarComissoes(supabase, empresaId, ids); } finally { setPagandoId(null); }
     // Se o período mudou durante a chamada, a tela já recarregou com o estado do banco.
     if (req === reqRef.current) marcar(r.confirmados, 'pago');
     const confirmados = new Set(r.confirmados);
@@ -1078,7 +1082,8 @@ export default function RelatoriosPage() {
                     {prof.pendente > 0 && (
                       <button
                         onClick={() => marcarComoPago(prof.profissionalId)}
-                        className="h-8 px-3 rounded-xl bg-green text-white text-xs font-bold hover:opacity-90 transition flex items-center gap-1.5">
+                        disabled={pagandoId !== null}
+                        className="h-8 px-3 rounded-xl bg-green text-white text-xs font-bold hover:opacity-90 transition flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
                         <Check size={12} strokeWidth={3}/>
                         Pagar {fmtBRL(prof.pendente)}
                       </button>

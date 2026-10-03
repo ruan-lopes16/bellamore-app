@@ -21,6 +21,16 @@ describe('quais recorrentes lançar', () => {
       .toEqual(['Notebook']);
     expect(chaveDespesa({ descricao: 'Internet', categoria: null })).toBe(chaveDespesa({ descricao: 'Internet' }));
   });
+
+  it('despesa de setembro paga em outubro (na lista de outubro) NÃO bloqueia o Aluguel de outubro', () => {
+    const listaOutubro = [{ descricao: 'Aluguel', categoria: 'Aluguel', data_vencimento: '2026-09-30', data_pagamento: '2026-10-02' }];
+    expect(recorrentesParaLancarNoMes([HIST[0]], listaOutubro, '2026-10-01').map(t => t.descricao)).toEqual(['Aluguel']);
+  });
+
+  it('despesa com vencimento no mês (qualquer status) continua bloqueando', () => {
+    const listaOutubro = [{ descricao: 'Aluguel', categoria: 'Aluguel', data_vencimento: '2026-10-05' }];
+    expect(recorrentesParaLancarNoMes([HIST[0]], listaOutubro, '2026-10-01')).toEqual([]);
+  });
 });
 
 describe('o que é gravado', () => {
