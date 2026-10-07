@@ -59,8 +59,11 @@ export const PERIODICIDADE_LABEL: Record<string, string> = {
   anual:   'Anual',
 };
 
+import { formatarMoeda } from './moeda';
+
+/** Mantido por compatibilidade de importação — use `formatarMoeda` (shared/moeda). */
 export function formatBRL(value: number): string {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return formatarMoeda(value);
 }
 
 export function formatDate(iso: string): string {
