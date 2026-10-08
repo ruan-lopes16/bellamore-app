@@ -245,6 +245,8 @@ function ConfiguracoesConteudo() {
   const [taxaDebito, setTaxaDebito] = useState(taxaParaCampo(taxasDaEmpresa(null).debito));
   const [taxaCreditoAvista, setTaxaCreditoAvista] = useState(taxaParaCampo(taxasDaEmpresa(null).creditoAvista));
   const [taxaCreditoParcelado, setTaxaCreditoParcelado] = useState(taxaParaCampo(taxasDaEmpresa(null).creditoParcelado));
+  // Colunas taxa_cartao_* só existem depois da migration 084 — sem elas, não enviar (o UPDATE inteiro falharia).
+  const [temColunasCartao, setTemColunasCartao] = useState(false);
 
   // Campos empresa
   const [nome,      setNome]      = useState('');
@@ -337,6 +339,7 @@ function ConfiguracoesConteudo() {
         setReservaValor(String(empresa.taxa_reserva_valor ?? 0).replace('.', ','));
 
         const cartao = taxasDaEmpresa(empresa as Record<string, unknown>);
+        setTemColunasCartao(!!empresa && 'taxa_cartao_debito' in (empresa as Record<string, unknown>));
         setTaxaDebito(taxaParaCampo(cartao.debito));
         setTaxaCreditoAvista(taxaParaCampo(cartao.creditoAvista));
         setTaxaCreditoParcelado(taxaParaCampo(cartao.creditoParcelado));
@@ -503,9 +506,11 @@ function ConfiguracoesConteudo() {
       taxa_reserva_ativa: reservaAtiva,
       taxa_reserva_modo:  reservaModo,
       taxa_reserva_valor: parseFloat(reservaValor.replace(',', '.')) || 0,
+      ...(temColunasCartao ? {
       taxa_cartao_debito:             cDeb,
       taxa_cartao_credito_avista:     cAv,
       taxa_cartao_credito_parcelado:  cPar,
+      } : {}),
     }).eq('id', empresaId).select('id');
 
     setSalvando(false);

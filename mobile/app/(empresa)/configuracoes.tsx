@@ -177,6 +177,8 @@ export default function Configuracoes() {
 
   // Taxas da maquininha (percentual digitado, ex.: "4,99"); colunas ausentes (antes da 084) → padrão
   const cartaoInicial = taxasDaEmpresa(empresaAtiva as unknown as Record<string, unknown> | null);
+  // Colunas taxa_cartao_* só existem depois da migration 084 — sem elas, não enviar (o UPDATE inteiro falharia).
+  const temColunasCartao = !!empresaAtiva && 'taxa_cartao_debito' in (empresaAtiva as unknown as Record<string, unknown>);
   const [taxaDebito, setTaxaDebito] = useState(taxaParaCampo(cartaoInicial.debito));
   const [taxaCreditoAvista, setTaxaCreditoAvista] = useState(taxaParaCampo(cartaoInicial.creditoAvista));
   const [taxaCreditoParcelado, setTaxaCreditoParcelado] = useState(taxaParaCampo(cartaoInicial.creditoParcelado));
@@ -241,9 +243,11 @@ export default function Configuracoes() {
       taxa_reserva_ativa:   reservaAtiva,
       taxa_reserva_modo:    reservaModo,
       taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
+      ...(temColunasCartao ? {
       taxa_cartao_debito:            cDeb,
       taxa_cartao_credito_avista:    cAv,
       taxa_cartao_credito_parcelado: cPar,
+      } : {}),
     } : {};
     const payloadEmpresa = { ...dadosEmpresa, ...taxasEmpresa };
 
