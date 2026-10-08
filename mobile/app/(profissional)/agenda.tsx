@@ -280,9 +280,7 @@ export default function AgendaProfissional() {
                   borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
                   borderRadius: 12, padding: 10,
                 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, lineHeight: 18, marginBottom: 3 }}>
-                    <SecretText>{k.value}</SecretText>
-                  </Text>
+                  <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, lineHeight: 18, marginBottom: 3 }}>{k.value}</SecretText>
                   <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
                     {k.label}
                   </Text>
@@ -355,7 +353,7 @@ export default function AgendaProfissional() {
                 { value: `${agendamentos.reduce((s, a) => s + (a.servico?.duracao_minutos ?? 0), 0)}min`, label: 'Tempo total', color: C.text },
               ].map((s, i, arr) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center', position: 'relative' }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}><SecretText>{s.value}</SecretText></Text>
+                  <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>{s.value}</SecretText>
                   <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 8, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2 }}>{s.label}</Text>
                   {i < arr.length - 1 && <View style={{ position: 'absolute', right: 0, top: '10%', bottom: '10%', width: 1, backgroundColor: C.border }} />}
                 </View>

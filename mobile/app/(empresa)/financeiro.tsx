@@ -1468,7 +1468,7 @@ export default function Financeiro() {
             marginTop: 4,
           }}>
             <BotaoExportar
-              definicao={definicaoDespesas(format(mesRef, 'yyyy-MM'))}
+              definicao={isLoading || isError ? null : definicaoDespesas(format(mesRef, 'yyyy-MM'))}
               getLinhas={() => despesas.map((d) => ({ descricao: d.descricao, categoria: d.categoria ?? null, valor: d.valor, vencimento: d.data_vencimento ?? null, pagamento: d.data_pagamento ?? null, pago: d.status === 'pago', recorrente: !!d.recorrente }))}
               cor={C.text2}
             />

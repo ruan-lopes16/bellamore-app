@@ -461,7 +461,7 @@ export default function Agenda() {
               { value: String(resumo.pendentes),        label: 'Pendentes',      color: resumo.pendentes > 0 ? C.amber : C.text },
             ].map((s, i, arr) => (
               <View key={s.label} style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>
                   {s.value}
                 </Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 8, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2 }}>

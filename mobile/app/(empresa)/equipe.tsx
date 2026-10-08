@@ -284,7 +284,7 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, excecoes, onVerExcec
             <View key={s.label} style={{
               flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10, alignItems: 'center',
             }}>
-              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.3, marginBottom: 2 }}>
+              <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.3, marginBottom: 2 }}>
                 {s.value}
               </SecretText>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, textAlign: 'center' }}>
@@ -474,6 +474,7 @@ export default function Equipe() {
                 Equipe
               </Text>
             </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <PrivacyToggle />
             <BotaoExportar
               definicao={definicaoEquipe(format(new Date(), 'yyyy-MM'))}
@@ -493,6 +494,7 @@ export default function Equipe() {
               <Plus size={18} color="#fff" strokeWidth={2.5} />
             </TouchableOpacity>
             )}
+            </View>
           </View>
         </LinearGradient>
 

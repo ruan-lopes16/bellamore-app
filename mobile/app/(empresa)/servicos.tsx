@@ -134,7 +134,7 @@ function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
           </View>
           {servico.custo > 0 && (
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>
-              Custo R$ {servico.custo.toFixed(0)}
+              Custo {formatarMoeda(servico.custo)}
             </Text>
           )}
         </View>

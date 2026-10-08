@@ -508,7 +508,7 @@ export default function Dashboard() {
                     </Text>
                   )}
                   {c.sub && (
-                    <SecretText style={{ fontFamily: c.subDestaque ? 'PlusJakartaSans_600SemiBold' : 'PlusJakartaSans_400Regular', fontSize: 10, color: c.subDestaque ? C.amber : C.text4, marginTop: 4 }}>{c.sub}</SecretText>
+                    <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: c.subDestaque ? 'PlusJakartaSans_600SemiBold' : 'PlusJakartaSans_400Regular', fontSize: 10, color: c.subDestaque ? C.amber : C.text4, marginTop: 4 }}>{c.sub}</SecretText>
                   )}
                 </View>
               );

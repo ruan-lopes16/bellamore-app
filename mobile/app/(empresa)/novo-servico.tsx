@@ -25,6 +25,7 @@ import { supabase } from '@/lib/supabase';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { CategoriaPicker } from '@/components/CategoriaPicker';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
+import { formatarMoeda } from '@shared/moeda';
 import SuccessCheck from '@/components/SuccessCheck';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -273,7 +274,7 @@ export default function NovoServico() {
                 {nome || 'Nome do serviço'}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                {duracao} min · {preco ? `R$ ${preco}` : 'Preço não definido'}
+                {duracao} min · {preco ? formatarMoeda(parseValor(preco)) : 'Preço não definido'}
               </Text>
             </View>
           </View>

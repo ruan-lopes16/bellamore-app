@@ -133,7 +133,7 @@ function CartaoKpi({ c }: { c: CartaoKpiRelatorio }) {
     <View style={{ width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6 }}>{c.rotulo}</Text>
       <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: c.negativo ? C.red : C.text, letterSpacing: -0.5 }}>{c.valor}</SecretText>
-      {c.sub && <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 2 }}>{c.sub}</SecretText>}
+      {c.sub && <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 2 }}>{c.sub}</SecretText>}
       {c.delta !== null && (
         <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: c.delta >= 0 ? C.green : C.red, marginTop: 4 }}>
           {c.delta >= 0 ? '+' : ''}{c.delta}% {c.rotuloDelta}
