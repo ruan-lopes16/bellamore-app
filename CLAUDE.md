@@ -1017,7 +1017,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - Configurações não salvava antes da 084 (colunas novas enviadas sempre).
 
 **Pendências para produção:**
-- Aplicar `084_taxas_cartao_empresa.sql` no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Ordem livre: sem a 084 o código usa as taxas padrão e os campos ficam desabilitados.
+- ~~Aplicar `084_taxas_cartao_empresa.sql`~~ — **aplicada em produção em 2026-10-08** (conferência: 0.0239 / 0.0499 / 0.0559).
 
 **Registrados, não corrigidos:**
 - Comanda órfã se falhar antes de gravar qualquer atendimento (até existir RPC transacional).
