@@ -937,6 +937,46 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - Painel: rascunho perdido ao trocar de aba sem aviso; `Suspense fallback={null}`; dica "Escolha uma pessoa" faltando no app.
 - Comanda sem agendamento (venda avulsa pela comanda) com produto extra: a profissional sem `estoque.acessar`/`vendas.acessar` continua sem conseguir baixar o estoque.
 
+**Aplicado em produção (2026-10-07):** migrations 080, 081, 082 e 083 no projeto `qpiepxolyqmoankeyeva` (conferências 0, 0, 4, 0). PRs #142 e #143 mergeados.
+
+---
+
+### Sessão 2026-10-07/08 — Paridade Fase 2C (exportação no app + moeda única)
+
+*Escopo: o app exporta Excel e PDF nas 9 telas que o web exporta (agenda, clientes, comissões, equipe, estoque,*
+*financeiro, pacotes, relatórios, serviços), com as mesmas colunas: as 14 definições saíram das páginas do web para*
+*`shared/exportacao/`. O app gera no aparelho (`xlsx` + `expo-print` com HTML de `shared/exportacao/pdf-html.ts`) e*
+*abre o compartilhar (`expo-sharing`). Dinheiro sempre completo nas duas plataformas por `shared/moeda.ts#formatarMoeda`*
+*(sem `Intl`, sem "k"). Spec `docs/superpowers/specs/2026-10-07-paridade-fase2c-exportacao-design.md`, plano (9 tasks)*
+*`docs/superpowers/plans/2026-10-07-paridade-fase2c-exportacao.md`, subagent-driven-development + revisão final (opus).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; mobile com os mesmos 6 erros pré-existentes |
+| UX / Padrões    | 9.0  | Botão Exportar no cabeçalho igual nas 9 telas; valores grandes encolhem (`adjustsFontSizeToFit` no app, `whitespace-nowrap` no web) |
+| Segurança       | —    | Sem migration, sem RLS nova; exportação só do que a tela já mostra (quem não vê a tela não exporta) |
+| Documentação    | 9.0  | Spec, plano e JSDoc pt-BR em `shared/moeda.ts`, `shared/exportacao/*`, `shared/estoque.ts` |
+| Arquitetura     | 9.5  | Definições únicas por tela + "linha padrão"; rótulos de estoque e duração únicos em shared (`shared/estoque.ts`, `formatarDuracao`) |
+| Performance     | 9.0  | Sem consulta nova (exceto `concluidos` exposto em `useRelatorios`, calculado do que já era carregado) |
+| Visual (UI)     | —    | Não executado; app exige build nativo novo para testar |
+| **Completude**  | 9.0  | 9 telas do app, 14 exportações, moeda única nas duas plataformas; Vendas avulsas fica para Comanda/PDV |
+| **Proatividade**| 9.5  | Achados que ninguém pediu: Excel falhava calado no web com "/" no título (Relatórios Hoje/Semana/Personalizado, Comissões Semana); aba Avaliações dos Relatórios web exportava dados financeiros; tela de Estoque do app com regra de "baixo" diferente do web |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Bugs corrigidos (pré-existentes):**
+- Excel do web falhava sem aviso quando o título tinha "/" (nome de aba inválido): `nomeAbaPlanilha` em shared.
+- Aba Avaliações dos Relatórios (web) exportava a lista financeira: botão some nessa aba.
+- Estoque do app: produto com estoque igual ao mínimo aparecia "OK" (web: "Baixo"); categorias apareciam com a chave crua. Tela do app passou à regra e aos rótulos do web.
+- `formatBRL` com `Intl` no app (locale pt-BR incompleto no Hermes) e abreviação "k" no Financeiro do app.
+
+**Mudanças visíveis:** valores com centavos em todo lugar ("R$ 150,00"); datas de despesas exportadas em dd/mm/aaaa; nomes de arquivo sem acento.
+
+**Pendências:**
+- **Build nativo novo obrigatório do app** (`expo-print`, `expo-sharing`, `expo-file-system`): binário antigo ou atualização OTA quebra as 9 telas. Testar no aparelho: Excel e PDF em cada tela (inclusive Relatórios com período Hoje/Semana/Personalizado e Comissões por semana), acentos/×/∞/—, PDF A4 deitado com "Exportado em" em Brasília, compartilhar no iOS e Android, valores acima de R$ 10.000,00 nos cartões.
+- Registrar (não corrigido): ordem das linhas de Comissões no app agrupada por profissional (web por data); Equipe do app sem a dona e mês no fuso do aparelho; Estoque do app sem aba Movimentações; testes de paridade por varredura de código.
+
 ---
 
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
