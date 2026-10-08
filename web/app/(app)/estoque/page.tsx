@@ -46,6 +46,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { rotuloCategoriaProduto, rotuloStatusEstoque, statusEstoque } from '@shared/estoque';
 
 const supabase = createClient();
 
@@ -82,15 +83,15 @@ type MovItem = {
 
 // Ordem alfabética por label (pt-BR) — mantém filtros e seletor de categoria consistentes
 const CATS = [
-  { key: 'cilios',       label: 'Cílios',       cor: '#4F46E5', bg: '#EEF2FF' },
-  { key: 'depilacao',    label: 'Depilação',     cor: '#D4608A', bg: '#FDF0F5' },
-  { key: 'ferramentas',  label: 'Ferramentas',   cor: '#0891B2', bg: '#ECFEFF' },
-  { key: 'higiene',      label: 'Higiene',       cor: '#059669', bg: '#ECFDF5' },
-  { key: 'materiais',    label: 'Materiais',     cor: '#92400E', bg: '#FEF3E2' },
-  { key: 'outros',       label: 'Outros',        cor: '#6B7280', bg: '#F3F4F6' },
-  { key: 'pele',         label: 'Pele',          cor: '#0D7E5F', bg: '#EAFAF5' },
-  { key: 'sobrancelhas', label: 'Sobrancelhas',  cor: '#7C3AED', bg: '#F3EFFE' },
-  { key: 'unhas',        label: 'Unhas',         cor: '#B45309', bg: '#FEF3E2' },
+  { key: 'cilios',       label: rotuloCategoriaProduto('cilios'),       cor: '#4F46E5', bg: '#EEF2FF' },
+  { key: 'depilacao',    label: rotuloCategoriaProduto('depilacao'),     cor: '#D4608A', bg: '#FDF0F5' },
+  { key: 'ferramentas',  label: rotuloCategoriaProduto('ferramentas'),   cor: '#0891B2', bg: '#ECFEFF' },
+  { key: 'higiene',      label: rotuloCategoriaProduto('higiene'),       cor: '#059669', bg: '#ECFDF5' },
+  { key: 'materiais',    label: rotuloCategoriaProduto('materiais'),     cor: '#92400E', bg: '#FEF3E2' },
+  { key: 'outros',       label: rotuloCategoriaProduto('outros'),        cor: '#6B7280', bg: '#F3F4F6' },
+  { key: 'pele',         label: rotuloCategoriaProduto('pele'),          cor: '#0D7E5F', bg: '#EAFAF5' },
+  { key: 'sobrancelhas', label: rotuloCategoriaProduto('sobrancelhas'),  cor: '#7C3AED', bg: '#F3EFFE' },
+  { key: 'unhas',        label: rotuloCategoriaProduto('unhas'),         cor: '#B45309', bg: '#FEF3E2' },
 ] as const;
 
 type CatKey = typeof CATS[number]['key'];
@@ -103,15 +104,13 @@ const UNIDADES = ['un', 'pct', 'ml', 'g', 'kg', 'L', 'cx', 'pç', 'par'];
 type StatusKey = 'ok' | 'baixo' | 'critico';
 
 function getStatus(p: Produto): StatusKey {
-  if (p.estoque_atual <= 0) return 'critico';
-  if (p.estoque_minimo > 0 && p.estoque_atual <= p.estoque_minimo) return 'baixo';
-  return 'ok';
+  return statusEstoque(p.estoque_atual, p.estoque_minimo);
 }
 
 const STATUS_CFG: Record<StatusKey, { label: string; textClass: string; bgClass: string }> = {
-  ok:      { label: 'OK',     textClass: 'text-green',       bgClass: 'bg-green/10'  },
-  baixo:   { label: 'Baixo',  textClass: 'text-amber-600',   bgClass: 'bg-amber-50'  },
-  critico: { label: 'Zerado', textClass: 'text-red',         bgClass: 'bg-red/10'    },
+  ok:      { label: rotuloStatusEstoque('ok'),     textClass: 'text-green',       bgClass: 'bg-green/10'  },
+  baixo:   { label: rotuloStatusEstoque('baixo'),  textClass: 'text-amber-600',   bgClass: 'bg-amber-50'  },
+  critico: { label: rotuloStatusEstoque('critico'), textClass: 'text-red',         bgClass: 'bg-red/10'    },
 };
 
 const inputClass  = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
@@ -775,7 +774,7 @@ export default function EstoquePage() {
               variant="mobileHeader"
               className="bm-mobile-header-export"
               definicao={definicaoEstoqueProdutos()}
-              getLinhas={() => filtrados.map(p => ({ nome: p.nome, categoria: CAT_MAP[p.categoria]?.label ?? p.categoria, unidade: p.unidade, estoqueAtual: p.estoque_atual, estoqueMinimo: p.estoque_minimo, precoCusto: p.preco_custo, status: STATUS_CFG[getStatus(p)].label }))}
+              getLinhas={() => filtrados.map(p => ({ nome: p.nome, categoria: rotuloCategoriaProduto(p.categoria), unidade: p.unidade, estoqueAtual: p.estoque_atual, estoqueMinimo: p.estoque_minimo, precoCusto: p.preco_custo, status: rotuloStatusEstoque(getStatus(p)) }))}
             />
           )}
           {aba === 'movimentacoes' && (

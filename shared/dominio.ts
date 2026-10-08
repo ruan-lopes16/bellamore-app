@@ -96,3 +96,11 @@ export function formatCNPJ(raw: string): string {
     return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
   return raw;
 }
+
+/** Duração de serviço legível: 45 -> '45 min', 60 -> '1h', 90 -> '1h30'. */
+export function formatarDuracao(min: number): string {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}h${m}` : `${h}h`;
+}

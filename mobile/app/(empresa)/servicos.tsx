@@ -32,6 +32,7 @@ import {
 import type { Servico } from '@/types';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoServicos } from '@shared/exportacao/servicos';
+import { formatarDuracao } from '@shared/dominio';
 
 /** Cor/fundo/label/ícone de uma chave de categoria resolvida (built-in ou id de personalizada). */
 function infoChave(chave: string, customs: CategoriaCustom[]): {
@@ -230,7 +231,7 @@ export default function Servicos() {
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <BotaoExportar
               definicao={definicaoServicos()}
-              getLinhas={() => servicos.map((s) => ({ nome: s.nome, categoria: resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label, duracao: `${s.duracao_minutos} min`, preco: s.preco, custo: s.custo, ativo: s.ativo }))}
+              getLinhas={() => servicos.map((s) => ({ nome: s.nome, categoria: resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label, duracao: formatarDuracao(s.duracao_minutos), preco: s.preco, custo: s.custo, ativo: s.ativo }))}
               cor="#fff"
             />
             {podeGerenciar && (

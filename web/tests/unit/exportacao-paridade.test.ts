@@ -72,3 +72,21 @@ describe('app exporta pelas mesmas definições', () => {
     }
   });
 });
+
+describe('rótulos únicos (web e app iguais)', () => {
+  it('estoque do app usa as funções de shared', () => {
+    const src = ler('mobile/app/(empresa)/estoque.tsx');
+    expect(src).toContain('rotuloCategoriaProduto(');
+    expect(src).toContain('rotuloStatusEstoque(');
+    expect(src).toContain('statusEstoque(');
+  });
+  it('estoque do web usa as funções de shared', () => {
+    const src = ler('web/app/(app)/estoque/page.tsx');
+    expect(src).toContain('rotuloCategoriaProduto(');
+    expect(src).toContain('rotuloStatusEstoque(');
+  });
+  it('serviços do app e do web usam formatarDuracao', () => {
+    expect(ler('mobile/app/(empresa)/servicos.tsx')).toContain('formatarDuracao(');
+    expect(ler('web/app/(app)/servicos/page.tsx')).toContain('formatarDuracao(');
+  });
+});

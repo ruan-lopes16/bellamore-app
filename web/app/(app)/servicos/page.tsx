@@ -21,6 +21,7 @@ import {
   type CategoriaCustom, type CategoriaResolvida,
 } from '@shared/categorias';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { formatarDuracao } from '@shared/dominio';
 
 const supabase = createClient();
 
@@ -59,12 +60,6 @@ const DURACOES = [
   { label: '3h',     valor: 180 },
 ];
 
-function fmtDuracao(min: number) {
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h}h${m}` : `${h}h`;
-}
 
 // ── Inputs ────────────────────────────────────────────────────
 
@@ -391,7 +386,7 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
                   />
                   <span className="text-xs font-semibold text-text-3">min</span>
                 </div>
-                <span className="text-xs text-text-4 ml-auto">= {fmtDuracao(duracao)}</span>
+                <span className="text-xs text-text-4 ml-auto">= {formatarDuracao(duracao)}</span>
               </div>
             )}
           </div>
@@ -405,7 +400,7 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-text truncate">{nome || 'Nome do serviço'}</p>
               <p className="text-xs text-text-3 mt-0.5">
-                {fmtDuracao(duracao)} · {preco ? fmtBRL(parseValor(preco)) : 'Preço não definido'}
+                {formatarDuracao(duracao)} · {preco ? fmtBRL(parseValor(preco)) : 'Preço não definido'}
               </p>
             </div>
           </div>
@@ -515,7 +510,7 @@ function ServicoCard({ servico, resolvida, podeGerenciar, onToggle, onEdit, onDe
               {fmtBRL(servico.preco)}
             </span>
             <span className="flex items-center gap-1" style={{ fontSize: 11, color: 'var(--color-ink4)', whiteSpace: 'nowrap' }}>
-              <Clock size={10} strokeWidth={2}/> {fmtDuracao(servico.duracao_minutos)}
+              <Clock size={10} strokeWidth={2}/> {formatarDuracao(servico.duracao_minutos)}
               {servico.custo > 0 && <> · Custo {fmtBRL(servico.custo)}</>}
             </span>
           </div>
@@ -688,7 +683,7 @@ export default function ServicosPage() {
             variant="mobileHeader"
             className="bm-mobile-header-export"
             definicao={definicaoServicos()}
-            getLinhas={() => servicos.map(s => ({ nome: s.nome, categoria: resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label, duracao: fmtDuracao(s.duracao_minutos), preco: s.preco, custo: s.custo, ativo: s.ativo }))}
+            getLinhas={() => servicos.map(s => ({ nome: s.nome, categoria: resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label, duracao: formatarDuracao(s.duracao_minutos), preco: s.preco, custo: s.custo, ativo: s.ativo }))}
           />
           {podeGerenciar && (
             <>
