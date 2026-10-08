@@ -75,7 +75,7 @@ Web e app transformam os dados que a tela **já carregou** na linha padrão — 
   - Se `Sharing.isAvailableAsync()` for falso ou der erro: `Alert` em português.
 - `mobile/components/BotaoExportar.tsx`: ícone Download no cabeçalho (mesmo visual do ícone que já
   existe em Financeiro/Relatórios); ao tocar, escolha "Excel" / "PDF" (ActionSheet no iOS, Alert com
-  botões no Android); mostra carregando enquanto gera; desabilitado sem dados.
+  botões no Android); mostra carregando enquanto gera; lista vazia exporta arquivo só com cabeçalho (ver §5); o botão some só em carregamento/erro onde a tela tem esse estado.
 - Telas: `agenda.tsx`, `clientes.tsx`, `comissoes.tsx`, `equipe.tsx`, `estoque.tsx` (produtos e
   movimentações, conforme a aba visível), `financeiro.tsx` (despesas do mês exibido), `pacotes.tsx`
   (catálogo / vendidos / utilização, conforme a aba), `relatorios.tsx` (aba atual), `servicos.tsx`.

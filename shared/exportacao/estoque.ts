@@ -22,7 +22,7 @@ export function definicaoEstoqueProdutos(): DefinicaoExportacao<LinhaProduto> {
   };
 }
 
-/** `tipo` já vem com o rótulo da plataforma (Entrada/Saída...). */
+/** `tipo` é o valor cru do banco (entrada/saida/ajuste); web e app passam do mesmo jeito. */
 export type LinhaMovimentacao = { criadoEm: string; produto: string; tipo: string; quantidade: number; unidade: string; motivo: string | null };
 
 /** Exportação das movimentações de estoque do mês ('yyyy-MM'). */

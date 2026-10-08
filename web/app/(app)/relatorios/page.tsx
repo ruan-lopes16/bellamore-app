@@ -108,7 +108,6 @@ const AVATAR_CORES = ['#7C3AED', '#D4608A', '#0D7E5F', '#B45309', '#1D4ED8', '#7
 
 // ── Helpers ───────────────────────────────────────────────────
 
-/** Formata número para BRL sem centavos */
 /** Cor de avatar baseada na inicial do nome */
 function avatarCor(nome: string) {
   return AVATAR_CORES[(nome?.charCodeAt(0) ?? 0) % AVATAR_CORES.length];

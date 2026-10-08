@@ -105,4 +105,22 @@ describe('moeda única no app', () => {
       .filter(a => /style:\s*'currency'|currency:\s*'BRL'|\}k`|function (formatBRL|fmtBRL)|const (formatBRL|fmtBRL)\s*=/.test(ler(a)));
     expect(ruins).toEqual([]);
   });
+  it('nenhum "R$" montado à mão com valor interpolado ou toFixed no app', () => {
+    const ruins = ['mobile/app', 'mobile/components', 'mobile/lib', 'mobile/hooks'].flatMap(arquivos)
+      .filter(a => /R\$ ?(\$\{|\{)/.test(ler(a)));
+    expect(ruins).toEqual([]);
+  });
+});
+
+describe('erros de exportação sempre avisam', () => {
+  it('BotaoExportar do app tem catch com aviso', () => {
+    expect(ler('mobile/components/BotaoExportar.tsx')).toMatch(/catch[\s\S]*Alert\.alert\('Exportar'/);
+  });
+  it('ExportButton do web tem catch', () => {
+    expect(ler('web/components/ExportButton.tsx')).toMatch(/\bcatch\b/);
+  });
+  it('web e app usam nomeAbaPlanilha no nome da aba do Excel', () => {
+    expect(ler('web/lib/export.ts')).toContain('nomeAbaPlanilha(def.titulo)');
+    expect(ler('mobile/lib/exportar.ts')).toContain('nomeAbaPlanilha(def.titulo)');
+  });
 });

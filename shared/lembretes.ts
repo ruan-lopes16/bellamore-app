@@ -7,6 +7,7 @@
  * O resumo diário (nº de agendamentos, despesas, estoque) é de outra rota
  * (/api/cron/resumo-diario) e não usa este módulo.
  */
+import { formatarMoeda } from './moeda';
 
 export type AgLembrete = {
   id: string;
@@ -96,6 +97,6 @@ export function corpoResumoDiario(n: { agendamentos: number; despesasVencendo: n
  */
 export function corpoResumoDiarioProfissional(n: { atendimentos: number; comissao: number }): string {
   if (n.atendimentos === 0) return '';
-  const valor = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n.comissao);
+  const valor = formatarMoeda(n.comissao);
   return `📅 ${n.atendimentos} atendimento${n.atendimentos === 1 ? '' : 's'} hoje\n💰 ${valor} em comissão hoje`;
 }
