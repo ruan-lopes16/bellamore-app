@@ -34,6 +34,7 @@ import { CATEGORIA_CONFIG, useRemoverBloqueio, type AgendamentoCompleto } from '
 import { BloqueioModal } from '@/components/BloqueioModal';
 import { ConfirmarRemoverBloqueio } from '@/components/ConfirmarRemoverBloqueio';
 import { bloqueioNoInstante, motivoBloqueioLabel } from '@shared/bloqueios';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -67,13 +68,6 @@ function avatarColors(nome: string): [string, string] {
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(v);
-}
-
 // ── Card de agendamento da profissional ──────────────────────
 
 function AgendamentoCard({ ag, index }: {
@@ -124,7 +118,7 @@ function AgendamentoCard({ ag, index }: {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
-              <SecretText>{formatBRL(ag.valor)}</SecretText>
+              <SecretText>{formatarMoeda(ag.valor)}</SecretText>
             </Text>
             <View style={{ backgroundColor: statusCfg.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: statusCfg.color, textTransform: 'uppercase' }}>
@@ -277,8 +271,8 @@ export default function AgendaProfissional() {
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {[
                 { value: erroKpis ? '—' : String(kpis?.total ?? 0),            label: 'Hoje',         color: '#fff' },
-                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0),   label: 'Comissão do dia', color: '#6EE7B7' },
-                { value: erroKpis ? '—' : formatBRL(kpis?.totalPendente ?? 0), label: 'A receber',    color: '#FCD34D' },
+                { value: erroKpis ? '—' : formatarMoeda(kpis?.comissaoDia ?? 0),   label: 'Comissão do dia', color: '#6EE7B7' },
+                { value: erroKpis ? '—' : formatarMoeda(kpis?.totalPendente ?? 0), label: 'A receber',    color: '#FCD34D' },
               ].map((k) => (
                 <View key={k.label} style={{
                   flex: 1,
@@ -357,7 +351,7 @@ export default function AgendaProfissional() {
             }}>
               {[
                 { value: erroKpis ? '—' : String(kpis?.total ?? 0), label: 'Atendimentos', color: C.primary },
-                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0), label: 'Comissão do dia', color: C.green },
+                { value: erroKpis ? '—' : formatarMoeda(kpis?.comissaoDia ?? 0), label: 'Comissão do dia', color: C.green },
                 { value: `${agendamentos.reduce((s, a) => s + (a.servico?.duracao_minutos ?? 0), 0)}min`, label: 'Tempo total', color: C.text },
               ].map((s, i, arr) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center', position: 'relative' }}>

@@ -37,16 +37,9 @@ import TiltCard from '@/components/TiltCard';
 import { SparkLinha } from '@/components/SparkLinha';
 import { rotuloMesAno, horaBRT, rotuloDataHoraBRT } from '@shared/periodos';
 import { cartoesKpiDashboard, rotuloProgressoMeta } from '@shared/dashboard';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Helpers ─────────────────────────────────────────────────
-
-function formatBRL(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 0,
-  }).format(value);
-}
 
 function iniciaisNome(nome: string) {
   return nome
@@ -161,7 +154,7 @@ export default function Dashboard() {
 
   if (!fontsLoaded) return null;
 
-  const cartoesMes = cartoesKpiDashboard(kpisMes, kpisAnt, { isOwner, retiradasMes, emprestimosAbertos, fmt: formatBRL });
+  const cartoesMes = cartoesKpiDashboard(kpisMes, kpisAnt, { isOwner, retiradasMes, emprestimosAbertos, fmt: formatarMoeda });
 
   // ── RENDER ──────────────────────────────────────────────────
   return (
@@ -421,7 +414,7 @@ export default function Dashboard() {
                   Receita do Mês · {rotuloMesAno(nav.chave)}
                 </Text>
 
-                <Text style={{
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
                   fontFamily: 'PlusJakartaSans_700Bold',
                   fontSize: 44,
                   color: '#fff',
@@ -429,7 +422,7 @@ export default function Dashboard() {
                   letterSpacing: -1,
                   marginBottom: 10,
                 }}>
-                  <SecretText>{financeiroPronto ? formatBRL(receitaMes) : '—'}</SecretText>
+                  <SecretText>{financeiroPronto ? formatarMoeda(receitaMes) : '—'}</SecretText>
                 </Text>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -462,7 +455,7 @@ export default function Dashboard() {
                     fontSize: 11,
                     color: 'rgba(255,255,255,0.6)',
                   }}>
-                    Lucro <SecretText>{financeiroPronto ? formatBRL(kpisMes.lucro) : '—'}</SecretText>
+                    Lucro <SecretText>{financeiroPronto ? formatarMoeda(kpisMes.lucro) : '—'}</SecretText>
                   </Text>
                   <Text style={{
                     fontFamily: 'PlusJakartaSans_400Regular',
@@ -510,7 +503,7 @@ export default function Dashboard() {
               return (
                 <View key={c.id} style={{ width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 12 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>{c.rotulo}</Text>
-                  <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: cor }}>{c.valor}</SecretText>
+                  <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: cor }}>{c.valor}</SecretText>
                   {c.delta !== null && (
                     <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: c.delta >= 0 ? C.green : C.rose, marginTop: 4 }}>
                       {c.delta >= 0 ? '▲' : '▼'} {Math.abs(c.delta)}%
@@ -602,14 +595,14 @@ export default function Dashboard() {
             }}>
               Receita Hoje
             </Text>
-            <Text style={{
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
               fontFamily: 'PlusJakartaSans_700Bold',
               fontSize: 20,
               color: C.green,
               lineHeight: 22,
               marginBottom: 4,
             }}>
-              <SecretText>{hojePronto ? formatBRL(receitaHoje) : '—'}</SecretText>
+              <SecretText>{hojePronto ? formatarMoeda(receitaHoje) : '—'}</SecretText>
             </Text>
             <View style={{
               backgroundColor: C.greenSoft,
@@ -654,14 +647,14 @@ export default function Dashboard() {
             }}>
               Comissões
             </Text>
-            <Text style={{
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
               fontFamily: 'PlusJakartaSans_700Bold',
               fontSize: 20,
               color: C.amber,
               lineHeight: 22,
               marginBottom: 4,
             }}>
-              <SecretText>{comissoesPendentesPronto ? formatBRL(comissoesPendentes.total) : '—'}</SecretText>
+              <SecretText>{comissoesPendentesPronto ? formatarMoeda(comissoesPendentes.total) : '—'}</SecretText>
             </Text>
             <View style={{
               backgroundColor: C.amberSoft,
@@ -687,12 +680,12 @@ export default function Dashboard() {
           <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1 }}>Meta do mês</Text>
-              <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text2 }}>{formatBRL(kpisMes.bruto)} / {formatBRL(metaValor)}</SecretText>
+              <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text2 }}>{formatarMoeda(kpisMes.bruto)} / {formatarMoeda(metaValor)}</SecretText>
             </View>
             <View style={{ height: 8, borderRadius: 4, backgroundColor: C.primarySoft, overflow: 'hidden' }}>
               <View style={{ height: 8, borderRadius: 4, width: `${meta.percentual}%`, backgroundColor: meta.atingida ? C.green : C.accent }} />
             </View>
-            <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 6 }}>{rotuloProgressoMeta(meta, formatBRL)}</SecretText>
+            <SecretText style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 6 }}>{rotuloProgressoMeta(meta, formatarMoeda)}</SecretText>
           </View>
         )}
 
@@ -929,7 +922,7 @@ export default function Dashboard() {
                           color: C.text,
                           marginBottom: 4,
                         }}>
-                          <SecretText>{formatBRL(ag.valor)}</SecretText>
+                          <SecretText>{formatarMoeda(ag.valor)}</SecretText>
                         </Text>
                         <View style={{
                           backgroundColor: statusCfg.bg,
@@ -1096,7 +1089,7 @@ export default function Dashboard() {
                   <View style={{ flex: 1 }}>
                     <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.rose, lineHeight: 16 }}>{d.descricao}</Text>
                     <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
-                      Vence {d.data_vencimento.slice(8, 10)}/{d.data_vencimento.slice(5, 7)} · <SecretText>{formatBRL(Number(d.valor))}</SecretText>
+                      Vence {d.data_vencimento.slice(8, 10)}/{d.data_vencimento.slice(5, 7)} · <SecretText>{formatarMoeda(Number(d.valor))}</SecretText>
                     </Text>
                   </View>
                   <ChevronRight size={14} color={C.rose} strokeWidth={2} />
@@ -1187,7 +1180,7 @@ export default function Dashboard() {
                       color: C.text3,
                       marginTop: 1,
                     }}>
-                      Total: <SecretText>{comissoesPendentesPronto ? formatBRL(comissoesPendentes.total) : '—'}</SecretText>
+                      Total: <SecretText>{comissoesPendentesPronto ? formatarMoeda(comissoesPendentes.total) : '—'}</SecretText>
                     </Text>
                   </View>
                   <ChevronRight size={14} color={C.accent} strokeWidth={2} />

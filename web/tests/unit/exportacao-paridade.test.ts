@@ -90,3 +90,11 @@ describe('rótulos únicos (web e app iguais)', () => {
     expect(ler('web/app/(app)/servicos/page.tsx')).toContain('formatarDuracao(');
   });
 });
+
+describe('moeda única no app', () => {
+  it('app não formata moeda com Intl nem abrevia "k"', () => {
+    const ruins = ['mobile/app', 'mobile/components', 'mobile/lib', 'mobile/hooks'].flatMap(arquivos)
+      .filter(a => /style:\s*'currency'|currency:\s*'BRL'|\}k`/.test(ler(a)));
+    expect(ruins).toEqual([]);
+  });
+});

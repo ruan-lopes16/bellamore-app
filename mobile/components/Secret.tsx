@@ -1,4 +1,4 @@
-import { Text, TouchableOpacity, type TextStyle, type StyleProp } from 'react-native';
+import { Text, TouchableOpacity, type TextStyle, type StyleProp, type TextProps } from 'react-native';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { usePrivacyStore } from '@/stores/privacyStore';
 
@@ -8,11 +8,12 @@ import { usePrivacyStore } from '@/stores/privacyStore';
  * a largura. Substitui um `<Text style={x}>{valor}</Text>` já existente.
  */
 export function SecretText({
-  children, style,
-}: { children: React.ReactNode; style?: StyleProp<TextStyle> }) {
+  children, style, ...rest
+}: { children: React.ReactNode; style?: StyleProp<TextStyle> } & Pick<TextProps, 'numberOfLines' | 'adjustsFontSizeToFit' | 'minimumFontScale'>) {
   const hidden = usePrivacyStore((s) => s.hidden);
   return (
     <Text
+      {...rest}
       selectable={!hidden}
       style={[
         style,

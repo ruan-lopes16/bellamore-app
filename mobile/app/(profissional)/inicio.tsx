@@ -28,6 +28,7 @@ import {
   useMetaPessoal, useDefinirMetaPessoal, useClientesReconquistaProfissional,
 } from '@/hooks/useProfissional';
 import { progressoMetaPessoal } from '@shared/dashboard-profissional';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -39,12 +40,6 @@ const C = {
   rose: '#C0392B', roseSoft: '#FEF2F2',
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
-
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 0,
-  }).format(v);
-}
 
 // ── Card de meta pessoal ──────────────────────────────────────
 
@@ -87,13 +82,13 @@ function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number |
           />
           <TouchableOpacity onPress={salvar} disabled={definirMeta.isPending}
             style={{ height: 38, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Salvar</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Salvar</Text>
           </TouchableOpacity>
         </View>
       ) : progresso.temMeta ? (
         <>
           <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: progresso.percentual >= 100 ? C.green : C.text2, marginBottom: 6 }}>
-            <SecretText>{fmtBRL(faturamentoBruto)} / {fmtBRL(meta!)}</SecretText>
+            <SecretText>{formatarMoeda(faturamentoBruto)} / {formatarMoeda(meta!)}</SecretText>
           </Text>
           <View style={{ height: 8, borderRadius: 999, backgroundColor: C.bg, overflow: 'hidden' }}>
             <View style={{ height: 8, borderRadius: 999, width: `${progresso.percentual}%`, backgroundColor: progresso.percentual >= 100 ? C.green : C.accent }} />
@@ -183,15 +178,15 @@ export default function Inicio() {
         <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 16, flexWrap: 'wrap' }}>
           {[
             { value: erroAgenda ? '—' : String(ags.length),                          label: 'Agenda hoje',       color: C.accent },
-            { value: erroKpis || carregandoKpis || !kpisDia ? '—' : fmtBRL(kpisDia.receitaDia),             label: 'Fat. hoje',         color: C.primary },
-            { value: semResumo ? '—' : fmtBRL(resumoMes.faturamentoBruto),     label: 'Fat. bruto do mês', color: C.primary },
-            { value: semResumo ? '—' : fmtBRL(resumoMes.total), label: 'Comissão do mês', color: C.green },
+            { value: erroKpis || carregandoKpis || !kpisDia ? '—' : formatarMoeda(kpisDia.receitaDia),             label: 'Fat. hoje',         color: C.primary },
+            { value: semResumo ? '—' : formatarMoeda(resumoMes.faturamentoBruto),     label: 'Fat. bruto do mês', color: C.primary },
+            { value: semResumo ? '—' : formatarMoeda(resumoMes.total), label: 'Comissão do mês', color: C.green },
           ].map((s) => (
             <View key={s.label} style={{
               width: '47%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
               borderRadius: 14, padding: 12,
             }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.3 }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.3 }}>
                 <SecretText>{s.value}</SecretText>
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 3 }}>{s.label}</Text>
@@ -224,7 +219,7 @@ export default function Inicio() {
                   </Text>
                 </View>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.primary }}>
-                  <SecretText>{fmtBRL(Number(ag.valor))}</SecretText>
+                  <SecretText>{formatarMoeda(Number(ag.valor))}</SecretText>
                 </Text>
               </TouchableOpacity>
             ))

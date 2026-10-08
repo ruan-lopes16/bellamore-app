@@ -34,6 +34,7 @@ import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoComissoes } from '@shared/exportacao/comissoes';
 import { chaveDiaBRT } from '@shared/periodos';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -54,13 +55,6 @@ const AVATAR_COLORS = [
 ];
 
 // ── Helpers ──────────────────────────────────────────────────
-
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0,
-  }).format(v);
-}
 
 function initials(nome: string) {
   return nome.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
@@ -163,13 +157,13 @@ function ProfCard({
                     {c.servicoNome}
                   </Text>
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
-                    <SecretText>{formatBRL(c.valorServico)} × {c.percentual}% = {formatBRL(c.valorComissao)}</SecretText>
+                    <SecretText>{formatarMoeda(c.valorServico)} × {c.percentual}% = {formatarMoeda(c.valorComissao)}</SecretText>
                     {c.dataAtendimento ? ' · ' + horaBRT(c.dataAtendimento) : ''}
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
-                    {formatBRL(c.valorComissao)}
+                    {formatarMoeda(c.valorComissao)}
                   </SecretText>
                   <View style={{
                     marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
@@ -193,7 +187,7 @@ function ProfCard({
             {temPendente ? 'Pendente para repassar' : 'Tudo repassado'}
           </Text>
           <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: temPendente ? C.amber : C.green }}>
-            {formatBRL(temPendente ? item.pendente : item.pago)}
+            {formatarMoeda(temPendente ? item.pendente : item.pago)}
           </SecretText>
         </View>
       </View>
@@ -237,8 +231,8 @@ function ModalPagamento({
             </Text>
             <View style={{ backgroundColor: C.amberSoft, borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 24 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber, marginBottom: 4 }}>Pendentes de {rotuloPeriodo}</Text>
-              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 32, color: C.amber, letterSpacing: -1 }}>
-                {formatBRL(profissional?.pendente ?? 0)}
+              <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 32, color: C.amber, letterSpacing: -1 }}>
+                {formatarMoeda(profissional?.pendente ?? 0)}
               </SecretText>
             </View>
             <TouchableOpacity onPress={confirmar} disabled={salvando} style={{ backgroundColor: C.green, borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', opacity: salvando ? 0.7 : 1 }}>
@@ -374,7 +368,7 @@ export default function Comissoes() {
             <View key={s.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14, shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{s.label}</Text>
               <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20 }}>
-                {pronto ? formatBRL(s.val) : '—'}
+                {pronto ? formatarMoeda(s.val) : '—'}
               </SecretText>
             </View>
           ))}

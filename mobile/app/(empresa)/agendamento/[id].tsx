@@ -38,6 +38,7 @@ import {
 } from '@shared/atendimento-detalhe';
 import { podeExcluirAgendamento, podeMexerNoAgendamento } from '@shared/agendamentos';
 import { mensagemErroBanco } from '@shared/erros';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -74,13 +75,6 @@ function avatarColors(nome: string): [string, string] {
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-  }).format(v);
-}
-
 // ── Hook de detalhe ──────────────────────────────────────────
 
 function useAgendamentoDetalhe(id: string, modoComanda: boolean) {
@@ -273,21 +267,21 @@ function SecoesComanda({ detalhe }: { detalhe?: DetalheAtendimento }) {
               )}
             </View>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
-              {formatBRL(item.valorLinha)}
+              {formatarMoeda(item.valorLinha)}
             </Text>
           </View>
         ))}
       </SecaoDetalhe>
 
       <SecaoDetalhe titulo="Fechamento">
-        <LinhaValor rotulo="Subtotal" valor={formatBRL(detalhe.subtotal)} />
+        <LinhaValor rotulo="Subtotal" valor={formatarMoeda(detalhe.subtotal)} />
         {detalhe.descontoManual > 0 && (
-          <LinhaValor rotulo="Desconto" valor={`− ${formatBRL(detalhe.descontoManual)}`} />
+          <LinhaValor rotulo="Desconto" valor={`− ${formatarMoeda(detalhe.descontoManual)}`} />
         )}
         {detalhe.descontoReserva > 0 && (
-          <LinhaValor rotulo="Taxa de reserva já paga" valor={`− ${formatBRL(detalhe.descontoReserva)}`} />
+          <LinhaValor rotulo="Taxa de reserva já paga" valor={`− ${formatarMoeda(detalhe.descontoReserva)}`} />
         )}
-        <LinhaValor rotulo="Total" valor={formatBRL(detalhe.total)} destaque last />
+        <LinhaValor rotulo="Total" valor={formatarMoeda(detalhe.total)} destaque last />
       </SecaoDetalhe>
 
       <SecaoDetalhe titulo="Como foi pago">
@@ -313,12 +307,12 @@ function SecoesComanda({ detalhe }: { detalhe?: DetalheAtendimento }) {
               </Text>
               {p.taxaPerc != null && (
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                  taxa {p.taxaPerc}% · líquido {formatBRL(p.valorLiquido ?? 0)}
+                  taxa {p.taxaPerc}% · líquido {formatarMoeda(p.valorLiquido ?? 0)}
                 </Text>
               )}
             </View>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
-              {formatBRL(p.valor)}
+              {formatarMoeda(p.valor)}
             </Text>
           </View>
         ))}
@@ -584,7 +578,7 @@ export default function AgendamentoDetalhe() {
               shadowColor: C.primary, shadowOpacity: 0.08, shadowRadius: 8,
               shadowOffset: { width: 0, height: 4 }, elevation: 3,
             }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: k.color, letterSpacing: -0.5, marginBottom: 2 }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: k.color, letterSpacing: -0.5, marginBottom: 2 }}>
                 {k.value}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8 }}>
@@ -613,7 +607,7 @@ export default function AgendamentoDetalhe() {
               label="Profissional"
               value={ag.profissional?.nome ?? '—'}
             />
-            <InfoRow icon={<DollarSign size={13} color={C.primary} strokeWidth={2} />} label="Valor" value={formatBRL(ag.valor)} />
+            <InfoRow icon={<DollarSign size={13} color={C.primary} strokeWidth={2} />} label="Valor" value={formatarMoeda(ag.valor)} />
             {ag.observacao && (
               <InfoRow icon={<FileText size={13} color={C.primary} strokeWidth={2} />} label="Observação" value={ag.observacao} last />
             )}
@@ -743,7 +737,7 @@ export default function AgendamentoDetalhe() {
                   {estaConcluido ? 'Atendimento concluído' : 'Agendamento cancelado'}
                 </Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                  {estaConcluido ? `Valor: ${formatBRL(ag.valor)}` : 'Não gera comissão'}
+                  {estaConcluido ? `Valor: ${formatarMoeda(ag.valor)}` : 'Não gera comissão'}
                 </Text>
               </View>
             </View>

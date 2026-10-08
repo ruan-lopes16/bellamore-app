@@ -34,6 +34,7 @@ import { definicaoPacotesCatalogo, definicaoPacotesVendidos } from '@shared/expo
 import { CategoriaIcon } from '@/components/CategoriaIcon';
 import { resolverCategoria } from '@/hooks/useAgenda';
 import type { CategoriaServico } from '@/components/CategoriaIcon';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -56,9 +57,6 @@ const VSTATUS: Record<string, { label: string; bg: string; color: string }> = {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
 function fmtData(d: string | null) {
   if (!d) return 'Sem validade';
   try { return format(parseISO(d), 'dd/MM/yyyy'); } catch { return '—'; }
@@ -167,7 +165,7 @@ function PacoteCard({ pacote, podeGerenciar, onToggle, onEdit }: {
           fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18,
           color: pacote.ativo ? C.primary : C.text3, letterSpacing: -0.5,
         }}>
-          {fmtBRL(pacote.preco)}
+          {formatarMoeda(pacote.preco)}
         </Text>
         {podeGerenciar && (
           <TouchableOpacity
@@ -250,7 +248,7 @@ function VendidoCard({ v, onGerenciar, onExcluir, onMarcarUtilizado }: {
       ) : (
         <View style={{ marginBottom: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 6 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: C.text }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: C.text }}>
               {v.usadas}
               <Text style={{ fontSize: 14, color: C.text3 }}>/{ilimitado ? '∞' : v.total_sessoes}</Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>  sessões</Text>
@@ -283,7 +281,7 @@ function VendidoCard({ v, onGerenciar, onExcluir, onMarcarUtilizado }: {
         </View>
         <View style={{ flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10 }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 }}>Valor pago</Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{v.valor_pago ? fmtBRL(v.valor_pago) : '—'}</Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{v.valor_pago ? formatarMoeda(v.valor_pago) : '—'}</Text>
         </View>
       </View>
 
@@ -826,7 +824,7 @@ export default function Pacotes() {
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
               alignItems: 'center',
             }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: s.color, letterSpacing: -0.5, lineHeight: 24, marginBottom: 3 }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: s.color, letterSpacing: -0.5, lineHeight: 24, marginBottom: 3 }}>
                 {s.value}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8 }}>

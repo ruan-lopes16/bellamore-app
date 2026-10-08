@@ -28,7 +28,7 @@ describe('app Relatórios: tela com as 7 abas', () => {
   it('abas e blocos', () => {
     for (const t of ['ABAS_RELATORIO', 'cartoesKpiRelatorio(', 'linhasResumoFinanceiro(', '<GraficoBarras', 'Despesas por categoria',
       'Sumidas +60d', 'Taxa retorno', 'Top clientes', 'Insumos consumidos', 'Avaliações recentes', 'textoConfirmarPagamento(',
-      'Período inclui mês com fechamento importado', "resumo && !isError ? formatBRL(resumo.faturamento) : '—'"])
+      'Período inclui mês com fechamento importado', "resumo && !isError ? formatarMoeda(resumo.faturamento) : '—'"])
       expect(tela).toContain(t);
     expect(tela).not.toContain('iconSize=');
   });

@@ -51,6 +51,7 @@ import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoDespesas } from '@shared/exportacao/financeiro';
 import type { OcorrenciaHistorico } from '@shared/despesas';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -89,16 +90,6 @@ const METODO_CONFIG: Record<PagamentoMetodo, {
 };
 
 // ── Helpers ──────────────────────────────────────────────────
-
-function formatBRL(value: number, compact = false) {
-  if (compact && value >= 1000) {
-    return `R$${(value / 1000).toFixed(1).replace('.', ',')}k`;
-  }
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(value);
-}
 
 // ── Gráfico de barras SVG ────────────────────────────────────
 
@@ -191,7 +182,7 @@ function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean })
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
-          {formatBRL(item.valor)}
+          {formatarMoeda(item.valor)}
         </SecretText>
         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, marginTop: 2 }}>
           {item.percentual}%
@@ -274,7 +265,7 @@ function DespesaRow({
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
-            {formatBRL(item.valor)}
+            {formatarMoeda(item.valor)}
           </SecretText>
           <View style={{
             marginTop: 3,
@@ -364,7 +355,7 @@ function TaxaCancelamentoRow({
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
-          {formatBRL(item.valor)}
+          {formatarMoeda(item.valor)}
         </Text>
         <View style={{
           marginTop: 3,
@@ -436,7 +427,7 @@ function TaxaReservaRow({
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
-          {formatBRL(item.valor)}
+          {formatarMoeda(item.valor)}
         </Text>
         <View style={{
           marginTop: 3,
@@ -673,8 +664,8 @@ function ModalConfirmarTaxa({
             <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, marginBottom: 4 }}>
               {item?.cliente?.nome ?? 'Cliente'}
             </Text>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.green, marginBottom: 18 }}>
-              {item ? formatBRL(item.valor) : ''}
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.green, marginBottom: 18 }}>
+              {item ? formatarMoeda(item.valor) : ''}
             </Text>
 
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>
@@ -758,13 +749,13 @@ function ModalDevolucaoRetirada({ retirada, saldo, onClose, onSalvo }: {
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 36 }}>
             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.border, alignSelf: 'center', marginBottom: 20 }} />
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4 }}>Registrar devolução</Text>
-            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text, marginBottom: 14 }}>Saldo devedor {formatBRL(saldo)}</Text>
+            <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text, marginBottom: 14 }}>Saldo devedor {formatarMoeda(saldo)}</Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 6 }}>Valor devolvido</Text>
             <TextInput
               value={valor} onChangeText={setValor} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={C.text4}
               style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, height: 46, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 15, color: C.text, marginBottom: sobra > 0 ? 6 : 18 }}
             />
-            {sobra > 0 && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amber, marginBottom: 14 }}>Isso quita o empréstimo e sobra {formatBRL(sobra)}.</Text>}
+            {sobra > 0 && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amber, marginBottom: 14 }}>Isso quita o empréstimo e sobra {formatarMoeda(sobra)}.</Text>}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 22 }}>
               {(Object.keys(METODO_CONFIG) as PagamentoMetodo[]).map(key => {
                 const cfg = METODO_CONFIG[key]; const ativo = metodo === key;
@@ -1549,7 +1540,7 @@ export default function Financeiro() {
           {[
             {
               label: 'Receita',
-              value: resumo ? formatBRL(resumo.receita) : '—',
+              value: resumo ? formatarMoeda(resumo.receita) : '—',
               delta: deltaReceita,
               color: C.green,
               bg: C.greenSoft,
@@ -1557,7 +1548,7 @@ export default function Financeiro() {
             },
             {
               label: 'Gastos',
-              value: resumo ? formatBRL(resumo.gastos) : '—',
+              value: resumo ? formatarMoeda(resumo.gastos) : '—',
               delta: deltaGastos,
               color: C.red,
               bg: C.redSoft,
@@ -1566,11 +1557,11 @@ export default function Financeiro() {
             },
             {
               label: 'Lucro',
-              value: resumo ? formatBRL(resumo.lucro) : '—',
+              value: resumo ? formatarMoeda(resumo.lucro) : '—',
               delta: null,
               color: C.primary,
               bg: C.primarySoft,
-              sub: resumo && ehDona && retiradasPeriodo > 0 ? `Após retiradas ${formatBRL(resumo?.aposRetiradas ?? 0)}` : null,
+              sub: resumo && ehDona && retiradasPeriodo > 0 ? `Após retiradas ${formatarMoeda(resumo?.aposRetiradas ?? 0)}` : null,
             },
           ].map((s) => (
             <View key={s.label} style={{
@@ -1582,7 +1573,7 @@ export default function Financeiro() {
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
                 {s.label}
               </Text>
-              <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20, marginBottom: 5 }}>
+              <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5, lineHeight: 20, marginBottom: 5 }}>
                 {s.value}
               </SecretText>
               {s.sub && (
@@ -1623,7 +1614,7 @@ export default function Financeiro() {
                 {s.label}
               </Text>
               <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: s.color, letterSpacing: -0.5, lineHeight: 20, marginBottom: 5 }}>
-                {formatBRL(s.value)}
+                {formatarMoeda(s.value)}
               </SecretText>
               {s.delta !== null && (
                 <Text style={{
@@ -1645,7 +1636,7 @@ export default function Financeiro() {
             ].filter(t => t.value > 0).map(t => (
               <View key={t.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{t.label}</Text>
-                <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.accent }}>{formatBRL(t.value)}</SecretText>
+                <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.accent }}>{formatarMoeda(t.value)}</SecretText>
               </View>
             ))}
           </View>
@@ -1793,7 +1784,7 @@ export default function Financeiro() {
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
-                      {formatBRL(s.receita)}
+                      {formatarMoeda(s.receita)}
                     </SecretText>
                     <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
                       {s.quantidade} atend.
@@ -1819,7 +1810,7 @@ export default function Financeiro() {
               </Text>
               {despesasPendentes.length > 0 && (
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                  <SecretText>{formatBRL(totalPendente)}</SecretText> pendente · <SecretText>{despesasPendentes.length}</SecretText> despesa{despesasPendentes.length !== 1 ? 's' : ''}
+                  <SecretText>{formatarMoeda(totalPendente)}</SecretText> pendente · <SecretText>{despesasPendentes.length}</SecretText> despesa{despesasPendentes.length !== 1 ? 's' : ''}
                 </Text>
               )}
             </View>
@@ -1943,8 +1934,8 @@ export default function Financeiro() {
                 <View style={{ flex: 1, paddingRight: 8 }}>
                   <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 15, color: C.text }}>Retiradas da dona</Text>
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                    {aDonaDeve > 0 ? <>A dona deve: <SecretText>{formatBRL(aDonaDeve)}</SecretText></> : 'Nenhum empréstimo em aberto'}
-                    {retiradasPeriodo > 0 ? <> · Retiradas no mês: <SecretText>{formatBRL(retiradasPeriodo)}</SecretText></> : ''}
+                    {aDonaDeve > 0 ? <>A dona deve: <SecretText>{formatarMoeda(aDonaDeve)}</SecretText></> : 'Nenhum empréstimo em aberto'}
+                    {retiradasPeriodo > 0 ? <> · Retiradas no mês: <SecretText>{formatarMoeda(retiradasPeriodo)}</SecretText></> : ''}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -1978,7 +1969,7 @@ export default function Financeiro() {
                               {r.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'}
                             </Text>
                           </View>
-                          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatBRL(Number(r.valor))}</SecretText>
+                          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatarMoeda(Number(r.valor))}</SecretText>
                           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text4 }}>
                             {r.data.split('-').reverse().join('/')}
                             {r.metodo && METODO_CONFIG[r.metodo as PagamentoMetodo] ? ` · ${METODO_CONFIG[r.metodo as PagamentoMetodo].label}` : ''}
@@ -1987,7 +1978,7 @@ export default function Financeiro() {
                         {!!r.descricao && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }} numberOfLines={1}>{r.descricao}</Text>}
                         {r.tipo === 'emprestimo' && !r.convertido_em && (
                           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
-                            Devolvido <SecretText>{formatBRL(devolvido)}</SecretText> de <SecretText>{formatBRL(Number(r.valor))}</SecretText> · saldo <SecretText>{formatBRL(saldo)}</SecretText>
+                            Devolvido <SecretText>{formatarMoeda(devolvido)}</SecretText> de <SecretText>{formatarMoeda(Number(r.valor))}</SecretText> · saldo <SecretText>{formatarMoeda(saldo)}</SecretText>
                             {parc ? ` · Parcela ${Math.min(parc.parcelasQuitadas + (parc.proximaParcelaEm ? 1 : 0), r.total_parcelas ?? 0)}/${r.total_parcelas}` : ''}
                             {parc?.atrasada ? '  atrasada' : ''}
                             {quitado ? '  quitado' : ''}
@@ -2066,7 +2057,7 @@ export default function Financeiro() {
       />
       <ModalConfirmacaoRetirada
         visivel={!!converterDe}
-        titulo={`${converterDe ? formatBRL(saldoEmprestimo(Number(converterDe.valor), devPorRetirada[converterDe.id] ?? 0)) : ''} não serão devolvidos`}
+        titulo={`${converterDe ? formatarMoeda(saldoEmprestimo(Number(converterDe.valor), devPorRetirada[converterDe.id] ?? 0)) : ''} não serão devolvidos`}
         texto="O saldo em aberto vira uma retirada definitiva na data de hoje. Sai do 'a dona deve' e passa a contar em 'Retiradas da dona' no mês atual."
         corBotao={C.primary}
         textoBotao="Converter"
@@ -2082,7 +2073,7 @@ export default function Financeiro() {
       />
       <ModalConfirmacaoRetirada
         visivel={!!excluirDe}
-        titulo={excluirDe ? `${excluirDe.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'} de ${formatBRL(Number(excluirDe.valor))}` : ''}
+        titulo={excluirDe ? `${excluirDe.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'} de ${formatarMoeda(Number(excluirDe.valor))}` : ''}
         texto="Isso apaga o lançamento e todas as devoluções ligadas a ele. Não dá pra desfazer."
         corBotao={C.red}
         textoBotao="Excluir"

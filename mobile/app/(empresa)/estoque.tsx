@@ -413,7 +413,7 @@ export default function EstoqueScreen() {
             flex: 1, backgroundColor: k.bg, borderRadius: 14, padding: 12,
             alignItems: 'center', borderWidth: 1, borderColor: C.border,
           }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: k.color, lineHeight: 26 }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: k.color, lineHeight: 26 }}>
               {k.value}
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3 }}>

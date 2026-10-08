@@ -29,6 +29,7 @@ import { useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import type { AgendamentoStatus } from '@/types';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -64,13 +65,6 @@ function avatarColors(nome: string): [string, string] {
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-  }).format(v);
-}
-
 // ── Hook ─────────────────────────────────────────────────────
 
 function useAgendamento(id: string) {
@@ -256,7 +250,7 @@ export default function AgendamentoProfissional() {
               shadowColor: C.primary, shadowOpacity: 0.08, shadowRadius: 8,
               shadowOffset: { width: 0, height: 4 }, elevation: 3,
             }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: k.color, letterSpacing: -0.5, marginBottom: 2 }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: k.color, letterSpacing: -0.5, marginBottom: 2 }}>
                 {k.value}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8 }}>
@@ -292,7 +286,7 @@ export default function AgendamentoProfissional() {
               {
                 icon: <DollarSign size={13} color={C.primary} strokeWidth={2} />,
                 label: 'Valor do serviço',
-                value: formatBRL(ag.valor),
+                value: formatarMoeda(ag.valor),
               },
             ].map((row, i, arr) => (
               <View
@@ -331,8 +325,8 @@ export default function AgendamentoProfissional() {
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>
                 Minha comissão
               </Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 30, color: '#fff', letterSpacing: -1, lineHeight: 34, marginBottom: 8 }}>
-                {formatBRL(ag.valor)}
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 30, color: '#fff', letterSpacing: -1, lineHeight: 34, marginBottom: 8 }}>
+                {formatarMoeda(ag.valor)}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 20, alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 10 }}>
                 <Check size={10} color="#6EE7B7" strokeWidth={2.5} />

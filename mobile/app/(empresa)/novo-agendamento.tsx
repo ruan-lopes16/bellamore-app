@@ -39,6 +39,7 @@ import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { maskPhone } from '@shared/mascaras';
 import { nomeClienteValido } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -81,12 +82,6 @@ function avatarColors(nome: string): [string, string] {
 }
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
-}
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-  }).format(v);
 }
 /** Data curta de uma sessão de pacote; nunca lança em data inválida. */
 function fmtSessaoData(iso: string | null): string {
@@ -660,7 +655,7 @@ export default function NovoAgendamento() {
                           {p.nome}
                         </Text>
                         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: ativo ? C.green : C.text4 }}>
-                          {formatBRL(p.preco)}
+                          {formatarMoeda(p.preco)}
                         </Text>
                         {ativo && <Check size={12} color={C.green} strokeWidth={2.5} />}
                       </TouchableOpacity>
@@ -703,7 +698,7 @@ export default function NovoAgendamento() {
                     </Text>
                   </View>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: ativo ? C.primary : C.text }}>
-                    {formatBRL(s.preco)}
+                    {formatarMoeda(s.preco)}
                   </Text>
                   {ativo && <Check size={14} color={C.primary} strokeWidth={2.5} />}
                 </TouchableOpacity>

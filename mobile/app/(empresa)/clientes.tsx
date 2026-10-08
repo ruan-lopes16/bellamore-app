@@ -29,6 +29,7 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoClientes } from '@shared/exportacao/clientes';
 import { useClientes, useClientesStats, type ClienteResumo, type FiltroClientes } from '@/hooks/useClientes';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -80,13 +81,6 @@ function formatUltimaVisita(data: string | null): string {
   if (dias < 30) return `há ${dias} dias`;
   if (dias < 60) return 'há 1 mês';
   return `há ${Math.floor(dias / 30)} meses`;
-}
-
-function formatBRL(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(value);
 }
 
 // ── Componente de item ───────────────────────────────────────
@@ -183,7 +177,7 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
             fontFamily: 'PlusJakartaSans_700Bold',
             fontSize: 13, color: C.text,
           }}>
-            {formatBRL(item.total_gasto)}
+            {formatarMoeda(item.total_gasto)}
           </Text>
         </View>
       </TouchableOpacity>

@@ -26,6 +26,7 @@ import { CategoriaIcon } from '@/components/CategoriaIcon';
 import { resolverCategoria } from '@/hooks/useAgenda';
 import type { CategoriaServico } from '@/components/CategoriaIcon';
 import type { Servico } from '@/types';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -264,7 +265,7 @@ export default function NovoPacote() {
                       {s.nome}
                     </Text>
                     <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(s.preco)}
+                      {formatarMoeda(s.preco)}
                     </Text>
                   </View>
 

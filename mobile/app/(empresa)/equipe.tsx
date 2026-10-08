@@ -32,6 +32,7 @@ import { supabase } from '@/lib/supabase';
 import { configVazia, contarExcecoes, podeGerenciarMembro } from '@shared/permissoes';
 import { mensagemErroBanco } from '@shared/erros';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -58,13 +59,6 @@ function avatarColors(nome: string): [string, string] {
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(v);
-}
-
 // ── Tipos ────────────────────────────────────────────────────
 
 interface MembroEquipe {
@@ -285,7 +279,7 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, excecoes, onVerExcec
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
           {[
             { value: String(membro.atendimentos_mes), label: 'Atendimentos', color: C.primary },
-            { value: formatBRL(membro.total_mes),     label: 'Faturado · mês', color: C.green },
+            { value: formatarMoeda(membro.total_mes),     label: 'Faturado · mês', color: C.green },
           ].map((s) => (
             <View key={s.label} style={{
               flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10, alignItems: 'center',
@@ -316,7 +310,7 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, excecoes, onVerExcec
         <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, flex: 1 }}>
           Comissão por atendimento
         </Text>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: membro.ativo ? C.primary : C.text4, letterSpacing: -0.5 }}>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: membro.ativo ? C.primary : C.text4, letterSpacing: -0.5 }}>
           {membro.percentual_comissao}%
         </Text>
         {membro.ativo && podeGerenciar && <Edit3 size={13} color={C.text3} strokeWidth={2} />}
@@ -520,7 +514,7 @@ export default function Equipe() {
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
               alignItems: 'center',
             }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: s.color, letterSpacing: -0.5, lineHeight: 24, marginBottom: 3 }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: s.color, letterSpacing: -0.5, lineHeight: 24, marginBottom: 3 }}>
                 {s.value}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8 }}>
