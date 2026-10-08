@@ -32,6 +32,7 @@ import {
   ChevronLeft, ChevronRight, List, CalendarDays, Check, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoEstoqueProdutos, definicaoEstoqueMovimentacoes } from '@shared/exportacao/estoque';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
@@ -44,6 +45,8 @@ import {
   format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { rotuloCategoriaProduto, rotuloStatusEstoque, statusEstoque } from '@shared/estoque';
 
 const supabase = createClient();
 
@@ -80,15 +83,15 @@ type MovItem = {
 
 // Ordem alfabética por label (pt-BR) — mantém filtros e seletor de categoria consistentes
 const CATS = [
-  { key: 'cilios',       label: 'Cílios',       cor: '#4F46E5', bg: '#EEF2FF' },
-  { key: 'depilacao',    label: 'Depilação',     cor: '#D4608A', bg: '#FDF0F5' },
-  { key: 'ferramentas',  label: 'Ferramentas',   cor: '#0891B2', bg: '#ECFEFF' },
-  { key: 'higiene',      label: 'Higiene',       cor: '#059669', bg: '#ECFDF5' },
-  { key: 'materiais',    label: 'Materiais',     cor: '#92400E', bg: '#FEF3E2' },
-  { key: 'outros',       label: 'Outros',        cor: '#6B7280', bg: '#F3F4F6' },
-  { key: 'pele',         label: 'Pele',          cor: '#0D7E5F', bg: '#EAFAF5' },
-  { key: 'sobrancelhas', label: 'Sobrancelhas',  cor: '#7C3AED', bg: '#F3EFFE' },
-  { key: 'unhas',        label: 'Unhas',         cor: '#B45309', bg: '#FEF3E2' },
+  { key: 'cilios',       label: rotuloCategoriaProduto('cilios'),       cor: '#4F46E5', bg: '#EEF2FF' },
+  { key: 'depilacao',    label: rotuloCategoriaProduto('depilacao'),     cor: '#D4608A', bg: '#FDF0F5' },
+  { key: 'ferramentas',  label: rotuloCategoriaProduto('ferramentas'),   cor: '#0891B2', bg: '#ECFEFF' },
+  { key: 'higiene',      label: rotuloCategoriaProduto('higiene'),       cor: '#059669', bg: '#ECFDF5' },
+  { key: 'materiais',    label: rotuloCategoriaProduto('materiais'),     cor: '#92400E', bg: '#FEF3E2' },
+  { key: 'outros',       label: rotuloCategoriaProduto('outros'),        cor: '#6B7280', bg: '#F3F4F6' },
+  { key: 'pele',         label: rotuloCategoriaProduto('pele'),          cor: '#0D7E5F', bg: '#EAFAF5' },
+  { key: 'sobrancelhas', label: rotuloCategoriaProduto('sobrancelhas'),  cor: '#7C3AED', bg: '#F3EFFE' },
+  { key: 'unhas',        label: rotuloCategoriaProduto('unhas'),         cor: '#B45309', bg: '#FEF3E2' },
 ] as const;
 
 type CatKey = typeof CATS[number]['key'];
@@ -98,24 +101,16 @@ const UNIDADES = ['un', 'pct', 'ml', 'g', 'kg', 'L', 'cx', 'pç', 'par'];
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 0,
-  }).format(v);
-}
-
 type StatusKey = 'ok' | 'baixo' | 'critico';
 
 function getStatus(p: Produto): StatusKey {
-  if (p.estoque_atual <= 0) return 'critico';
-  if (p.estoque_minimo > 0 && p.estoque_atual <= p.estoque_minimo) return 'baixo';
-  return 'ok';
+  return statusEstoque(p.estoque_atual, p.estoque_minimo);
 }
 
 const STATUS_CFG: Record<StatusKey, { label: string; textClass: string; bgClass: string }> = {
-  ok:      { label: 'OK',     textClass: 'text-green',       bgClass: 'bg-green/10'  },
-  baixo:   { label: 'Baixo',  textClass: 'text-amber-600',   bgClass: 'bg-amber-50'  },
-  critico: { label: 'Zerado', textClass: 'text-red',         bgClass: 'bg-red/10'    },
+  ok:      { label: rotuloStatusEstoque('ok'),     textClass: 'text-green',       bgClass: 'bg-green/10'  },
+  baixo:   { label: rotuloStatusEstoque('baixo'),  textClass: 'text-amber-600',   bgClass: 'bg-amber-50'  },
+  critico: { label: rotuloStatusEstoque('critico'), textClass: 'text-red',         bgClass: 'bg-red/10'    },
 };
 
 const inputClass  = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
@@ -778,36 +773,16 @@ export default function EstoquePage() {
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              filename="estoque-produtos"
-              title="Estoque — Produtos"
-              columns={[
-                { header: 'Nome',          accessor: (p: Produto) => p.nome,                                    width: 30 },
-                { header: 'Categoria',     accessor: (p: Produto) => CAT_MAP[p.categoria]?.label ?? p.categoria, width: 16 },
-                { header: 'Unidade',       accessor: (p: Produto) => p.unidade,                                  width: 10 },
-                { header: 'Estoque Atual', accessor: (p: Produto) => p.estoque_atual,                            width: 14 },
-                { header: 'Estoque Mín.',  accessor: (p: Produto) => p.estoque_minimo,                           width: 14 },
-                { header: 'Custo Unit.',   accessor: (p: Produto) => p.preco_custo > 0
-                    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(p.preco_custo)
-                    : '',                                                                                          width: 14 },
-                { header: 'Status',        accessor: (p: Produto) => STATUS_CFG[getStatus(p)].label,             width: 10 },
-              ]}
-              getData={() => filtrados}
+              definicao={definicaoEstoqueProdutos()}
+              getLinhas={() => filtrados.map(p => ({ nome: p.nome, categoria: rotuloCategoriaProduto(p.categoria), unidade: p.unidade, estoqueAtual: p.estoque_atual, estoqueMinimo: p.estoque_minimo, precoCusto: p.preco_custo, status: rotuloStatusEstoque(getStatus(p)) }))}
             />
           )}
           {aba === 'movimentacoes' && (
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              filename="estoque-movimentacoes"
-              title={`Movimentações — ${format(mesMov, 'MMMM yyyy', { locale: ptBR })}`}
-              columns={[
-                { header: 'Data',     accessor: (m: MovItem) => format(parseISO(m.created_at), 'dd/MM/yyyy HH:mm'), width: 18 },
-                { header: 'Produto',  accessor: (m: MovItem) => m.produto.nome,                                      width: 28 },
-                { header: 'Tipo',     accessor: (m: MovItem) => m.tipo,                                              width: 10 },
-                { header: 'Qtd',      accessor: (m: MovItem) => `${m.quantidade} ${m.produto.unidade}`,              width: 10 },
-                { header: 'Motivo',   accessor: (m: MovItem) => m.motivo ?? '',                                      width: 28 },
-              ]}
-              getData={() => movFiltrados}
+              definicao={definicaoEstoqueMovimentacoes(format(mesMov, 'yyyy-MM'))}
+              getLinhas={() => movFiltrados.map(m => ({ criadoEm: m.created_at, produto: m.produto.nome, tipo: m.tipo, quantidade: m.quantidade, unidade: m.produto.unidade, motivo: m.motivo }))}
             />
           )}
           {aba === 'produtos' && (
@@ -888,7 +863,7 @@ export default function EstoquePage() {
                 <Icon size={16} style={{ color }} strokeWidth={2}/>
               </div>
               <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
+                <p className="whitespace-nowrap tabular-nums" style={{ fontSize: 'clamp(15px, 4.5vw, 20px)', fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
                 <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, fontWeight: 500 }}>{label}</p>
                 <p style={{ fontSize: 10, color: 'var(--color-ink4)', marginTop: 2 }} className="truncate">{sub}</p>
               </div>
@@ -1173,7 +1148,7 @@ export default function EstoquePage() {
                     <Icon size={16} style={{ color }} strokeWidth={2}/>
                   </div>
                   <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
+                    <p className="whitespace-nowrap tabular-nums" style={{ fontSize: 'clamp(15px, 4.5vw, 20px)', fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
                     <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, fontWeight: 500 }}>{label}</p>
                     <p style={{ fontSize: 10, color: 'var(--color-ink4)', marginTop: 2 }}>{sub}</p>
                   </div>

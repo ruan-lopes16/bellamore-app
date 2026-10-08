@@ -36,12 +36,14 @@ import { avancarComEnter } from '@/lib/formNav';
 import type { Cliente as ClienteBase, Servico as ServicoBase } from '@/types';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoPacotesCatalogo, definicaoPacotesVendidos, definicaoPacotesUtilizacao } from '@shared/exportacao/pacotes';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, addDays, parseISO, isPast } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -76,9 +78,6 @@ type Cliente = Pick<ClienteBase, 'id' | 'nome'>;
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
 function fmtData(d: string) {
   return format(parseISO(d), 'dd/MM/yyyy');
 }
@@ -972,51 +971,24 @@ export default function PacotesPage() {
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              filename="pacotes-catalogo"
-              title="Catálogo de Pacotes"
-              columns={[
-                { header: 'Nome',            accessor: (p: Pacote) => p.nome,                                                                                      width: 28 },
-                { header: 'Preço',           accessor: (p: Pacote) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.preco),      width: 14 },
-                { header: 'Validade (dias)', accessor: (p: Pacote) => p.validade_dias ?? 'Sem validade',                                                            width: 14 },
-                { header: 'Serviços',        accessor: (p: Pacote) => p.servicos.map(s => `${s.nome} ×${s.quantidade ?? '∞'}`).join(', '),                          width: 40 },
-                { header: 'Status',          accessor: (p: Pacote) => p.ativo ? 'Ativo' : 'Inativo',                                                               width: 10 },
-              ]}
-              getData={() => pacotes}
+              definicao={definicaoPacotesCatalogo()}
+              getLinhas={() => pacotes.map(p => ({ nome: p.nome, preco: p.preco, validadeDias: p.validade_dias, servicos: p.servicos.map(s => ({ nome: s.nome, quantidade: s.quantidade })), ativo: p.ativo }))}
             />
           )}
           {aba === 'vendidos' && (
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              filename="pacotes-vendidos"
-              title="Pacotes Vendidos"
-              columns={[
-                { header: 'Cliente',          accessor: (v: PacoteCliente) => v.cliente.nome,                                                                           width: 26 },
-                { header: 'Pacote',           accessor: (v: PacoteCliente) => v.pacote.nome,                                                                            width: 26 },
-                { header: 'Sessões usadas',   accessor: (v: PacoteCliente) => `${v.usadas}/${v.total_sessoes ?? '∞'}`,                                                    width: 14 },
-                { header: 'Valor pago',       accessor: (v: PacoteCliente) => v.valor_pago != null ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v.valor_pago) : '—', width: 14 },
-                { header: 'Início',           accessor: (v: PacoteCliente) => fmtData(v.data_inicio),                                                                   width: 12 },
-                { header: 'Válido até',       accessor: (v: PacoteCliente) => fmtValidade(v.data_validade),                                                              width: 12 },
-                { header: 'Status',           accessor: (v: PacoteCliente) => STATUS_CFG[v.status]?.label ?? v.status,                                                   width: 12 },
-              ]}
-              getData={() => vendidosFiltrados}
+              definicao={definicaoPacotesVendidos()}
+              getLinhas={() => vendidosFiltrados.map(v => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total_sessoes, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: STATUS_CFG[v.status]?.label ?? v.status }))}
             />
           )}
           {aba === 'relatorio' && relatorio && (
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              filename="pacotes-relatorio"
-              title="Relatório de Utilização de Pacotes"
-              columns={[
-                { header: 'Pacote',           accessor: (p: typeof relatorio.porPacote[0]) => p.nome,                                                                    width: 28 },
-                { header: 'Vendas',           accessor: (p: typeof relatorio.porPacote[0]) => p.vendas,                                                                  width: 10 },
-                { header: 'Sessões totais',   accessor: (p: typeof relatorio.porPacote[0]) => p.totalSessoes,                                                            width: 14 },
-                { header: 'Sessões usadas',   accessor: (p: typeof relatorio.porPacote[0]) => p.sessoesUsadas,                                                           width: 14 },
-                { header: 'Aproveitamento',   accessor: (p: typeof relatorio.porPacote[0]) => `${p.totalSessoes > 0 ? Math.round((p.sessoesUsadas / p.totalSessoes) * 100) : 0}%`, width: 14 },
-                { header: 'Receita',          accessor: (p: typeof relatorio.porPacote[0]) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.receita), width: 16 },
-              ]}
-              getData={() => relatorio?.porPacote ?? []}
+              definicao={definicaoPacotesUtilizacao()}
+              getLinhas={() => relatorio?.porPacote ?? []}
             />
           )}
           {podeGerenciarCatalogo && (
@@ -1340,7 +1312,7 @@ export default function PacotesPage() {
               ].map(({ label, value, sub }) => (
                 <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
                   <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-2">{label}</p>
-                  <p className="text-2xl font-bold text-text mb-1">{value}</p>
+                  <p className="text-lg sm:text-2xl font-bold text-text mb-1 whitespace-nowrap tabular-nums">{value}</p>
                   <p className="text-[11px] text-text-4">{sub}</p>
                 </div>
               ))}

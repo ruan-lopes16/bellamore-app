@@ -27,6 +27,9 @@ import {
 
 import { useEstoque, type Produto, type MovimentoTipo } from '@/hooks/useEstoque';
 import SuccessCheck from '@/components/SuccessCheck';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoEstoqueProdutos } from '@shared/exportacao/estoque';
+import { rotuloCategoriaProduto, rotuloStatusEstoque, statusEstoque } from '@shared/estoque';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -286,7 +289,7 @@ function ProdutoRow({ produto, onPress, onEdit }: { produto: Produto; onPress: (
             {produto.nome}
           </Text>
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginBottom: 6 }}>
-            {produto.categoria}
+            {rotuloCategoriaProduto(produto.categoria)}
           </Text>
           {/* Barra de progresso */}
           <View style={{ height: 3, backgroundColor: C.border, borderRadius: 2 }}>
@@ -353,13 +356,13 @@ export default function EstoqueScreen() {
   ).filter((p) =>
     busca.length === 0 ||
     p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-    p.categoria.toLowerCase().includes(busca.toLowerCase())
+    (p.categoria.toLowerCase().includes(busca.toLowerCase()) || rotuloCategoriaProduto(p.categoria).toLowerCase().includes(busca.toLowerCase()))
   );
 
   const FILTROS: { key: Filtro; label: string }[] = [
     { key: 'todos',   label: 'Todos'    },
-    { key: 'critico', label: 'Crítico'  },
-    { key: 'baixo',   label: 'Atenção'  },
+    { key: 'critico', label: rotuloStatusEstoque('critico') },
+    { key: 'baixo',   label: rotuloStatusEstoque('baixo') },
     { key: 'ok',      label: 'OK'       },
   ];
 
@@ -378,12 +381,19 @@ export default function EstoqueScreen() {
               Produtos
             </Text>
           </View>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <BotaoExportar
+            definicao={definicaoEstoqueProdutos()}
+            getLinhas={() => listaFiltrada.map((p) => ({ nome: p.nome, categoria: rotuloCategoriaProduto(p.categoria), unidade: p.unidade, estoqueAtual: p.estoque_atual, estoqueMinimo: p.estoque_minimo, precoCusto: p.preco_custo, status: rotuloStatusEstoque(statusEstoque(p.estoque_atual, p.estoque_minimo)) }))}
+            cor={C.text2}
+          />
           <TouchableOpacity
             onPress={() => router.push('/(empresa)/novo-produto')}
             style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }}
           >
             <Plus size={18} color="#fff" strokeWidth={2.5} />
           </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -396,14 +406,14 @@ export default function EstoqueScreen() {
       >
         {[
           { label: 'Total', value: String(produtos.length), bg: C.surface, color: C.text },
-          { label: 'Crítico', value: String(totalCriticos), bg: C.redSoft, color: C.red },
-          { label: 'Atenção', value: String(totalAtencao), bg: C.amberSoft, color: C.amber },
+          { label: rotuloStatusEstoque('critico'), value: String(totalCriticos), bg: C.redSoft, color: C.red },
+          { label: rotuloStatusEstoque('baixo'), value: String(totalAtencao), bg: C.amberSoft, color: C.amber },
         ].map((k) => (
           <View key={k.label} style={{
             flex: 1, backgroundColor: k.bg, borderRadius: 14, padding: 12,
             alignItems: 'center', borderWidth: 1, borderColor: C.border,
           }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: k.color, lineHeight: 26 }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: k.color, lineHeight: 26 }}>
               {k.value}
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3 }}>

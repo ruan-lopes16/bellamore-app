@@ -32,8 +32,8 @@ describe('agenda web — cancelado oculto', () => {
     expect(src).not.toMatch(/ags=\{ags\}/);
     // O Exportar também precisa da lista filtrada — senão o PDF/XLSX sai com
     // a linha cancelada que já sumiu da tela (mudarStatus não refaz o fetch).
-    expect(src).not.toMatch(/getData=\{\(\) => ags\}/);
-    expect(src).toMatch(/getData=\{\(\) => agsVisiveis\}/);
+    expect(src).not.toMatch(/getLinhas=\{\(\) => ags\}/);
+    expect(src).toMatch(/getLinhas=\{\(\) => agsVisiveis\.map/);
   });
 
   it('mantém "faltou" visível e riscado na timeline', () => {

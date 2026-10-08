@@ -10,13 +10,13 @@ describe('Fase 2B — correções da revisão final', () => {
   it('comissões da profissional: sem zeros enquanto carrega', () => {
     const s = ler('mobile/app/(profissional)/comissoes.tsx');
     expect(s).toContain('const semNumero = erro || isLoading || carregandoResumo || !resumo;');
-    expect(s).toContain("semNumero ? '—' : formatBRL(n)");
+    expect(s).toContain("semNumero ? '—' : formatarMoeda(n)");
     expect(s).toContain('filter(Boolean)');
   });
   it('início da profissional: KPIs com "—" enquanto carrega/erro', () => {
     const s = ler('mobile/app/(profissional)/inicio.tsx');
     expect(s).toContain('const semResumo = erroResumo || carregandoResumo || !resumoMes;');
-    expect(s).toContain("semResumo ? '—' : fmtBRL(resumoMes.total)");
+    expect(s).toContain("semResumo ? '—' : formatarMoeda(resumoMes.total)");
     expect(s).toContain("erroKpis || carregandoKpis || !kpisDia ? '—'");
   });
   it('Relatórios web: Pagar desabilitado enquanto a chamada roda', () => {

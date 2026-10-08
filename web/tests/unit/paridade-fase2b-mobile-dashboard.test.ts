@@ -17,7 +17,7 @@ describe('app Dashboard = web Dashboard', () => {
   });
   it('tela: navegação de mês, KPIs, meta, reconquista, aniversariantes, despesas e sparkline', () => {
     for (const t of ['setMesSolicitado', 'rotuloMesAno(', 'cartoesKpiDashboard(', 'rotuloProgressoMeta(', 'Reconquistar',
-      'Aniversariantes', 'despesasVencendo', '<SparkLinha', 'horaBRT(', "hojePronto ? formatBRL(receitaHoje) : '—'",
+      'Aniversariantes', 'despesasVencendo', '<SparkLinha', 'horaBRT(', "hojePronto ? formatarMoeda(receitaHoje) : '—'",
       'Mês com fechamento importado']) expect(tela).toContain(t);
   });
   it('refetch só das consultas ativas; enabled pela permissão; mês sem piscar', () => {

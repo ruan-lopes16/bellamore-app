@@ -38,6 +38,7 @@ import {
   normalizarAnamnese, restricoesAnamnese, anamnesePreenchida, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
 } from '@shared/anamnese';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -83,13 +84,6 @@ function avatarColors(nome: string): [string, string] {
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
-function formatBRL(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(value);
-}
-
 // ── Seção info ───────────────────────────────────────────────
 
 function InfoRow({ icon, label, value, iconBg, iconColor }: {
@@ -378,7 +372,7 @@ export default function ClientePerfil() {
         >
           {[
             { value: String(cliente.total_visitas), label: 'Visitas', color: C.primary },
-            { value: formatBRL(cliente.total_gasto), label: 'Total gasto', color: C.green },
+            { value: formatarMoeda(cliente.total_gasto), label: 'Total gasto', color: C.green },
             { value: cliente.ultima_visita ? `há ${differenceInDays(new Date(), new Date(cliente.ultima_visita))}d` : '—', label: 'Última visita', color: C.text },
           ].map((k) => (
             <View key={k.label} style={{
@@ -568,7 +562,7 @@ export default function ClientePerfil() {
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text, marginBottom: 4 }}>
-                          {formatBRL(ag.valor)}
+                          {formatarMoeda(ag.valor)}
                         </Text>
                         <View style={{ backgroundColor: statusCfg.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
                           <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: statusCfg.color, textTransform: 'uppercase' }}>
@@ -605,7 +599,7 @@ export default function ClientePerfil() {
                         </Text>
                       </View>
                       <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
-                        {formatBRL(t.valor)}
+                        {formatarMoeda(t.valor)}
                       </Text>
                     </View>
                   ))}
@@ -636,7 +630,7 @@ export default function ClientePerfil() {
                         </Text>
                       </View>
                       <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
-                        {formatBRL(t.valor)}
+                        {formatarMoeda(t.valor)}
                       </Text>
                     </View>
                   ))}

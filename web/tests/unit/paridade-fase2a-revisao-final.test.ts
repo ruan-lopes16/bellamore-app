@@ -45,7 +45,7 @@ describe('web Relatórios: pagar comissão e carga', () => {
     expect(src).toContain('const req = ++reqRef.current');
     expect(src).toContain('if (req !== reqRef.current) return');
     expect(src).toContain('++reqRetiradasRef.current');
-    expect(src).toContain('{!loading && !erroCarga && (\n            <ExportButton');
+    expect(src).toContain("{!loading && !erroCarga && aba !== 'avaliacoes' && (\n            <ExportButton");
   });
 });
 
@@ -63,9 +63,9 @@ describe('web Financeiro: respostas velhas e dono resolvido', () => {
 describe('mobile: dashboard, sumidas, período personalizado, gráfico vazio', () => {
   it('dashboard mostra — fora do sucesso', () => {
     const d = ler('mobile', 'app', '(empresa)', 'dashboard.tsx');
-    expect(d).toContain("financeiroPronto ? formatBRL(receitaMes) : '—'");
-    expect(d).toContain("hojePronto ? formatBRL(receitaHoje) : '—'");
-    expect(d).not.toContain('{formatBRL(comissoesPendentes.total)}');
+    expect(d).toContain("financeiroPronto ? formatarMoeda(receitaMes) : '—'");
+    expect(d).toContain("hojePronto ? formatarMoeda(receitaHoje) : '—'");
+    expect(d).not.toContain('{formatarMoeda(comissoesPendentes.total)}');
   });
   it('sumidas ignora cliente nulo e mostra — enquanto carrega', () => {
     const h = ler('mobile', 'hooks', 'useRelatorios.ts');

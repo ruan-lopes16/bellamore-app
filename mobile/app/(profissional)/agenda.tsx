@@ -34,6 +34,7 @@ import { CATEGORIA_CONFIG, useRemoverBloqueio, type AgendamentoCompleto } from '
 import { BloqueioModal } from '@/components/BloqueioModal';
 import { ConfirmarRemoverBloqueio } from '@/components/ConfirmarRemoverBloqueio';
 import { bloqueioNoInstante, motivoBloqueioLabel } from '@shared/bloqueios';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -67,13 +68,6 @@ function avatarColors(nome: string): [string, string] {
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(v);
-}
-
 // ── Card de agendamento da profissional ──────────────────────
 
 function AgendamentoCard({ ag, index }: {
@@ -124,7 +118,7 @@ function AgendamentoCard({ ag, index }: {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
-              <SecretText>{formatBRL(ag.valor)}</SecretText>
+              <SecretText>{formatarMoeda(ag.valor)}</SecretText>
             </Text>
             <View style={{ backgroundColor: statusCfg.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: statusCfg.color, textTransform: 'uppercase' }}>
@@ -277,8 +271,8 @@ export default function AgendaProfissional() {
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {[
                 { value: erroKpis ? '—' : String(kpis?.total ?? 0),            label: 'Hoje',         color: '#fff' },
-                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0),   label: 'Comissão do dia', color: '#6EE7B7' },
-                { value: erroKpis ? '—' : formatBRL(kpis?.totalPendente ?? 0), label: 'A receber',    color: '#FCD34D' },
+                { value: erroKpis ? '—' : formatarMoeda(kpis?.comissaoDia ?? 0),   label: 'Comissão do dia', color: '#6EE7B7' },
+                { value: erroKpis ? '—' : formatarMoeda(kpis?.totalPendente ?? 0), label: 'A receber',    color: '#FCD34D' },
               ].map((k) => (
                 <View key={k.label} style={{
                   flex: 1,
@@ -286,9 +280,7 @@ export default function AgendaProfissional() {
                   borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
                   borderRadius: 12, padding: 10,
                 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, lineHeight: 18, marginBottom: 3 }}>
-                    <SecretText>{k.value}</SecretText>
-                  </Text>
+                  <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, lineHeight: 18, marginBottom: 3 }}>{k.value}</SecretText>
                   <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
                     {k.label}
                   </Text>
@@ -357,11 +349,11 @@ export default function AgendaProfissional() {
             }}>
               {[
                 { value: erroKpis ? '—' : String(kpis?.total ?? 0), label: 'Atendimentos', color: C.primary },
-                { value: erroKpis ? '—' : formatBRL(kpis?.comissaoDia ?? 0), label: 'Comissão do dia', color: C.green },
+                { value: erroKpis ? '—' : formatarMoeda(kpis?.comissaoDia ?? 0), label: 'Comissão do dia', color: C.green },
                 { value: `${agendamentos.reduce((s, a) => s + (a.servico?.duracao_minutos ?? 0), 0)}min`, label: 'Tempo total', color: C.text },
               ].map((s, i, arr) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center', position: 'relative' }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}><SecretText>{s.value}</SecretText></Text>
+                  <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>{s.value}</SecretText>
                   <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 8, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2 }}>{s.label}</Text>
                   {i < arr.length - 1 && <View style={{ position: 'absolute', right: 0, top: '10%', bottom: '10%', width: 1, backgroundColor: C.border }} />}
                 </View>

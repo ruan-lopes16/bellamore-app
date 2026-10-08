@@ -5,14 +5,9 @@ import { Target, Pencil } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Secret } from '@/components/privacy';
 import { progressoMetaPessoal } from '@shared/dashboard-profissional';
+import { formatarMoeda as fmt } from '@shared/moeda';
 
 const supabase = createClient();
-
-function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 0,
-  }).format(v);
-}
 
 /** Meta mensal pessoal da profissional — distinta da meta da empresa. Ela
  * mesma define e altera; a mutação passa pela RPC `definir_minha_meta_mensal`

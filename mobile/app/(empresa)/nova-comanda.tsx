@@ -37,6 +37,7 @@ import SuccessCheck from '@/components/SuccessCheck';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import { marcarAgendamentosFechados } from '@shared/comanda';
+import { formatarMoeda } from '@shared/moeda';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -98,9 +99,6 @@ type ClienteComanda = {
   agendamentos: AgDia[];
 };
 
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
 function fmtHora(iso: string) { return format(parseISO(iso), 'HH:mm'); }
 function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
@@ -565,7 +563,7 @@ export default function NovaComandaScreen() {
               Comanda fechada!
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.green, textAlign: 'center', marginTop: 4 }}>
-              {fmtBRL(sucessoData.valor)}
+              {formatarMoeda(sucessoData.valor)}
             </Text>
           </MotiView>
 
@@ -617,7 +615,7 @@ export default function NovaComandaScreen() {
                     <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: m.bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, gap: 8 }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>{m.label}</Text>
                       <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>
-                        {fmtBRL(parseFloat(s.valor.replace(',', '.')) || 0)}
+                        {formatarMoeda(parseFloat(s.valor.replace(',', '.')) || 0)}
                       </Text>
                     </View>
                   );
@@ -629,8 +627,8 @@ export default function NovaComandaScreen() {
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300, delay: 450 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, textAlign: 'center', marginTop: 10 }}>
               {sucessoData.itensCount} {sucessoData.itensCount === 1 ? 'item' : 'itens'}
-              {sucessoData.descontoReserva > 0 && ` · Taxa de reserva paga ${fmtBRL(sucessoData.descontoReserva)}`}
-              {sucessoData.desconto > 0 && ` · Desconto ${fmtBRL(sucessoData.desconto)}`}
+              {sucessoData.descontoReserva > 0 && ` · Taxa de reserva paga ${formatarMoeda(sucessoData.descontoReserva)}`}
+              {sucessoData.desconto > 0 && ` · Desconto ${formatarMoeda(sucessoData.desconto)}`}
             </Text>
             {proximoCliente && (
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, textAlign: 'center', marginTop: 10 }}>
@@ -682,7 +680,7 @@ export default function NovaComandaScreen() {
                 Total do dia
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green }}>
-                {fmtBRL(totalDia)}
+                {formatarMoeda(totalDia)}
               </Text>
             </View>
           )}
@@ -818,7 +816,7 @@ export default function NovaComandaScreen() {
                     )}
                   </View>
                   <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>
-                    {fmtBRL(item.valor * item.quantidade)}
+                    {formatarMoeda(item.valor * item.quantidade)}
                   </Text>
                   {item.tipo !== 'agendamento' && (
                     <TouchableOpacity onPress={() => removerItem(item.uid)}
@@ -884,7 +882,7 @@ export default function NovaComandaScreen() {
                       <TouchableOpacity key={s.id} onPress={() => adicionarServico(s)}
                         style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, backgroundColor: C.surface, marginBottom: 4 }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text }}>{s.nome}</Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text3 }}>{fmtBRL(s.preco)}</Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text3 }}>{formatarMoeda(s.preco)}</Text>
                       </TouchableOpacity>
                     ))}
                   </>
@@ -896,7 +894,7 @@ export default function NovaComandaScreen() {
                       <TouchableOpacity key={p.id} onPress={() => adicionarProduto(p)}
                         style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, backgroundColor: C.surface, marginBottom: 4 }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text }}>{p.nome}</Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text3 }}>{fmtBRL(p.preco_venda)}</Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text3 }}>{formatarMoeda(p.preco_venda)}</Text>
                       </TouchableOpacity>
                     ))}
                   </>
@@ -908,7 +906,7 @@ export default function NovaComandaScreen() {
                       <TouchableOpacity key={p.id} onPress={() => adicionarPacote(p)}
                         style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, backgroundColor: C.surface, marginBottom: 4 }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text }}>{p.nome}</Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text3 }}>{fmtBRL(p.preco)}</Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text3 }}>{formatarMoeda(p.preco)}</Text>
                       </TouchableOpacity>
                     ))}
                   </>
@@ -939,23 +937,23 @@ export default function NovaComandaScreen() {
           <View style={{ backgroundColor: C.bg, borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Subtotal</Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{fmtBRL(subtotal)}</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{formatarMoeda(subtotal)}</Text>
             </View>
             {descontoReservaAplicado > 0 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Taxa de reserva paga</Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.red }}>− {fmtBRL(descontoReservaAplicado)}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.red }}>− {formatarMoeda(descontoReservaAplicado)}</Text>
               </View>
             )}
             {descontoN > 0 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>(−) Desconto</Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.red }}>− {fmtBRL(descontoN)}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.red }}>− {formatarMoeda(descontoN)}</Text>
               </View>
             )}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.text }}>Total</Text>
-              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 24, color: C.text }}>{fmtBRL(total)}</Text>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 24, color: C.text }}>{formatarMoeda(total)}</Text>
             </View>
           </View>
 
@@ -1003,18 +1001,18 @@ export default function NovaComandaScreen() {
                 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Recebido</Text>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{fmtBRL(recebido)}</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatarMoeda(recebido)}</Text>
                   </View>
                   {restante > 0.01 && (
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.amber }}>Falta</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber }}>{fmtBRL(restante)}</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber }}>{formatarMoeda(restante)}</Text>
                     </View>
                   )}
                   {restante < -0.01 && (
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primary }}>Troco</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>{fmtBRL(-restante)}</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>{formatarMoeda(-restante)}</Text>
                     </View>
                   )}
                   {Math.abs(restante) < 0.01 && (
@@ -1051,7 +1049,7 @@ export default function NovaComandaScreen() {
               <>
                 <Check size={18} color="#fff" strokeWidth={2.5} />
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: '#fff' }}>
-                  Fechar comanda — {fmtBRL(total)}
+                  Fechar comanda — {formatarMoeda(total)}
                 </Text>
               </>
             )}

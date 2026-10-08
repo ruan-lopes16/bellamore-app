@@ -26,7 +26,10 @@ import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
 import { SmoothTabs } from '@/components/SmoothTabs';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoClientes } from '@shared/exportacao/clientes';
 import { useClientes, useClientesStats, type ClienteResumo, type FiltroClientes } from '@/hooks/useClientes';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -78,13 +81,6 @@ function formatUltimaVisita(data: string | null): string {
   if (dias < 30) return `há ${dias} dias`;
   if (dias < 60) return 'há 1 mês';
   return `há ${Math.floor(dias / 30)} meses`;
-}
-
-function formatBRL(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(value);
 }
 
 // ── Componente de item ───────────────────────────────────────
@@ -181,7 +177,7 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
             fontFamily: 'PlusJakartaSans_700Bold',
             fontSize: 13, color: C.text,
           }}>
-            {formatBRL(item.total_gasto)}
+            {formatarMoeda(item.total_gasto)}
           </Text>
         </View>
       </TouchableOpacity>
@@ -268,6 +264,11 @@ export default function Clientes() {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
+                <BotaoExportar
+                  definicao={definicaoClientes()}
+                  getLinhas={() => clientes.map((c) => ({ nome: c.nome, telefone: c.telefone ?? null, email: c.email ?? null, dataNascimento: c.data_nascimento ?? null, criadoEm: c.created_at }))}
+                  cor={C.text2}
+                />
                 <TouchableOpacity style={{
                   width: 38, height: 38, borderRadius: 12,
                   backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,

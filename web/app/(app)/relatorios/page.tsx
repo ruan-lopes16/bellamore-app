@@ -27,7 +27,7 @@ import {
   Receipt,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
-import type { ExportColumn } from '@/lib/export';
+import { definicaoRelatorio } from '@shared/exportacao/relatorios';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { KpiCardSkeleton } from './RelatoriosSkeleton';
@@ -61,6 +61,7 @@ import { datasDasUltimasVisitas } from '@shared/dashboard';
 import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -107,11 +108,6 @@ const AVATAR_CORES = ['#7C3AED', '#D4608A', '#0D7E5F', '#B45309', '#1D4ED8', '#7
 
 // ── Helpers ───────────────────────────────────────────────────
 
-/** Formata número para BRL sem centavos */
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
-
 /** Cor de avatar baseada na inicial do nome */
 function avatarCor(nome: string) {
   return AVATAR_CORES[(nome?.charCodeAt(0) ?? 0) % AVATAR_CORES.length];
@@ -139,8 +135,8 @@ function KpiCard({
         style={{ background: cor + '18' }}>
         <Icon size={18} style={{ color: cor }} />
       </div>
-      <div className="flex-1 min-w-0 w-full">
-        <p className="text-base sm:text-lg font-bold text-text leading-tight truncate"><Secret>{value}</Secret></p>
+      <div className="flex-1 min-w-0 w-full overflow-hidden">
+        <p className="text-sm sm:text-lg font-bold text-text leading-tight whitespace-nowrap tabular-nums"><Secret>{value}</Secret></p>
         <p className="text-[11px] sm:text-xs text-text-3 leading-tight">{label}</p>
         {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}><Secret>{sub}</Secret></p>}
         {delta !== null && (
@@ -521,6 +517,15 @@ export default function RelatoriosPage() {
 
   // ── Render ────────────────────────────────────────────────────
 
+  /** Linha padrão da aba exibida (mesmos arrays que alimentam a tela). */
+  const linhasExportacao: unknown[] =
+    aba === 'servicos' ? rankServicos.map(r => ({ nome: r.nome, quantidade: r.qtd, valor: r.valor })) :
+    aba === 'equipe' ? rankEquipe.map(r => ({ nome: r.nome, quantidade: r.qtd, valor: r.valor, comissao: (r as { comissao?: number }).comissao ?? 0 })) :
+    aba === 'clientes' ? rankClientes.map(r => ({ nome: r.nome, quantidade: r.qtd, valor: r.valor })) :
+    aba === 'estoque' ? insumos.ranking.map(r => ({ nome: r.nome, quantidade: r.qtd, custo: r.custo })) :
+    aba === 'comissoes' ? comissoes.map(c => ({ profissional: c.profissionalNome, dia: chaveDiaBRT(c.dataAtendimento ?? c.criadaEm), cliente: c.clienteNome, servico: c.servicoNome, valorAtendimento: c.valorAtendimento, percentual: c.percentual, comissao: c.valorComissao, pago: c.status === 'pago' })) :
+    concluidos.map(a => ({ inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null, valor: a.valor, status: a.status }));
+
   return (
     <div className="bm-page">
       {/* Toast de erro */}
@@ -603,55 +608,12 @@ export default function RelatoriosPage() {
 
         {/* Exportar */}
         <div className="flex items-center gap-2 bm-mobile-export-only">
-          {!loading && !erroCarga && (
+          {!loading && !erroCarga && aba !== 'avaliacoes' && (
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              filename={`relatorio-${aba}-${labelPeriodo.replace(/\s/g, '-')}`}
-              title={`Relatório ${ABA_OPTS.find(a => a.key === aba)?.label} — ${labelPeriodo}`}
-              columns={(
-                aba === 'servicos' ? [
-                  { header: 'Serviço',       accessor: (r: RankItem) => r.nome,          width: 30 },
-                  { header: 'Atendimentos',  accessor: (r: RankItem) => r.qtd,           width: 14 },
-                  { header: 'Receita',       accessor: (r: RankItem) => fmtBRL(r.valor), width: 16 },
-                ] : aba === 'equipe' ? [
-                  { header: 'Profissional',  accessor: (r: RankItem) => r.nome,          width: 28 },
-                  { header: 'Atendimentos',  accessor: (r: RankItem) => r.qtd,           width: 14 },
-                  { header: 'Receita gerada',accessor: (r: RankItem) => fmtBRL(r.valor), width: 16 },
-                  { header: 'Comissão',      accessor: (r: any) => fmtBRL(r.comissao ?? 0), width: 16 },
-                ] : aba === 'clientes' ? [
-                  { header: 'Cliente',       accessor: (r: RankItem) => r.nome,          width: 28 },
-                  { header: 'Atendimentos',  accessor: (r: RankItem) => r.qtd,           width: 14 },
-                  { header: 'Total gasto',   accessor: (r: RankItem) => fmtBRL(r.valor), width: 16 },
-                ] : aba === 'estoque' ? [
-                  { header: 'Produto',       accessor: (r: ItemInsumo) => r.nome,            width: 28 },
-                  { header: 'Qtd consumida', accessor: (r: ItemInsumo) => r.qtd,             width: 14 },
-                  { header: 'Custo estimado',accessor: (r: ItemInsumo) => fmtBRL(r.custo),   width: 16 },
-                ] : aba === 'comissoes' ? [
-                  { header: 'Profissional', accessor: (c: ComissaoItem) => c.profissionalNome,                                                              width: 22 },
-                  { header: 'Data',         accessor: (c: ComissaoItem) => rotuloDataBR(chaveDiaBRT(c.dataAtendimento ?? c.criadaEm)),                       width: 12 },
-                  { header: 'Cliente',      accessor: (c: ComissaoItem) => c.clienteNome,                                                                    width: 22 },
-                  { header: 'Serviço',      accessor: (c: ComissaoItem) => c.servicoNome,                                                                    width: 22 },
-                  { header: 'Vlr atend.',   accessor: (c: ComissaoItem) => c.valorAtendimento != null ? fmtBRL(c.valorAtendimento) : '—',                    width: 12 },
-                  { header: '%',            accessor: (c: ComissaoItem) => `${c.percentual}%`,                                                               width: 6  },
-                  { header: 'Comissão',     accessor: (c: ComissaoItem) => fmtBRL(c.valorComissao),                                                          width: 12 },
-                  { header: 'Status',       accessor: (c: ComissaoItem) => c.status === 'pago' ? 'Pago' : 'Pendente',                                        width: 10 },
-                ] : /* financeiro */ [
-                  { header: 'Data',      accessor: (a: Ag) => format(parseISO(a.data_hora_inicio), 'dd/MM/yyyy HH:mm'), width: 18 },
-                  { header: 'Cliente',   accessor: (a: Ag) => a.cliente?.nome ?? '—',     width: 26 },
-                  { header: 'Serviço',   accessor: (a: Ag) => a.servico?.nome ?? '—',     width: 26 },
-                  { header: 'Valor',     accessor: (a: Ag) => fmtBRL(a.valor),            width: 14 },
-                  { header: 'Status',    accessor: (a: Ag) => a.status,                   width: 12 },
-                ]
-              ) as ExportColumn<any>[]}
-              getData={() => (
-                aba === 'servicos'   ? rankServicos :
-                aba === 'equipe'     ? rankEquipe   :
-                aba === 'clientes'   ? rankClientes :
-                aba === 'estoque'    ? insumos.ranking :
-                aba === 'comissoes'  ? comissoes    :
-                concluidos
-              ) as any[]}
+              definicao={definicaoRelatorio(aba, ABA_OPTS.find(a => a.key === aba)?.label ?? '', labelPeriodo)}
+              getLinhas={() => linhasExportacao}
             />
           )}
         </div>

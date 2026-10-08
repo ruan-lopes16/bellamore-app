@@ -6,6 +6,7 @@ import {
   Eye, EyeOff, Copy, Check, Sparkles, Shield,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoEquipe } from '@shared/exportacao/equipe';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
@@ -26,6 +27,7 @@ import { podeAtribuirRole } from '@/lib/permissions';
 import { avancarComEnter } from '@/lib/formNav';
 // createClient usado apenas nas funções da tela principal (carregarEquipe, toggleAtivo, salvarComissao)
 import { ptBR } from 'date-fns/locale';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -67,10 +69,6 @@ function roleBadge(role: 'owner' | 'gestor' | 'profissional') {
   if (role === 'gestor') return { label: 'Gestor(a)',   bg: 'rgba(59,130,246,0.12)',     color: 'rgb(59,130,246)' };
   return                        { label: 'Profissional', bg: 'var(--color-bg2)',          color: 'var(--color-ink3)' };
 }
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
-
 const inputClass = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5";
 
@@ -776,17 +774,8 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
           <ExportButton
             variant="mobileHeader"
             className="bm-mobile-header-export"
-            filename={`equipe-${format(new Date(), 'yyyy-MM')}`}
-            title={`Equipe — ${mes}`}
-            columns={[
-              { header: 'Nome',           accessor: (p: Profissional) => p.user.nome,             width: 28 },
-              { header: 'Telefone',       accessor: (p: Profissional) => p.user.telefone ?? '',    width: 18 },
-              { header: 'Comissão (%)',   accessor: (p: Profissional) => `${p.percentual_comissao}%`, width: 14 },
-              { header: 'Atend./mês',    accessor: (p: Profissional) => p.atendimentos_mes,       width: 14 },
-              { header: 'Total/mês',     accessor: (p: Profissional) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(p.total_mes), width: 16 },
-              { header: 'Status',         accessor: (p: Profissional) => p.ativo ? 'Ativo' : 'Inativo', width: 10 },
-            ]}
-            getData={() => profs}
+            definicao={definicaoEquipe(format(new Date(), 'yyyy-MM'))}
+            getLinhas={() => profs.map(p => ({ nome: p.user.nome, telefone: p.user.telefone ?? null, percentual: p.percentual_comissao, atendimentosMes: p.atendimentos_mes, totalMes: p.total_mes, ativo: p.ativo }))}
           />
           <button onClick={() => setModal(true)} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
             style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>

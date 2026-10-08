@@ -30,6 +30,7 @@ import {
   descreverServicos, listarServicos, montarDetalheAtendimento,
   type DetalheAtendimento,
 } from '@shared/atendimento-detalhe';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -413,8 +414,6 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
     })();
   }, [agendamentoId, comandaId]);
 
-  const fmtBRL = (v: number) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
   return (
     <div className="bm-modal fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -983,7 +982,7 @@ export default function ClientePerfilPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
               {[
                 { label: 'Visitas', value: stats.totalVisitas > 0 ? String(stats.totalVisitas) : '—', secret: true },
-                { label: 'Total gasto', value: stats.totalGasto > 0 ? `R$ ${stats.totalGasto.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : '—', secret: true },
+                { label: 'Total gasto', value: stats.totalGasto > 0 ? fmtBRL(stats.totalGasto) : '—', secret: true },
                 { label: 'Última visita', value: ultimaLabel, secret: false },
                 { label: 'Serv. favorito', value: stats.servicoFavorito ?? '—', secret: false },
               ].map((kpi, i) => (
@@ -1206,7 +1205,6 @@ export default function ClientePerfilPage() {
                     const cfg = STATUS_CFG[ag.status] ?? STATUS_CFG.agendado;
                     const Icon = cfg.icon;
                     const dataFmt = format(parseISO(ag.data_hora_inicio), "dd/MM/yyyy 'às' HH:mm");
-                    const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
                     return (
                       <button key={ag.id} type="button"
                         onClick={() => setDetalheAberto({
@@ -1269,7 +1267,6 @@ export default function ClientePerfilPage() {
               ) : (
                 <div className="divide-y divide-border">
                   {vendas.map(v => {
-                    const fmtBRL = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(n);
                     const dataFmt = format(parseISO(v.created_at), "dd/MM/yyyy 'às' HH:mm");
                     const itensDesc = v.venda_itens
                       .map(vi => `${vi.quantidade}× ${(vi.produto as any)?.nome ?? '—'}`)
@@ -1305,7 +1302,6 @@ export default function ClientePerfilPage() {
                 </div>
                 <div className="divide-y divide-border">
                   {taxas.map(t => {
-                    const fmtBRL = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(n);
                     const dataFmt = format(parseISO(t.created_at), "dd/MM/yyyy 'às' HH:mm");
                     return (
                       <div key={t.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
@@ -1337,7 +1333,6 @@ export default function ClientePerfilPage() {
                 </div>
                 <div className="divide-y divide-border">
                   {taxasReserva.map(t => {
-                    const fmtBRL = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(n);
                     const dataFmt = format(parseISO(t.created_at), "dd/MM/yyyy 'às' HH:mm");
                     return (
                       <div key={t.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">

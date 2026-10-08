@@ -30,6 +30,7 @@ import { Sk } from '@/components/Skeleton';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -67,12 +68,6 @@ const TIPO_NOTIF: Record<string, { icon: React.ElementType; cor: string; bg: str
 };
 
 // ── Helpers ───────────────────────────────────────────────────
-
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 0,
-  }).format(v);
-}
 
 function fmtData(d: string) {
   return format(parseISO(d + 'T12:00:00'), "dd/MM", { locale: ptBR });

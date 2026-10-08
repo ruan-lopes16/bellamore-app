@@ -39,7 +39,10 @@ import { agendarLembretesLocais } from '@/lib/notifications';
 import { motivoBloqueioLabel, bloqueioNoInstante } from '@shared/bloqueios';
 import { BloqueioModal } from '@/components/BloqueioModal';
 import { PendentesBloqueioSheet } from '@/components/PendentesBloqueioSheet';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoAgenda } from '@shared/exportacao/agenda';
 import { ConfirmarRemoverBloqueio } from '@/components/ConfirmarRemoverBloqueio';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -75,12 +78,6 @@ function avatarColors(nome: string): [string, string] {
 }
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
-}
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(v);
 }
 function horaStr(iso: string) {
   return format(new Date(iso), 'HH:mm');
@@ -159,7 +156,7 @@ function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>
-              {formatBRL(ag.valor)}
+              {formatarMoeda(ag.valor)}
             </Text>
             <View style={{ backgroundColor: statusCfg.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: statusCfg.color, textTransform: 'uppercase' }}>
@@ -334,6 +331,11 @@ export default function Agenda() {
               </Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
+              <BotaoExportar
+                definicao={definicaoAgenda(format(diaSelecionado, 'yyyy-MM-dd'))}
+                getLinhas={() => agendamentos.map((a) => ({ inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null, profissional: a.profissional?.nome ?? null, valor: a.valor, status: STATUS_CONFIG[a.status]?.label ?? a.status }))}
+                cor={C.text2}
+              />
               <TouchableOpacity style={{
                 width: 38, height: 38, borderRadius: 12,
                 backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -454,12 +456,12 @@ export default function Agenda() {
           }}>
             {[
               { value: String(resumo.total),           label: 'Agendamentos', color: C.text },
-              { value: formatBRL(resumo.receita),       label: 'Receita prev.',  color: C.green },
+              { value: formatarMoeda(resumo.receita),       label: 'Receita prev.',  color: C.green },
               { value: String(resumo.profissionais),    label: 'Profissionais',  color: C.text },
               { value: String(resumo.pendentes),        label: 'Pendentes',      color: resumo.pendentes > 0 ? C.amber : C.text },
             ].map((s, i, arr) => (
               <View key={s.label} style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>
                   {s.value}
                 </Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 8, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2 }}>

@@ -31,12 +31,7 @@ import {
   carregarDadosFinanceiros, carregarComissoesPendentes, carregarRetiradas,
 } from '@shared/kpis-financeiros-consultas';
 import { Secret, PrivacyToggle } from '@/components/privacy';
-
-function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 0,
-  }).format(v);
-}
+import { formatarMoeda as fmt } from '@shared/moeda';
 
 const STATUS_MAP: Record<string, { label: string; tone: string }> = {
   agendado:   { label: 'Agendado',   tone: 'accent'   },

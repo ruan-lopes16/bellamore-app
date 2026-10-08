@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatarMoeda } from '@shared/moeda';
 import {
   selecionarLembrete, corpoLembrete, tituloLembrete, destinatarios,
   corpoResumoDiario, corpoResumoDiarioProfissional, type AgLembrete,
@@ -76,7 +77,7 @@ describe('corpoResumoDiario', () => {
   });
 });
 
-const brl = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+const brl = formatarMoeda;
 
 describe('corpoResumoDiarioProfissional', () => {
   it('atendimentos + comissão formatada em BRL', () => {

@@ -14,6 +14,7 @@ import { montarAniversario, diasNoMes, nomeClienteValido } from '@shared/cliente
 import { mensagemErroBanco } from '@shared/erros';
 import { avancarComEnter } from '@/lib/formNav';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoClientes } from '@shared/exportacao/clientes';
 import { usePermissoes } from '@/components/PermissoesProvider';
 
 const supabase = createClient();
@@ -281,18 +282,8 @@ export default function ClientesPage() {
           <ExportButton
             variant="mobileHeader"
             className="bm-mobile-header-export"
-            filename="clientes"
-            title="Clientes"
-            columns={[
-              { header: 'Nome',          accessor: (c: Cliente) => c.nome,            width: 30 },
-              { header: 'Telefone',      accessor: (c: Cliente) => c.telefone ?? '',  width: 18 },
-              { header: 'E-mail',        accessor: (c: Cliente) => c.email ?? '',     width: 28 },
-              { header: 'Nascimento',    accessor: (c: Cliente) => c.data_nascimento
-                  ? format(new Date(c.data_nascimento + 'T00:00:00'), 'dd/MM')
-                  : '',                                                                width: 14 },
-              { header: 'Cadastrado em', accessor: (c: Cliente) => format(new Date(c.created_at), 'dd/MM/yyyy'), width: 16 },
-            ]}
-            getData={() => filtrados}
+            definicao={definicaoClientes()}
+            getLinhas={() => filtrados.map(c => ({ nome: c.nome, telefone: c.telefone ?? null, email: c.email ?? null, dataNascimento: c.data_nascimento ?? null, criadoEm: c.created_at }))}
           />
           {pode('clientes.cadastrar') && (
             <button onClick={() => setModal(true)} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"

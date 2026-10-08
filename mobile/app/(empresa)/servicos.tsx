@@ -30,6 +30,10 @@ import {
   type CategoriaCustom, type CategoriaServico,
 } from '@shared/categorias';
 import type { Servico } from '@/types';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoServicos } from '@shared/exportacao/servicos';
+import { formatarDuracao } from '@shared/dominio';
+import { formatarMoeda } from '@shared/moeda';
 
 /** Cor/fundo/label/ícone de uma chave de categoria resolvida (built-in ou id de personalizada). */
 function infoChave(chave: string, customs: CategoriaCustom[]): {
@@ -130,13 +134,13 @@ function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
           </View>
           {servico.custo > 0 && (
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>
-              Custo R$ {servico.custo.toFixed(0)}
+              Custo {formatarMoeda(servico.custo)}
             </Text>
           )}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: servico.ativo ? C.primary : C.text3, letterSpacing: -0.5 }}>
-            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(servico.preco)}
+            {formatarMoeda(servico.preco)}
           </Text>
           {podeGerenciar && (
             <TouchableOpacity
@@ -225,6 +229,12 @@ export default function Servicos() {
                 Serviços
               </Text>
             </View>
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <BotaoExportar
+              definicao={definicaoServicos()}
+              getLinhas={() => servicos.map((s) => ({ nome: s.nome, categoria: resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label, duracao: formatarDuracao(s.duracao_minutos), preco: s.preco, custo: s.custo, ativo: s.ativo }))}
+              cor="#fff"
+            />
             {podeGerenciar && (
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TouchableOpacity
@@ -251,6 +261,7 @@ export default function Servicos() {
                 </TouchableOpacity>
               </View>
             )}
+            </View>
           </View>
         </LinearGradient>
 
@@ -272,7 +283,7 @@ export default function Servicos() {
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
               alignItems: 'center',
             }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: s.color, letterSpacing: -0.5, lineHeight: 24, marginBottom: 3 }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: s.color, letterSpacing: -0.5, lineHeight: 24, marginBottom: 3 }}>
                 {s.value}
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8 }}>

@@ -59,8 +59,11 @@ export const PERIODICIDADE_LABEL: Record<string, string> = {
   anual:   'Anual',
 };
 
+import { formatarMoeda } from './moeda';
+
+/** Mantido por compatibilidade de importação — use `formatarMoeda` (shared/moeda). */
 export function formatBRL(value: number): string {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return formatarMoeda(value);
 }
 
 export function formatDate(iso: string): string {
@@ -92,4 +95,12 @@ export function formatCNPJ(raw: string): string {
   if (d.length === 14)
     return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
   return raw;
+}
+
+/** Duração de serviço legível: 45 -> '45 min', 60 -> '1h', 90 -> '1h30'. */
+export function formatarDuracao(min: number): string {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}h${m}` : `${h}h`;
 }

@@ -30,6 +30,7 @@ import {
   useComissoesProfissional, useResumoComissoes,
   type ComissaoItem,
 } from '@/hooks/useProfissional';
+import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -41,13 +42,6 @@ const C = {
   amber: '#B45309', amberSoft: '#FEF3E2',
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
-
-function formatBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL',
-    minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(v);
-}
 
 // ── Card de comissão ─────────────────────────────────────────
 
@@ -86,7 +80,7 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
           {/* Cálculo transparente */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>
-              <SecretText>{formatBRL(item.valorServico)}</SecretText>
+              <SecretText>{formatarMoeda(item.valorServico)}</SecretText>
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>×</Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.accent }}>
@@ -94,7 +88,7 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>=</Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.green, letterSpacing: -0.5 }}>
-              <SecretText>{formatBRL(item.valorComissao)}</SecretText>
+              <SecretText>{formatarMoeda(item.valorComissao)}</SecretText>
             </Text>
           </View>
 
@@ -139,7 +133,7 @@ export default function Comissoes() {
   // Sem número (erro, carregando ou sem resumo): "—", nunca zeros enganosos.
   const semNumero = erro || isLoading || carregandoResumo || !resumo;
   // Nunca mostrar R$ 0 no lugar dos números quando a consulta falha.
-  const fmtRes = (n: number) => (semNumero ? '—' : formatBRL(n));
+  const fmtRes = (n: number) => (semNumero ? '—' : formatarMoeda(n));
   const numRes = (n: number) => (semNumero ? '—' : String(n));
 
   const [fontsLoaded] = useFonts({
@@ -256,9 +250,7 @@ export default function Comissoes() {
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
               Total de comissões · {rotulo}
             </Text>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 36, color: '#fff', letterSpacing: -1, lineHeight: 40, marginBottom: 12 }}>
-              <SecretText>{fmtRes(resumo?.total ?? 0)}</SecretText>
-            </Text>
+            <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 36, color: '#fff', letterSpacing: -1, lineHeight: 40, marginBottom: 12 }}>{fmtRes(resumo?.total ?? 0)}</SecretText>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 20, paddingVertical: 4, paddingHorizontal: 10 }}>
                 <TrendingUp size={10} color="#6EE7B7" strokeWidth={2.5} />
