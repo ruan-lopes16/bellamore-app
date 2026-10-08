@@ -27,6 +27,7 @@ import { podeAtribuirRole } from '@/lib/permissions';
 import { avancarComEnter } from '@/lib/formNav';
 // createClient usado apenas nas funções da tela principal (carregarEquipe, toggleAtivo, salvarComissao)
 import { ptBR } from 'date-fns/locale';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -68,10 +69,6 @@ function roleBadge(role: 'owner' | 'gestor' | 'profissional') {
   if (role === 'gestor') return { label: 'Gestor(a)',   bg: 'rgba(59,130,246,0.12)',     color: 'rgb(59,130,246)' };
   return                        { label: 'Profissional', bg: 'var(--color-bg2)',          color: 'var(--color-ink3)' };
 }
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
-
 const inputClass = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5";
 

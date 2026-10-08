@@ -56,6 +56,7 @@ import { agruparValoresPorAgendamento, marcarAgendamentosFechados } from '@share
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -130,9 +131,6 @@ const STATUS_COR: Record<string, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
 function fmtHora(iso: string) { return format(parseISO(iso), 'HH:mm'); }
 function iniciais(nome?: string | null) {
   return (nome ?? '?').split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
@@ -1066,7 +1064,7 @@ export default function ComandaPage() {
                 color: totalDia > 0 ? 'var(--color-green)' : 'var(--color-ink4)',
                 visibility: loading ? 'hidden' : 'visible',
               }}>
-                Total do dia: <Secret>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalDia)}</Secret>
+                Total do dia: <Secret>{fmtBRL(totalDia)}</Secret>
               </p>
             </div>
             <div className="bm-comanda-view-toggle ml-auto flex-shrink-0">
@@ -1267,7 +1265,7 @@ export default function ComandaPage() {
             <div className="text-center">
               <h2 className="text-2xl text-text" style={{ fontFamily: 'var(--font-serif)' }}>Comanda fechada!</h2>
               <p className="text-green text-xs font-semibold mt-0.5">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.valor)}
+                {fmtBRL(sucesso.valor)}
               </p>
             </div>
 
@@ -1305,7 +1303,7 @@ export default function ComandaPage() {
                         </div>
                         <span className="text-sm font-semibold text-text">{m.label}</span>
                         <span className="text-xs text-text-4 ml-auto">
-                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parseFloat(s.valor.replace(',', '.')) || 0)}
+                          {fmtBRL(parseFloat(s.valor.replace(',', '.')) || 0)}
                         </span>
                       </div>
                     );
@@ -1318,8 +1316,8 @@ export default function ComandaPage() {
             <div className="flex items-center gap-1.5 text-xs text-text-3">
               <span>
                 {sucesso.itens.length} {sucesso.itens.length === 1 ? 'item' : 'itens'}
-                {sucesso.descontoReserva > 0 && ` · Taxa de reserva paga ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.descontoReserva)}`}
-                {sucesso.desconto > 0 && ` · Desconto ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sucesso.desconto)}`}
+                {sucesso.descontoReserva > 0 && ` · Taxa de reserva paga ${fmtBRL(sucesso.descontoReserva)}`}
+                {sucesso.desconto > 0 && ` · Desconto ${fmtBRL(sucesso.desconto)}`}
               </span>
               <span title={`Fechada em ${format(sucesso.data, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}`}>
                 <Info size={12} className="text-text-4"/>

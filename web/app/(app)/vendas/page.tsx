@@ -37,6 +37,7 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -94,12 +95,6 @@ const BANDEIRAS = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────
-
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 2,
-  }).format(v);
-}
 
 const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5";

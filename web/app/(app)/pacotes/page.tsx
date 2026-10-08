@@ -43,6 +43,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, addDays, parseISO, isPast } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -77,9 +78,6 @@ type Cliente = Pick<ClienteBase, 'id' | 'nome'>;
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
 function fmtData(d: string) {
   return format(parseISO(d), 'dd/MM/yyyy');
 }

@@ -54,6 +54,7 @@ import {
 } from '@shared/bloqueios';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -143,9 +144,6 @@ const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 function iniciais(nome?: string | null) {
   return (nome ?? '?').split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
-}
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
 }
 /** Data curta de uma sessão de pacote; nunca lança em data inválida. */
 function fmtSessaoData(iso: string | null): string {
@@ -343,7 +341,7 @@ function NovoAgModal({
     const totalPago = pagas.reduce((s: number, t: any) => s + Number(t.valor || 0), 0);
     if (totalPago > 0) {
       setAvisoTaxaExcluir(
-        ` A taxa de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPago)} (paga) também será removida e sai do faturamento daquele período.`,
+        ` A taxa de ${fmtBRL(totalPago)} (paga) também será removida e sai do faturamento daquele período.`,
       );
     }
     setConfirmarExcluir(true);

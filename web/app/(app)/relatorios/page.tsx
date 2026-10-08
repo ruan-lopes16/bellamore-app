@@ -61,6 +61,7 @@ import { datasDasUltimasVisitas } from '@shared/dashboard';
 import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -108,10 +109,6 @@ const AVATAR_CORES = ['#7C3AED', '#D4608A', '#0D7E5F', '#B45309', '#1D4ED8', '#7
 // ── Helpers ───────────────────────────────────────────────────
 
 /** Formata número para BRL sem centavos */
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
-
 /** Cor de avatar baseada na inicial do nome */
 function avatarCor(nome: string) {
   return AVATAR_CORES[(nome?.charCodeAt(0) ?? 0) % AVATAR_CORES.length];
@@ -140,7 +137,7 @@ function KpiCard({
         <Icon size={18} style={{ color: cor }} />
       </div>
       <div className="flex-1 min-w-0 w-full">
-        <p className="text-base sm:text-lg font-bold text-text leading-tight truncate"><Secret>{value}</Secret></p>
+        <p className="text-sm sm:text-lg font-bold text-text leading-tight whitespace-nowrap tabular-nums"><Secret>{value}</Secret></p>
         <p className="text-[11px] sm:text-xs text-text-3 leading-tight">{label}</p>
         {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}><Secret>{sub}</Secret></p>}
         {delta !== null && (

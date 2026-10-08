@@ -45,6 +45,7 @@ import {
   format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -98,12 +99,6 @@ const CAT_MAP = Object.fromEntries(CATS.map(c => [c.key, c])) as Record<string, 
 const UNIDADES = ['un', 'pct', 'ml', 'g', 'kg', 'L', 'cx', 'pç', 'par'];
 
 // ── Helpers ───────────────────────────────────────────────────
-
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 0,
-  }).format(v);
-}
 
 type StatusKey = 'ok' | 'baixo' | 'critico';
 

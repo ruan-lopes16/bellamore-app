@@ -8,12 +8,7 @@ import MetaPessoalCard from './MetaPessoalCard';
 import { hojeBRT, limitesDias, limitesMes } from '@shared/periodos';
 import { resumoComissoesProfissional, faturamentoPrevistoDia } from '@shared/kpis-financeiros';
 import { classificarClientesReconquista, type VisitaClienteProfissional } from '@shared/dashboard-profissional';
-
-function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 0,
-  }).format(v);
-}
+import { formatarMoeda as fmt } from '@shared/moeda';
 
 const STATUS_LABEL: Record<string, string> = {
   agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', faltou: 'Faltou',

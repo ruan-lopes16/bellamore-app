@@ -20,6 +20,7 @@ import {
   resolverCategoriaServico, bgDaCor,
   type CategoriaCustom, type CategoriaResolvida,
 } from '@shared/categorias';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -63,12 +64,6 @@ function fmtDuracao(min: number) {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m ? `${h}h${m}` : `${h}h`;
-}
-
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency', currency: 'BRL', minimumFractionDigits: 0,
-  }).format(v);
 }
 
 // ── Inputs ────────────────────────────────────────────────────

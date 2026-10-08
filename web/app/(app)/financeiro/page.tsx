@@ -50,6 +50,7 @@ import type {
 } from '@/types';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
@@ -68,10 +69,6 @@ type MetodoPag  = { metodo: string; valor: number; quantidade: number; percentua
 type RecorrenteTemplate = DespesaRecorrenteTemplate;
 
 // ── Helpers ───────────────────────────────────────────────────
-
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
 
 const CATEGORIAS_DESP = [
   'Aluguel', 'Energia', 'Água', 'Internet',

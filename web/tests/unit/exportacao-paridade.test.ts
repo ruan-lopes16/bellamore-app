@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 const root = join(__dirname, '..', '..', '..');
 const ler = (p: string) => readFileSync(join(root, p), 'utf8');
@@ -30,5 +30,19 @@ describe('web exporta pelas definições compartilhadas', () => {
   }
   it('relatórios não exporta a aba de avaliações', () => {
     expect(ler('web/app/(app)/relatorios/page.tsx')).toContain("aba !== 'avaliacoes'");
+  });
+});
+
+function arquivos(dir: string): string[] {
+  return readdirSync(join(root, dir)).flatMap(n => {
+    const p = `${dir}/${n}`;
+    return statSync(join(root, p)).isDirectory() ? arquivos(p) : /\.(tsx?|jsx?)$/.test(n) ? [p] : [];
+  });
+}
+describe('moeda única', () => {
+  it('web não formata moeda com Intl/toLocaleString', () => {
+    const ruins = ['web/app', 'web/components', 'web/lib'].flatMap(arquivos)
+      .filter(a => /style:\s*'currency'|currency:\s*'BRL'/.test(ler(a)));
+    expect(ruins).toEqual([]);
   });
 });

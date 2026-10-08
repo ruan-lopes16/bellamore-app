@@ -21,12 +21,9 @@ import {
 } from '@shared/comissoes';
 import { resumoComissoesProfissional } from '@shared/kpis-financeiros';
 import { carregarComissoesDoPeriodo } from '@shared/comissoes-consultas';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
-
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
 
 export default function ComissoesProfissionalView() {
   const [empresaId, setEmpresaId] = useState<string | null>(null);

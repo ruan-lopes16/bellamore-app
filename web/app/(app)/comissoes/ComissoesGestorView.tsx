@@ -27,12 +27,10 @@ import {
   rotuloPercentualComissao, FILTROS_COMISSAO, MENSAGEM_PAGAMENTO_PARCIAL, type ComissaoItem, type FiltroComissao,
 } from '@shared/comissoes';
 import { carregarComissoesDoPeriodo, pagarComissoes } from '@shared/comissoes-consultas';
+import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
 
-function fmtBRL(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
-}
 function iniciais(nome: string) {
   return nome.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase();
 }
