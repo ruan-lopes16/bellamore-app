@@ -479,7 +479,7 @@ function ConfiguracoesConteudo() {
     // O CNPJ só é enviado pela dona; a gestora nem vê o campo, então não pode travar nele.
     if (isOwner && cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
     const cDeb = campoParaTaxa(taxaDebito), cAv = campoParaTaxa(taxaCreditoAvista), cPar = campoParaTaxa(taxaCreditoParcelado);
-    if (cDeb === null || cAv === null || cPar === null) { setErro('As taxas da maquininha devem estar entre 0% e 20%.'); return; }
+    if (temColunasCartao && (cDeb === null || cAv === null || cPar === null)) { setErro('As taxas da maquininha devem estar entre 0% e 20%.'); return; }
     setSalvando(true); setErro('');
 
     const enderecoFinal = [rua, numero, complemento, bairro, localidade].filter(Boolean).join(', ');
@@ -896,6 +896,10 @@ function ConfiguracoesConteudo() {
             <p className="text-xs text-text-3 -mt-1">
               Percentual descontado pela operadora em cada pagamento no cartão. Valem para os próximos pagamentos; os já registrados mantêm a taxa de quando foram feitos.
             </p>
+            {/* Antes da migration 084 as colunas não existem: o valor não seria salvo */}
+            {!temColunasCartao && (
+              <p className="text-xs font-semibold text-text-3">Disponível após a atualização do sistema</p>
+            )}
             {([
               ['Débito', taxaDebito, setTaxaDebito],
               ['Crédito à vista', taxaCreditoAvista, setTaxaCreditoAvista],
@@ -905,7 +909,7 @@ function ConfiguracoesConteudo() {
                 <label className={labelCls}>{rotulo}</label>
                 <div className="relative">
                   <input value={valor} onChange={e => setValor(mascararPercentual(e.target.value))}
-                    inputMode="decimal" placeholder="0,00" disabled={!podeEditarTaxa}
+                    inputMode="decimal" placeholder="0,00" disabled={!podeEditarTaxa || !temColunasCartao}
                     className={`${inputCls} pr-9`}/>
                   <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
                 </div>

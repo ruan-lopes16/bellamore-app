@@ -219,7 +219,7 @@ export default function Configuracoes() {
   async function salvar() {
     if (!empresaAtiva || !user) return;
     const cDeb = campoParaTaxa(taxaDebito), cAv = campoParaTaxa(taxaCreditoAvista), cPar = campoParaTaxa(taxaCreditoParcelado);
-    if (podeEditarTaxa && (cDeb === null || cAv === null || cPar === null)) {
+    if (podeEditarTaxa && temColunasCartao && (cDeb === null || cAv === null || cPar === null)) {
       Alert.alert('Taxas inválidas', 'As taxas da maquininha devem estar entre 0% e 20%.');
       return;
     }
@@ -642,14 +642,20 @@ export default function Configuracoes() {
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>
                 Percentual descontado pela operadora em cada pagamento no cartão. Valem para os próximos pagamentos; os já registrados mantêm a taxa de quando foram feitos.
               </Text>
+              {/* Antes da migration 084 as colunas não existem: o valor não seria salvo */}
+              {!temColunasCartao && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text3 }}>
+                  Disponível após a atualização do sistema
+                </Text>
+              )}
               <Campo label="Débito (%)" icon={<Percent size={16} color={C.text3} />}
-                value={taxaDebito} onChange={t => podeEditarTaxa && setTaxaDebito(mascararPercentual(t))}
+                value={taxaDebito} onChange={t => podeEditarTaxa && temColunasCartao && setTaxaDebito(mascararPercentual(t))} editavel={podeEditarTaxa && temColunasCartao}
                 placeholder="0,00" keyboardType="decimal-pad" />
               <Campo label="Crédito à vista (%)" icon={<Percent size={16} color={C.text3} />}
-                value={taxaCreditoAvista} onChange={t => podeEditarTaxa && setTaxaCreditoAvista(mascararPercentual(t))}
+                value={taxaCreditoAvista} onChange={t => podeEditarTaxa && temColunasCartao && setTaxaCreditoAvista(mascararPercentual(t))} editavel={podeEditarTaxa && temColunasCartao}
                 placeholder="0,00" keyboardType="decimal-pad" />
               <Campo label="Crédito parcelado (%)" icon={<Percent size={16} color={C.text3} />}
-                value={taxaCreditoParcelado} onChange={t => podeEditarTaxa && setTaxaCreditoParcelado(mascararPercentual(t))}
+                value={taxaCreditoParcelado} onChange={t => podeEditarTaxa && temColunasCartao && setTaxaCreditoParcelado(mascararPercentual(t))} editavel={podeEditarTaxa && temColunasCartao}
                 placeholder="0,00" keyboardType="decimal-pad" />
             </View>
           </MotiView>
