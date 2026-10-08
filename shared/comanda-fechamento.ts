@@ -11,10 +11,20 @@ export type ModoDesconto = 'percentual' | 'valor';
 const centavos = (v: number) => Math.round(v * 100) / 100;
 const ERRO_DESCONTO = 'O desconto não pode ser maior que o subtotal';
 
-/** '1.234,56' → 1234.56; vazio/inválido → 0. */
+/**
+ * Valor digitado → número. Aceita '1.234,56', '12,5', 'R$ 10,00' e também ponto como
+ * decimal ('10.50' → 10.5; o input de valor é texto livre). Ponto só é milhar quando
+ * todos os grupos depois dele têm 3 dígitos e não há vírgula ('1.234' → 1234).
+ * Vazio, inválido ou negativo → 0.
+ */
 export function parseValorBR(s: string): number {
-  const n = parseFloat(s.replace(/\./g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+  const limpo = s.replace(/R\$/gi, '').replace(/\s/g, '');
+  let normal: string;
+  if (limpo.includes(',')) normal = limpo.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(limpo)) normal = limpo.replace(/\./g, '');
+  else normal = limpo;
+  const n = Number(normal);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /** Desconto em reais a partir do que a pessoa digitou (% ou R$). Acima do subtotal → erro e valor limitado. */

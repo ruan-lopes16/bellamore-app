@@ -70,4 +70,14 @@ describe('parseValorBR', () => {
     expect(parseValorBR('')).toBe(0);
     expect(parseValorBR('abc')).toBe(0);
   });
+  it('ponto como decimal, milhar com ponto, R$ e espaços', () => {
+    expect(parseValorBR('10.50')).toBe(10.5);
+    expect(parseValorBR('10.5')).toBe(10.5);
+    expect(parseValorBR('1.234')).toBe(1234);
+    expect(parseValorBR('1.234.567')).toBe(1234567);
+    expect(parseValorBR('R$ 10,00')).toBe(10);
+    expect(parseValorBR(' 12,5 ')).toBe(12.5);
+    expect(parseValorBR('R$ 1.234,56')).toBe(1234.56);
+    expect(parseValorBR('-5')).toBe(0);
+  });
 });
