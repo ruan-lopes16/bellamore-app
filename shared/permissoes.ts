@@ -55,7 +55,7 @@ export const CATALOGO_PERMISSOES = [
   { chave: 'equipe.gerenciar', grupo: 'Equipe e comissões', rotulo: 'Convidar, editar e desativar pessoas da equipe', descricao: 'Só sobre profissionais (nunca a dona, outra gestora ou o próprio vínculo); inclui alterar a comissão delas. Promover alguém a gestora é sempre só da dona.', padrao: SIM_NAO },
   { chave: 'comissoes.ver_todas', grupo: 'Equipe e comissões', rotulo: 'Ver comissões de todas', descricao: 'A própria comissão é sempre liberada.', padrao: SIM_NAO },
   { chave: 'comissoes.pagar', grupo: 'Equipe e comissões', rotulo: 'Pagar comissões', descricao: '', padrao: SIM_NAO },
-  { chave: 'config.taxas', grupo: 'Configurações', rotulo: 'Editar taxas de reserva e cancelamento', descricao: 'Os demais dados da empresa são só da dona.', padrao: SIM_NAO },
+  { chave: 'config.taxas', grupo: 'Configurações', rotulo: 'Editar taxas de reserva, cancelamento e maquininha', descricao: 'Os demais dados da empresa são só da dona.', padrao: SIM_NAO },
 ] as const satisfies readonly DefPermissao[];
 
 export type ChavePermissao = (typeof CATALOGO_PERMISSOES)[number]['chave'];

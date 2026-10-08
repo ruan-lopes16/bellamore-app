@@ -39,3 +39,22 @@ export function fmtTaxa(taxa: number): string {
 export function valorLiquido(bruto: number, taxa: number): number {
   return Math.round(bruto * (1 - taxa) * 100) / 100;
 }
+
+/** Decimal (0.0499) → texto do campo de percentual ("4,99"). */
+export function taxaParaCampo(taxa: number): string {
+  return (taxa * 100).toFixed(2).replace('.', ',');
+}
+
+/** Máscara do campo de percentual: só dígitos e uma vírgula, no máximo 2 casas. */
+export function mascararPercentual(texto: string): string {
+  const limpo = texto.replace('.', ',').replace(/[^\d,]/g, '');
+  const [inteiro, ...resto] = limpo.split(',');
+  return resto.length ? `${inteiro},${resto.join('').slice(0, 2)}` : inteiro;
+}
+
+/** Texto do campo ("4,99") → decimal (0.0499); null se vazio/inválido ou fora de 0–20%. */
+export function campoParaTaxa(texto: string): number | null {
+  const n = parseFloat(texto.replace(',', '.'));
+  if (!Number.isFinite(n) || n < 0 || n > 20) return null;
+  return Math.round(n * 100) / 10000;
+}

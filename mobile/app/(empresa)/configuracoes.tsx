@@ -31,6 +31,7 @@ import { PermissoesPanel } from '@/components/PermissoesPanel';
 import { supabase } from '@/lib/supabase';
 import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
 import { mensagemErroBanco } from '@shared/erros';
+import { taxasDaEmpresa, taxaParaCampo, mascararPercentual, campoParaTaxa } from '@shared/taxas-cartao';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -174,6 +175,12 @@ export default function Configuracoes() {
     formatValorMonetarioInput(Number(empresaAtiva?.taxa_reserva_valor ?? 0))
   );
 
+  // Taxas da maquininha (percentual digitado, ex.: "4,99"); colunas ausentes (antes da 084) → padrão
+  const cartaoInicial = taxasDaEmpresa(empresaAtiva as unknown as Record<string, unknown> | null);
+  const [taxaDebito, setTaxaDebito] = useState(taxaParaCampo(cartaoInicial.debito));
+  const [taxaCreditoAvista, setTaxaCreditoAvista] = useState(taxaParaCampo(cartaoInicial.creditoAvista));
+  const [taxaCreditoParcelado, setTaxaCreditoParcelado] = useState(taxaParaCampo(cartaoInicial.creditoParcelado));
+
   // Minha conta
   const [nomeUser,     setNomeUser]     = useState(user?.nome ?? '');
   const [telefoneUser, setTelefoneUser] = useState(user?.telefone ?? '');
@@ -209,6 +216,11 @@ export default function Configuracoes() {
   // ── Salvar tudo ───────────────────────────────────────────
   async function salvar() {
     if (!empresaAtiva || !user) return;
+    const cDeb = campoParaTaxa(taxaDebito), cAv = campoParaTaxa(taxaCreditoAvista), cPar = campoParaTaxa(taxaCreditoParcelado);
+    if (podeEditarTaxa && (cDeb === null || cAv === null || cPar === null)) {
+      Alert.alert('Taxas inválidas', 'As taxas da maquininha devem estar entre 0% e 20%.');
+      return;
+    }
     setSalvando(true);
 
     // Empresa: dados e horários só a dona; taxas só com config.taxas (permissão só de tela: o UPDATE de `empresas` no banco
@@ -229,6 +241,9 @@ export default function Configuracoes() {
       taxa_reserva_ativa:   reservaAtiva,
       taxa_reserva_modo:    reservaModo,
       taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
+      taxa_cartao_debito:            cDeb,
+      taxa_cartao_credito_avista:    cAv,
+      taxa_cartao_credito_parcelado: cPar,
     } : {};
     const payloadEmpresa = { ...dadosEmpresa, ...taxasEmpresa };
 
@@ -610,6 +625,28 @@ export default function Configuracoes() {
                   />
                 </>
               )}
+            </View>
+          </MotiView>
+
+          {/* ── Taxas da maquininha ── */}
+          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 160 }}
+            style={{ marginHorizontal: 24, marginTop: 16 }}>
+            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>
+                Taxas da maquininha
+              </Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>
+                Percentual descontado pela operadora em cada pagamento no cartão. Valem para os próximos pagamentos; os já registrados mantêm a taxa de quando foram feitos.
+              </Text>
+              <Campo label="Débito (%)" icon={<Percent size={16} color={C.text3} />}
+                value={taxaDebito} onChange={t => podeEditarTaxa && setTaxaDebito(mascararPercentual(t))}
+                placeholder="0,00" keyboardType="decimal-pad" />
+              <Campo label="Crédito à vista (%)" icon={<Percent size={16} color={C.text3} />}
+                value={taxaCreditoAvista} onChange={t => podeEditarTaxa && setTaxaCreditoAvista(mascararPercentual(t))}
+                placeholder="0,00" keyboardType="decimal-pad" />
+              <Campo label="Crédito parcelado (%)" icon={<Percent size={16} color={C.text3} />}
+                value={taxaCreditoParcelado} onChange={t => podeEditarTaxa && setTaxaCreditoParcelado(mascararPercentual(t))}
+                placeholder="0,00" keyboardType="decimal-pad" />
             </View>
           </MotiView>
 
