@@ -80,6 +80,14 @@ describe('rótulos únicos (web e app iguais)', () => {
     expect(src).toContain('rotuloStatusEstoque(');
     expect(src).toContain('statusEstoque(');
   });
+  it('estoque do app: hook usa statusEstoque e tela não tem rótulos antigos', () => {
+    expect(ler('mobile/hooks/useEstoque.ts')).toContain('statusEstoque(');
+    const tela = ler('mobile/app/(empresa)/estoque.tsx');
+    expect(tela).not.toContain("'Crítico'");
+    expect(tela).not.toContain("'Atenção'");
+    expect(tela).toContain('rotuloStatusEstoque(');
+    expect(tela).toContain('rotuloCategoriaProduto(');
+  });
   it('estoque do web usa as funções de shared', () => {
     const src = ler('web/app/(app)/estoque/page.tsx');
     expect(src).toContain('rotuloCategoriaProduto(');

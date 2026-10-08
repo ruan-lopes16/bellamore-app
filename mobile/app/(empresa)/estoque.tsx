@@ -289,7 +289,7 @@ function ProdutoRow({ produto, onPress, onEdit }: { produto: Produto; onPress: (
             {produto.nome}
           </Text>
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginBottom: 6 }}>
-            {produto.categoria}
+            {rotuloCategoriaProduto(produto.categoria)}
           </Text>
           {/* Barra de progresso */}
           <View style={{ height: 3, backgroundColor: C.border, borderRadius: 2 }}>
@@ -356,13 +356,13 @@ export default function EstoqueScreen() {
   ).filter((p) =>
     busca.length === 0 ||
     p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-    p.categoria.toLowerCase().includes(busca.toLowerCase())
+    (p.categoria.toLowerCase().includes(busca.toLowerCase()) || rotuloCategoriaProduto(p.categoria).toLowerCase().includes(busca.toLowerCase()))
   );
 
   const FILTROS: { key: Filtro; label: string }[] = [
     { key: 'todos',   label: 'Todos'    },
-    { key: 'critico', label: 'Crítico'  },
-    { key: 'baixo',   label: 'Atenção'  },
+    { key: 'critico', label: rotuloStatusEstoque('critico') },
+    { key: 'baixo',   label: rotuloStatusEstoque('baixo') },
     { key: 'ok',      label: 'OK'       },
   ];
 
@@ -406,8 +406,8 @@ export default function EstoqueScreen() {
       >
         {[
           { label: 'Total', value: String(produtos.length), bg: C.surface, color: C.text },
-          { label: 'Crítico', value: String(totalCriticos), bg: C.redSoft, color: C.red },
-          { label: 'Atenção', value: String(totalAtencao), bg: C.amberSoft, color: C.amber },
+          { label: rotuloStatusEstoque('critico'), value: String(totalCriticos), bg: C.redSoft, color: C.red },
+          { label: rotuloStatusEstoque('baixo'), value: String(totalAtencao), bg: C.amberSoft, color: C.amber },
         ].map((k) => (
           <View key={k.label} style={{
             flex: 1, backgroundColor: k.bg, borderRadius: 14, padding: 12,

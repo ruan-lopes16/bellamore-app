@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { statusEstoque } from '@shared/estoque';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -43,9 +44,7 @@ export function useEstoque() {
       return (data ?? []).map((p) => {
         const atual = Number(p.estoque_atual);
         const min   = Number(p.estoque_minimo);
-        let status: Produto['status'] = 'ok';
-        if (atual <= 0)          status = 'critico';
-        else if (atual < min)    status = 'baixo';
+        const status: Produto['status'] = statusEstoque(atual, min);
         return { ...p, estoque_atual: atual, estoque_minimo: min, status };
       });
     },
