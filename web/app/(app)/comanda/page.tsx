@@ -49,7 +49,7 @@ import {
   startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
+import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao } from '@shared/taxas-cartao';
 import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { agruparValoresPorAgendamento, marcarAgendamentosFechados } from '@shared/comanda';
@@ -202,6 +202,7 @@ export default function ComandaPage() {
   const podeOutras        = pode('agenda.gerenciar_outras');
   const [meuUserId,         setMeuUserId]         = useState('');
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
+  const [taxas,             setTaxas]             = useState<TaxasCartao>(TAXAS_PADRAO);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
@@ -261,7 +262,12 @@ export default function ComandaPage() {
       const { data } = await supabase
         .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (data) setEmpresaId(data.empresa_id);
+      if (data) {
+        setEmpresaId(data.empresa_id);
+        // select('*'): as colunas de taxa (migration 084) podem ainda não existir
+        const { data: emp } = await supabase.from('empresas').select('*').eq('id', data.empresa_id).single();
+        setTaxas(taxasDaEmpresa(emp as Record<string, unknown> | null));
+      }
     })();
   }, []);
 
@@ -701,7 +707,7 @@ export default function ComandaPage() {
         splitsValidos.map(s => {
           const v    = parseFloat(s.valor.replace(',', '.'));
           const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
-          const taxa = calcTaxa(s.metodo, parc);
+          const taxa = calcTaxa(s.metodo, parc, taxas);
           return {
             empresa_id:    empresaId,
             comanda_id:    comandaId,
@@ -1007,7 +1013,7 @@ export default function ComandaPage() {
         splitsParaGravar.map(s => {
           const v    = parseFloat(s.valor.replace(',', '.'));
           const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
-          const taxa = calcTaxa(s.metodo, parc);
+          const taxa = calcTaxa(s.metodo, parc, taxas);
           return {
             empresa_id:    empresaId,
             comanda_id:    comandaId,
@@ -1670,7 +1676,7 @@ export default function ComandaPage() {
                             )}
                             {isCard && (() => {
                               const valorN = parseFloat(s.valor.replace(',', '.')) || 0;
-                              const taxa   = calcTaxa(s.metodo, s.parcelas ?? 1);
+                              const taxa   = calcTaxa(s.metodo, s.parcelas ?? 1, taxas);
                               const liq    = valorLiquido(valorN, taxa);
                               if (!valorN) return null;
                               return (
