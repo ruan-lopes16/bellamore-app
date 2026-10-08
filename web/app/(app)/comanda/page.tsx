@@ -55,7 +55,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao } from '@shared/taxas-cartao';
-import { calcularDesconto, resumoComanda, montarPagamentos, parseValorBR, type ModoDesconto } from '@shared/comanda-fechamento';
+import { calcularDesconto, resumoComanda, montarPagamentos, parseValorBR, BANDEIRAS_CARTAO, ROTULOS_BANDEIRA, type ModoDesconto } from '@shared/comanda-fechamento';
 import { mensagemErroBanco } from '@shared/erros';
 import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
@@ -121,14 +121,6 @@ const METODOS_PAG = [
   { key: 'cortesia', label: 'Cortesia', icon: Gift,        cor: '#6B7280', bg: '#F9FAFB' },
 ] as const;
 
-const BANDEIRAS = [
-  { key: 'visa',       label: 'Visa'      },
-  { key: 'mastercard', label: 'Master'    },
-  { key: 'elo',        label: 'Elo'       },
-  { key: 'amex',       label: 'Amex'      },
-  { key: 'hipercard',  label: 'Hipercard' },
-] as const;
-
 const STATUS_COR: Record<string, string> = {
   agendado:   'bg-amber-soft text-amber',
   confirmado: 'bg-primary-soft text-primary',
@@ -167,9 +159,6 @@ type SucessoRecibo = {
 const MET_LABELS: Record<string, string> = {
   dinheiro: 'Dinheiro', pix: 'PIX', credito: 'Crédito', debito: 'Débito', cortesia: 'Cortesia',
 };
-const BAND_LABELS: Record<string, string> = {
-  visa: 'Visa', mastercard: 'Master', elo: 'Elo', amex: 'Amex', hipercard: 'Hipercard',
-};
 
 function gerarTextoRecibo(s: SucessoRecibo): string {
   const data = format(s.data, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
@@ -190,7 +179,7 @@ function gerarTextoRecibo(s: SucessoRecibo): string {
     ...s.splits.map(sp => {
       const valorN = parseValorBR(sp.valor);
       let label = MET_LABELS[sp.metodo] ?? sp.metodo;
-      if (sp.bandeira) label += ` ${BAND_LABELS[sp.bandeira] ?? sp.bandeira}`;
+      if (sp.bandeira) label += ` ${ROTULOS_BANDEIRA[sp.bandeira] ?? sp.bandeira}`;
       if (sp.metodo === 'credito' && (sp.parcelas ?? 1) > 1) label += ` ${sp.parcelas}x`;
       return `• ${label} — ${fmtBRL(valorN)}`;
     }),
@@ -1679,7 +1668,7 @@ export default function ComandaPage() {
                             </div>
                             {isCard && (
                               <div className="flex gap-1.5 flex-wrap">
-                                {BANDEIRAS.map(b => (
+                                {BANDEIRAS_CARTAO.map(b => (
                                   <button key={b.key} type="button" onClick={() => atualizarSplitBandeira(i, b.key)}
                                     className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
                                       s.bandeira === b.key

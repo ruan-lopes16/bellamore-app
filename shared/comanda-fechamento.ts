@@ -8,6 +8,20 @@ import { calcTaxa, valorLiquido, type TaxasCartao } from './taxas-cartao';
 
 export type ModoDesconto = 'percentual' | 'valor';
 
+/** Bandeiras de cartão oferecidas no pagamento (crédito/débito) — mesma lista no web e no app. */
+export const BANDEIRAS_CARTAO = [
+  { key: 'visa',       label: 'Visa'      },
+  { key: 'mastercard', label: 'Master'    },
+  { key: 'elo',        label: 'Elo'       },
+  { key: 'amex',       label: 'Amex'      },
+  { key: 'hipercard',  label: 'Hipercard' },
+] as const;
+
+/** Rótulo de exibição por chave de bandeira (recibo, tela de sucesso). */
+export const ROTULOS_BANDEIRA: Record<string, string> = Object.fromEntries(
+  BANDEIRAS_CARTAO.map(b => [b.key, b.label]),
+);
+
 const centavos = (v: number) => Math.round(v * 100) / 100;
 const ERRO_DESCONTO = 'O desconto não pode ser maior que o subtotal';
 

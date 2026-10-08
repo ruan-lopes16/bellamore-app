@@ -36,7 +36,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import SuccessCheck from '@/components/SuccessCheck';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
-import { marcarAgendamentosFechados } from '@shared/comanda';
+import { marcarAgendamentosFechados, agruparValoresPorAgendamento } from '@shared/comanda';
+import {
+  calcularDesconto, resumoComanda, montarPagamentos, parseValorBR,
+  BANDEIRAS_CARTAO, ROTULOS_BANDEIRA, type ModoDesconto,
+} from '@shared/comanda-fechamento';
+import {
+  calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao,
+} from '@shared/taxas-cartao';
 import { formatarMoeda } from '@shared/moeda';
 
 const C = {
@@ -74,6 +81,15 @@ type AgDia = {
   cliente:      { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico:      { id: string; nome: string; preco: number }    | null;
+  /** Linhas do atendimento multi-serviço (vazio no legado de serviço único). */
+  agendamento_servicos: AgServicoDia[] | null;
+};
+
+type AgServicoDia = {
+  id: string;
+  valor: number;
+  ordem: number;
+  servico: { id: string; nome: string } | null;
 };
 
 type ComandaItem = {
@@ -84,13 +100,15 @@ type ComandaItem = {
   valor: number;
   quantidade: number;
   agendamento_id?: string;
+  /** id da linha em `agendamento_servicos` (atendimento multi-serviço) — o valor cobrado volta pra ela. */
+  ag_servico_id?: string;
   servico_id?: string;
   produto_id?: string;
   pacote_id?: string;
   profissional_id?: string;
 };
 
-type Split = { metodo: string; valor: string };
+type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number };
 
 type ClienteComanda = {
   id: string;
@@ -141,8 +159,12 @@ export default function NovaComandaScreen() {
   const [etapa, setEtapa] = useState<Etapa>('lista');
   const [clienteSel, setClienteSel] = useState<ClienteComanda | null>(null);
   const [itens, setItens] = useState<ComandaItem[]>([]);
-  const [desconto, setDesconto] = useState('');
+  // Desconto digitado em % (padrão) ou R$; grava-se sempre o valor em reais (calcularDesconto).
+  const [descontoEntrada, setDescontoEntrada] = useState('');
+  const [descontoModo, setDescontoModo] = useState<ModoDesconto>('percentual');
   const [splits, setSplits] = useState<Split[]>([]);
+  // Taxas da maquininha da empresa (migration 084); sem as colunas, vale o padrão.
+  const [taxas, setTaxas] = useState<TaxasCartao>(TAXAS_PADRAO);
   const [fechando, setFechando] = useState(false);
   const [sucessoData, setSucessoData] = useState<{
     nome: string; valor: number; telefone?: string;
@@ -162,15 +184,17 @@ export default function NovaComandaScreen() {
     PlusJakartaSans_700Bold,
   });
 
-  useEffect(() => {
+  /** Carrega (ou recarrega, após uma falha no fechamento) os atendimentos do dia e os catálogos. */
+  const carregarDia = useCallback(async () => {
     if (!empresaId) return;
     const hoje = new Date();
-    Promise.all([
+    await Promise.all([
       supabase.from('agendamentos')
         .select(`id, data_hora_inicio, status, valor, comanda_id, pacote_cliente_id,
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
-          servico:servicos(id, nome, preco)`)
+          servico:servicos(id, nome, preco),
+          agendamento_servicos(id, valor, ordem, servico:servicos(id, nome))`)
         .eq('empresa_id', empresaId)
         .gte('data_hora_inicio', startOfDay(hoje).toISOString())
         .lte('data_hora_inicio', endOfDay(hoje).toISOString())
@@ -179,7 +203,10 @@ export default function NovaComandaScreen() {
       supabase.from('servicos').select('id, nome, preco').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       supabase.from('produtos').select('id, nome, preco_venda').eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
       supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
-    ]).then(async ([rAgs, rServs, rProds, rPacotes]) => {
+      // select('*'): as colunas de taxa (migration 084) podem ainda não existir
+      supabase.from('empresas').select('*').eq('id', empresaId).single(),
+    ]).then(async ([rAgs, rServs, rProds, rPacotes, rEmpresa]) => {
+      setTaxas(taxasDaEmpresa(rEmpresa.data as Record<string, unknown> | null));
       const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
 
       // Taxas de reserva já pagas — buscadas só depois de sabermos os
@@ -207,6 +234,8 @@ export default function NovaComandaScreen() {
       setLoading(false);
     });
   }, [empresaId]);
+
+  useEffect(() => { carregarDia(); }, [carregarDia]);
 
   const clientesDia = useMemo<ClienteComanda[]>(() => {
     const map: Record<string, ClienteComanda> = {};
@@ -268,7 +297,7 @@ export default function NovaComandaScreen() {
 
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
-    setDesconto('');
+    setDescontoEntrada('');
     setSplits([]);
 
     const linksIniciais: Record<string, string> = {};
@@ -281,14 +310,27 @@ export default function NovaComandaScreen() {
     // atalho de status, sem nunca passar por uma comanda) precisa continuar
     // aparecendo aqui pra poder ser cobrado — senão a comanda nasce vazia em
     // R$0. Só sai da lista quando já está vinculado a uma comanda de verdade.
+    // Atendimento multi-serviço vira uma linha por serviço (com ag_servico_id),
+    // igual ao web — o valor cobrado de cada linha volta pra agendamento_servicos.
     setItens(
       cliente.agendamentos
         .filter(ag => ag.status !== 'concluido' || !ag.comanda_id)
-        .map(ag => ({
-          uid: uid(), tipo: 'agendamento', descricao: ag.servico?.nome ?? 'Serviço',
-          profissional: ag.profissional?.nome, valor: ag.pacote_cliente_id ? 0 : ag.valor, quantidade: 1,
-          agendamento_id: ag.id, servico_id: ag.servico?.id, profissional_id: ag.profissional?.id,
-        })),
+        .flatMap<ComandaItem>(ag => {
+          const coberto = !!ag.pacote_cliente_id;
+          const linhas = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
+          if (linhas.length > 0) {
+            return linhas.map(s => ({
+              uid: uid(), tipo: 'agendamento' as const, descricao: s.servico?.nome ?? 'Serviço',
+              profissional: ag.profissional?.nome, valor: coberto ? 0 : Number(s.valor), quantidade: 1,
+              agendamento_id: ag.id, ag_servico_id: s.id, servico_id: s.servico?.id, profissional_id: ag.profissional?.id,
+            }));
+          }
+          return [{
+            uid: uid(), tipo: 'agendamento' as const, descricao: ag.servico?.nome ?? 'Serviço',
+            profissional: ag.profissional?.nome, valor: coberto ? 0 : Number(ag.valor), quantidade: 1,
+            agendamento_id: ag.id, servico_id: ag.servico?.id, profissional_id: ag.profissional?.id,
+          }];
+        }),
     );
     setEtapa('comanda');
   }
@@ -324,25 +366,94 @@ export default function NovaComandaScreen() {
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
     const ag = agDia.find(a => a.id === agendamentoId);
     if (!ag) return;
-    setItens(prev => prev.map(i => i.agendamento_id === agendamentoId ? { ...i, valor: ag.valor } : i));
+    // Restaura o valor de tabela: por linha no multi-serviço, total no legado.
+    setItens(prev => prev.map(i => {
+      if (i.agendamento_id !== agendamentoId) return i;
+      if (i.ag_servico_id) {
+        const s = (ag.agendamento_servicos ?? []).find(x => x.id === i.ag_servico_id);
+        return s ? { ...i, valor: Number(s.valor) } : i;
+      }
+      return { ...i, valor: Number(ag.valor) };
+    }));
   }
 
+  // ── Totais pela regra única (shared/comanda-fechamento.ts), igual ao web
   const subtotal  = itens.reduce((s, i) => s + i.valor * i.quantidade, 0);
-  const descontoN = parseFloat(desconto.replace(',', '.')) || 0;
+  const descontoEntradaN = parseValorBR(descontoEntrada);
+  const { valor: descontoN, erro: erroDesconto } = calcularDesconto(subtotal, descontoEntradaN, descontoModo);
   const agendamentoIdsNaComanda = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
   const descontoReservaN = somarTaxasReservaPagas(agendamentoIdsNaComanda, taxasReservaPagas);
-  const { total, descontoReservaAplicado } = aplicarDescontoReserva(subtotal, descontoN, descontoReservaN);
-  const recebido  = splits.reduce((s, x) => s + (parseFloat(x.valor.replace(',', '.')) || 0), 0);
-  const restante  = total - recebido;
+  const { descontoReservaAplicado } = aplicarDescontoReserva(subtotal, descontoN, descontoReservaN);
+  // Splits já convertidos em número (aceita '10,50', '10.50', '1.234,56', 'R$ 10,00')
+  const splitsNumericos = splits.map(s => ({ ...s, valor: parseValorBR(s.valor) }));
+  const resumo = resumoComanda({
+    subtotal, desconto: descontoN, erroDesconto, descontoReserva: descontoReservaAplicado, splits: splitsNumericos,
+  });
+  const { total, recebido, falta, troco } = resumo;
 
   function adicionarSplit(metodo: string) {
-    const v = Math.max(restante, 0);
-    setSplits(prev => [...prev, { metodo, valor: v > 0 ? v.toFixed(2).replace('.', ',') : '' }]);
+    setSplits(prev => [...prev, { metodo, valor: falta > 0 ? falta.toFixed(2).replace('.', ',') : '' }]);
   }
   function removerSplit(idx: number) { setSplits(prev => prev.filter((_, i) => i !== idx)); }
+  function atualizarSplitBandeira(idx: number, bandeira: string) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
+  }
+  function atualizarSplitParcelas(idx: number, parcelas: number) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas } : s));
+  }
+
+  /**
+   * Falha no fechamento: avisa com a etapa, libera o botão e recarrega o dia (o que já foi
+   * gravado aparece como está no banco). Nunca mostra a tela de sucesso.
+   */
+  function falharFechamento(etapa: string, erro: { code?: string | null; message?: string | null } | string | null) {
+    const msg = typeof erro === 'string' ? erro : mensagemErroBanco(erro, 'fechar a comanda');
+    Alert.alert('Erro', `${msg} (etapa: ${etapa})`);
+    setFechando(false);
+    carregarDia();
+  }
+
+  /**
+   * Grava o valor cobrado de volta nos atendimentos — mesma lógica do
+   * `persistirValoresAgendamento` do web: cada `agendamento_servicos.valor`
+   * (multi-serviço) e depois `agendamentos.valor` (total do grupo) junto com
+   * `extraUpdate` ({ status: 'concluido', comanda_id }) e o vínculo de pacote,
+   * tudo no MESMO UPDATE do status. `.select('id')` + contagem: UPDATE barrado
+   * por RLS devolve sucesso com 0 linhas. Retorna a falha (com etapa) ou null.
+   */
+  async function persistirValoresAgendamento(
+    extraUpdate: Record<string, unknown>,
+    pacoteLinksPorAgendamento: Record<string, string | null>,
+  ): Promise<{ etapa: string; erro: { code?: string | null; message?: string | null } | string } | null> {
+    const grupos = agruparValoresPorAgendamento(itens, pacoteLinksPorAgendamento);
+    for (const g of grupos) {
+      for (const linha of g.linhasServico) {
+        const { data, error } = await supabase.from('agendamento_servicos')
+          .update({ valor: linha.valor }).eq('id', linha.agServicoId).eq('empresa_id', empresaId!)
+          .select('id');
+        if (error) return { etapa: 'valor dos serviços', erro: error };
+        if (!data || data.length === 0) return { etapa: 'valor dos serviços', erro: 'Não foi possível salvar o valor de um serviço do atendimento. Verifique sua permissão.' };
+      }
+      // `undefined` = agendamento fora do mapa de vínculos, não mexe na coluna.
+      // `null` (desvínculo explícito) ou string (vínculo) SÃO gravados — por
+      // isso o teste é presença (!== undefined), não truthiness.
+      const vinculo = g.pacoteClienteId !== undefined ? { pacote_cliente_id: g.pacoteClienteId } : {};
+      const { data, error } = await supabase.from('agendamentos')
+        .update({ valor: g.novoValorTotal, ...extraUpdate, ...vinculo })
+        .eq('id', g.agendamentoId).eq('empresa_id', empresaId!).select('id');
+      if (error) return { etapa: 'concluir atendimento', erro: error };
+      if (!data || data.length === 0) return { etapa: 'concluir atendimento', erro: 'Não foi possível vincular o atendimento à comanda. Verifique sua permissão.' };
+    }
+    return null;
+  }
 
   async function fecharComanda() {
     if (!clienteSel || !empresaId || fechando || !podeFechar) return;
+    // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
+    if (!resumo.podeFechar) {
+      Alert.alert('Não é possível fechar', resumo.motivo ?? 'Não foi possível fechar a comanda.');
+      return;
+    }
     // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois
     // de a comanda já ter sido criada — barra antes de gravar qualquer coisa.
     if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
@@ -358,13 +469,14 @@ export default function NovaComandaScreen() {
     if (agIdsNaComanda.length > 0) {
       const { data: jaFechados, error: errCheck } = await supabase.from('agendamentos')
         .select('id').in('id', agIdsNaComanda).not('comanda_id', 'is', null);
-      if (errCheck) { Alert.alert('Erro', errCheck.message); setFechando(false); return; }
+      if (errCheck) { falharFechamento('conferir comanda existente', errCheck); return; }
       if (jaFechados && jaFechados.length > 0) {
         Alert.alert('Comanda já fechada', 'Este atendimento já teve a comanda fechada. Volte e abra a tela de novo para ver a comanda existente.');
         setFechando(false); return;
       }
     }
 
+    // 1. Comanda
     const { data: comanda, error: errComanda } = await supabase
       .from('comandas').insert({
         empresa_id: empresaId,
@@ -374,65 +486,38 @@ export default function NovaComandaScreen() {
         status: 'fechada', fechada_at: new Date().toISOString(),
       }).select('id').single();
 
-    if (errComanda || !comanda) {
-      Alert.alert('Erro', errComanda?.message ?? 'Erro ao criar comanda');
-      setFechando(false); return;
-    }
+    if (errComanda || !comanda) { falharFechamento('criar comanda', errComanda); return; }
 
     const comandaId = comanda.id;
     // Ids dos atendimentos que ainda estão na comanda agora.
-    const agIds = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
+    const agIds = [...new Set(itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!))];
+    const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
 
+    // 2. Atendimentos: valor cobrado + concluído + comanda_id + vínculo de
+    // pacote (se houver) no MESMO update do status — o trigger
+    // fn_registrar_uso_pacote só dispara na transição pra 'concluido' e só
+    // nesse momento lê NEW.pacote_cliente_id; gravar o vínculo num update
+    // separado, depois do status já ter virado 'concluido', faria o trigger
+    // rodar sem enxergar o vínculo (ele não dispara de novo). O mesmo vale pro
+    // trg_gerar_comissao, que já nasce com o valor cobrado.
+    //
+    // A distinção é `undefined` (chave nunca mexida — não toca na coluna) vs
+    // "presente" (string = vínculo novo/existente, ou `null` = desvínculo
+    // explícito — os dois SOBRESCREVEM o que já está no banco). Checar
+    // truthiness reintroduziria o bug: um `null` explícito também é falsy e um
+    // `pacote_cliente_id` antigo gravado pela Agenda sobreviveria no banco —
+    // cobrando o valor cheio na comanda E consumindo a sessão do pacote mesmo
+    // assim via trigger. agruparValoresPorAgendamento já faz esse teste de presença.
+    const gruposValor = agruparValoresPorAgendamento(itens, pacoteLinksFinal);
     if (agIds.length > 0) {
-      const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
-
-      // Marcar agendamentos como concluídos + gravar o vínculo de pacote (se
-      // houver) no MESMO update do status — o trigger fn_registrar_uso_pacote
-      // só dispara na transição pra 'concluido' e só nesse momento lê
-      // NEW.pacote_cliente_id; gravar o vínculo num update separado, depois
-      // do status já ter virado 'concluido', faria o trigger rodar sem
-      // enxergar o vínculo (ele não dispara de novo).
-      //
-      // A distinção aqui é `undefined` (chave nunca mexida — update em lote,
-      // não toca na coluna) vs "presente" (string = vínculo novo/existente,
-      // ou `null` = desvínculo explícito — os dois precisam do update
-      // individual, porque os dois têm que SOBRESCREVER o que já está no
-      // banco). Checar truthiness em vez de `!== undefined` reintroduziria o
-      // bug: um `null` explícito também é falsy, cairia no lote errado, e um
-      // `pacote_cliente_id` antigo gravado pela Agenda sobreviveria no banco
-      // — cobrando o valor cheio na comanda E consumindo a sessão do pacote
-      // mesmo assim via trigger.
-      const agIdsSemPacote = agIds.filter(id => pacoteLinksFinal[id] === undefined);
-      const agIdsComPacote = agIds.filter(id => pacoteLinksFinal[id] !== undefined);
-
-      if (agIdsSemPacote.length > 0) {
-        // `.select('id')` + contagem: um UPDATE barrado por RLS devolve
-        // sucesso com 0 linhas, e a comanda ficaria criada sem vínculo.
-        const { data, error } = await supabase.from('agendamentos')
-          .update({ status: 'concluido', comanda_id: comandaId }).in('id', agIdsSemPacote).eq('empresa_id', empresaId)
-          .select('id');
-        if (error) { Alert.alert('Erro', error.message); setFechando(false); return; }
-        if ((data ?? []).length !== agIdsSemPacote.length) {
-          Alert.alert('Erro', 'Não foi possível vincular o atendimento à comanda. Verifique sua permissão.');
-          setFechando(false); return;
-        }
-      }
-      for (const agendamentoId of agIdsComPacote) {
-        const { data, error } = await supabase.from('agendamentos')
-          .update({ status: 'concluido', comanda_id: comandaId, pacote_cliente_id: pacoteLinksFinal[agendamentoId] })
-          .eq('id', agendamentoId).eq('empresa_id', empresaId)
-          .select('id');
-        if (error) { Alert.alert('Erro', error.message); setFechando(false); return; }
-        if (!data || data.length === 0) {
-          Alert.alert('Erro', 'Não foi possível vincular o atendimento à comanda. Verifique sua permissão.');
-          setFechando(false); return;
-        }
-      }
+      const falha = await persistirValoresAgendamento({ status: 'concluido', comanda_id: comandaId }, pacoteLinksFinal);
+      if (falha) { falharFechamento(falha.etapa, falha.erro); return; }
     }
 
+    // 3. Itens extras (serviços, produtos e pacotes avulsos)
     const extras = itens.filter(i => i.tipo !== 'agendamento');
     if (extras.length > 0) {
-      await supabase.from('comanda_itens').insert(
+      const rItens = await supabase.from('comanda_itens').insert(
         extras.map(i => ({
           comanda_id: comandaId, empresa_id: empresaId, tipo: i.tipo,
           descricao: i.descricao, servico_id: i.servico_id ?? null,
@@ -440,8 +525,10 @@ export default function NovaComandaScreen() {
           quantidade: i.quantidade, valor_unit: i.valor,
         })),
       );
+      if (rItens.error) { falharFechamento('itens da comanda', rItens.error); return; }
     }
 
+    // 4. Produtos: baixa de estoque (só avisa) + venda com itens (conferida)
     const extrasProdutos = extras.filter(i => i.tipo === 'produto' && i.produto_id);
     if (extrasProdutos.length > 0) {
       const { error: errEst } = await supabase.from('estoque_movimentos').insert(
@@ -455,23 +542,23 @@ export default function NovaComandaScreen() {
       );
       if (errEst) Alert.alert('Estoque', mensagemErroBanco(errEst, 'baixar o estoque dos produtos'));
       const totalProdutos = extrasProdutos.reduce((s, i) => s + i.valor * i.quantidade, 0);
-      const { data: venda } = await supabase.from('vendas').insert({
+      const { data: venda, error: errVendaProd } = await supabase.from('vendas').insert({
         empresa_id: empresaId,
         cliente_id: clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: totalProdutos, desconto: 0, observacao: 'Via comanda',
       }).select('id').single();
-      if (venda) {
-        await supabase.from('venda_itens').insert(
-          extrasProdutos.map(i => ({
-            empresa_id: empresaId, venda_id: venda.id,
-            produto_id: i.produto_id!, quantidade: i.quantidade,
-            preco_unitario: i.valor,
-          })),
-        );
-      }
+      if (errVendaProd || !venda) { falharFechamento('venda dos produtos', errVendaProd); return; }
+      const rVendaItens = await supabase.from('venda_itens').insert(
+        extrasProdutos.map(i => ({
+          empresa_id: empresaId, venda_id: venda.id,
+          produto_id: i.produto_id!, quantidade: i.quantidade,
+          preco_unitario: i.valor,
+        })),
+      );
+      if (rVendaItens.error) { falharFechamento('itens da venda dos produtos', rVendaItens.error); return; }
     }
 
-    // Vender pacotes adicionados na comanda (gera pacote_clientes para o cliente)
+    // 5. Vender pacotes adicionados na comanda (gera pacote_clientes para o cliente)
     const extrasPacotes = extras.filter(i => i.tipo === 'pacote' && i.pacote_id);
     if (extrasPacotes.length > 0 && clienteSel.id !== '__sem__') {
       const hoje = new Date();
@@ -494,7 +581,7 @@ export default function NovaComandaScreen() {
       });
       if (novasVendas.length > 0) {
         const { error: errPac } = await supabase.from('pacote_clientes').insert(novasVendas);
-        if (errPac) { Alert.alert('Erro', errPac.message); setFechando(false); return; }
+        if (errPac) { falharFechamento('venda de pacote', errPac); return; }
         // Registra a venda do pacote como faturamento (uma vez, no ato).
         // As sessões consumidas depois NÃO contam como receita.
         const totalPacotes = novasVendas.reduce((s, v) => s + Number(v.valor_pago ?? 0), 0);
@@ -506,40 +593,41 @@ export default function NovaComandaScreen() {
             desconto:    0,
             observacao:  `Pacote(s) via comanda`,
           });
-          if (errVenda) { Alert.alert('Erro', errVenda.message); setFechando(false); return; }
+          if (errVenda) { falharFechamento('venda de pacote', errVenda); return; }
         }
       }
     }
 
-    // Se nenhum split foi lançado e o total já fechou em R$ 0 (sessão de
-    // pacote cobrindo tudo, ou desconto manual de 100%), grava um "Cortesia"
-    // de R$ 0 em vez de deixar sem nenhum registro: fica claro no relatório
-    // de formas de pagamento que esse fechamento não gerou cobrança nova,
-    // sem somar nada na receita.
-    const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
-    const splitsParaGravar = splitsValidos.length === 0 && total <= 0.01
-      ? [{ metodo: 'cortesia', valor: '0' }]
-      : splitsValidos;
-    if (splitsParaGravar.length > 0) {
-      await supabase.from('pagamentos').insert(
-        splitsParaGravar.map(s => ({
-          empresa_id: empresaId, comanda_id: comandaId,
-          valor: parseFloat(s.valor.replace(',', '.')),
-          metodo: s.metodo, status: 'pago',
-        })),
-      );
+    // 6. Pagamentos pela regra única (montarPagamentos): cartão com
+    // bandeira/parcelas/taxa/líquido; se nenhum split foi lançado e o total
+    // fechou em R$ 0 (sessão de pacote cobrindo tudo, ou desconto de 100%),
+    // grava um "Cortesia" de R$ 0 — fica claro no relatório de formas de
+    // pagamento que esse fechamento não gerou cobrança nova, sem somar na receita.
+    const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
+    if (linhasPag.length > 0) {
+      const rPag = await supabase.from('pagamentos').insert(linhasPag);
+      if (rPag.error) { falharFechamento('pagamentos', rPag.error); return; }
     }
 
     setFechando(false);
     // Receita, comissão e alerta de comandas abertas mudaram: atualiza todas as telas.
     invalidarFinanceiro(qc);
     qc.invalidateQueries({ queryKey: ['agenda-dia'] });
-    // status E comanda_id — senão o atendimento continua listado como aberto.
-    setAgDia(prev => marcarAgendamentosFechados(prev, agIds, comandaId));
+    // Valor cobrado, vínculo de pacote, status E comanda_id — senão o atendimento
+    // continua listado como aberto (e o "Total do dia" usa o valor antigo).
+    setAgDia(prev => marcarAgendamentosFechados(prev.map(ag => {
+      const g = gruposValor.find(x => x.agendamentoId === ag.id);
+      if (!g) return ag;
+      return {
+        ...ag,
+        valor: g.novoValorTotal,
+        pacote_cliente_id: g.pacoteClienteId !== undefined ? g.pacoteClienteId : ag.pacote_cliente_id,
+      };
+    }), agIds, comandaId));
     setProximoCliente(proximoClienteAberto(clienteSel.id));
     setSucessoData({
       nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
-      splits: splitsValidos, itensCount: itens.length,
+      splits: splits.filter(s => parseValorBR(s.valor) > 0), itensCount: itens.length,
       desconto: descontoN, descontoReserva: descontoReservaAplicado,
     });
     setEtapa('sucesso');
@@ -613,9 +701,13 @@ export default function NovaComandaScreen() {
                   const m = METODOS.find(x => x.key === s.metodo) ?? METODOS[0];
                   return (
                     <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: m.bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, gap: 8 }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>{m.label}</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>
+                        {m.label}
+                        {s.bandeira ? ` ${ROTULOS_BANDEIRA[s.bandeira] ?? s.bandeira}` : ''}
+                        {s.metodo === 'credito' && (s.parcelas ?? 1) > 1 ? ` ${s.parcelas}x` : ''}
+                      </Text>
                       <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>
-                        {formatarMoeda(parseFloat(s.valor.replace(',', '.')) || 0)}
+                        {formatarMoeda(parseValorBR(s.valor))}
                       </Text>
                     </View>
                   );
@@ -791,14 +883,14 @@ export default function NovaComandaScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100, gap: 20 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 140, gap: 20 }}>
 
           {/* ── Itens ── */}
           <View>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>
               Serviços
             </Text>
-            {itens.map(item => (
+            {itens.map((item, idxItem) => (
               <View key={item.uid} style={{
                 backgroundColor: item.tipo === 'agendamento' ? C.primarySoft : item.tipo === 'produto' ? C.amberSoft : C.bg,
                 borderRadius: 14, padding: 14, marginBottom: 8,
@@ -826,10 +918,11 @@ export default function NovaComandaScreen() {
                   )}
                 </View>
 
-                {/* Vínculo com sessão de pacote — mobile não tem multi-serviço por
-                    atendimento (um agendamento = um item), então não há risco de
-                    renderizar o seletor mais de uma vez por atendimento aqui. */}
-                {item.tipo === 'agendamento' && item.agendamento_id && (() => {
+                {/* Vínculo com sessão de pacote — atendimento multi-serviço vira
+                    várias linhas; o seletor aparece só na primeira linha de cada
+                    atendimento (o vínculo é por atendimento, não por linha). */}
+                {item.tipo === 'agendamento' && item.agendamento_id
+                  && itens.findIndex(x => x.agendamento_id === item.agendamento_id) === idxItem && (() => {
                   const agendamentoId = item.agendamento_id!;
                   const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === pacoteLinks[agendamentoId]);
                   if (pacoteVinculado) {
@@ -919,17 +1012,36 @@ export default function NovaComandaScreen() {
           {podeDesconto && (
           <View>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Desconto</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: C.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: erroDesconto ? C.red : C.border }}>
               <Tag size={16} color={C.text3} />
               <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2, marginLeft: 10 }}>Desconto</Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, marginRight: 4 }}>R$</Text>
+              {/* Seletor % / R$ — trocar o modo limpa o valor para não reinterpretar o número */}
+              <View style={{ flexDirection: 'row', borderRadius: 8, borderWidth: 1, borderColor: C.border, overflow: 'hidden', marginRight: 8 }}>
+                {([['percentual', '%'], ['valor', 'R$']] as const).map(([modo, rotulo]) => {
+                  const ativo = descontoModo === modo;
+                  return (
+                    <TouchableOpacity key={modo}
+                      onPress={() => { if (!ativo) { setDescontoModo(modo); setDescontoEntrada(''); } }}
+                      accessibilityRole="button" accessibilityState={{ selected: ativo }}
+                      style={{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: ativo ? C.primary : C.surface }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: ativo ? '#fff' : C.text3 }}>{rotulo}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
               <TextInput
-                value={desconto} onChangeText={setDesconto}
-                keyboardType="decimal-pad" placeholder="0,00"
+                value={descontoEntrada} onChangeText={setDescontoEntrada}
+                keyboardType="decimal-pad" placeholder={descontoModo === 'percentual' ? '0' : '0,00'}
                 placeholderTextColor={C.text4}
-                style={{ width: 80, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text, textAlign: 'right' }}
+                style={{ width: 64, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text, textAlign: 'right' }}
               />
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text3, marginLeft: 4 }}>
+                {descontoModo === 'percentual' ? '%' : 'R$'}
+              </Text>
             </View>
+            {erroDesconto && (
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, marginTop: 6 }}>{erroDesconto}</Text>
+            )}
           </View>
           )}
 
@@ -947,7 +1059,9 @@ export default function NovaComandaScreen() {
             )}
             {descontoN > 0 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>(−) Desconto</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>
+                  (−) Desconto{descontoModo === 'percentual' ? ` ${String(descontoEntradaN).replace('.', ',')}%` : ''}
+                </Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.red }}>− {formatarMoeda(descontoN)}</Text>
               </View>
             )}
@@ -974,48 +1088,99 @@ export default function NovaComandaScreen() {
               <View style={{ marginTop: 10, gap: 8 }}>
                 {splits.map((s, i) => {
                   const m = METODOS.find(x => x.key === s.metodo) ?? METODOS[0];
+                  const isCard = s.metodo === 'credito' || s.metodo === 'debito';
+                  const valorN = parseValorBR(s.valor);
+                  const taxa = calcTaxa(s.metodo, s.parcelas ?? 1, taxas);
                   return (
-                    <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: m.bg, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: C.border, gap: 8 }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>{m.label}</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>R$</Text>
-                      <TextInput
-                        value={s.valor}
-                        onChangeText={v => setSplits(prev => prev.map((x, j) => j === i ? { ...x, valor: v } : x))}
-                        keyboardType="decimal-pad" placeholder="0,00"
-                        placeholderTextColor={C.text4}
-                        style={{ width: 80, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text, textAlign: 'right' }}
-                      />
-                      <TouchableOpacity onPress={() => removerSplit(i)}
-                        style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
-                        <X size={14} color={C.text4} />
-                      </TouchableOpacity>
+                    <View key={i} style={{ backgroundColor: m.bg, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: C.border, gap: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', height: 32, gap: 8 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>{m.label}</Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>R$</Text>
+                        <TextInput
+                          value={s.valor}
+                          onChangeText={v => setSplits(prev => prev.map((x, j) => j === i ? { ...x, valor: v } : x))}
+                          keyboardType="decimal-pad" placeholder="0,00"
+                          placeholderTextColor={C.text4}
+                          style={{ width: 80, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text, textAlign: 'right' }}
+                        />
+                        <TouchableOpacity onPress={() => removerSplit(i)}
+                          style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                          <X size={14} color={C.text4} />
+                        </TouchableOpacity>
+                      </View>
+                      {isCard && (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                          {BANDEIRAS_CARTAO.map(b => {
+                            const ativa = s.bandeira === b.key;
+                            return (
+                              <TouchableOpacity key={b.key} onPress={() => atualizarSplitBandeira(i, b.key)}
+                                accessibilityRole="button" accessibilityState={{ selected: ativa }}
+                                style={{
+                                  paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
+                                  borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? 'rgba(255,255,255,0.6)' : 'transparent',
+                                  opacity: ativa ? 1 : 0.6,
+                                }}>
+                                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{b.label}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+                      {s.metodo === 'credito' && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>Parcelas:</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                            {OPCOES_PARCELAS.map(n => {
+                              const ativa = (s.parcelas ?? 1) === n;
+                              return (
+                                <TouchableOpacity key={n} onPress={() => atualizarSplitParcelas(i, n)}
+                                  accessibilityRole="button" accessibilityState={{ selected: ativa }}
+                                  style={{
+                                    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, borderWidth: 1,
+                                    borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? C.surface : 'transparent',
+                                  }}>
+                                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>
+                                    {n}x{n === 1 ? ' (à vista)' : ''}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+                      )}
+                      {isCard && valorN > 0 && (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', opacity: 0.75 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>Taxa {fmtTaxa(taxa)}</Text>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>Líquido {formatarMoeda(valorLiquido(valorN, taxa))}</Text>
+                        </View>
+                      )}
                     </View>
                   );
                 })}
 
-                {/* Status pagamento */}
+                {/* Status pagamento — falta/troco vêm de resumoComanda (regra única) */}
                 <View style={{
                   borderRadius: 14, padding: 14, borderWidth: 1,
-                  backgroundColor: Math.abs(restante) < 0.01 ? C.greenSoft : restante > 0 ? C.amberSoft : C.primarySoft,
-                  borderColor: Math.abs(restante) < 0.01 ? '#0D7E5F33' : restante > 0 ? '#B4530933' : '#2C165433',
+                  backgroundColor: falta <= 0.01 && troco <= 0.01 ? C.greenSoft : falta > 0.01 ? C.amberSoft : C.primarySoft,
+                  borderColor: falta <= 0.01 && troco <= 0.01 ? '#0D7E5F33' : falta > 0.01 ? '#B4530933' : '#2C165433',
                 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Recebido</Text>
                     <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatarMoeda(recebido)}</Text>
                   </View>
-                  {restante > 0.01 && (
+                  {falta > 0.01 && (
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.amber }}>Falta</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber }}>{formatarMoeda(restante)}</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber }}>{formatarMoeda(falta)}</Text>
                     </View>
                   )}
-                  {restante < -0.01 && (
+                  {troco > 0.01 && (
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primary }}>Troco</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>{formatarMoeda(-restante)}</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>{formatarMoeda(troco)}</Text>
                     </View>
                   )}
-                  {Math.abs(restante) < 0.01 && (
+                  {falta <= 0.01 && troco <= 0.01 && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 6 }}>
                       <Check size={14} color={C.green} strokeWidth={3} />
                       <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green }}>Valor quitado</Text>
@@ -1034,14 +1199,24 @@ export default function NovaComandaScreen() {
               Você não tem permissão para fechar comanda.
             </Text>
           )}
+          {podeFechar && itens.length > 0 && resumo.motivo && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: erroDesconto ? C.red : C.amber, textAlign: 'center', marginBottom: 8 }}>
+              {resumo.motivo}
+            </Text>
+          )}
+          {podeFechar && itens.length > 0 && resumo.podeFechar && resumo.cortesiaAutomatica && splits.length === 0 && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, textAlign: 'center', marginBottom: 8 }}>
+              Total R$ 0 — será registrado como Cortesia
+            </Text>
+          )}
           <TouchableOpacity
             onPress={fecharComanda}
-            disabled={fechando || itens.length === 0 || !podeFechar}
+            disabled={fechando || itens.length === 0 || !podeFechar || !resumo.podeFechar}
             activeOpacity={0.8}
             style={{
               height: 52, borderRadius: 16, backgroundColor: C.green,
               alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
-              opacity: (fechando || itens.length === 0 || !podeFechar) ? 0.5 : 1,
+              opacity: (fechando || itens.length === 0 || !podeFechar || !resumo.podeFechar) ? 0.5 : 1,
             }}>
             {fechando ? (
               <ActivityIndicator color="#fff" />
