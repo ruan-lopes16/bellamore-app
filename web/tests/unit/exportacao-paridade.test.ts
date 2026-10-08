@@ -46,3 +46,29 @@ describe('moeda única', () => {
     expect(ruins).toEqual([]);
   });
 });
+
+const APP: [string, string][] = [
+  ['mobile/app/(empresa)/agenda.tsx', 'definicaoAgenda'],
+  ['mobile/app/(empresa)/clientes.tsx', 'definicaoClientes'],
+  ['mobile/app/(empresa)/comissoes.tsx', 'definicaoComissoes'],
+  ['mobile/app/(empresa)/equipe.tsx', 'definicaoEquipe'],
+  ['mobile/app/(empresa)/estoque.tsx', 'definicaoEstoqueProdutos'],
+  ['mobile/app/(empresa)/financeiro.tsx', 'definicaoDespesas'],
+  ['mobile/app/(empresa)/pacotes.tsx', 'definicaoPacotesCatalogo'],
+  ['mobile/app/(empresa)/relatorios.tsx', 'definicaoRelatorio'],
+  ['mobile/app/(empresa)/servicos.tsx', 'definicaoServicos'],
+];
+describe('app exporta pelas mesmas definições', () => {
+  for (const [arq, fn] of APP) {
+    it(`${arq} usa ${fn} e BotaoExportar`, () => {
+      const src = ler(arq);
+      expect(src).toContain(`${fn}(`);
+      expect(src).toContain('<BotaoExportar');
+    });
+  }
+  it('área da profissional não ganhou exportação', () => {
+    for (const n of ['agenda.tsx', 'comissoes.tsx', 'inicio.tsx', 'pacotes.tsx', 'servicos.tsx']) {
+      expect(ler(`mobile/app/(profissional)/${n}`)).not.toContain('BotaoExportar');
+    }
+  });
+});

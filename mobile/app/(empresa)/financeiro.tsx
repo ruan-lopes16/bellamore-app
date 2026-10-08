@@ -10,7 +10,7 @@ import { MotiView } from 'moti';
 import { router } from 'expo-router';
 import Svg, { Rect, Line, Text as SvgText, G } from 'react-native-svg';
 import {
-  ChevronLeft, ChevronRight, Download,
+  ChevronLeft, ChevronRight,
   TrendingUp, TrendingDown, Plus,
   Layers, CreditCard, Banknote, Smartphone, Gift,
   AlertTriangle, CheckCircle2, Ban, X, Pencil, Trash2, RefreshCw,
@@ -48,6 +48,8 @@ import {
   type RetiradaSociaRow, type MetodoPagamentoRetirada,
 } from '@shared/retiradas-socia';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoDespesas } from '@shared/exportacao/financeiro';
 import type { OcorrenciaHistorico } from '@shared/despesas';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -1467,15 +1469,19 @@ export default function Financeiro() {
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <PrivacyToggle color={C.text} />
-          <TouchableOpacity style={{
+          <View style={{
             width: 38, height: 38, borderRadius: 12,
             backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
             alignItems: 'center', justifyContent: 'center',
             shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
             marginTop: 4,
           }}>
-            <Download size={16} color={C.text2} strokeWidth={1.8} />
-          </TouchableOpacity>
+            <BotaoExportar
+              definicao={definicaoDespesas(format(mesRef, 'yyyy-MM'))}
+              getLinhas={() => despesas.map((d) => ({ descricao: d.descricao, categoria: d.categoria ?? null, valor: d.valor, vencimento: d.data_vencimento ?? null, pagamento: d.data_pagamento ?? null, pago: d.status === 'pago', recorrente: !!d.recorrente }))}
+              cor={C.text2}
+            />
+          </View>
           </View>
         </MotiView>
 

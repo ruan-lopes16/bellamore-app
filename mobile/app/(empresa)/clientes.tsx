@@ -26,6 +26,8 @@ import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
 import { SmoothTabs } from '@/components/SmoothTabs';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoClientes } from '@shared/exportacao/clientes';
 import { useClientes, useClientesStats, type ClienteResumo, type FiltroClientes } from '@/hooks/useClientes';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -268,6 +270,11 @@ export default function Clientes() {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
+                <BotaoExportar
+                  definicao={definicaoClientes()}
+                  getLinhas={() => clientes.map((c) => ({ nome: c.nome, telefone: c.telefone ?? null, email: c.email ?? null, dataNascimento: c.data_nascimento ?? null, criadoEm: c.created_at }))}
+                  cor={C.text2}
+                />
                 <TouchableOpacity style={{
                   width: 38, height: 38, borderRadius: 12,
                   backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,

@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
-  Download, TrendingUp, TrendingDown, ChevronLeft, ChevronRight, ChevronDown, Star,
+  TrendingUp, TrendingDown, ChevronLeft, ChevronRight, ChevronDown, Star,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -34,6 +34,8 @@ import { textoConfirmarPagamento, type ComissoesDaProfissional } from '@shared/c
 import { variacaoPercentual } from '@shared/kpis-financeiros';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { SmoothTabs } from '@/components/SmoothTabs';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoRelatorio } from '@shared/exportacao/relatorios';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -294,6 +296,20 @@ export default function Relatorios() {
     </Text>
   ) : null;
 
+  // Exportação: linha padrão da aba exibida (mesmos arrays que alimentam a tela; mesmas colunas do web).
+  // Avaliações não exporta (web também não); some enquanto a aba carrega ou falha.
+  const abaPronta = !isError && (aba === 'comissoes' ? r.comissoes.pronto : aba === 'estoque' ? r.insumosPronto && !!r.kpis : !!r.kpis);
+  const definicaoExp = aba !== 'avaliacoes' && abaPronta
+    ? definicaoRelatorio(aba, ABAS_RELATORIO.find(a => a.key === aba)?.label ?? '', rotuloAtual)
+    : null;
+  const linhasExportacao = (): unknown[] =>
+    aba === 'servicos' ? servicos.map(s => ({ nome: s.nome, quantidade: s.quantidade, valor: s.receita })) :
+    aba === 'equipe' ? profissionais.map(p => ({ nome: p.nome, quantidade: p.atendimentos, valor: p.faturamento, comissao: p.comissao })) :
+    aba === 'clientes' ? r.topClientes.map(c => ({ nome: c.nome, quantidade: c.visitas, valor: c.total })) :
+    aba === 'estoque' ? r.insumos.ranking.map(e => ({ nome: e.nome, quantidade: e.qtd, custo: e.custo })) :
+    aba === 'comissoes' ? r.comissoes.porProfissional.flatMap(p => p.itens).map(c => ({ profissional: c.profissionalNome, dia: chaveDiaBRT(c.dataAtendimento ?? c.criadaEm), cliente: c.clienteNome, servico: c.servicoNome, valorAtendimento: c.valorAtendimento, percentual: c.percentual, comissao: c.valorComissao, pago: c.status === 'pago' })) :
+    r.concluidos;
+
   const dFat    = resumo ? variacaoPercentual(resumo.faturamento, resumo.faturamentoAnterior) : null;
 
   return (
@@ -327,14 +343,16 @@ export default function Relatorios() {
               </View>
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
               <PrivacyToggle />
-              <TouchableOpacity style={{
+              {definicaoExp && (
+              <View style={{
                 width: 38, height: 38,
                 backgroundColor: 'rgba(255,255,255,0.12)',
                 borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
                 borderRadius: 12, alignItems: 'center', justifyContent: 'center',
               }}>
-                <Download size={15} color="rgba(255,255,255,0.7)" strokeWidth={1.8} />
-              </TouchableOpacity>
+                <BotaoExportar definicao={definicaoExp} getLinhas={linhasExportacao} cor="rgba(255,255,255,0.7)" />
+              </View>
+              )}
               </View>
             </View>
 

@@ -27,6 +27,8 @@ import {
 
 import { useEstoque, type Produto, type MovimentoTipo } from '@/hooks/useEstoque';
 import SuccessCheck from '@/components/SuccessCheck';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoEstoqueProdutos } from '@shared/exportacao/estoque';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -378,12 +380,19 @@ export default function EstoqueScreen() {
               Produtos
             </Text>
           </View>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <BotaoExportar
+            definicao={definicaoEstoqueProdutos()}
+            getLinhas={() => listaFiltrada.map((p) => ({ nome: p.nome, categoria: p.categoria, unidade: p.unidade, estoqueAtual: p.estoque_atual, estoqueMinimo: p.estoque_minimo, precoCusto: p.preco_custo, status: FILTROS.find((f) => f.key === p.status)?.label ?? p.status }))}
+            cor={C.text2}
+          />
           <TouchableOpacity
             onPress={() => router.push('/(empresa)/novo-produto')}
             style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }}
           >
             <Plus size={18} color="#fff" strokeWidth={2.5} />
           </TouchableOpacity>
+          </View>
         </View>
       </View>
 

@@ -26,6 +26,8 @@ import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoEquipe } from '@shared/exportacao/equipe';
 import { supabase } from '@/lib/supabase';
 import { configVazia, contarExcecoes, podeGerenciarMembro } from '@shared/permissoes';
 import { mensagemErroBanco } from '@shared/erros';
@@ -479,6 +481,11 @@ export default function Equipe() {
               </Text>
             </View>
             <PrivacyToggle />
+            <BotaoExportar
+              definicao={definicaoEquipe(format(new Date(), 'yyyy-MM'))}
+              getLinhas={() => membros.map((m) => ({ nome: m.user.nome, telefone: m.user.telefone ?? null, percentual: m.percentual_comissao, atendimentosMes: m.atendimentos_mes, totalMes: m.total_mes, ativo: m.ativo }))}
+              cor="#fff"
+            />
             {podeGerenciarEquipe && (
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/convidar-profissional' as any)}

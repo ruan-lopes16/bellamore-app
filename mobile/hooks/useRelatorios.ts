@@ -143,8 +143,13 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo, 
     const topClientes: ClienteRelatorio[] = rankingAtendimentos(ags, 'cliente').slice(0, 10).map(c => ({
       cliente_id: c.chave, nome: c.nome, visitas: c.quantidade, total: c.receita, percentual: c.percentual,
     }));
+    // Atendimentos concluídos do período (linha padrão da exportação da aba Financeiro, igual ao web).
+    const concluidos = ags.filter(a => a.status === 'concluido').map(a => ({
+      inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null,
+      valor: Number(a.valor ?? 0), status: a.status,
+    }));
     return {
-      kpis: k, kpisAnt: ka, resumo, retorno, servicos, profissionais, topClientes,
+      kpis: k, kpisAnt: ka, resumo, retorno, servicos, profissionais, topClientes, concluidos,
       serie: serieFaturamento(dados, atual).map(p => ({ rotulo: p.rotulo, valor: p.valor })),
       despesasPorCategoria: rankingDespesasPorCategoria(doPeriodo.despesas),
       mesesComFechamento: k.mesesComFechamento,
@@ -176,6 +181,7 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo, 
     kpisAnt: calculado?.kpisAnt,
     clientes,
     servicos: calculado?.servicos ?? [],
+    concluidos: calculado?.concluidos ?? [],
     profissionais: calculado?.profissionais ?? [],
     topClientes: calculado?.topClientes ?? [],
     serie: calculado?.serie ?? [],

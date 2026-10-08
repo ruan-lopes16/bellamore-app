@@ -31,6 +31,9 @@ import {
 } from '@shared/comissoes';
 import { resolverCategoriaServico, type CategoriaCustom, type CategoriaServico } from '@shared/categorias';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoComissoes } from '@shared/exportacao/comissoes';
+import { chaveDiaBRT } from '@shared/periodos';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -308,7 +311,11 @@ export default function Comissoes() {
           style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 16 }}
         >
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>Equipe</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>Comissões</Text><PrivacyToggle color={C.text2} bg={C.surface} borderColor={C.border} size={34} /></View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text }}>Comissões</Text><PrivacyToggle color={C.text2} bg={C.surface} borderColor={C.border} size={34} /><BotaoExportar
+            definicao={definicaoComissoes(rotulo)}
+            getLinhas={() => profissionais.flatMap((p) => p.itens).map((c) => ({ profissional: c.profissionalNome, dia: chaveDiaBRT(c.dataAtendimento ?? c.criadaEm), servico: c.servicoNome, valorServico: c.valorServico, percentual: c.percentual, comissao: c.valorComissao, pago: c.status === 'pago' }))}
+            cor={C.text2}
+          /></View>
         </MotiView>
 
         {/* Período */}

@@ -29,6 +29,8 @@ import {
   type PacoteComServicos, type PacoteVendido,
 } from '@/hooks/usePacotes';
 import { SmoothTabs } from '@/components/SmoothTabs';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoPacotesCatalogo, definicaoPacotesVendidos } from '@shared/exportacao/pacotes';
 import { CategoriaIcon } from '@/components/CategoriaIcon';
 import { resolverCategoria } from '@/hooks/useAgenda';
 import type { CategoriaServico } from '@/components/CategoriaIcon';
@@ -790,6 +792,19 @@ export default function Pacotes() {
                 Pacotes
               </Text>
             </View>
+            {aba === 'catalogo' ? (
+              <BotaoExportar
+                definicao={definicaoPacotesCatalogo()}
+                getLinhas={() => pacotes.map((p) => ({ nome: p.nome, preco: p.preco, validadeDias: p.validade_dias, servicos: p.pacote_servicos.map((s) => ({ nome: s.servico.nome, quantidade: s.quantidade })), ativo: p.ativo }))}
+                cor="#fff"
+              />
+            ) : (
+              <BotaoExportar
+                definicao={definicaoPacotesVendidos()}
+                getLinhas={() => vendidosFiltrados.map((v) => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total_sessoes, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: VSTATUS[v.status]?.label ?? v.status }))}
+                cor="#fff"
+              />
+            )}
           </View>
         </LinearGradient>
 
