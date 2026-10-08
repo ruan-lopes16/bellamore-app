@@ -9,7 +9,7 @@
  * exportToXLSX(definicaoClientes(), linhas);
  * exportToPDF(definicaoClientes(), linhas);
  */
-import { linhasParaCelulas, dataHoraBR, type DefinicaoExportacao } from '@shared/exportacao/tipos';
+import { nomeAbaPlanilha, linhasParaCelulas, dataHoraBR, type DefinicaoExportacao } from '@shared/exportacao/tipos';
 
 // ── XLSX ──────────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ export async function exportToXLSX<T>(def: DefinicaoExportacao<T>, linhas: T[]):
   });
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, def.titulo.slice(0, 31));
+  XLSX.utils.book_append_sheet(workbook, worksheet, nomeAbaPlanilha(def.titulo));
 
   XLSX.writeFile(workbook, `${def.arquivo}.xlsx`);
 }

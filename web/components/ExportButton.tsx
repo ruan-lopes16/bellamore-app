@@ -58,6 +58,9 @@ export function ExportButton<T>({
       } else {
         await exportToPDF(definicao, linhas);
       }
+    } catch (e) {
+      console.error('Falha ao exportar', e);
+      alert(`Não foi possível exportar: ${e instanceof Error ? e.message : 'erro desconhecido'}`);
     } finally {
       setLoading(null);
     }

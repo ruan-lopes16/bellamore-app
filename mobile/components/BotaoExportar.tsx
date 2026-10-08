@@ -14,6 +14,7 @@ export function BotaoExportar<T>({ definicao, getLinhas, cor = '#6B7280' }: {
   cor?: string;
 }) {
   const [gerando, setGerando] = useState(false);
+  const [escolhendo, setEscolhendo] = useState(false);
   if (!definicao) return null;
 
   async function gerar(tipo: 'Excel' | 'PDF') {
@@ -21,23 +22,27 @@ export function BotaoExportar<T>({ definicao, getLinhas, cor = '#6B7280' }: {
     try {
       if (tipo === 'Excel') await exportarExcel(definicao!, getLinhas());
       else await exportarPdf(definicao!, getLinhas());
+    } catch {
+      Alert.alert('Exportar', 'Não foi possível montar a exportação.');
     } finally {
       setGerando(false);
     }
   }
 
   function escolher() {
+    if (gerando || escolhendo) return;
+    setEscolhendo(true);
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         { options: ['Cancelar', 'Excel', 'PDF'], cancelButtonIndex: 0, title: 'Exportar' },
-        i => { if (i === 1) gerar('Excel'); if (i === 2) gerar('PDF'); },
+        i => { setEscolhendo(false); if (i === 1) gerar('Excel'); if (i === 2) gerar('PDF'); },
       );
     } else {
       Alert.alert('Exportar', 'Escolha o formato', [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Excel', onPress: () => gerar('Excel') },
-        { text: 'PDF', onPress: () => gerar('PDF') },
-      ]);
+        { text: 'Cancelar', style: 'cancel', onPress: () => setEscolhendo(false) },
+        { text: 'Excel', onPress: () => { setEscolhendo(false); gerar('Excel'); } },
+        { text: 'PDF', onPress: () => { setEscolhendo(false); gerar('PDF'); } },
+      ], { cancelable: true, onDismiss: () => setEscolhendo(false) });
     }
   }
 

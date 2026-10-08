@@ -21,6 +21,15 @@ export function nomeArquivoSeguro(s: string): string {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+/**
+ * Nome de aba do Excel: troca os caracteres proibidos (dois-pontos, barras, ?, *, colchetes) por "-",
+ * corta em 31 caracteres e nunca devolve vazio.
+ */
+export function nomeAbaPlanilha(titulo: string): string {
+  const n = titulo.replace(/[:\\/?*[\]]/g, '-').slice(0, 31).trim();
+  return n || 'Planilha';
+}
+
 /** Mesma regra de célula para Excel e PDF: null/undefined → ''. */
 export function linhasParaCelulas<T>(def: DefinicaoExportacao<T>, linhas: T[]): (string | number)[][] {
   return linhas.map(l => def.colunas.map(c => c.valor(l) ?? ''));

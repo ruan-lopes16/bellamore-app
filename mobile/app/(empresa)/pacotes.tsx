@@ -793,7 +793,7 @@ export default function Pacotes() {
             {aba === 'catalogo' ? (
               <BotaoExportar
                 definicao={definicaoPacotesCatalogo()}
-                getLinhas={() => pacotes.map((p) => ({ nome: p.nome, preco: p.preco, validadeDias: p.validade_dias, servicos: p.pacote_servicos.map((s) => ({ nome: s.servico.nome, quantidade: s.quantidade })), ativo: p.ativo }))}
+                getLinhas={() => pacotes.map((p) => ({ nome: p.nome, preco: p.preco, validadeDias: p.validade_dias, servicos: p.pacote_servicos.map((s) => ({ nome: s.servico?.nome ?? 'Serviço', quantidade: s.quantidade })), ativo: p.ativo }))}
                 cor="#fff"
               />
             ) : (

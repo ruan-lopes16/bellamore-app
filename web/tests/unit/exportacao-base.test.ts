@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nomeArquivoSeguro, linhasParaCelulas, dataBR, dataHoraBR, type DefinicaoExportacao } from '@shared/exportacao/tipos';
+import { nomeAbaPlanilha, nomeArquivoSeguro, linhasParaCelulas, dataBR, dataHoraBR, type DefinicaoExportacao } from '@shared/exportacao/tipos';
 import { montarHtmlTabela } from '@shared/exportacao/pdf-html';
 
 type L = { a: string; n: number | null };
@@ -12,6 +12,15 @@ describe('base das exportações', () => {
   it('nomeArquivoSeguro', () => {
     expect(nomeArquivoSeguro('Relatório Março 2026')).toBe('relatorio-marco-2026');
     expect(nomeArquivoSeguro('comissoes--1º  Trimestre')).toBe('comissoes-1-trimestre');
+  });
+  it('nomeAbaPlanilha: sem caracteres proibidos, até 31, nunca vazio', () => {
+    for (const t of ['Comissões — 05/10 – 11/10/2026', 'Relatório Financeiro — 07/10/2026', 'a:b\\c/d?e*f[g]h']) {
+      const n = nomeAbaPlanilha(t);
+      expect(n).not.toMatch(/[:\\/?*[\]]/);
+      expect(n.length).toBeLessThanOrEqual(31);
+    }
+    expect(nomeAbaPlanilha('Comissões — 05/10 – 11/10/2026')).toBe('Comissões — 05-10 – 11-10-2026'.slice(0, 31));
+    expect(nomeAbaPlanilha('')).toBe('Planilha');
   });
   it('linhasParaCelulas: null/undefined viram vazio, números ficam números', () => {
     expect(linhasParaCelulas(def, [{ a: 'x', n: null }, { a: 'y', n: 3 }])).toEqual([['x', ''], ['y', 3]]);

@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
-import { linhasParaCelulas, type DefinicaoExportacao } from '@shared/exportacao/tipos';
+import { nomeAbaPlanilha, linhasParaCelulas, type DefinicaoExportacao } from '@shared/exportacao/tipos';
 import { montarHtmlTabela } from '@shared/exportacao/pdf-html';
 
 async function compartilhar(uri: string, mimeType: string, titulo: string) {
@@ -20,7 +20,7 @@ export async function exportarExcel<T>(def: DefinicaoExportacao<T>, linhas: T[])
     const ws = XLSX.utils.aoa_to_sheet([def.colunas.map(c => c.cabecalho), ...linhasParaCelulas(def, linhas)]);
     ws['!cols'] = def.colunas.map(c => ({ wch: c.largura ?? 20 }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, def.titulo.slice(0, 31));
+    XLSX.utils.book_append_sheet(wb, ws, nomeAbaPlanilha(def.titulo));
     const base64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
     const uri = `${FileSystem.cacheDirectory}${def.arquivo}.xlsx`;
     await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
