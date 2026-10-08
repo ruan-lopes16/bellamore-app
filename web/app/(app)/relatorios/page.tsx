@@ -136,7 +136,7 @@ function KpiCard({
         style={{ background: cor + '18' }}>
         <Icon size={18} style={{ color: cor }} />
       </div>
-      <div className="flex-1 min-w-0 w-full">
+      <div className="flex-1 min-w-0 w-full overflow-hidden">
         <p className="text-sm sm:text-lg font-bold text-text leading-tight whitespace-nowrap tabular-nums"><Secret>{value}</Secret></p>
         <p className="text-[11px] sm:text-xs text-text-3 leading-tight">{label}</p>
         {sub && <p className="text-[10px] sm:text-xs font-semibold mt-0.5 leading-tight" style={{ color: cor }}><Secret>{sub}</Secret></p>}

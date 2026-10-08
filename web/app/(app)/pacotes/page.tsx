@@ -1312,7 +1312,7 @@ export default function PacotesPage() {
               ].map(({ label, value, sub }) => (
                 <div key={label} className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
                   <p className="text-xs text-text-4 uppercase tracking-wide font-semibold mb-2">{label}</p>
-                  <p className="text-2xl font-bold text-text mb-1">{value}</p>
+                  <p className="text-lg sm:text-2xl font-bold text-text mb-1 whitespace-nowrap tabular-nums">{value}</p>
                   <p className="text-[11px] text-text-4">{sub}</p>
                 </div>
               ))}

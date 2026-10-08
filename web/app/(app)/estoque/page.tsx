@@ -864,7 +864,7 @@ export default function EstoquePage() {
                 <Icon size={16} style={{ color }} strokeWidth={2}/>
               </div>
               <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
+                <p className="whitespace-nowrap tabular-nums" style={{ fontSize: 'clamp(15px, 4.5vw, 20px)', fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
                 <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, fontWeight: 500 }}>{label}</p>
                 <p style={{ fontSize: 10, color: 'var(--color-ink4)', marginTop: 2 }} className="truncate">{sub}</p>
               </div>
@@ -1149,7 +1149,7 @@ export default function EstoquePage() {
                     <Icon size={16} style={{ color }} strokeWidth={2}/>
                   </div>
                   <div>
-                    <p style={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
+                    <p className="whitespace-nowrap tabular-nums" style={{ fontSize: 'clamp(15px, 4.5vw, 20px)', fontWeight: 700, lineHeight: 1, color: 'var(--color-ink)', fontFamily: 'var(--font-sans)' }}><Secret>{value}</Secret></p>
                     <p style={{ fontSize: 11.5, color: 'var(--color-ink3)', marginTop: 2, fontWeight: 500 }}>{label}</p>
                     <p style={{ fontSize: 10, color: 'var(--color-ink4)', marginTop: 2 }}>{sub}</p>
                   </div>

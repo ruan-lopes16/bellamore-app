@@ -148,7 +148,7 @@ export default function ComissoesProfissionalView() {
           <div key={s.label} className="bg-surface border border-border rounded-2xl p-4 min-w-0"
             style={{ boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
             <p className="text-[10px] font-bold uppercase tracking-widest mb-2 truncate" style={{ color: 'var(--color-ink4)' }}>{s.label}</p>
-            <p className="text-lg font-bold" style={{ color: s.cor, letterSpacing: '-0.02em' }}>
+            <p className="text-base sm:text-lg font-bold whitespace-nowrap tabular-nums" style={{ color: s.cor, letterSpacing: '-0.02em' }}>
               {loading || erroCarga ? '—' : s.val}
             </p>
           </div>
