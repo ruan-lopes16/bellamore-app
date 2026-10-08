@@ -248,7 +248,7 @@ function VendidoCard({ v, onGerenciar, onExcluir, onMarcarUtilizado }: {
       ) : (
         <View style={{ marginBottom: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 6 }}>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: C.text }}>
+            <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: C.text }}>
               {v.usadas}
               <Text style={{ fontSize: 14, color: C.text3 }}>/{ilimitado ? '∞' : v.total_sessoes}</Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>  sessões</Text>

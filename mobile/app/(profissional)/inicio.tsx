@@ -186,9 +186,7 @@ export default function Inicio() {
               width: '47%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
               borderRadius: 14, padding: 12,
             }}>
-              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.3 }}>
-                <SecretText>{s.value}</SecretText>
-              </Text>
+              <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.3 }}>{s.value}</SecretText>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 3 }}>{s.label}</Text>
             </View>
           ))}

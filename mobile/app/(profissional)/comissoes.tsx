@@ -250,9 +250,7 @@ export default function Comissoes() {
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
               Total de comissões · {rotulo}
             </Text>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 36, color: '#fff', letterSpacing: -1, lineHeight: 40, marginBottom: 12 }}>
-              <SecretText>{fmtRes(resumo?.total ?? 0)}</SecretText>
-            </Text>
+            <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 36, color: '#fff', letterSpacing: -1, lineHeight: 40, marginBottom: 12 }}>{fmtRes(resumo?.total ?? 0)}</SecretText>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 20, paddingVertical: 4, paddingHorizontal: 10 }}>
                 <TrendingUp size={10} color="#6EE7B7" strokeWidth={2.5} />

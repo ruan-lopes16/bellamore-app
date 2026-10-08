@@ -414,16 +414,14 @@ export default function Dashboard() {
                   Receita do Mês · {rotuloMesAno(nav.chave)}
                 </Text>
 
-                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
+                <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
                   fontFamily: 'PlusJakartaSans_700Bold',
                   fontSize: 44,
                   color: '#fff',
                   lineHeight: 48,
                   letterSpacing: -1,
                   marginBottom: 10,
-                }}>
-                  <SecretText>{financeiroPronto ? formatarMoeda(receitaMes) : '—'}</SecretText>
-                </Text>
+                }}>{financeiroPronto ? formatarMoeda(receitaMes) : '—'}</SecretText>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   {variacaoReceitaMes !== null && (
@@ -595,15 +593,13 @@ export default function Dashboard() {
             }}>
               Receita Hoje
             </Text>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
+            <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
               fontFamily: 'PlusJakartaSans_700Bold',
               fontSize: 20,
               color: C.green,
               lineHeight: 22,
               marginBottom: 4,
-            }}>
-              <SecretText>{hojePronto ? formatarMoeda(receitaHoje) : '—'}</SecretText>
-            </Text>
+            }}>{hojePronto ? formatarMoeda(receitaHoje) : '—'}</SecretText>
             <View style={{
               backgroundColor: C.greenSoft,
               borderRadius: 6,
@@ -647,15 +643,13 @@ export default function Dashboard() {
             }}>
               Comissões
             </Text>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
+            <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
               fontFamily: 'PlusJakartaSans_700Bold',
               fontSize: 20,
               color: C.amber,
               lineHeight: 22,
               marginBottom: 4,
-            }}>
-              <SecretText>{comissoesPendentesPronto ? formatarMoeda(comissoesPendentes.total) : '—'}</SecretText>
-            </Text>
+            }}>{comissoesPendentesPronto ? formatarMoeda(comissoesPendentes.total) : '—'}</SecretText>
             <View style={{
               backgroundColor: C.amberSoft,
               borderRadius: 6,
