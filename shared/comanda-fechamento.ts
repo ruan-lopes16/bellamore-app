@@ -65,7 +65,8 @@ export function resumoComanda(e: {
   const falta = centavos(Math.max(total - recebido, 0));
   const troco = centavos(Math.max(recebido - total, 0));
   const cortesiaAutomatica = total < 0.01;
-  const coberto = cortesiaAutomatica || recebido >= total - 0.01;
+  // Tolerância de meio centavo (só ruído de ponto flutuante): total de R$ 0,01 exige pagamento.
+  const coberto = cortesiaAutomatica || recebido >= total - 0.005;
   const motivo = e.erroDesconto ?? (coberto ? null : `Ainda faltam ${formatarMoeda(falta)} para cobrir o total`);
   return {
     subtotal: e.subtotal, desconto: e.desconto, descontoReserva: e.descontoReserva,

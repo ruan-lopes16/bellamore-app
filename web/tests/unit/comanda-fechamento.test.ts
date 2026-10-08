@@ -31,6 +31,13 @@ describe('resumoComanda', () => {
     expect(r.troco).toBe(10);
     expect(r.falta).toBe(0);
   });
+  it('total de R$ 0,01 exige pagamento (não vira cortesia nem fecha vazio)', () => {
+    const r = resumoComanda({ subtotal: 10.01, desconto: 10, descontoReserva: 0, splits: [] });
+    expect(r.total).toBe(0.01);
+    expect(r.cortesiaAutomatica).toBe(false);
+    expect(r.podeFechar).toBe(false);
+    expect(resumoComanda({ subtotal: 10.01, desconto: 10, descontoReserva: 0, splits: [{ metodo: 'pix', valor: 0.01 }] }).podeFechar).toBe(true);
+  });
   it('total zero = cortesia automática, fecha sem pagamento', () => {
     const r = resumoComanda({ subtotal: 100, desconto: 0, descontoReserva: 100, splits: [] });
     expect(r.cortesiaAutomatica).toBe(true);

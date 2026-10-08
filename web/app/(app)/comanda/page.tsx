@@ -792,13 +792,16 @@ export default function ComandaPage() {
     }));
   }
 
+  // Mesma leitura de valor dos pagamentos (parseValorBR): '1.234,56' não vira 1,234.
+  // Texto sem nenhum dígito mantém o valor anterior; '0' zera de propósito.
   function atualizarValor(u: string, v: string) {
-    const n = parseFloat(v.replace(',', '.'));
-    setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: isNaN(n) ? i.valor : n } : i));
+    if (!/\d/.test(v)) return;
+    const n = parseValorBR(v);
+    setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: n } : i));
   }
   function atualizarQtd(u: string, v: string) {
-    const n = parseFloat(v.replace(',', '.'));
-    setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: isNaN(n) || n <= 0 ? 1 : n } : i));
+    const n = parseValorBR(v);
+    setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: n > 0 ? n : 1 } : i));
   }
   function atualizarProfissional(u: string, profId: string) {
     const m = membros.find(x => x.id === profId);
@@ -955,13 +958,14 @@ export default function ComandaPage() {
         // As sessões consumidas depois NÃO contam como receita.
         const totalPacotes = novasVendas.reduce((s, v) => s + Number(v.valor_pago ?? 0), 0);
         if (totalPacotes > 0) {
-          await supabase.from('vendas').insert({
+          const { error: errVendaPac } = await supabase.from('vendas').insert({
             empresa_id:  empresaId,
             cliente_id:  clienteSel.id,
             valor_total: totalPacotes,
             desconto:    0,
             observacao:  `Pacote(s) via comanda`,
           });
+          if (errVendaPac) { setErro(mensagemErroBanco(errVendaPac, 'registrar a venda do pacote')); setFechando(false); return; }
         }
       }
     }
