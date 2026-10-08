@@ -8,23 +8,19 @@
  * as opções Excel (.xlsx) e PDF (.pdf).
  *
  * @example
- * <ExportButton
- *   filename="clientes"
- *   title="Clientes"
- *   columns={[{ header: 'Nome', accessor: r => r.nome }]}
- *   getData={() => clientes}
- * />
+ * <ExportButton definicao={definicaoClientes()} getLinhas={() => linhas} />
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react';
-import { exportToXLSX, exportToPDF, type ExportColumn } from '@/lib/export';
+import type { DefinicaoExportacao } from '@shared/exportacao/tipos';
+import { exportToXLSX, exportToPDF } from '@/lib/export';
 
 interface ExportButtonProps<T> {
-  filename: string;
-  title: string;
-  columns: ExportColumn<T>[];
-  getData: () => T[];
+  /** Colunas, título e nome do arquivo (shared/exportacao). */
+  definicao: DefinicaoExportacao<T>;
+  /** Linhas padrão no momento do clique (mesmo array exibido na tela). */
+  getLinhas: () => T[];
   /** Ajusta a aparencia do botao quando ele ocupa o canto do cabecalho mobile. */
   variant?: 'default' | 'mobileHeader';
   /** Classes aplicadas ao contêiner, úteis para o posicionamento responsivo. */
@@ -32,10 +28,8 @@ interface ExportButtonProps<T> {
 }
 
 export function ExportButton<T>({
-  filename,
-  title,
-  columns,
-  getData,
+  definicao,
+  getLinhas,
   variant = 'default',
   className,
 }: ExportButtonProps<T>) {
@@ -57,12 +51,12 @@ export function ExportButton<T>({
   async function handleExport(tipo: 'xlsx' | 'pdf') {
     setLoading(tipo);
     setOpen(false);
-    const data = getData();
+    const linhas = getLinhas();
     try {
       if (tipo === 'xlsx') {
-        await exportToXLSX(filename, title, columns, data);
+        await exportToXLSX(definicao, linhas);
       } else {
-        await exportToPDF(filename, title, columns, data);
+        await exportToPDF(definicao, linhas);
       }
     } finally {
       setLoading(null);

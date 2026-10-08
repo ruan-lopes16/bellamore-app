@@ -12,6 +12,7 @@ import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoServicos } from '@shared/exportacao/servicos';
 import { CategoriaPicker } from '@/components/CategoriaPicker';
 import { CategoriasManagerModal } from '@/components/CategoriasManagerModal';
 import { usePermissoes } from '@/components/PermissoesProvider';
@@ -691,17 +692,8 @@ export default function ServicosPage() {
           <ExportButton
             variant="mobileHeader"
             className="bm-mobile-header-export"
-            filename="servicos"
-            title="Catálogo de Serviços"
-            columns={[
-              { header: 'Nome',      accessor: (s: Servico) => s.nome,                                                                                     width: 28 },
-              { header: 'Categoria', accessor: (s: Servico) => resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label,                      width: 16 },
-              { header: 'Duração',   accessor: (s: Servico) => fmtDuracao(s.duracao_minutos),                                                                width: 12 },
-              { header: 'Preço',     accessor: (s: Servico) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(s.preco),       width: 14 },
-              { header: 'Custo',     accessor: (s: Servico) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(s.custo),       width: 14 },
-              { header: 'Status',    accessor: (s: Servico) => s.ativo ? 'Ativo' : 'Inativo',                                                                width: 10 },
-            ]}
-            getData={() => servicos}
+            definicao={definicaoServicos()}
+            getLinhas={() => servicos.map(s => ({ nome: s.nome, categoria: resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label, duracao: fmtDuracao(s.duracao_minutos), preco: s.preco, custo: s.custo, ativo: s.ativo }))}
           />
           {podeGerenciar && (
             <>

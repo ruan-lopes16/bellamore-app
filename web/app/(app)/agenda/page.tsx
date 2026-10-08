@@ -33,6 +33,7 @@ import {
   CalendarPlus, AlertTriangle, Pencil, Star, Ban, Trash2, UserPlus, Check,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoAgenda } from '@shared/exportacao/agenda';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
@@ -2328,17 +2329,8 @@ export default function AgendaPage() {
           <ExportButton
             variant="mobileHeader"
             className="bm-mobile-header-export"
-            filename={`agenda-${format(dataSel, 'yyyy-MM-dd')}`}
-            title={`Agenda — ${format(dataSel, "dd 'de' MMMM yyyy", { locale: ptBR })}`}
-            columns={[
-              { header: 'Horário',      accessor: (a: Ag) => format(parseISO(a.data_hora_inicio), 'HH:mm'), width: 10 },
-              { header: 'Cliente',      accessor: (a: Ag) => a.cliente?.nome ?? '—',                        width: 26 },
-              { header: 'Serviço',      accessor: (a: Ag) => a.servico?.nome ?? '—',                        width: 26 },
-              { header: 'Profissional', accessor: (a: Ag) => a.profissional?.nome ?? '—',                   width: 20 },
-              { header: 'Valor',        accessor: (a: Ag) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(a.valor), width: 14 },
-              { header: 'Status',       accessor: (a: Ag) => STATUS[a.status]?.label ?? a.status,           width: 12 },
-            ]}
-            getData={() => agsVisiveis}
+            definicao={definicaoAgenda(format(dataSel, 'yyyy-MM-dd'))}
+            getLinhas={() => agsVisiveis.map(a => ({ inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null, profissional: a.profissional?.nome ?? null, valor: a.valor, status: STATUS[a.status]?.label ?? a.status }))}
           />
           <button onClick={() => setModalBloq(true)}
             className="press flex items-center gap-2 px-3 h-10 rounded-2xl text-sm font-bold border border-border transition hover:bg-bg"

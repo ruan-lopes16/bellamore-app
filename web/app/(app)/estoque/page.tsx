@@ -32,6 +32,7 @@ import {
   ChevronLeft, ChevronRight, List, CalendarDays, Check, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoEstoqueProdutos, definicaoEstoqueMovimentacoes } from '@shared/exportacao/estoque';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
@@ -778,36 +779,16 @@ export default function EstoquePage() {
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              filename="estoque-produtos"
-              title="Estoque — Produtos"
-              columns={[
-                { header: 'Nome',          accessor: (p: Produto) => p.nome,                                    width: 30 },
-                { header: 'Categoria',     accessor: (p: Produto) => CAT_MAP[p.categoria]?.label ?? p.categoria, width: 16 },
-                { header: 'Unidade',       accessor: (p: Produto) => p.unidade,                                  width: 10 },
-                { header: 'Estoque Atual', accessor: (p: Produto) => p.estoque_atual,                            width: 14 },
-                { header: 'Estoque Mín.',  accessor: (p: Produto) => p.estoque_minimo,                           width: 14 },
-                { header: 'Custo Unit.',   accessor: (p: Produto) => p.preco_custo > 0
-                    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(p.preco_custo)
-                    : '',                                                                                          width: 14 },
-                { header: 'Status',        accessor: (p: Produto) => STATUS_CFG[getStatus(p)].label,             width: 10 },
-              ]}
-              getData={() => filtrados}
+              definicao={definicaoEstoqueProdutos()}
+              getLinhas={() => filtrados.map(p => ({ nome: p.nome, categoria: CAT_MAP[p.categoria]?.label ?? p.categoria, unidade: p.unidade, estoqueAtual: p.estoque_atual, estoqueMinimo: p.estoque_minimo, precoCusto: p.preco_custo, status: STATUS_CFG[getStatus(p)].label }))}
             />
           )}
           {aba === 'movimentacoes' && (
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              filename="estoque-movimentacoes"
-              title={`Movimentações — ${format(mesMov, 'MMMM yyyy', { locale: ptBR })}`}
-              columns={[
-                { header: 'Data',     accessor: (m: MovItem) => format(parseISO(m.created_at), 'dd/MM/yyyy HH:mm'), width: 18 },
-                { header: 'Produto',  accessor: (m: MovItem) => m.produto.nome,                                      width: 28 },
-                { header: 'Tipo',     accessor: (m: MovItem) => m.tipo,                                              width: 10 },
-                { header: 'Qtd',      accessor: (m: MovItem) => `${m.quantidade} ${m.produto.unidade}`,              width: 10 },
-                { header: 'Motivo',   accessor: (m: MovItem) => m.motivo ?? '',                                      width: 28 },
-              ]}
-              getData={() => movFiltrados}
+              definicao={definicaoEstoqueMovimentacoes(format(mesMov, 'yyyy-MM'))}
+              getLinhas={() => movFiltrados.map(m => ({ criadoEm: m.created_at, produto: m.produto.nome, tipo: m.tipo, quantidade: m.quantidade, unidade: m.produto.unidade, motivo: m.motivo }))}
             />
           )}
           {aba === 'produtos' && (

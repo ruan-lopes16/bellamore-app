@@ -45,7 +45,7 @@ describe('web Relatórios: pagar comissão e carga', () => {
     expect(src).toContain('const req = ++reqRef.current');
     expect(src).toContain('if (req !== reqRef.current) return');
     expect(src).toContain('++reqRetiradasRef.current');
-    expect(src).toContain('{!loading && !erroCarga && (\n            <ExportButton');
+    expect(src).toContain("{!loading && !erroCarga && aba !== 'avaliacoes' && (\n            <ExportButton");
   });
 });
 

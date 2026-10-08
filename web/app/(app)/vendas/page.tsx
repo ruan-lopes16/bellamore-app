@@ -27,6 +27,7 @@ import {
   AlertCircle, Check, History,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoVendas } from '@shared/exportacao/vendas';
 import { createClient } from '@/lib/supabase/client';
 import type { Cliente as ClienteBase } from '@/types';
 import { Sk } from '@/components/Skeleton';
@@ -641,16 +642,8 @@ export default function VendasPage() {
           {vendas.length > 0 && (
             <div className="flex justify-end mb-4">
               <ExportButton
-                filename="vendas-historico"
-                title="Histórico de Vendas"
-                columns={[
-                  { header: 'Data',       accessor: (v: VendaHistorico) => format(parseISO(v.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }), width: 18 },
-                  { header: 'Cliente',    accessor: (v: VendaHistorico) => v.cliente ? (v.cliente as any).nome : 'Avulso', width: 24 },
-                  { header: 'Itens',      accessor: (v: VendaHistorico) => v.itens.map(i => `${i.produto?.nome ?? '?'} ×${i.quantidade}`).join(', '), width: 40 },
-                  { header: 'Total',      accessor: (v: VendaHistorico) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v.valor_final), width: 14 },
-                  { header: 'Pagamentos', accessor: (v: VendaHistorico) => v.pagamentos_venda.map(p => `${METODOS_PAG.find(m => m.id === p.metodo)?.label ?? p.metodo} ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(p.valor)}`).join(' + '), width: 30 },
-                ]}
-                getData={() => vendas}
+                definicao={definicaoVendas()}
+                getLinhas={() => vendas.map(v => ({ criadoEm: v.created_at, cliente: v.cliente ? (v.cliente as { nome: string }).nome : null, itens: v.itens.map(i => ({ produto: i.produto?.nome ?? '?', quantidade: i.quantidade })), total: v.valor_final, pagamentos: v.pagamentos_venda.map(p => ({ metodo: METODOS_PAG.find(m => m.id === p.metodo)?.label ?? p.metodo, valor: p.valor })) }))}
               />
             </div>
           )}

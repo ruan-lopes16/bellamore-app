@@ -15,6 +15,7 @@ import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoComissoes, type LinhaComissao } from '@shared/exportacao/comissoes';
 import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 import {
@@ -137,15 +138,14 @@ export default function ComissoesGestorView() {
     fetchData();
   }
 
-  type ExRow = { prof: string; data: string; servico: string; valor: number; perc: string; comissao: number; status: string };
-  const exportRows: ExRow[] = itens.map(c => ({
-    prof: c.profissionalNome,
-    data: rotuloDataBR(chaveDiaBRT(c.dataAtendimento ?? c.criadaEm)),
+  const exportRows: LinhaComissao[] = itens.map(c => ({
+    profissional: c.profissionalNome,
+    dia: chaveDiaBRT(c.dataAtendimento ?? c.criadaEm),
     servico: c.servicoNome,
-    valor: c.valorServico,
-    perc: `${c.percentual}%`,
+    valorServico: c.valorServico,
+    percentual: c.percentual,
     comissao: c.valorComissao,
-    status: c.status === 'pago' ? 'Pago' : 'Pendente',
+    pago: c.status === 'pago',
   }));
 
   return (
@@ -174,21 +174,11 @@ export default function ComissoesGestorView() {
           </h1>
         </div>
         <PrivacyToggle />
-        <ExportButton<ExRow>
+        <ExportButton
           variant="mobileHeader"
           className="bm-mobile-header-export"
-          filename={`comissoes-${periodoLabel.replace(/\s+/g, '-').toLowerCase()}`}
-          title={`Comissões — ${periodoLabel}`}
-          columns={[
-            { header: 'Profissional',  accessor: r => r.prof,     width: 22 },
-            { header: 'Data',          accessor: r => r.data,     width: 12 },
-            { header: 'Serviço',       accessor: r => r.servico,  width: 24 },
-            { header: 'Valor serviço', accessor: r => r.valor,    width: 14 },
-            { header: '% Comissão',    accessor: r => r.perc,     width: 12 },
-            { header: 'Comissão',      accessor: r => r.comissao, width: 12 },
-            { header: 'Status',        accessor: r => r.status,   width: 10 },
-          ]}
-          getData={() => exportRows}
+          definicao={definicaoComissoes(periodoLabel)}
+          getLinhas={() => exportRows}
         />
       </div>
 

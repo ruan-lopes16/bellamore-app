@@ -18,6 +18,7 @@ import {
   RefreshCw, Check, Pencil, Trash2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
+import { definicaoDespesas } from '@shared/exportacao/financeiro';
 import { FinanceMonthCalendar } from '@/components/FinanceMonthCalendar';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
@@ -1240,18 +1241,8 @@ export default function FinanceiroPage() {
         <ExportButton
           variant="mobileHeader"
           className="bm-mobile-header-export"
-          filename={`financeiro-despesas-${format(mesRef, 'yyyy-MM')}`}
-          title={`Despesas — ${format(mesRef, 'MMMM yyyy', { locale: ptBR })}`}
-          columns={[
-            { header: 'Descrição',   accessor: (d: Despesa) => d.descricao,                                            width: 30 },
-            { header: 'Categoria',   accessor: (d: Despesa) => d.categoria ?? '',                                       width: 18 },
-            { header: 'Valor',       accessor: (d: Despesa) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(d.valor), width: 14 },
-            { header: 'Vencimento',  accessor: (d: Despesa) => d.data_vencimento ?? '',                                 width: 14 },
-            { header: 'Pagamento',   accessor: (d: Despesa) => d.data_pagamento ?? '',                                  width: 14 },
-            { header: 'Status',      accessor: (d: Despesa) => d.status === 'pago' ? 'Pago' : 'Pendente',               width: 12 },
-            { header: 'Recorrente',  accessor: (d: Despesa) => d.recorrente ? 'Sim' : 'Não',                            width: 12 },
-          ]}
-          getData={() => despesas}
+          definicao={definicaoDespesas(format(mesRef, 'yyyy-MM'))}
+          getLinhas={() => despesas.map(d => ({ descricao: d.descricao, categoria: d.categoria ?? null, valor: d.valor, vencimento: d.data_vencimento ?? null, pagamento: d.data_pagamento ?? null, pago: d.status === 'pago', recorrente: !!d.recorrente }))}
         />
       </div>
 
