@@ -28,8 +28,13 @@
  * subtotal        = Σ (valor × quantidade) de todos os itens
  * descontoReserva = taxas_reserva pagas dos agendamentos presentes na comanda
  *                   (via `shared/taxa-reserva.ts`), aplicada só depois do desconto manual
- * total    = subtotal − desconto (manual) − descontoReserva (nunca deixa o total negativo)
- * restante = total − Σ splits registrados
+ * desconto        = % ou R$ (calcularDesconto; acima do subtotal bloqueia o fechamento)
+ * total, falta, troco, podeFechar = resumoComanda (shared/comanda-fechamento.ts)
+ * pagamentos      = montarPagamentos (bandeira/parcelas/taxa/líquido; total R$0 → Cortesia)
+ *
+ * ## Edição de comanda fechada
+ * Só os atendimentos da comanda escolhida; desconto manual reaberto em R$; produtos,
+ * pacotes e quantidades só leitura; valores de serviço, desconto e pagamentos editáveis.
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
@@ -49,7 +54,9 @@ import {
   startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
+import { fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao } from '@shared/taxas-cartao';
+import { calcularDesconto, resumoComanda, montarPagamentos, taxaDoSplit, parseValorBR, BANDEIRAS_CARTAO, ROTULOS_BANDEIRA, type ModoDesconto } from '@shared/comanda-fechamento';
+import { mensagemErroBanco } from '@shared/erros';
 import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { agruparValoresPorAgendamento, marcarAgendamentosFechados } from '@shared/comanda';
@@ -95,7 +102,15 @@ type ComandaItem = {
   profissional_id?: string;
 };
 
-type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number };
+/**
+ * Split de pagamento na tela (valor como texto). Reaberto na edição de comanda fechada, carrega
+ * como foi gravado (`taxaGravada`, `metodoGravado`, `parcelasGravadas`, `criadoEm`): a taxa da
+ * época vale enquanto método e parcelas não mudarem (taxaDoSplit / montarPagamentos).
+ */
+type Split = {
+  metodo: string; valor: string; bandeira?: string; parcelas?: number;
+  taxaGravada?: number | null; metodoGravado?: string; parcelasGravadas?: number; criadoEm?: string | null;
+};
 
 type ClienteComanda = {
   id: string;
@@ -112,14 +127,6 @@ const METODOS_PAG = [
   { key: 'credito',  label: 'Crédito',  icon: CreditCard, cor: '#D97706', bg: '#FEF3C7' },
   { key: 'debito',   label: 'Débito',   icon: CreditCard, cor: '#9D174D', bg: '#FDF2F8' },
   { key: 'cortesia', label: 'Cortesia', icon: Gift,        cor: '#6B7280', bg: '#F9FAFB' },
-] as const;
-
-const BANDEIRAS = [
-  { key: 'visa',       label: 'Visa'      },
-  { key: 'mastercard', label: 'Master'    },
-  { key: 'elo',        label: 'Elo'       },
-  { key: 'amex',       label: 'Amex'      },
-  { key: 'hipercard',  label: 'Hipercard' },
 ] as const;
 
 const STATUS_COR: Record<string, string> = {
@@ -152,16 +159,16 @@ type SucessoRecibo = {
   telefone?: string;
   itens: ComandaItem[];
   splits: Split[];
-  desconto: number;         // desconto manual (percentual aplicado sobre o subtotal), sem a taxa de reserva
+  desconto: number;         // desconto manual em R$ (digitado em % ou R$), sem a taxa de reserva
   descontoReserva: number;  // taxa de reserva já paga, descontada separadamente do total
   data: Date;
 };
 
+/** Comanda só com extras que falhou depois de criada (mesmo texto no app). */
+const AVISO_COMANDA_PARCIAL = 'A comanda foi criada mas não terminou de gravar — confira em Comanda/Financeiro antes de lançar de novo';
+
 const MET_LABELS: Record<string, string> = {
   dinheiro: 'Dinheiro', pix: 'PIX', credito: 'Crédito', debito: 'Débito', cortesia: 'Cortesia',
-};
-const BAND_LABELS: Record<string, string> = {
-  visa: 'Visa', mastercard: 'Master', elo: 'Elo', amex: 'Amex', hipercard: 'Hipercard',
 };
 
 function gerarTextoRecibo(s: SucessoRecibo): string {
@@ -181,9 +188,9 @@ function gerarTextoRecibo(s: SucessoRecibo): string {
     ``,
     `*Pagamento:*`,
     ...s.splits.map(sp => {
-      const valorN = parseFloat(sp.valor.replace(',', '.'));
+      const valorN = parseValorBR(sp.valor);
       let label = MET_LABELS[sp.metodo] ?? sp.metodo;
-      if (sp.bandeira) label += ` ${BAND_LABELS[sp.bandeira] ?? sp.bandeira}`;
+      if (sp.bandeira) label += ` ${ROTULOS_BANDEIRA[sp.bandeira] ?? sp.bandeira}`;
       if (sp.metodo === 'credito' && (sp.parcelas ?? 1) > 1) label += ` ${sp.parcelas}x`;
       return `• ${label} — ${fmtBRL(valorN)}`;
     }),
@@ -202,6 +209,7 @@ export default function ComandaPage() {
   const podeOutras        = pode('agenda.gerenciar_outras');
   const [meuUserId,         setMeuUserId]         = useState('');
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
+  const [taxas,             setTaxas]             = useState<TaxasCartao>(TAXAS_PADRAO);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
@@ -232,7 +240,9 @@ export default function ComandaPage() {
   // Comanda em aberto
   const [clienteSel, setClienteSel] = useState<ClienteComanda | null>(null);
   const [itens,      setItens]      = useState<ComandaItem[]>([]);
-  const [descontoPct, setDescontoPct] = useState('');
+  // Desconto manual: o que a pessoa digitou + se é % ou R$ (grava-se sempre o valor em reais)
+  const [descontoEntrada, setDescontoEntrada] = useState('');
+  const [descontoModo,    setDescontoModo]    = useState<ModoDesconto>('percentual');
   const [splits,     setSplits]     = useState<Split[]>([]);
   const [fechando,   setFechando]   = useState(false);
   const [toast,      setToast]      = useState('');
@@ -240,6 +250,9 @@ export default function ComandaPage() {
   const [erro,       setErro]       = useState('');
   // Próximo cliente da fila (comanda aberta + horário já passou) — para avançar sem precisar voltar
   const [proximoCliente, setProximoCliente] = useState<ClienteComanda | null>(null);
+  // Comandas só com extras que foram criadas mas falharam numa etapa seguinte (cliente → comanda_id):
+  // bloqueiam um novo fechamento da mesma cliente nesta tela (ver falharAposCriar).
+  const [comandasParciais, setComandasParciais] = useState<Record<string, string>>({});
 
   // Avança automaticamente para a próxima comanda em aberto após fechar a atual
   useEffect(() => {
@@ -261,7 +274,12 @@ export default function ComandaPage() {
       const { data } = await supabase
         .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (data) setEmpresaId(data.empresa_id);
+      if (data) {
+        setEmpresaId(data.empresa_id);
+        // select('*'): as colunas de taxa (migration 084) podem ainda não existir
+        const { data: emp } = await supabase.from('empresas').select('*').eq('id', data.empresa_id).single();
+        setTaxas(taxasDaEmpresa(emp as Record<string, unknown> | null));
+      }
     })();
   }, []);
 
@@ -451,7 +469,8 @@ export default function ComandaPage() {
     setClienteSel(cliente);
     setComandaExistenteId(null);
     setErro('');
-    setDescontoPct('');
+    setDescontoEntrada('');
+    setDescontoModo('percentual');
     setSplits([]);
 
     // Atendimentos já vinculados a um pacote na Agenda (ou numa comanda
@@ -515,18 +534,21 @@ export default function ComandaPage() {
 
     setClienteSel(cliente);
     setComandaExistenteId(comandaId);
-    setErro(''); setDescontoPct(''); setSplits([]);
+    setErro(''); setDescontoEntrada(''); setDescontoModo('valor'); setSplits([]); setItens([]);
+    // Só os atendimentos DESTA comanda: a mesma cliente pode ter mais de uma
+    // comanda no dia, e misturá-las regravaria valores/pagamentos da outra.
+    const agsDaComanda = cliente.agendamentos.filter(ag => ag.comanda_id === comandaId);
     // Semeia (só pra exibição — vincular pacote fica fora de escopo em
     // edição de comanda já fechada, ver bloco abaixo) a partir do vínculo
     // que já está gravado no banco, senão o badge "Sessão de pacote" some
     // ao reabrir um atendimento que já estava corretamente vinculado.
     const linksExistentes: Record<string, string> = {};
-    for (const ag of cliente.agendamentos) {
+    for (const ag of agsDaComanda) {
       if (ag.pacote_cliente_id) linksExistentes[ag.id] = ag.pacote_cliente_id;
     }
     setPacoteLinks(linksExistentes);
 
-    const agItems: ComandaItem[] = cliente.agendamentos.flatMap(ag => {
+    const agItems: ComandaItem[] = agsDaComanda.flatMap(ag => {
       const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
       if (servicos.length > 0) {
         return servicos.map(s => ({
@@ -551,13 +573,27 @@ export default function ComandaPage() {
       }];
     });
 
-    const [{ data: cmd }, { data: extraItems }, { data: pags }] = await Promise.all([
-      supabase.from('comandas').select('desconto').eq('id', comandaId).single(),
+    const [rCmd, rItens, rPags] = await Promise.all([
+      supabase.from('comandas').select('desconto, desconto_reserva').eq('id', comandaId).single(),
       supabase.from('comanda_itens').select('tipo,descricao,servico_id,produto_id,pacote_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId),
-      supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas').eq('comanda_id', comandaId),
+      // taxa_perc e created_at: o pagamento reaberto mantém a taxa e a data de quando foi lançado
+      supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas,taxa_perc,created_at').eq('comanda_id', comandaId).order('created_at'),
     ]);
+    // Sem os dados gravados não dá para editar com segurança (salvar zeraria desconto/itens/
+    // pagamentos): mostra o erro e deixa a comanda sem itens (botão Salvar desabilitado).
+    const errCarga = rCmd.error ?? rItens.error ?? rPags.error;
+    if (errCarga) {
+      setItens([]);
+      setErro(mensagemErroBanco(errCarga, 'abrir a comanda'));
+      return;
+    }
+    const cmd = rCmd.data as { desconto: number | null; desconto_reserva: number | null } | null;
+    const extraItems = rItens.data;
+    const pags = rPags.data;
 
-    setDescontoPct('');
+    // `comandas.desconto` guarda manual + taxa de reserva; reabre só a parte manual, em R$.
+    const descontoManual = Math.max(Number(cmd?.desconto ?? 0) - Number(cmd?.desconto_reserva ?? 0), 0);
+    setDescontoEntrada(descontoManual > 0 ? descontoManual.toFixed(2).replace('.', ',') : '');
 
     const extras: ComandaItem[] = (extraItems ?? []).map((item: any) => ({
       uid: uid(), tipo: item.tipo as 'servico' | 'produto' | 'pacote',
@@ -575,6 +611,10 @@ export default function ComandaPage() {
       valor:    Number(p.valor).toFixed(2).replace('.', ','),
       bandeira: p.bandeira ?? undefined,
       parcelas: p.parcelas ?? 1,
+      taxaGravada:      p.taxa_perc == null ? null : Number(p.taxa_perc),
+      metodoGravado:    p.metodo,
+      parcelasGravadas: p.parcelas ?? 1,
+      criadoEm:         p.created_at ?? null,
     })));
   }
 
@@ -588,19 +628,23 @@ export default function ComandaPage() {
    * é `{ status: 'concluido', comanda_id }`, para o `trg_gerar_comissao` já
    * nascer com o valor certo. Espelha o novo valor no estado local para a
    * comanda reabrir correta. Retorna string de erro (aborta) ou null.
+   *
+   * Ordem por atendimento: PRIMEIRO o UPDATE de `agendamentos` (valor, status, comanda_id e
+   * vínculo de pacote), DEPOIS as linhas de `agendamento_servicos`. Ao contrário, uma falha no
+   * UPDATE do atendimento deixava as linhas zeradas pelo pacote sem o vínculo gravado — o item
+   * reabria R$ 0 sem pacote (receita perdida). Os triggers (065/075/078) não leem
+   * `agendamento_servicos`, então gravá-las depois não muda comissão nem uso de pacote.
    */
   async function persistirValoresAgendamento(
     extraUpdate: Record<string, unknown> = {},
     pacoteLinksPorAgendamento: Record<string, string | null> = {},
   ): Promise<string | null> {
     const grupos = agruparValoresPorAgendamento(itens, pacoteLinksPorAgendamento);
+    const ehFechamento = 'comanda_id' in extraUpdate;
+    const erroLinhas = ehFechamento
+      ? 'O atendimento foi fechado, mas os valores dos serviços não foram salvos — abra a comanda fechada e confira os valores.'
+      : 'O valor do atendimento foi salvo, mas os valores dos serviços não — abra a comanda de novo e confira os valores.';
     for (const g of grupos) {
-      for (const linha of g.linhasServico) {
-        const { data, error } = await supabase.from('agendamento_servicos')
-          .update({ valor: linha.valor }).eq('id', linha.agServicoId).select('id');
-        if (error) return error.message;
-        if (!data || data.length === 0) return 'Não foi possível salvar o valor de um serviço do atendimento.';
-      }
       const { data, error } = await supabase.from('agendamentos')
         .update({
           valor: g.novoValorTotal,
@@ -613,6 +657,11 @@ export default function ComandaPage() {
         .eq('id', g.agendamentoId).select('id');
       if (error) return error.message;
       if (!data || data.length === 0) return 'Não foi possível salvar o valor do atendimento.';
+      for (const linha of g.linhasServico) {
+        const { data: dLinha, error: eLinha } = await supabase.from('agendamento_servicos')
+          .update({ valor: linha.valor }).eq('id', linha.agServicoId).select('id');
+        if (eLinha || !dLinha || dLinha.length === 0) return erroLinhas;
+      }
     }
     setAgDia(prev => prev.map(ag => {
       const g = grupos.find(x => x.agendamentoId === ag.id);
@@ -655,29 +704,27 @@ export default function ComandaPage() {
   async function editarComanda(comandaId: string) {
     setFechando(true); setErro('');
 
-    // Troca itens/pagamentos por DELETE + INSERT. Faz os DELETEs primeiro e
-    // confere que apagaram — sem a policy da migration 075 o DELETE de
-    // `pagamentos` falha em silêncio e os splits duplicam a cada save.
-    // Abortar aqui deixa a comanda intacta (nada foi escrito ainda).
-    await supabase.from('comanda_itens').delete().eq('comanda_id', comandaId);
-    const errItensDel = await conferirDeleteVazio('comanda_itens', comandaId);
-    if (errItensDel) { setErro(errItensDel); setFechando(false); return; }
-
-    await supabase.from('pagamentos').delete().eq('comanda_id', comandaId);
-    const errPagDel = await conferirDeleteVazio('pagamentos', comandaId);
-    if (errPagDel) { setErro(errPagDel); setFechando(false); return; }
-
-    const { error: errCmd } = await supabase.from('comandas')
+    // Ordem: 1) UPDATE da comanda (com .select: RLS barrando devolve 0 linhas sem erro);
+    // 2) valores dos atendimentos; 3) apagar + reinserir itens; 4) apagar + reinserir
+    // pagamentos. Cada DELETE é conferido (conferirDeleteVazio) — sem a policy da migration
+    // 075 o DELETE de `pagamentos` falha em silêncio e os splits duplicariam a cada save.
+    const { data: cmdAtualizada, error: errCmd } = await supabase.from('comandas')
       .update({ valor_total: subtotal, desconto: descontoN + descontoReservaAplicado, desconto_reserva: descontoReservaAplicado })
-      .eq('id', comandaId);
-    if (errCmd) { setErro(errCmd.message); setFechando(false); return; }
+      .eq('id', comandaId).select('id');
+    if (errCmd || !cmdAtualizada || cmdAtualizada.length === 0) {
+      setErro(mensagemErroBanco(errCmd, 'salvar a comanda')); setFechando(false); return;
+    }
 
     // Persiste o valor editado dos procedimentos no próprio atendimento
     // (dispara o trigger de sincronização da comissão — migration 075).
     const errValor = await persistirValoresAgendamento();
     if (errValor) { setErro(errValor); setFechando(false); return; }
 
-    // Reinsere itens extras
+    // Troca os itens extras: apaga, confere que apagou, reinsere
+    await supabase.from('comanda_itens').delete().eq('comanda_id', comandaId);
+    const errItensDel = await conferirDeleteVazio('comanda_itens', comandaId);
+    if (errItensDel) { setErro(errItensDel); setFechando(false); return; }
+
     const extras = itens.filter(i => i.tipo !== 'agendamento');
     if (extras.length > 0) {
       const { error: errItens } = await supabase.from('comanda_itens').insert(
@@ -694,35 +741,25 @@ export default function ComandaPage() {
       if (errItens) { setErro(errItens.message); setFechando(false); return; }
     }
 
-    // Reinsere pagamentos
-    const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
-    if (splitsValidos.length > 0) {
-      const { error: errPag } = await supabase.from('pagamentos').insert(
-        splitsValidos.map(s => {
-          const v    = parseFloat(s.valor.replace(',', '.'));
-          const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
-          const taxa = calcTaxa(s.metodo, parc);
-          return {
-            empresa_id:    empresaId,
-            comanda_id:    comandaId,
-            valor:         v,
-            metodo:        s.metodo,
-            bandeira:      (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
-            parcelas:      parc,
-            taxa_perc:     taxa > 0 ? taxa : null,
-            valor_liquido: taxa > 0 ? valorLiquido(v, taxa) : null,
-            status:        'pago',
-          };
-        })
-      );
-      if (errPag) { setErro(errPag.message); setFechando(false); return; }
+    // Troca os pagamentos: apaga, confere que apagou, reinsere pela regra única
+    // (total R$0 sem pagamento → Cortesia R$0; reabertos mantêm taxa e data — montarPagamentos)
+    await supabase.from('pagamentos').delete().eq('comanda_id', comandaId);
+    const errPagDel = await conferirDeleteVazio('pagamentos', comandaId);
+    if (errPagDel) { setErro(errPagDel); setFechando(false); return; }
+
+    if (empresaId) {
+      const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
+      if (linhasPag.length > 0) {
+        const { error: errPag } = await supabase.from('pagamentos').insert(linhasPag);
+        if (errPag) { setErro(mensagemErroBanco(errPag, 'salvar a comanda')); setFechando(false); return; }
+      }
     }
 
     setFechando(false);
     const nomeCliente = clienteSel?.nome ?? '—';
     const telefoneCliente = clienteSel?.telefone;
     const reciboItens = [...itens];
-    const reciboSplits = [...splits];
+    const reciboSplits = splitsParaRecibo();
     const reciboDesconto = descontoN;
     const reciboDescontoReserva = descontoReservaAplicado;
     setClienteSel(null);
@@ -784,13 +821,16 @@ export default function ComandaPage() {
     }));
   }
 
+  // Mesma leitura de valor dos pagamentos (parseValorBR): '1.234,56' não vira 1,234.
+  // Texto sem nenhum dígito mantém o valor anterior; '0' zera de propósito.
   function atualizarValor(u: string, v: string) {
-    const n = parseFloat(v.replace(',', '.'));
-    setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: isNaN(n) ? i.valor : n } : i));
+    if (!/\d/.test(v)) return;
+    const n = parseValorBR(v);
+    setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: n } : i));
   }
   function atualizarQtd(u: string, v: string) {
-    const n = parseFloat(v.replace(',', '.'));
-    setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: isNaN(n) || n <= 0 ? 1 : n } : i));
+    const n = parseValorBR(v);
+    setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: n > 0 ? n : 1 } : i));
   }
   function atualizarProfissional(u: string, profId: string) {
     const m = membros.find(x => x.id === profId);
@@ -801,17 +841,31 @@ export default function ComandaPage() {
 
   // ── Totais
   const subtotal  = itens.reduce((s, i) => s + i.valor * i.quantidade, 0);
-  const descontoPctN = parseFloat(descontoPct.replace(',', '.')) || 0;
-  const descontoN    = subtotal * (descontoPctN / 100);
+  const descontoEntradaN = parseValorBR(descontoEntrada);
+  const { valor: descontoN, erro: erroDesconto } = calcularDesconto(subtotal, descontoEntradaN, descontoModo);
   const agendamentoIdsNaComanda = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
   const descontoReservaN = somarTaxasReservaPagas(agendamentoIdsNaComanda, taxasReservaPagas);
-  const { total, descontoReservaAplicado } = aplicarDescontoReserva(subtotal, descontoN, descontoReservaN);
-  const recebido  = splits.reduce((s, x) => s + (parseFloat(x.valor.replace(',', '.')) || 0), 0);
-  const restante  = total - recebido;
+  const { descontoReservaAplicado } = aplicarDescontoReserva(subtotal, descontoN, descontoReservaN);
+  // Splits já convertidos em número (aceita '10,50', '10.50', '1.234,56', 'R$ 10,00')
+  const splitsNumericos = splits.map(s => ({ ...s, valor: parseValorBR(s.valor) }));
+  const resumo = resumoComanda({
+    subtotal, desconto: descontoN, erroDesconto, descontoReserva: descontoReservaAplicado, splits: splitsNumericos,
+  });
+  const { total, recebido, falta, troco } = resumo;
+
+  /**
+   * Pagamentos do recibo/tela de sucesso: os lançados; com a Cortesia automática (total R$ 0
+   * sem pagamento — a mesma linha que montarPagamentos grava) mostra "Cortesia R$ 0,00".
+   */
+  function splitsParaRecibo(): Split[] {
+    const lancados = splits.filter(s => parseValorBR(s.valor) > 0);
+    if (lancados.length === 0 && resumo.cortesiaAutomatica) return [{ metodo: 'cortesia', valor: '0,00' }];
+    return [...splits];
+  }
 
   // ── Splits de pagamento
   function adicionarSplit(metodo: string) {
-    const valorPre = Math.max(restante, 0);
+    const valorPre = falta;
     setSplits(prev => [...prev, {
       metodo,
       valor: valorPre > 0 ? valorPre.toFixed(2).replace('.', ',') : '',
@@ -833,7 +887,11 @@ export default function ComandaPage() {
   // ── Fechar / salvar comanda
   async function fecharComanda() {
     if (!clienteSel || !empresaId || fechando) return;
+    // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
+    if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível fechar a comanda.'); return; }
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
+    // Comanda desta cliente criada e não terminada nesta tela: nada de um segundo INSERT.
+    if (comandasParciais[clienteSel.id]) { setErro(AVISO_COMANDA_PARCIAL); return; }
     // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois de a
     // comanda já ter sido criada — barra antes de gravar qualquer coisa.
     if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
@@ -870,7 +928,7 @@ export default function ComandaPage() {
       }).select('id').single();
 
     if (errComanda || !comanda) {
-      setErro(errComanda?.message ?? 'Erro ao criar comanda');
+      setErro(mensagemErroBanco(errComanda, 'fechar a comanda'));
       setFechando(false); return;
     }
 
@@ -879,6 +937,15 @@ export default function ComandaPage() {
     // Ids dos atendimentos que ainda estão na comanda agora.
     const agIds = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);
     const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
+
+    // Falha depois de a comanda já existir. Comanda só com extras não tem atendimento que a
+    // "trave" (a checagem de duplicado acima só olha atendimentos): guarda o id e bloqueia
+    // um novo fechamento nesta tela, senão venda/estoque/receita seriam lançados de novo.
+    const clienteId = clienteSel.id;
+    const falharAposCriar = (msg: string) => {
+      if (agIds.length === 0) setComandasParciais(prev => ({ ...prev, [clienteId]: comandaId }));
+      setErro(msg); setFechando(false);
+    };
 
     // 2. Marcar agendamentos como concluídos + gravar o valor cobrado (e o
     //    vínculo de pacote, se houver) no mesmo UPDATE do status — pra o
@@ -909,7 +976,7 @@ export default function ComandaPage() {
           valor_unit:      i.valor,
         }))
       );
-      if (errItens) { setErro(errItens.message); setFechando(false); return; }
+      if (errItens) { falharAposCriar(mensagemErroBanco(errItens, 'gravar os itens da comanda')); return; }
     }
 
     // 3d. Vender pacotes adicionados na comanda (gera pacote_clientes para o cliente)
@@ -935,19 +1002,20 @@ export default function ComandaPage() {
       });
       if (novasVendas.length > 0) {
         const { error: errPac } = await supabase.from('pacote_clientes').insert(novasVendas);
-        if (errPac) { setErro(errPac.message); setFechando(false); return; }
+        if (errPac) { falharAposCriar(mensagemErroBanco(errPac, 'vender o pacote')); return; }
 
         // Registra a venda do pacote como faturamento (uma vez, no ato).
         // As sessões consumidas depois NÃO contam como receita.
         const totalPacotes = novasVendas.reduce((s, v) => s + Number(v.valor_pago ?? 0), 0);
         if (totalPacotes > 0) {
-          await supabase.from('vendas').insert({
+          const { error: errVendaPac } = await supabase.from('vendas').insert({
             empresa_id:  empresaId,
             cliente_id:  clienteSel.id,
             valor_total: totalPacotes,
             desconto:    0,
             observacao:  `Pacote(s) via comanda`,
           });
+          if (errVendaPac) { falharAposCriar(mensagemErroBanco(errVendaPac, 'registrar a venda do pacote')); return; }
         }
       }
     }
@@ -966,62 +1034,44 @@ export default function ComandaPage() {
           agendamento_id: agIds[0] ?? null,
         }))
       );
-      if (errEst) { setErro(errEst.message); setFechando(false); return; }
+      // Igual ao app: a baixa de estoque só avisa e o fechamento segue — abortar aqui deixaria
+      // a comanda pela metade, e a edição não permite refazer produto.
+      if (errEst) alert(`Estoque: ${mensagemErroBanco(errEst, 'baixar o estoque dos produtos')}`);
     }
 
     // 3c. Registrar venda avulsa dos produtos (para histórico do cliente e módulo de vendas)
     if (extrasProdutos.length > 0) {
       const totalProdutos = extrasProdutos.reduce((s, i) => s + i.valor * i.quantidade, 0);
-      const { data: venda } = await supabase.from('vendas').insert({
+      const { data: venda, error: errVenda } = await supabase.from('vendas').insert({
         empresa_id:  empresaId,
         cliente_id:  clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: totalProdutos,
         desconto:    0,
         observacao:  `Via comanda`,
       }).select('id').single();
+      if (errVenda || !venda) { falharAposCriar(mensagemErroBanco(errVenda, 'registrar a venda dos produtos')); return; }
 
-      if (venda) {
-        await supabase.from('venda_itens').insert(
-          extrasProdutos.map(i => ({
-            empresa_id:     empresaId,
-            venda_id:       venda.id,
-            produto_id:     i.produto_id!,
-            quantidade:     i.quantidade,
-            preco_unitario: i.valor,
-          }))
-        );
-      }
+      const { error: errVendaItens } = await supabase.from('venda_itens').insert(
+        extrasProdutos.map(i => ({
+          empresa_id:     empresaId,
+          venda_id:       venda.id,
+          produto_id:     i.produto_id!,
+          quantidade:     i.quantidade,
+          preco_unitario: i.valor,
+        }))
+      );
+      if (errVendaItens) { falharAposCriar(mensagemErroBanco(errVendaItens, 'registrar os itens da venda dos produtos')); return; }
     }
 
-    // 4. Inserir pagamentos — se nenhum split foi lançado e o total já
-    //    fechou em R$ 0 (sessão de pacote ou desconto manual de 100%),
-    //    grava um "Cortesia" de R$ 0 em vez de deixar sem nenhum registro:
-    //    fica claro no relatório de formas de pagamento que esse
-    //    fechamento não gerou cobrança nova, sem somar nada na receita.
-    const splitsValidos = splits.filter(s => parseFloat(s.valor.replace(',', '.')) > 0);
-    const splitsParaGravar = splitsValidos.length === 0 && total <= 0.01
-      ? [{ metodo: 'cortesia', valor: '0' }]
-      : splitsValidos;
-    if (splitsParaGravar.length > 0) {
-      const { error: errPag } = await supabase.from('pagamentos').insert(
-        splitsParaGravar.map(s => {
-          const v    = parseFloat(s.valor.replace(',', '.'));
-          const parc = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
-          const taxa = calcTaxa(s.metodo, parc);
-          return {
-            empresa_id:    empresaId,
-            comanda_id:    comandaId,
-            valor:         v,
-            metodo:        s.metodo,
-            bandeira:      (s.metodo === 'credito' || s.metodo === 'debito') ? (s.bandeira ?? null) : null,
-            parcelas:      parc,
-            taxa_perc:     taxa > 0 ? taxa : null,
-            valor_liquido: taxa > 0 ? valorLiquido(v, taxa) : null,
-            status:        'pago',
-          };
-        })
-      );
-      if (errPag) { setErro(errPag.message); setFechando(false); return; }
+    // 4. Inserir pagamentos pela regra única (montarPagamentos): cartão com
+    //    bandeira/parcelas/taxa/líquido; se nenhum split foi lançado e o total
+    //    fechou em R$ 0 (sessão de pacote ou desconto de 100%), grava uma
+    //    "Cortesia" de R$ 0 — fica claro no relatório de formas de pagamento
+    //    que esse fechamento não gerou cobrança nova, sem somar na receita.
+    const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
+    if (linhasPag.length > 0) {
+      const { error: errPag } = await supabase.from('pagamentos').insert(linhasPag);
+      if (errPag) { falharAposCriar(mensagemErroBanco(errPag, 'lançar o pagamento')); return; }
     }
 
     setFechando(false);
@@ -1034,7 +1084,7 @@ export default function ComandaPage() {
     const nomeCliente = clienteSel.nome;
     const telefoneCliente = clienteSel.telefone;
     const reciboItens = [...itens];
-    const reciboSplits = [...splits];
+    const reciboSplits = splitsParaRecibo();
     const reciboDesconto = descontoN;
     const reciboDescontoReserva = descontoReservaAplicado;
     setProximoCliente(proximoClienteAberto(clienteSel.id));
@@ -1303,7 +1353,7 @@ export default function ComandaPage() {
                         </div>
                         <span className="text-sm font-semibold text-text">{m.label}</span>
                         <span className="text-xs text-text-4 ml-auto">
-                          {fmtBRL(parseFloat(s.valor.replace(',', '.')) || 0)}
+                          {fmtBRL(parseValorBR(s.valor))}
                         </span>
                       </div>
                     );
@@ -1405,7 +1455,19 @@ export default function ComandaPage() {
                     Serviços
                   </p>
                   <div className="flex flex-col gap-2">
-                    {itens.map(item => (
+                    {itens.map(item => {
+                      // Edição de comanda fechada: produto/pacote já baixaram estoque ou
+                      // foram vendidos no fechamento — valor, quantidade e remoção ficam
+                      // só leitura. Atendimento também não sai da comanda (continuaria
+                      // concluído com esta comanda_id, contando na receita).
+                      const emEdicao = !!comandaExistenteId;
+                      const itemSoLeitura = emEdicao && (item.tipo === 'produto' || item.tipo === 'pacote');
+                      // Atendimento coberto por sessão de pacote: valor travado em R$ 0 (para cobrar,
+                      // desvincule o pacote) — no fechamento novo e na edição.
+                      const cobertoPorPacote = item.tipo === 'agendamento' && !!item.agendamento_id && !!pacoteLinks[item.agendamento_id];
+                      const valorSoLeitura = itemSoLeitura || cobertoPorPacote;
+                      const podeRemover = !emEdicao || item.tipo === 'servico';
+                      return (
                       <div key={item.uid}
                         className={`rounded-xl px-4 py-3 border ${
                           item.tipo === 'agendamento'
@@ -1433,27 +1495,37 @@ export default function ComandaPage() {
                               <span className="text-xs text-text-3">Qtd</span>
                               <input
                                 defaultValue={item.quantidade}
-                                onBlur={e => atualizarQtd(item.uid, e.target.value)}
+                                onBlur={e => { if (!emEdicao) atualizarQtd(item.uid, e.target.value); }}
+                                readOnly={emEdicao}
+                                title={emEdicao ? 'Quantidade não muda na edição de comanda fechada' : undefined}
                                 inputMode="decimal"
-                                className="w-14 h-8 px-2 text-sm text-center font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition"
+                                className={`w-14 h-8 px-2 text-sm text-center font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition ${emEdicao ? 'opacity-60 cursor-not-allowed' : ''}`}
                               />
                             </div>
                           )}
-                          {/* Valor editável */}
+                          {/* Valor editável (produto/pacote só leitura em edição) */}
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <span className="text-xs text-text-3">R$</span>
                             <input
+                              // key pelo valor: vincular/desvincular pacote muda o valor e o campo precisa refletir
+                              key={item.valor}
                               defaultValue={item.valor.toFixed(2).replace('.', ',')}
-                              onBlur={e => atualizarValor(item.uid, e.target.value)}
+                              onBlur={e => { if (!valorSoLeitura) atualizarValor(item.uid, e.target.value); }}
+                              readOnly={valorSoLeitura}
+                              title={cobertoPorPacote ? 'Coberto por sessão de pacote — desvincule para cobrar' : itemSoLeitura ? 'Produtos e pacotes não mudam na edição de comanda fechada' : undefined}
                               inputMode="decimal"
-                              className="w-20 h-8 px-2 text-sm text-right font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition"
+                              className={`w-20 h-8 px-2 text-sm text-right font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition ${valorSoLeitura ? 'opacity-60 cursor-not-allowed' : ''}`}
                             />
                           </div>
-                          <button onClick={() => removerItem(item.uid)}
-                            title={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : 'Remover'}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
-                            <Trash2 size={13}/>
-                          </button>
+                          {podeRemover ? (
+                            <button onClick={() => removerItem(item.uid)}
+                              title={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : 'Remover'}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
+                              <Trash2 size={13}/>
+                            </button>
+                          ) : (
+                            <span className="w-7 h-7 flex-shrink-0" aria-hidden/>
+                          )}
                         </div>
                         {/* Seletor de profissional para serviços extras */}
                         {item.tipo === 'servico' && (
@@ -1521,7 +1593,8 @@ export default function ComandaPage() {
                           );
                         })()}
                       </div>
-                    ))}
+                      );
+                    })}
 
                     {/* Adicionar serviço extra */}
                     <SearchSelect
@@ -1530,15 +1603,17 @@ export default function ComandaPage() {
                       onChange={adicionarServico}
                       placeholder="+ Adicionar serviço extra..."
                     />
-                    {/* Adicionar produto */}
+                    {/* Adicionar produto — não em edição: editarComanda não baixa estoque nem registra venda */}
+                    {!comandaExistenteId && (
                     <SearchSelect
                       options={produtos.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco_venda) }))}
                       value=""
                       onChange={adicionarProduto}
                       placeholder="+ Adicionar produto / bebida..."
                     />
-                    {/* Vender pacote (requer cliente cadastrado) */}
-                    {podeVenderPacote && clienteSel && clienteSel.id !== '__sem__' && (
+                    )}
+                    {/* Vender pacote (requer cliente cadastrado) — não em edição: editarComanda não vende pacote */}
+                    {!comandaExistenteId && podeVenderPacote && clienteSel && clienteSel.id !== '__sem__' && (
                       <SearchSelect
                         options={pacotesCat.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
                         value=""
@@ -1558,17 +1633,31 @@ export default function ComandaPage() {
                   <div className="flex items-center gap-3 bg-bg rounded-xl px-4 py-3 border border-border">
                     <Tag size={16} className="text-text-3 flex-shrink-0"/>
                     <span className="text-sm text-text-2 flex-1">Desconto</span>
+                    {/* Seletor % / R$ — trocar o modo limpa o valor para não reinterpretar o número */}
+                    <div className="flex rounded-lg border border-border overflow-hidden flex-shrink-0">
+                      {([['percentual', '%'], ['valor', 'R$']] as const).map(([modo, rotulo]) => (
+                        <button key={modo} type="button"
+                          onClick={() => { if (descontoModo !== modo) { setDescontoModo(modo); setDescontoEntrada(''); } }}
+                          aria-pressed={descontoModo === modo}
+                          className={`h-8 px-2.5 text-xs font-bold transition ${descontoModo === modo ? 'bg-primary text-white' : 'bg-surface text-text-3 hover:text-text'}`}>
+                          {rotulo}
+                        </button>
+                      ))}
+                    </div>
                     <div className="relative">
                       <input
-                        value={descontoPct}
-                        onChange={e => setDescontoPct(e.target.value)}
+                        value={descontoEntrada}
+                        onChange={e => setDescontoEntrada(e.target.value)}
                         inputMode="decimal"
-                        placeholder="0"
-                        className="w-20 h-8 px-2 pr-7 text-sm text-right rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition font-semibold"
+                        placeholder={descontoModo === 'percentual' ? '0' : '0,00'}
+                        className={`w-24 h-8 px-2 pr-7 text-sm text-right rounded-lg border bg-surface focus:outline-none focus:border-accent transition font-semibold ${erroDesconto ? 'border-red' : 'border-border'}`}
                       />
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-text-3 font-bold">%</span>
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-text-3 font-bold">{descontoModo === 'percentual' ? '%' : 'R$'}</span>
                     </div>
                   </div>
+                  {erroDesconto && (
+                    <p className="text-xs text-red font-semibold mt-2">{erroDesconto}</p>
+                  )}
                 </section>
                 )}
 
@@ -1586,7 +1675,7 @@ export default function ComandaPage() {
                   )}
                   {descontoN > 0 && (
                     <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                      <span className="text-sm text-text-2">(−) Desconto <span className="text-xs text-text-4">{descontoPctN}%</span></span>
+                      <span className="text-sm text-text-2">(−) Desconto {descontoModo === 'percentual' && <span className="text-xs text-text-4">{String(descontoEntradaN).replace('.', ',')}%</span>}</span>
                       <span className="text-sm font-semibold text-red">− <Secret>{fmtBRL(descontoN)}</Secret></span>
                     </div>
                   )}
@@ -1641,7 +1730,7 @@ export default function ComandaPage() {
                             </div>
                             {isCard && (
                               <div className="flex gap-1.5 flex-wrap">
-                                {BANDEIRAS.map(b => (
+                                {BANDEIRAS_CARTAO.map(b => (
                                   <button key={b.key} type="button" onClick={() => atualizarSplitBandeira(i, b.key)}
                                     className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
                                       s.bandeira === b.key
@@ -1669,8 +1758,9 @@ export default function ComandaPage() {
                               </div>
                             )}
                             {isCard && (() => {
-                              const valorN = parseFloat(s.valor.replace(',', '.')) || 0;
-                              const taxa   = calcTaxa(s.metodo, s.parcelas ?? 1);
+                              const valorN = parseValorBR(s.valor);
+                              // Pagamento reaberto e não alterado mostra a taxa gravada (a mesma que será salva)
+                              const taxa   = taxaDoSplit(s, taxas);
                               const liq    = valorLiquido(valorN, taxa);
                               if (!valorN) return null;
                               return (
@@ -1689,9 +1779,9 @@ export default function ComandaPage() {
                   {/* Resumo de pagamento */}
                   {splits.length > 0 && (
                     <div className={`rounded-xl p-4 border ${
-                      Math.abs(restante) < 0.01
+                      falta <= 0.01 && troco <= 0.01
                         ? 'bg-green-soft border-green/20'
-                        : restante > 0
+                        : falta > 0.01
                         ? 'bg-amber-soft border-amber/20'
                         : 'bg-primary-soft border-primary/20'
                     }`}>
@@ -1699,19 +1789,19 @@ export default function ComandaPage() {
                         <span className="text-sm text-text-2">Recebido</span>
                         <span className="text-sm font-bold text-text"><Secret>{fmtBRL(recebido)}</Secret></span>
                       </div>
-                      {restante > 0.01 && (
+                      {falta > 0.01 && (
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-sm font-semibold text-amber">Falta</span>
-                          <span className="text-sm font-bold text-amber"><Secret>{fmtBRL(restante)}</Secret></span>
+                          <span className="text-sm font-bold text-amber"><Secret>{fmtBRL(falta)}</Secret></span>
                         </div>
                       )}
-                      {restante < -0.01 && (
+                      {troco > 0.01 && (
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-sm font-semibold text-primary">Troco</span>
-                          <span className="text-sm font-bold text-primary"><Secret>{fmtBRL(-restante)}</Secret></span>
+                          <span className="text-sm font-bold text-primary"><Secret>{fmtBRL(troco)}</Secret></span>
                         </div>
                       )}
-                      {Math.abs(restante) < 0.01 && (
+                      {falta <= 0.01 && troco <= 0.01 && (
                         <div className="flex items-center justify-center gap-1.5 mt-2">
                           <Check size={14} className="text-green" strokeWidth={3}/>
                           <span className="text-green text-sm font-bold">Valor quitado</span>
@@ -1740,7 +1830,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || !empresaId || (total > 0.01 && (splits.length === 0 || restante > 0.01)) || (!comandaExistenteId && !podeFechar)}
+                  disabled={fechando || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
                   title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -1753,14 +1843,17 @@ export default function ComandaPage() {
                     </>
                   )}
                 </button>
-                {splits.length === 0 && itens.length > 0 && (
-                  <p className="text-xs text-text-4 text-center mt-2">
-                    Selecione ao menos uma forma de pagamento para fechar
+                {!comandaExistenteId && clienteSel && comandasParciais[clienteSel.id] && (
+                  <p className="text-xs text-center mt-2 font-semibold text-red">{AVISO_COMANDA_PARCIAL}</p>
+                )}
+                {itens.length > 0 && resumo.motivo && (
+                  <p className={`text-xs text-center mt-2 font-semibold ${erroDesconto ? 'text-red' : 'text-amber'}`}>
+                    {resumo.motivo}
                   </p>
                 )}
-                {splits.length > 0 && restante > 0.01 && (
-                  <p className="text-xs text-amber text-center mt-2 font-semibold">
-                    Ainda faltam {fmtBRL(restante)} para cobrir o total
+                {itens.length > 0 && resumo.podeFechar && resumo.cortesiaAutomatica && splits.length === 0 && (
+                  <p className="text-xs text-text-4 text-center mt-2">
+                    Total R$ 0 — será registrado como Cortesia
                   </p>
                 )}
               </div>

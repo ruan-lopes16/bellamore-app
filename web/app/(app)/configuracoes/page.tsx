@@ -12,6 +12,7 @@ import Image from 'next/image';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { PermissoesPanel } from '@/components/permissoes/PermissoesPanel';
 import { mensagemErroBanco } from '@shared/erros';
+import { taxasDaEmpresa, taxaParaCampo, mascararPercentual, campoParaTaxa } from '@shared/taxas-cartao';
 
 const supabase = createClient();
 
@@ -240,6 +241,13 @@ function ConfiguracoesConteudo() {
   const [reservaModo, setReservaModo] = useState<'percentual' | 'fixo'>('percentual');
   const [reservaValor, setReservaValor] = useState('0');
 
+  // Taxas da maquininha (percentual digitado, ex.: "4,99")
+  const [taxaDebito, setTaxaDebito] = useState(taxaParaCampo(taxasDaEmpresa(null).debito));
+  const [taxaCreditoAvista, setTaxaCreditoAvista] = useState(taxaParaCampo(taxasDaEmpresa(null).creditoAvista));
+  const [taxaCreditoParcelado, setTaxaCreditoParcelado] = useState(taxaParaCampo(taxasDaEmpresa(null).creditoParcelado));
+  // Colunas taxa_cartao_* só existem depois da migration 084 — sem elas, não enviar (o UPDATE inteiro falharia).
+  const [temColunasCartao, setTemColunasCartao] = useState(false);
+
   // Campos empresa
   const [nome,      setNome]      = useState('');
   const [segmento,  setSegmento]  = useState('Estúdio');
@@ -306,7 +314,7 @@ function ConfiguracoesConteudo() {
       setEmpresaId(membro.empresa_id);
 
       const [{ data: empresa }, { data: perfil }] = await Promise.all([
-        supabase.from('empresas').select('nome, segmento, cnpj, telefone, endereco, logo_url, horario_funcionamento, owner_id, meta_mensal, taxa_cancelamento_ativa, taxa_cancelamento_modo, taxa_cancelamento_valor, taxa_cancelamento_aplica_cancelado, taxa_cancelamento_aplica_faltou, taxa_reserva_ativa, taxa_reserva_modo, taxa_reserva_valor')
+        supabase.from('empresas').select('*')
           .eq('id', membro.empresa_id).single(),
         supabase.from('users').select('nome, telefone, notif_resumo_diario, notif_lembrete_atendimento').eq('id', user.id).single(),
       ]);
@@ -329,6 +337,12 @@ function ConfiguracoesConteudo() {
         setReservaAtiva(empresa.taxa_reserva_ativa ?? false);
         setReservaModo((empresa.taxa_reserva_modo as 'percentual' | 'fixo') ?? 'percentual');
         setReservaValor(String(empresa.taxa_reserva_valor ?? 0).replace('.', ','));
+
+        const cartao = taxasDaEmpresa(empresa as Record<string, unknown>);
+        setTemColunasCartao(!!empresa && 'taxa_cartao_debito' in (empresa as Record<string, unknown>));
+        setTaxaDebito(taxaParaCampo(cartao.debito));
+        setTaxaCreditoAvista(taxaParaCampo(cartao.creditoAvista));
+        setTaxaCreditoParcelado(taxaParaCampo(cartao.creditoParcelado));
 
         if (empresa.horario_funcionamento) {
           setHorarios({ ...HORARIO_DEFAULT, ...(empresa.horario_funcionamento as Horarios) });
@@ -464,6 +478,8 @@ function ConfiguracoesConteudo() {
     if (!isOwner && !podeEditarTaxa) { setErro('Você não tem permissão para editar as configurações.'); return; }
     // O CNPJ só é enviado pela dona; a gestora nem vê o campo, então não pode travar nele.
     if (isOwner && cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
+    const cDeb = campoParaTaxa(taxaDebito), cAv = campoParaTaxa(taxaCreditoAvista), cPar = campoParaTaxa(taxaCreditoParcelado);
+    if (temColunasCartao && (cDeb === null || cAv === null || cPar === null)) { setErro('As taxas da maquininha devem estar entre 0% e 20%.'); return; }
     setSalvando(true); setErro('');
 
     const enderecoFinal = [rua, numero, complemento, bairro, localidade].filter(Boolean).join(', ');
@@ -490,6 +506,11 @@ function ConfiguracoesConteudo() {
       taxa_reserva_ativa: reservaAtiva,
       taxa_reserva_modo:  reservaModo,
       taxa_reserva_valor: parseFloat(reservaValor.replace(',', '.')) || 0,
+      ...(temColunasCartao ? {
+      taxa_cartao_debito:             cDeb,
+      taxa_cartao_credito_avista:     cAv,
+      taxa_cartao_credito_parcelado:  cPar,
+      } : {}),
     }).eq('id', empresaId).select('id');
 
     setSalvando(false);
@@ -868,6 +889,32 @@ function ConfiguracoesConteudo() {
                 </div>
               </>
             )}
+          </SectionCard>
+
+          {/* Taxas da maquininha */}
+          <SectionCard title="Taxas da maquininha" icon={Banknote} color="green">
+            <p className="text-xs text-text-3 -mt-1">
+              Percentual descontado pela operadora em cada pagamento no cartão. Valem para os próximos pagamentos; os já registrados mantêm a taxa de quando foram feitos.
+            </p>
+            {/* Antes da migration 084 as colunas não existem: o valor não seria salvo */}
+            {!temColunasCartao && (
+              <p className="text-xs font-semibold text-text-3">Disponível após a atualização do sistema</p>
+            )}
+            {([
+              ['Débito', taxaDebito, setTaxaDebito],
+              ['Crédito à vista', taxaCreditoAvista, setTaxaCreditoAvista],
+              ['Crédito parcelado', taxaCreditoParcelado, setTaxaCreditoParcelado],
+            ] as const).map(([rotulo, valor, setValor]) => (
+              <div key={rotulo}>
+                <label className={labelCls}>{rotulo}</label>
+                <div className="relative">
+                  <input value={valor} onChange={e => setValor(mascararPercentual(e.target.value))}
+                    inputMode="decimal" placeholder="0,00" disabled={!podeEditarTaxa || !temColunasCartao}
+                    className={`${inputCls} pr-9`}/>
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+                </div>
+              </div>
+            ))}
           </SectionCard>
 
           {isOwner && (<>

@@ -979,6 +979,55 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-08 — Paridade Comanda A (fechamento correto)
+
+*Escopo: a comanda passa a fechar pela mesma regra no web e no app (`shared/comanda-fechamento.ts`):*
+*desconto em % ou R$ (sempre gravado em R$), total coberto obrigatório (troco permitido, total zero vira*
+*cortesia automática), cartão com bandeira/parcelas/taxa/valor líquido, valor cobrado por atendimento*
+*gravado nas duas plataformas, erros de cada etapa conferidos. Taxas da maquininha editáveis em*
+*Configurações (migration 084, chave `config.taxas`), lidas de `shared/taxas-cartao.ts` (movido do web).*
+*Na edição de comanda fechada, produtos/quantidades/pacote ficam só leitura. 6 tasks via*
+*subagent-driven-development + revisão final de branch (opus). Spec e plano em `docs/superpowers/`*
+*(`2026-10-08-comanda-a-fechamento-correto`).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 1166/1166; mobile com os mesmos 6 erros pré-existentes, nenhum novo |
+| UX / Padrões    | 9.0  | Mesmo seletor %/R$, mesmos motivos de bloqueio ("Ainda faltam R$ X…") e mesma lista de bandeiras nas duas plataformas; tela de sucesso mostra "Cortesia R$ 0,00" |
+| Segurança       | 9.0  | Migration 084 aditiva (3 colunas com default e CHECK 0–20%); escrita coberta pelo trigger da 083 (`config.taxas`); sem policy nova |
+| Documentação    | 9.0  | Spec + plano; JSDoc pt-BR em `shared/comanda-fechamento.ts` e `shared/taxas-cartao.ts`; cabeçalho da 084 |
+| Arquitetura     | 9.5  | Regra de fechamento, desconto, pagamentos e taxas em `shared/`; Configurações e comanda funcionam antes e depois da 084 (detecção de coluna) |
+| Performance     | 9.0  | Sem query nova cara; taxas vêm na mesma leitura de `empresas` |
+| Visual (UI)     | —    | Sem conta de teste local — não executado |
+| **Completude**  | 9.0  | Fechamento e edição nas duas plataformas; Comanda B (recursos no app) e C (Vendas avulsas/PDV no app) ficam para as próximas fases |
+| **Proatividade**| 9.5  | A revisão final achou e corrigiu a taxa de cartão antiga sendo recalculada na edição, a ordem de gravação que perdia receita e erros de venda não conferidos no web |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Decisões do dono:** desconto escolhido em % ou R$ e sempre gravado em R$; taxas da maquininha editáveis em Configurações; regra única em shared + gravação com conferência; na edição de comanda fechada, produtos e quantidades só leitura.
+
+**Bugs corrigidos:**
+- App fechava comanda sem cobrir o total e sem bandeira/parcelas/taxa; não gravava o valor cobrado por atendimento.
+- Total de R$ 0,01 fechava sem pagamento; valor "1.234,56" lido como 1,234 e "10.50" como 1050 (`parseValorBR`).
+- Editar comanda fechada recalculava a taxa de cartão dos pagamentos antigos com a taxa atual (agora mantém `taxa_perc` e `created_at` do pagamento não alterado).
+- Ordem de gravação: linhas de `agendamento_servicos` antes do UPDATE de `agendamentos` podiam deixar item zerado sem pacote (receita perdida) — invertido nas duas plataformas.
+- Web não conferia erro de `vendas`/`venda_itens` nem da venda de pacote; falha de estoque agora avisa e segue (igual ao app).
+- Comanda só com extras: falha após criar a comanda trava novo fechamento na tela (evita venda/estoque em dobro).
+- Configurações não salvava antes da 084 (colunas novas enviadas sempre).
+
+**Pendências para produção:**
+- ~~Aplicar `084_taxas_cartao_empresa.sql`~~ — **aplicada em produção em 2026-10-08** (conferência: 0.0239 / 0.0499 / 0.0559).
+
+**Registrados, não corrigidos:**
+- Comanda órfã se falhar antes de gravar qualquer atendimento (até existir RPC transacional).
+- Abrir comanda fechada pega a 1ª `comanda_id` da cliente (Comanda B).
+- Quantidade de serviço extra travada na edição; troco gravado em `pagamentos.valor` (decisão da spec).
+- Trava da comanda só com extras é em memória (some ao recarregar; "sem cliente" trava todas as avulsas até recarregar); o web não reabre comanda só com extras.
+- Testes de paridade por varredura de código.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

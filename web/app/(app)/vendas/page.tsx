@@ -36,7 +36,7 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS } from '@/lib/taxas-cartao';
+import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao } from '@shared/taxas-cartao';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
@@ -103,6 +103,7 @@ const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wid
 
 export default function VendasPage() {
   const [empresaId, setEmpresaId] = useState<string | null>(null);
+  const [taxas, setTaxas] = useState<TaxasCartao>(TAXAS_PADRAO);
   const [aba, setAba]             = useState<'pdv' | 'historico'>('pdv');
 
   // Catálogo
@@ -132,7 +133,12 @@ export default function VendasPage() {
       const { data } = await supabase
         .from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (data) setEmpresaId(data.empresa_id);
+      if (data) {
+        setEmpresaId(data.empresa_id);
+        // select('*'): as colunas de taxa (migration 084) podem ainda não existir
+        const { data: emp } = await supabase.from('empresas').select('*').eq('id', data.empresa_id).single();
+        setTaxas(taxasDaEmpresa(emp as Record<string, unknown> | null));
+      }
     })();
   }, []);
 
@@ -299,7 +305,7 @@ export default function VendasPage() {
       splits.map(sp => {
         const v    = parseFloat(sp.valor.replace(',', '.')) || 0;
         const parc = sp.metodo === 'credito' ? (sp.parcelas ?? 1) : 1;
-        const taxa = calcTaxa(sp.metodo, parc);
+        const taxa = calcTaxa(sp.metodo, parc, taxas);
         return {
           empresa_id:    empresaId,
           venda_id:      venda.id,
@@ -524,7 +530,7 @@ export default function VendasPage() {
                     const m      = METODOS_PAG.find(x => x.id === sp.metodo)!;
                     const Icon   = m.icon;
                     const isCard = sp.metodo === 'credito' || sp.metodo === 'debito';
-                    const taxa   = calcTaxa(sp.metodo, sp.parcelas ?? 1);
+                    const taxa   = calcTaxa(sp.metodo, sp.parcelas ?? 1, taxas);
                     const valorN = parseFloat(sp.valor.replace(',', '.')) || 0;
                     return (
                       <div key={sp.metodo} className="flex flex-col gap-2 rounded-xl px-3 py-2.5 border border-border bg-bg">
