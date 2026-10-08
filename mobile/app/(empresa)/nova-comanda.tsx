@@ -131,6 +131,9 @@ function uid() { return `tmp_${++uidCount}`; }
 
 type Etapa = 'lista' | 'comanda' | 'sucesso';
 
+/** Comanda só com extras que falhou depois de criada (mesmo texto no web). */
+const AVISO_COMANDA_PARCIAL = 'A comanda foi criada mas não terminou de gravar — confira em Comanda/Financeiro antes de lançar de novo';
+
 export default function NovaComandaScreen() {
   const insets = useSafeAreaInsets();
   const empresaAtiva = useAuthStore(s => s.empresaAtiva);
@@ -175,6 +178,9 @@ export default function NovaComandaScreen() {
   const [showExtras, setShowExtras] = useState(false);
   // Próximo cliente da fila (comanda aberta + horário já passou) — avança sem precisar voltar
   const [proximoCliente, setProximoCliente] = useState<ClienteComanda | null>(null);
+  // Comandas só com extras criadas que falharam numa etapa seguinte (cliente → comanda_id):
+  // bloqueiam um novo fechamento da mesma cliente nesta tela (ver falharAposCriar).
+  const [comandasParciais, setComandasParciais] = useState<Record<string, string>>({});
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -298,6 +304,7 @@ export default function NovaComandaScreen() {
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
     setDescontoEntrada('');
+    setDescontoModo('percentual');
     setSplits([]);
 
     const linksIniciais: Record<string, string> = {};
@@ -390,6 +397,7 @@ export default function NovaComandaScreen() {
     subtotal, desconto: descontoN, erroDesconto, descontoReserva: descontoReservaAplicado, splits: splitsNumericos,
   });
   const { total, recebido, falta, troco } = resumo;
+  const comandaParcialAberta = !!clienteSel && !!comandasParciais[clienteSel.id];
 
   function adicionarSplit(metodo: string) {
     setSplits(prev => [...prev, { metodo, valor: falta > 0 ? falta.toFixed(2).replace('.', ',') : '' }]);
@@ -415,10 +423,10 @@ export default function NovaComandaScreen() {
 
   /**
    * Grava o valor cobrado de volta nos atendimentos — mesma lógica do
-   * `persistirValoresAgendamento` do web: cada `agendamento_servicos.valor`
-   * (multi-serviço) e depois `agendamentos.valor` (total do grupo) junto com
-   * `extraUpdate` ({ status: 'concluido', comanda_id }) e o vínculo de pacote,
-   * tudo no MESMO UPDATE do status. `.select('id')` + contagem: UPDATE barrado
+   * `persistirValoresAgendamento` do web: primeiro `agendamentos.valor` (total
+   * do grupo) junto com `extraUpdate` ({ status: 'concluido', comanda_id }) e o
+   * vínculo de pacote, tudo no MESMO UPDATE do status; depois cada
+   * `agendamento_servicos.valor` (multi-serviço). `.select('id')` + contagem: UPDATE barrado
    * por RLS devolve sucesso com 0 linhas. Retorna a falha (com etapa) ou null.
    */
   async function persistirValoresAgendamento(
@@ -426,14 +434,11 @@ export default function NovaComandaScreen() {
     pacoteLinksPorAgendamento: Record<string, string | null>,
   ): Promise<{ etapa: string; erro: { code?: string | null; message?: string | null } | string } | null> {
     const grupos = agruparValoresPorAgendamento(itens, pacoteLinksPorAgendamento);
+    // Ordem por atendimento: PRIMEIRO `agendamentos` (valor, status, comanda_id, vínculo),
+    // DEPOIS `agendamento_servicos`. Ao contrário, uma falha no atendimento deixava as linhas
+    // zeradas pelo pacote sem o vínculo gravado (item reabria R$ 0 sem pacote = receita perdida).
+    // Os triggers (065/075/078) não leem `agendamento_servicos`.
     for (const g of grupos) {
-      for (const linha of g.linhasServico) {
-        const { data, error } = await supabase.from('agendamento_servicos')
-          .update({ valor: linha.valor }).eq('id', linha.agServicoId).eq('empresa_id', empresaId!)
-          .select('id');
-        if (error) return { etapa: 'valor dos serviços', erro: error };
-        if (!data || data.length === 0) return { etapa: 'valor dos serviços', erro: 'Não foi possível salvar o valor de um serviço do atendimento. Verifique sua permissão.' };
-      }
       // `undefined` = agendamento fora do mapa de vínculos, não mexe na coluna.
       // `null` (desvínculo explícito) ou string (vínculo) SÃO gravados — por
       // isso o teste é presença (!== undefined), não truthiness.
@@ -443,6 +448,14 @@ export default function NovaComandaScreen() {
         .eq('id', g.agendamentoId).eq('empresa_id', empresaId!).select('id');
       if (error) return { etapa: 'concluir atendimento', erro: error };
       if (!data || data.length === 0) return { etapa: 'concluir atendimento', erro: 'Não foi possível vincular o atendimento à comanda. Verifique sua permissão.' };
+      for (const linha of g.linhasServico) {
+        const { data: dLinha, error: eLinha } = await supabase.from('agendamento_servicos')
+          .update({ valor: linha.valor }).eq('id', linha.agServicoId).eq('empresa_id', empresaId!)
+          .select('id');
+        if (eLinha || !dLinha || dLinha.length === 0) {
+          return { etapa: 'valor dos serviços', erro: 'O atendimento foi fechado, mas os valores dos serviços não foram salvos — abra a comanda no computador e confira os valores.' };
+        }
+      }
     }
     return null;
   }
@@ -454,6 +467,8 @@ export default function NovaComandaScreen() {
       Alert.alert('Não é possível fechar', resumo.motivo ?? 'Não foi possível fechar a comanda.');
       return;
     }
+    // Comanda desta cliente criada e não terminada nesta tela: nada de um segundo INSERT.
+    if (comandasParciais[clienteSel.id]) { Alert.alert('Comanda não terminou de gravar', AVISO_COMANDA_PARCIAL); return; }
     // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois
     // de a comanda já ter sido criada — barra antes de gravar qualquer coisa.
     if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
@@ -493,6 +508,15 @@ export default function NovaComandaScreen() {
     const agIds = [...new Set(itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!))];
     const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
 
+    // Falha depois de a comanda já existir. Comanda só com extras não tem atendimento que a
+    // "trave" (a checagem de duplicado acima só olha atendimentos): guarda o id e bloqueia
+    // um novo fechamento nesta tela, senão venda/estoque/receita seriam lançados de novo.
+    const clienteId = clienteSel.id;
+    const falharAposCriar = (etapaFalha: string, erro: Parameters<typeof falharFechamento>[1]) => {
+      if (agIds.length === 0) setComandasParciais(prev => ({ ...prev, [clienteId]: comandaId }));
+      falharFechamento(etapaFalha, erro);
+    };
+
     // 2. Atendimentos: valor cobrado + concluído + comanda_id + vínculo de
     // pacote (se houver) no MESMO update do status — o trigger
     // fn_registrar_uso_pacote só dispara na transição pra 'concluido' e só
@@ -511,7 +535,7 @@ export default function NovaComandaScreen() {
     const gruposValor = agruparValoresPorAgendamento(itens, pacoteLinksFinal);
     if (agIds.length > 0) {
       const falha = await persistirValoresAgendamento({ status: 'concluido', comanda_id: comandaId }, pacoteLinksFinal);
-      if (falha) { falharFechamento(falha.etapa, falha.erro); return; }
+      if (falha) { falharAposCriar(falha.etapa, falha.erro); return; }
     }
 
     // 3. Itens extras (serviços, produtos e pacotes avulsos)
@@ -525,7 +549,7 @@ export default function NovaComandaScreen() {
           quantidade: i.quantidade, valor_unit: i.valor,
         })),
       );
-      if (rItens.error) { falharFechamento('itens da comanda', rItens.error); return; }
+      if (rItens.error) { falharAposCriar('itens da comanda', rItens.error); return; }
     }
 
     // 4. Produtos: baixa de estoque (só avisa) + venda com itens (conferida)
@@ -547,7 +571,7 @@ export default function NovaComandaScreen() {
         cliente_id: clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: totalProdutos, desconto: 0, observacao: 'Via comanda',
       }).select('id').single();
-      if (errVendaProd || !venda) { falharFechamento('venda dos produtos', errVendaProd); return; }
+      if (errVendaProd || !venda) { falharAposCriar('venda dos produtos', errVendaProd); return; }
       const rVendaItens = await supabase.from('venda_itens').insert(
         extrasProdutos.map(i => ({
           empresa_id: empresaId, venda_id: venda.id,
@@ -555,7 +579,7 @@ export default function NovaComandaScreen() {
           preco_unitario: i.valor,
         })),
       );
-      if (rVendaItens.error) { falharFechamento('itens da venda dos produtos', rVendaItens.error); return; }
+      if (rVendaItens.error) { falharAposCriar('itens da venda dos produtos', rVendaItens.error); return; }
     }
 
     // 5. Vender pacotes adicionados na comanda (gera pacote_clientes para o cliente)
@@ -581,7 +605,7 @@ export default function NovaComandaScreen() {
       });
       if (novasVendas.length > 0) {
         const { error: errPac } = await supabase.from('pacote_clientes').insert(novasVendas);
-        if (errPac) { falharFechamento('venda de pacote', errPac); return; }
+        if (errPac) { falharAposCriar('venda de pacote', errPac); return; }
         // Registra a venda do pacote como faturamento (uma vez, no ato).
         // As sessões consumidas depois NÃO contam como receita.
         const totalPacotes = novasVendas.reduce((s, v) => s + Number(v.valor_pago ?? 0), 0);
@@ -593,7 +617,7 @@ export default function NovaComandaScreen() {
             desconto:    0,
             observacao:  `Pacote(s) via comanda`,
           });
-          if (errVenda) { falharFechamento('venda de pacote', errVenda); return; }
+          if (errVenda) { falharAposCriar('venda de pacote', errVenda); return; }
         }
       }
     }
@@ -606,7 +630,10 @@ export default function NovaComandaScreen() {
     const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
     if (linhasPag.length > 0) {
       const rPag = await supabase.from('pagamentos').insert(linhasPag);
-      if (rPag.error) { falharFechamento('pagamentos', rPag.error); return; }
+      if (rPag.error) {
+        falharAposCriar('pagamentos', `${mensagemErroBanco(rPag.error, 'lançar o pagamento')} A comanda foi fechada sem o pagamento — abra a comanda no computador para lançar o pagamento.`);
+        return;
+      }
     }
 
     setFechando(false);
@@ -627,7 +654,13 @@ export default function NovaComandaScreen() {
     setProximoCliente(proximoClienteAberto(clienteSel.id));
     setSucessoData({
       nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
-      splits: splits.filter(s => parseValorBR(s.valor) > 0), itensCount: itens.length,
+      // Cortesia automática (total R$ 0 sem pagamento — a linha que montarPagamentos grava)
+      // aparece como "Cortesia R$ 0,00" em vez de uma lista vazia.
+      splits: (() => {
+        const lancados = splits.filter(s => parseValorBR(s.valor) > 0);
+        return lancados.length === 0 && resumo.cortesiaAutomatica ? [{ metodo: 'cortesia', valor: '0,00' }] : lancados;
+      })(),
+      itensCount: itens.length,
       desconto: descontoN, descontoReserva: descontoReservaAplicado,
     });
     setEtapa('sucesso');
@@ -1199,6 +1232,11 @@ export default function NovaComandaScreen() {
               Você não tem permissão para fechar comanda.
             </Text>
           )}
+          {comandaParcialAberta && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
+              {AVISO_COMANDA_PARCIAL}
+            </Text>
+          )}
           {podeFechar && itens.length > 0 && resumo.motivo && (
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: erroDesconto ? C.red : C.amber, textAlign: 'center', marginBottom: 8 }}>
               {resumo.motivo}
@@ -1211,12 +1249,12 @@ export default function NovaComandaScreen() {
           )}
           <TouchableOpacity
             onPress={fecharComanda}
-            disabled={fechando || itens.length === 0 || !podeFechar || !resumo.podeFechar}
+            disabled={fechando || itens.length === 0 || !podeFechar || !resumo.podeFechar || comandaParcialAberta}
             activeOpacity={0.8}
             style={{
               height: 52, borderRadius: 16, backgroundColor: C.green,
               alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8,
-              opacity: (fechando || itens.length === 0 || !podeFechar || !resumo.podeFechar) ? 0.5 : 1,
+              opacity: (fechando || itens.length === 0 || !podeFechar || !resumo.podeFechar || comandaParcialAberta) ? 0.5 : 1,
             }}>
             {fechando ? (
               <ActivityIndicator color="#fff" />

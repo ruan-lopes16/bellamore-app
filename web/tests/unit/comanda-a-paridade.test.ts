@@ -48,3 +48,29 @@ describe('comanda app pela regra única', () => {
     for (const u of updates) expect(u).toContain(".eq('empresa_id'");
   });
 });
+
+describe('ordem e conferência de erros no fechamento (revisão final)', () => {
+  const arquivos = ['web/app/(app)/comanda/page.tsx', 'mobile/app/(empresa)/nova-comanda.tsx'];
+  for (const arq of arquivos) {
+    it(`${arq}: persistirValoresAgendamento grava agendamentos ANTES de agendamento_servicos`, () => {
+      const src = ler(arq);
+      const corpo = src.match(/async function persistirValoresAgendamento\([\s\S]*?\n {2}\}\r?\n/)?.[0] ?? '';
+      expect(corpo).not.toBe('');
+      const iAg = corpo.indexOf("from('agendamentos')");
+      const iServ = corpo.indexOf("from('agendamento_servicos')");
+      expect(iAg).toBeGreaterThan(-1);
+      expect(iServ).toBeGreaterThan(iAg);
+    });
+  }
+  it('web confere o error de vendas e venda_itens no fechamento', () => {
+    const src = ler('web/app/(app)/comanda/page.tsx');
+    for (const tabela of ['vendas', 'venda_itens']) {
+      const inserts = src.match(new RegExp(String.raw`from\('${tabela}'\)\.insert\(`, 'g')) ?? [];
+      const comErro = src.match(new RegExp(String.raw`\{[^}]*\berror\b[^}]*\}\s*=\s*await supabase\.from\('${tabela}'\)\.insert\(`, 'g')) ?? [];
+      expect(inserts.length).toBeGreaterThan(0);
+      expect(comErro.length).toBe(inserts.length);
+    }
+    expect(src).toMatch(/if \(errVenda \|\| !venda\)/);
+    expect(src).toMatch(/if \(errVendaItens\)/);
+  });
+});
