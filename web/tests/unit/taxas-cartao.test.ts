@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TAXAS_PADRAO, taxasDaEmpresa, calcTaxa, valorLiquido, fmtTaxa, OPCOES_PARCELAS } from '@shared/taxas-cartao';
+import { TAXAS_PADRAO, taxasDaEmpresa, calcTaxa, valorLiquido, fmtTaxa, OPCOES_PARCELAS, campoParaTaxa, taxaParaCampo, mascararPercentual } from '@shared/taxas-cartao';
 
 describe('taxas da maquininha', () => {
   it('padrão = InfinitePay atual', () => {
@@ -23,5 +23,33 @@ describe('taxas da maquininha', () => {
   it('valorLiquido e fmtTaxa', () => {
     expect(valorLiquido(100, 0.0499)).toBe(95.01);
     expect(fmtTaxa(0.0499)).toBe('4,99%');
+  });
+});
+
+describe('campos de percentual das taxas (Configurações)', () => {
+  it('campoParaTaxa', () => {
+    expect(campoParaTaxa('4,99')).toBe(0.0499);
+    expect(campoParaTaxa('2,39')).toBe(0.0239);
+    expect(campoParaTaxa('0')).toBe(0);
+    expect(campoParaTaxa('20')).toBe(0.2);
+    expect(campoParaTaxa('20,01')).toBeNull();
+    expect(campoParaTaxa('')).toBeNull();
+    expect(campoParaTaxa(',')).toBeNull();
+  });
+  it('taxaParaCampo', () => {
+    expect(taxaParaCampo(0.0499)).toBe('4,99');
+    expect(taxaParaCampo(0.0239)).toBe('2,39');
+    expect(taxaParaCampo(0)).toBe('0,00');
+  });
+  it('mascararPercentual: ponto vira vírgula, só dígitos, no máximo 2 casas', () => {
+    expect(mascararPercentual('4.99')).toBe('4,99');
+    expect(mascararPercentual('4,999')).toBe('4,99');
+    expect(mascararPercentual('4.12345')).toBe('4,12');
+    expect(mascararPercentual('a4b,9%')).toBe('4,9');
+    expect(mascararPercentual('5')).toBe('5');
+    expect(mascararPercentual('')).toBe('');
+  });
+  it('ida e volta campo ↔ taxa', () => {
+    for (const t of [0.0239, 0.0499, 0.0559]) expect(campoParaTaxa(taxaParaCampo(t))).toBe(t);
   });
 });

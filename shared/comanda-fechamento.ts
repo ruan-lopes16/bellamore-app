@@ -48,7 +48,20 @@ export function calcularDesconto(subtotal: number, entrada: number, modo: ModoDe
   return { valor: bruto, erro: null };
 }
 
-export type SplitPagamento = { metodo: string; valor: number; bandeira?: string | null; parcelas?: number };
+/**
+ * Um pagamento da comanda. `taxaGravada`/`metodoGravado`/`parcelasGravadas`/`criadoEm` só existem
+ * num split reaberto na edição de comanda fechada: guardam como ele estava no banco, para que a
+ * taxa da maquininha da época continue valendo (spec: "pagamentos já gravados mantêm o taxa_perc").
+ */
+export type SplitPagamento = {
+  metodo: string; valor: number; bandeira?: string | null; parcelas?: number;
+  /** `taxa_perc` gravado (null = gravado sem taxa); ausente = split novo. */
+  taxaGravada?: number | null;
+  metodoGravado?: string;
+  parcelasGravadas?: number;
+  /** `created_at` original do pagamento — regravado para o pagamento não mudar de data. */
+  criadoEm?: string | null;
+};
 
 export type ResumoComanda = {
   subtotal: number; desconto: number; descontoReserva: number; total: number;
@@ -77,9 +90,28 @@ export function resumoComanda(e: {
 export type LinhaPagamento = {
   empresa_id: string; comanda_id: string; valor: number; metodo: string;
   bandeira: string | null; parcelas: number; taxa_perc: number | null; valor_liquido: number | null; status: 'pago';
+  /** Só em pagamento reaberto na edição: mantém a data original. */
+  created_at?: string;
 };
 
-/** Linhas de `pagamentos`: cartão com bandeira/parcelas/taxa/líquido; total zero sem splits = cortesia R$0. */
+/**
+ * Taxa decimal de um split: a gravada, se ele foi reaberto com o mesmo método e parcelas de
+ * quando foi gravado; senão a taxa atual da empresa (calcTaxa). Usada no INSERT e na tela.
+ */
+export function taxaDoSplit(
+  s: Pick<SplitPagamento, 'metodo' | 'parcelas' | 'taxaGravada' | 'metodoGravado' | 'parcelasGravadas'>,
+  taxas: TaxasCartao,
+): number {
+  const parcelas = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
+  const inalterado = s.taxaGravada !== undefined && s.metodoGravado === s.metodo && (s.parcelasGravadas ?? 1) === parcelas;
+  return inalterado ? (s.taxaGravada ?? 0) : calcTaxa(s.metodo, parcelas, taxas);
+}
+
+/**
+ * Linhas de `pagamentos`: cartão com bandeira/parcelas/taxa/líquido; total zero sem splits = cortesia R$0.
+ * Split reaberto (com `taxaGravada`) e com o mesmo método e parcelas de quando foi gravado mantém a
+ * taxa gravada; alterado ou novo usa a taxa atual da empresa. `criadoEm` volta como `created_at`.
+ */
 export function montarPagamentos(
   splits: SplitPagamento[],
   ctx: { empresaId: string; comandaId: string; taxas: TaxasCartao; total: number },
@@ -91,12 +123,14 @@ export function montarPagamentos(
   return validos.map(s => {
     const cartao = s.metodo === 'credito' || s.metodo === 'debito';
     const parcelas = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
-    const taxa = calcTaxa(s.metodo, parcelas, ctx.taxas);
-    return {
+    const taxa = taxaDoSplit(s, ctx.taxas);
+    const linha: LinhaPagamento = {
       empresa_id: ctx.empresaId, comanda_id: ctx.comandaId, valor: centavos(s.valor), metodo: s.metodo,
       bandeira: cartao ? (s.bandeira ?? null) : null, parcelas,
       taxa_perc: taxa > 0 ? taxa : null, valor_liquido: taxa > 0 ? valorLiquido(s.valor, taxa) : null,
       status: 'pago',
     };
+    if (s.criadoEm) linha.created_at = s.criadoEm;
+    return linha;
   });
 }

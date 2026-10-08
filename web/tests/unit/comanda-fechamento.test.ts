@@ -88,3 +88,36 @@ describe('parseValorBR', () => {
     expect(parseValorBR('-5')).toBe(0);
   });
 });
+
+describe('montarPagamentos — split reaberto na edição (taxaGravada)', () => {
+  const taxasNovas = { debito: 0.03, creditoAvista: 0.06, creditoParcelado: 0.07 };
+  const ctx = { empresaId: 'e', comandaId: 'c', taxas: taxasNovas, total: 200 };
+  it('split reaberto e não alterado mantém a taxa gravada e o created_at original', () => {
+    const [l] = montarPagamentos([{
+      metodo: 'credito', valor: 100, bandeira: 'visa', parcelas: 1,
+      taxaGravada: 0.0499, metodoGravado: 'credito', parcelasGravadas: 1, criadoEm: '2026-09-10T15:00:00+00:00',
+    }], ctx);
+    expect(l).toMatchObject({ taxa_perc: 0.0499, valor_liquido: 95.01, created_at: '2026-09-10T15:00:00+00:00' });
+  });
+  it('taxa gravada nula (pagamento antigo sem taxa) continua sem taxa', () => {
+    const [l] = montarPagamentos([{ metodo: 'debito', valor: 100, taxaGravada: null, metodoGravado: 'debito', parcelasGravadas: 1 }], ctx);
+    expect(l).toMatchObject({ taxa_perc: null, valor_liquido: null });
+    expect(l).not.toHaveProperty('created_at');
+  });
+  it('parcelas alteradas usam a taxa atual (mas mantêm o created_at do pagamento)', () => {
+    const [l] = montarPagamentos([{
+      metodo: 'credito', valor: 100, parcelas: 3,
+      taxaGravada: 0.0499, metodoGravado: 'credito', parcelasGravadas: 1, criadoEm: '2026-09-10T15:00:00+00:00',
+    }], ctx);
+    expect(l).toMatchObject({ taxa_perc: 0.07, valor_liquido: 93, created_at: '2026-09-10T15:00:00+00:00' });
+  });
+  it('método diferente do gravado usa a taxa atual', () => {
+    const [l] = montarPagamentos([{ metodo: 'debito', valor: 100, taxaGravada: 0.0499, metodoGravado: 'credito', parcelasGravadas: 1 }], ctx);
+    expect(l.taxa_perc).toBe(0.03);
+  });
+  it('split novo usa a taxa atual e não grava created_at', () => {
+    const [l] = montarPagamentos([{ metodo: 'credito', valor: 100, parcelas: 1 }], ctx);
+    expect(l.taxa_perc).toBe(0.06);
+    expect(l).not.toHaveProperty('created_at');
+  });
+});
