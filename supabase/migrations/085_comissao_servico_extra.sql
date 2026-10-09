@@ -36,7 +36,7 @@ alter table public.comissoes add constraint comissoes_origem check (agendamento_
 drop index if exists idx_comissoes_comanda_item;
 create unique index if not exists uq_comissoes_comanda_item on public.comissoes(comanda_item_id) where comanda_item_id is not null;
 
--- Insere a comissão de um item (usado no INSERT e na troca de profissional).
+-- Insere a comissão de um item recém-criado (trigger de INSERT).
 create or replace function public.gerar_comissao_item()
 returns trigger as $$
 declare
@@ -95,7 +95,9 @@ begin
            set valor_servico = round(new.valor_unit * new.quantidade, 2)
          where comanda_item_id = new.id;
       end if;
-    else
+    elsif v_mudou_dono or v_mudou_valor then
+      -- Só cria quando algo relevante mudou: UPDATE sem efeito (ex.: descrição) em extra
+      -- anterior à 085 não pode gerar comissão retroativa.
       insert into public.comissoes (empresa_id, profissional_id, comanda_item_id, valor_servico, percentual)
       values (new.empresa_id, new.profissional_id, new.id, round(new.valor_unit * new.quantidade, 2), v_percentual);
     end if;

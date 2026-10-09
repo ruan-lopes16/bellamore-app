@@ -31,6 +31,7 @@ describe('Migration 085: comissão de serviço extra', () => {
     expect(sql).toMatch(/drop index if exists idx_comissoes_comanda_item/);
     const upd = sql.slice(sql.indexOf('function public.sincronizar_comissao_item'), sql.indexOf('function public.apagar_comissao_item'));
     expect(upd).toContain('insert into public.comissoes');
+    expect(upd).toMatch(/elsif v_mudou_dono or v_mudou_valor then\s+(--[^\n]*\n\s*)*insert into public\.comissoes/);
     expect(upd).toContain('delete from public.comissoes');
     expect(upd).toContain('update public.comissoes');
     expect(upd).toContain('comissão deste serviço já foi paga');
