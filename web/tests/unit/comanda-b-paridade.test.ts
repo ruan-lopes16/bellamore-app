@@ -53,3 +53,14 @@ describe('Comanda B — app: dias sem corrida', () => {
     expect(app).toContain('erroDia');
   });
 });
+
+describe('Comanda B — app: itens e recibo', () => {
+  it('profissional no extra, valor por parseValorBR, recibo de shared', () => {
+    expect(app).toContain("from '@shared/comanda-recibo'");
+    expect(app).toContain('linkWhatsAppRecibo(');
+    expect(app).toContain('Linking.openURL(');
+    expect(app).toContain('function atualizarProfissional(');
+    expect(app).toMatch(/function atualizarValor\([^)]*\)[^{]*\{[^}]*parseValorBR\(/);
+    expect(app).not.toMatch(/item\.tipo !== 'agendamento' && \(\s*<TouchableOpacity onPress=\{\(\) => removerItem/);
+  });
+});

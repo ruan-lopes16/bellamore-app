@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   ActivityIndicator, Alert, StatusBar, KeyboardAvoidingView,
-  Platform,
+  Platform, Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,7 +10,7 @@ import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ChevronLeft, ChevronRight, Check, X, Trash2, User,
-  Banknote, Zap, CreditCard, Gift, Tag, Receipt, AlertCircle,
+  Banknote, Zap, CreditCard, Gift, Tag, Receipt, AlertCircle, Send,
 } from 'lucide-react-native';
 import {
   format, startOfDay, endOfDay, parseISO, addDays, startOfWeek, startOfMonth, endOfMonth,
@@ -49,6 +49,7 @@ import {
 } from '@shared/taxas-cartao';
 import { formatarMoeda } from '@shared/moeda';
 import { carregarBacklogComandas } from '@shared/comanda-consultas';
+import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -166,6 +167,7 @@ export default function NovaComandaScreen() {
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
   const [servicos, setServicos] = useState<{ id: string; nome: string; preco: number }[]>([]);
   const [produtos, setProdutos] = useState<{ id: string; nome: string; preco_venda: number }[]>([]);
+  const [membros, setMembros] = useState<{ id: string; nome: string }[]>([]);
   const [pacotesCat, setPacotesCat] = useState<{ id: string; nome: string; preco: number; validade_dias: number | null }[]>([]);
   const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
   // string = vinculado (sessão existente ou venda nova); null = explicitamente
@@ -187,6 +189,8 @@ export default function NovaComandaScreen() {
   const [sucessoData, setSucessoData] = useState<{
     nome: string; valor: number; telefone?: string;
     splits: Split[]; itensCount: number;
+    itens: { descricao: string; quantidade: number; valor: number }[];
+    dataIso: string;
     desconto: number;          // desconto manual, sem a taxa de reserva
     descontoReserva: number;   // taxa de reserva já paga, descontada separadamente do total
   } | null>(null);
@@ -227,7 +231,10 @@ export default function NovaComandaScreen() {
       supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       // select('*'): as colunas de taxa (migration 084) podem ainda não existir
       supabase.from('empresas').select('*').eq('id', empresaId).single(),
-    ]).then(async ([rAgs, rServs, rProds, rPacotes, rEmpresa]) => {
+      supabase.from('empresa_membros')
+        .select('user_id, users:users!empresa_membros_user_id_fkey(nome)')
+        .eq('empresa_id', empresaId).eq('ativo', true),
+    ]).then(async ([rAgs, rServs, rProds, rPacotes, rEmpresa, rMembros]) => {
       if (req !== reqDiaRef.current) return;
       if (rAgs.error) {
         setErroDia(mensagemErroBanco(rAgs.error, 'carregar os atendimentos do dia'));
@@ -261,6 +268,7 @@ export default function NovaComandaScreen() {
       setAgDia(agsDoDia);
       setServicos((rServs.data ?? []) as any[]);
       setProdutos((rProds.data ?? []) as any[]);
+      setMembros(((rMembros.data ?? []) as any[]).map(m => ({ id: m.user_id as string, nome: (m.users?.nome as string | undefined) ?? 'Profissional' })));
       setPacotesCat((rPacotes.data ?? []) as { id: string; nome: string; preco: number; validade_dias: number | null }[]);
       setTaxasReservaPagas((rTaxasReserva.data ?? []) as { agendamento_id: string; valor: number }[]);
       setLoading(false);
@@ -443,7 +451,39 @@ export default function NovaComandaScreen() {
     setItens(prev => [...prev, { uid: uid(), tipo: 'pacote', descricao: p.nome, valor: p.preco, quantidade: 1, pacote_id: p.id }]);
     setShowExtras(false);
   }
+  /** Só no fechamento novo; a edição (Task 7) desliga isto para comanda já fechada. */
+  const podeTirarAtendimento = true;
+
   function removerItem(u: string) { setItens(prev => prev.filter(i => i.uid !== u)); }
+
+  /** Tira o atendimento da comanda (todas as linhas dele) e limpa o vínculo de pacote; o agendamento continua aberto. */
+  function tirarAtendimento(agendamentoId: string) {
+    Alert.alert('Tirar da comanda', 'O agendamento continua aberto.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Tirar', style: 'destructive', onPress: () => {
+        setItens(prev => prev.filter(i => i.agendamento_id !== agendamentoId));
+        setPacoteLinks(prev => {
+          const { [agendamentoId]: _removido, ...resto } = prev;
+          return resto;
+        });
+      } },
+    ]);
+  }
+
+  // Mesma leitura de valor dos pagamentos (parseValorBR): '1.234,56' não vira 1,234.
+  // Texto sem nenhum dígito mantém o valor anterior; '0' zera de propósito.
+  function atualizarValor(u: string, texto: string) {
+    if (!/\d/.test(texto)) return;
+    const v = parseValorBR(texto);
+    setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: v } : i));
+  }
+  function atualizarQtd(u: string, delta: number) {
+    setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: Math.max(1, i.quantidade + delta) } : i));
+  }
+  function atualizarProfissional(u: string, profId: string) {
+    const m = membros.find(x => x.id === profId);
+    setItens(prev => prev.map(i => i.uid === u ? { ...i, profissional_id: profId || undefined, profissional: m?.nome } : i));
+  }
 
   function vincularPacote(agendamentoId: string, pacoteClienteId: string) {
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: pacoteClienteId }));
@@ -751,6 +791,8 @@ export default function NovaComandaScreen() {
         return lancados.length === 0 && resumo.cortesiaAutomatica ? [{ metodo: 'cortesia', valor: '0,00' }] : lancados;
       })(),
       itensCount: itens.length,
+      itens: itens.map(i => ({ descricao: i.descricao, quantidade: i.quantidade, valor: i.valor })),
+      dataIso: new Date().toISOString(),
       desconto: descontoN, descontoReserva: descontoReservaAplicado,
     });
     setEtapa('sucesso');
@@ -851,6 +893,25 @@ export default function NovaComandaScreen() {
               </Text>
             )}
           </MotiView>
+
+          {sucessoData.telefone && (
+            <TouchableOpacity
+              onPress={() => {
+                const texto = gerarTextoRecibo({
+                  nome: sucessoData.nome, valor: sucessoData.valor, dataIso: sucessoData.dataIso,
+                  itens: sucessoData.itens,
+                  splits: sucessoData.splits.map(sp => ({ metodo: sp.metodo, valor: parseValorBR(sp.valor), bandeira: sp.bandeira, parcelas: sp.parcelas })),
+                  desconto: sucessoData.desconto, descontoReserva: sucessoData.descontoReserva,
+                });
+                Linking.openURL(linkWhatsAppRecibo(sucessoData.telefone!, texto))
+                  .catch(() => Alert.alert('WhatsApp', 'Não foi possível abrir o WhatsApp.'));
+              }}
+              activeOpacity={0.8}
+              style={{ marginTop: 24, backgroundColor: '#16A34A', borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Send size={16} color="#fff" />
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>Enviar recibo por WhatsApp</Text>
+            </TouchableOpacity>
+          )}
 
           {proximoCliente ? (
             <TouchableOpacity
@@ -1143,13 +1204,62 @@ export default function NovaComandaScreen() {
                   <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>
                     {formatarMoeda(item.valor * item.quantidade)}
                   </Text>
-                  {item.tipo !== 'agendamento' && (
-                    <TouchableOpacity onPress={() => removerItem(item.uid)}
+                  {(item.tipo !== 'agendamento' || (podeTirarAtendimento && !!item.agendamento_id)) && (
+                    <TouchableOpacity
+                      onPress={() => item.tipo === 'agendamento' ? tirarAtendimento(item.agendamento_id!) : removerItem(item.uid)}
                       style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
                       <Trash2 size={14} color={C.red} />
                     </TouchableOpacity>
                   )}
                 </View>
+
+                {/* Valor e quantidade editáveis; valor travado quando o atendimento é coberto por pacote */}
+                <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text3 }}>R$</Text>
+                    <TextInput
+                      key={`${item.uid}-${item.valor}`}
+                      defaultValue={item.valor.toFixed(2).replace('.', ',')}
+                      keyboardType="decimal-pad"
+                      editable={!(item.agendamento_id && pacoteLinks[item.agendamento_id])}
+                      onEndEditing={e => atualizarValor(item.uid, e.nativeEvent.text)}
+                      style={{ minWidth: 80, borderWidth: 1, borderColor: C.border, borderRadius: 8, backgroundColor: C.surface, paddingHorizontal: 8, paddingVertical: 4, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}
+                    />
+                  </View>
+                  {item.tipo !== 'agendamento' && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TouchableOpacity onPress={() => atualizarQtd(item.uid, -1)}
+                        style={{ width: 26, height: 26, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, minWidth: 16, textAlign: 'center' }}>{item.quantidade}</Text>
+                      <TouchableOpacity onPress={() => atualizarQtd(item.uid, 1)}
+                        style={{ width: 26, height: 26, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {item.quantidade > 1 && (
+                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+                      {item.quantidade}x = {formatarMoeda(item.valor * item.quantidade)}
+                    </Text>
+                  )}
+                </View>
+
+                {/* Profissional do serviço extra (gera a comissão) */}
+                {item.tipo === 'servico' && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 6 }}>
+                    {[{ id: '', nome: 'Sem profissional' }, ...membros].map(m => {
+                      const ativo = (item.profissional_id ?? '') === m.id;
+                      return (
+                        <TouchableOpacity key={m.id || 'nenhum'} onPress={() => atualizarProfissional(item.uid, m.id)}
+                          style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: ativo ? C.primary : C.border, backgroundColor: ativo ? C.primarySoft : C.surface }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text3 }}>{m.nome}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
 
                 {/* Vínculo com sessão de pacote — atendimento multi-serviço vira
                     várias linhas; o seletor aparece só na primeira linha de cada
