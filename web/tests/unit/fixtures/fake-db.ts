@@ -10,6 +10,8 @@ export function fakeDb(opcoes: {
   erroQuandoSelectContem?: Record<string, string>;
   /** Consultas sem `range`: `await` na cadeia devolve `linhas[tabela]` (ou erro, se `erroEm`). */
   awaitavel?: boolean;
+  /** Erro (mensagem) por tabela, em qualquer consulta (range, await ou single). */
+  erroTabelas?: Record<string, string>;
   respostaUpdate?: (tabela: string, ids: string[], lote: number) => Resposta;
 } = {}) {
   const chamadas: Chamada[] = [];
@@ -22,13 +24,20 @@ export function fakeDb(opcoes: {
         get(_a, prop) {
           if (prop === 'then') {
             if (!opcoes.awaitavel || chamada.ops.some(([m]) => m === 'range')) return undefined;
-            return (ok: (v: Resposta) => unknown) => ok(tabela === opcoes.erroEm
+            return (ok: (v: Resposta) => unknown) => ok(opcoes.erroTabelas?.[tabela]
+              ? { data: null, error: { message: opcoes.erroTabelas[tabela] } }
+              : tabela === opcoes.erroEm
               ? { data: null, error: { message: `falha em ${tabela}` } }
               : { data: opcoes.linhas?.[tabela] ?? [], error: null });
           }
           return (...args: unknown[]) => {
             chamada.ops.push([String(prop), args]);
+            if (prop === 'single') {
+              if (opcoes.erroTabelas?.[tabela]) return Promise.resolve({ data: null, error: { message: opcoes.erroTabelas[tabela] } });
+              return Promise.resolve({ data: opcoes.linhas?.[tabela]?.[0] ?? null, error: null });
+            }
             if (prop === 'range') {
+              if (opcoes.erroTabelas?.[tabela]) return Promise.resolve({ data: null, error: { message: opcoes.erroTabelas[tabela] } });
               const trecho = opcoes.erroQuandoSelectContem?.[tabela];
               const sel = chamada.ops.find(([m]) => m === 'select')?.[1][0];
               if (trecho && typeof sel === 'string' && sel.includes(trecho)) {
@@ -38,9 +47,10 @@ export function fakeDb(opcoes: {
               const [de, ate] = args as [number, number];
               return Promise.resolve({ data: (opcoes.linhas?.[tabela] ?? []).slice(de, ate + 1), error: null });
             }
-            if (prop === 'select' && chamada.ops.some(([m]) => m === 'update')) {
+            if (prop === 'select' && chamada.ops.some(([m]) => m === 'update' || m === 'delete')) {
               const em = chamada.ops.find(([m]) => m === 'in');
-              const ids = (em ? em[1][1] : []) as string[];
+              const eqId = chamada.ops.find(([m, a]) => m === 'eq' && a[0] === 'id');
+              const ids = (em ? em[1][1] : eqId ? [eqId[1][1]] : []) as string[];
               return Promise.resolve(opcoes.respostaUpdate
                 ? opcoes.respostaUpdate(tabela, ids, lote++)
                 : { data: ids.map(id => ({ id })), error: null });
