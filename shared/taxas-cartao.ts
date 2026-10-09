@@ -184,8 +184,11 @@ export function validarTabela(m: Pick<Maquininha, 'maxParcelas' | 'taxas'>): str
 }
 
 /** Chave (slug sem acento) para uma bandeira nova; sufixa -2, -3… se já existir. */
+/** Acentos separados pelo NFD (U+0300–U+036F), escrito por código para não depender de \p{M} (Hermes). */
+const MARCAS_ACENTO = new RegExp('[\u0300-\u036f]', 'g');
+
 export function chaveBandeira(nome: string, existentes: string[]): string {
-  const base = nome.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim()
+  const base = nome.normalize('NFD').replace(MARCAS_ACENTO, '').toLowerCase().trim()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'bandeira';
   if (!existentes.includes(base)) return base;
   let n = 2;
