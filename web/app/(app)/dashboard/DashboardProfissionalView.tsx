@@ -42,7 +42,7 @@ export default async function DashboardProfissionalView({
       .neq('status', 'cancelado')
       .order('data_hora_inicio'),
     supabase.from('comissoes')
-      .select('valor_servico, valor_comissao, status')
+      .select('agendamento_id, valor_servico, valor_comissao, status')
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
       .gte('created_at', limMes.startIso).lte('created_at', limMes.endIso),
     supabase.from('empresa_membros').select('meta_mensal_pessoal')

@@ -90,7 +90,7 @@ export function useKpisDiaProfissional(dia: Date) {
           .neq('status', 'cancelado'),
         // Comissão do dia = comissões GERADAS hoje (tabela comissoes), nunca percentual × valor.
         supabase.from('comissoes')
-          .select('valor_servico, valor_comissao, status')
+          .select('agendamento_id, valor_servico, valor_comissao, status')
           .eq('empresa_id', empresaId!)
           .eq('profissional_id', userId!)
           .gte('created_at', lim.startIso)

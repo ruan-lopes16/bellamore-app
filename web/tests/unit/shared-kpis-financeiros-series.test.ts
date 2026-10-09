@@ -96,12 +96,27 @@ describe('comissões', () => {
   });
   it('resumo da profissional (área da profissional, web e mobile)', () => {
     expect(resumoComissoesProfissional([
-      { valor_servico: 200, valor_comissao: 80, status: 'pendente' },
-      { valor_servico: 150, valor_comissao: 60, status: 'pago' },
+      { agendamento_id: 'a1', valor_servico: 200, valor_comissao: 80, status: 'pendente' },
+      { agendamento_id: 'a2', valor_servico: 150, valor_comissao: 60, status: 'pago' },
     ])).toEqual({
       faturamentoBruto: 350, comissaoTotal: 140, comissaoPaga: 60, comissaoPendente: 80,
       atendimentos: 2, comissaoMedia: 70,
     });
+  });
+  it('comissão de serviço extra da comanda (085, sem agendamento) soma no total mas não é atendimento', () => {
+    expect(resumoComissoesProfissional([
+      { agendamento_id: 'a1', valor_servico: 200, valor_comissao: 80, status: 'pendente' },
+      { agendamento_id: null, valor_servico: 50,  valor_comissao: 20, status: 'pago' },
+    ])).toEqual({
+      faturamentoBruto: 250, comissaoTotal: 100, comissaoPaga: 20, comissaoPendente: 80,
+      atendimentos: 1, comissaoMedia: 100,
+    });
+  });
+  it('só extras: nenhum atendimento, média zero', () => {
+    const r = resumoComissoesProfissional([{ agendamento_id: null, valor_servico: 50, valor_comissao: 20, status: 'pendente' }]);
+    expect(r.atendimentos).toBe(0);
+    expect(r.comissaoMedia).toBe(0);
+    expect(r.comissaoTotal).toBe(20);
   });
 });
 

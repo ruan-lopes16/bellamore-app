@@ -523,29 +523,36 @@ export function resumoComissoesPendentes(rows: { valor_comissao: Valor }[]): { q
 }
 
 export type ResumoComissoesProfissional = {
-  /** Σ valor_servico (preço cobrado, não a comissão). */
+  /** Σ valor_servico (preço cobrado, não a comissão) — inclui serviços extras da comanda (085). */
   faturamentoBruto: number;
   comissaoTotal: number;
   comissaoPaga: number;
   comissaoPendente: number;
+  /** Atendimentos distintos com comissão (só linhas com agendamento_id; extra da comanda não conta). */
   atendimentos: number;
-  /** Comissão média por atendimento (arredondada ao real). */
+  /** Comissão média por atendimento (arredondada ao real); extras somam no total. */
   comissaoMedia: number;
 };
 
-/** Resumo das comissões da própria profissional (linhas já recortadas ao período). */
+/**
+ * Resumo das comissões da própria profissional (linhas já recortadas ao período).
+ * Mesma regra de shared/comissoes.ts: comissão de serviço extra da comanda
+ * (migration 085, `agendamento_id` nulo) entra no total e no faturamento,
+ * mas não conta como atendimento.
+ */
 export function resumoComissoesProfissional(
-  rows: { valor_servico: Valor; valor_comissao: Valor; status: string }[],
+  rows: { valor_servico: Valor; valor_comissao: Valor; status: string; agendamento_id: string | null }[],
 ): ResumoComissoesProfissional {
   const total = rows.reduce((s, c) => s + num(c.valor_comissao), 0);
   const pago = rows.filter(c => c.status === 'pago').reduce((s, c) => s + num(c.valor_comissao), 0);
+  const atendimentos = new Set(rows.filter(c => c.agendamento_id).map(c => c.agendamento_id)).size;
   return {
     faturamentoBruto: arredondar(rows.reduce((s, c) => s + num(c.valor_servico), 0)),
     comissaoTotal: arredondar(total),
     comissaoPaga: arredondar(pago),
     comissaoPendente: arredondar(total - pago),
-    atendimentos: rows.length,
-    comissaoMedia: rows.length > 0 ? Math.round(total / rows.length) : 0,
+    atendimentos,
+    comissaoMedia: atendimentos > 0 ? Math.round(total / atendimentos) : 0,
   };
 }
 
