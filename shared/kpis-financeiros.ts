@@ -9,7 +9,10 @@
  * - Faturamento bruto = atendimentos 'concluido' SEM sessão de pacote
  *   (agendamentos.valor, data = data_hora_inicio) + vendas avulsas
  *   (valor_final, created_at) + taxas de cancelamento pagas (paga_em) + taxas
- *   de reserva com paga_em (inclui as retidas depois de pagas).
+ *   de reserva com paga_em (inclui as retidas depois de pagas) + serviços
+ *   extras lançados na comanda (comanda_itens tipo 'servico' de comanda
+ *   'fechada', valor_unit × quantidade, data = comandas.fechada_at — decisão
+ *   do dono, 2026-10-08).
  *   `pagamentos` NÃO é receita: só taxa de cartão e formas de pagamento.
  * - Taxa de cartão = Σ (pagamentos.valor − valor_liquido) quando há valor_liquido.
  * - Comissões = tabela `comissoes` (valor gerado), datada por created_at.
@@ -19,7 +22,9 @@
  * - Fechamento importado (financeiro_ajustes_mensais) substitui receita E
  *   comissão do mês e zera a taxa de cartão — só nos meses que o período
  *   cobre por inteiro. Despesas nunca vêm do fechamento.
- * - Ticket médio = receita de serviços sem pacote ÷ atendimentos sem pacote.
+ * - Ticket médio = (receita de serviços sem pacote + serviços extras) ÷
+ *   atendimentos sem pacote. O extra é feito dentro de uma visita: soma no
+ *   valor da visita, mas não conta como atendimento.
  * - Datas em Brasília (ver periodos.ts). Toda função recorta as linhas pelos
  *   limites recebidos: o resultado não depende da janela que a tela buscou.
  */
@@ -55,6 +60,24 @@ export type TaxaPagaFinRow = { id: string; valor: Valor; paga_em: string | null 
 export type PagamentoFinRow = { id: string; metodo: string; valor: Valor; valor_liquido: Valor; created_at: string };
 export type ComissaoFinRow = { id: string; profissional_id: string; valor_comissao: Valor; status: string; created_at: string };
 export type DespesaFinRow = { id: string; valor: Valor; categoria: string | null; status: string; data_pagamento: string | null };
+/**
+ * Serviço extra cobrado na comanda (comanda_itens tipo 'servico' de comanda
+ * 'fechada'), já achatado pela consulta: `fechada_at`/`cliente_id` vêm da comanda.
+ * Receita = valor_unit × quantidade, datada por `fechada_at`.
+ */
+export type ServicoExtraFinRow = {
+  id: string;
+  valor_unit: Valor;
+  quantidade: Valor;
+  profissional_id: string | null;
+  servico_id: string | null;
+  descricao?: string | null;
+  fechada_at: string;
+  cliente_id?: string | null;
+  servico?: { nome: string } | null;
+  profissional?: { nome: string } | null;
+  cliente?: { nome: string } | null;
+};
 
 export type DadosFinanceiros = {
   agendamentos: AgendamentoFinRow[];
@@ -65,15 +88,19 @@ export type DadosFinanceiros = {
   comissoes: ComissaoFinRow[];
   despesas: DespesaFinRow[];
   fechamentos: FinanceiroFechamentoRow[];
+  /** Serviços extras das comandas fechadas (receita por fechada_at). */
+  servicosExtras: ServicoExtraFinRow[];
 };
 
 export const DADOS_VAZIOS: DadosFinanceiros = {
   agendamentos: [], vendas: [], taxasCancelamento: [], taxasReserva: [],
-  pagamentos: [], comissoes: [], despesas: [], fechamentos: [],
+  pagamentos: [], comissoes: [], despesas: [], fechamentos: [], servicosExtras: [],
 };
 
 export type KpisFinanceiros = {
   receitaServicos: number;
+  /** Serviços extras lançados na comanda (valor_unit × quantidade, por comandas.fechada_at). */
+  receitaServicosExtras: number;
   receitaVendas: number;
   receitaTaxasCancelamento: number;
   receitaTaxasReserva: number;
@@ -90,6 +117,7 @@ export type KpisFinanceiros = {
   atendimentos: number;
   /** Concluídos sem pacote (base do ticket médio). */
   atendimentosFaturaveis: number;
+  /** (receitaServicos + receitaServicosExtras) ÷ atendimentosFaturaveis — o extra soma na visita, não conta como atendimento. */
   ticketMedio: number;
   totalAgendamentos: number;
   cancelados: number;
@@ -104,7 +132,7 @@ export type KpisFinanceiros = {
 };
 
 export const KPIS_ZERADOS: KpisFinanceiros = {
-  receitaServicos: 0, receitaVendas: 0, receitaTaxasCancelamento: 0, receitaTaxasReserva: 0,
+  receitaServicos: 0, receitaServicosExtras: 0, receitaVendas: 0, receitaTaxasCancelamento: 0, receitaTaxasReserva: 0,
   bruto: 0, taxasCartao: 0, liquidoAposTaxas: 0, comissoes: 0, comissoesPendentes: 0,
   despesas: 0, lucro: 0, atendimentos: 0, atendimentosFaturaveis: 0, ticketMedio: 0,
   totalAgendamentos: 0, cancelados: 0, faltas: 0, perdidos: 0,
@@ -127,6 +155,11 @@ export function ehAtendimentoFaturavel(a: Pick<AgendamentoFinRow, 'status' | 'pa
   return a.status === 'concluido' && !a.pacote_cliente_id;
 }
 
+/** Receita de um serviço extra da comanda: valor_unit × quantidade. */
+export function valorServicoExtra(x: Pick<ServicoExtraFinRow, 'valor_unit' | 'quantidade'>): number {
+  return num(x.valor_unit) * num(x.quantidade);
+}
+
 /** Mantém só as linhas dentro dos limites (e só despesas pagas). */
 export function recortarDados(d: DadosFinanceiros, l: Limites): DadosFinanceiros {
   return {
@@ -138,6 +171,7 @@ export function recortarDados(d: DadosFinanceiros, l: Limites): DadosFinanceiros
     comissoes: d.comissoes.filter(c => contemInstante(l, c.created_at)),
     despesas: d.despesas.filter(x => x.status === 'pago' && contemData(l, x.data_pagamento)),
     fechamentos: d.fechamentos,
+    servicosExtras: (d.servicosExtras ?? []).filter(x => contemInstante(l, x.fechada_at)),
   };
 }
 
@@ -159,6 +193,7 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   const cancelados = d.agendamentos.filter(a => a.status === 'cancelado').length;
 
   const receitaServicos = faturaveis.reduce((s, a) => s + num(a.valor), 0);
+  const receitaServicosExtras = d.servicosExtras.reduce((s, x) => s + valorServicoExtra(x), 0);
   const receitaVendas = d.vendas.reduce((s, v) => s + num(v.valor_final), 0);
   const receitaTaxasCancelamento = d.taxasCancelamento.reduce((s, t) => s + num(t.valor), 0);
   const receitaTaxasReserva = d.taxasReserva.reduce((s, t) => s + num(t.valor), 0);
@@ -169,6 +204,7 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   const cartaoMes: Record<string, number> = {};
   faturaveis.forEach(a => somarEm(receitaMes, chaveMesBRT(a.data_hora_inicio), num(a.valor)));
   d.vendas.forEach(v => somarEm(receitaMes, chaveMesBRT(v.created_at), num(v.valor_final)));
+  d.servicosExtras.forEach(x => somarEm(receitaMes, chaveMesBRT(x.fechada_at), valorServicoExtra(x)));
   d.taxasCancelamento.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
   d.taxasReserva.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
   d.comissoes.forEach(c => somarEm(comissaoMes, chaveMesBRT(c.created_at), num(c.valor_comissao)));
@@ -209,6 +245,7 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
 
   return {
     receitaServicos: arredondar(receitaServicos),
+    receitaServicosExtras: arredondar(receitaServicosExtras),
     receitaVendas: arredondar(receitaVendas),
     receitaTaxasCancelamento: arredondar(receitaTaxasCancelamento),
     receitaTaxasReserva: arredondar(receitaTaxasReserva),
@@ -221,7 +258,7 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
     lucro: arredondar(brutoR - cartaoR - comissoesR - despesasR),
     atendimentos: concluidos.length,
     atendimentosFaturaveis: faturaveis.length,
-    ticketMedio: faturaveis.length > 0 ? arredondar(receitaServicos / faturaveis.length) : 0,
+    ticketMedio: faturaveis.length > 0 ? arredondar((receitaServicos + receitaServicosExtras) / faturaveis.length) : 0,
     totalAgendamentos,
     cancelados,
     faltas,
@@ -350,11 +387,16 @@ const NOME_PADRAO = { servico: 'Serviço', profissional: 'Profissional', cliente
 /**
  * Ranking dos atendimentos CONCLUÍDOS já recortados ao período. Quantidade
  * conta todos (inclusive sessão de pacote); receita soma só os faturáveis.
+ * Serviços extras da comanda (`extras`, já recortados) somam na RECEITA do
+ * serviço / profissional (comanda_itens.profissional_id) / cliente da comanda,
+ * mas nunca na quantidade — extra não é atendimento (mesma regra das comissões).
+ * Extra sem a chave preenchida (ex.: sem profissional) não é atribuído a ninguém.
  * Ordena por receita e depois quantidade; `percentual` é relativo ao 1º.
  */
 export function rankingAtendimentos(
   ags: AgendamentoFinRow[],
   por: 'servico' | 'profissional' | 'cliente',
+  extras: ServicoExtraFinRow[] = [],
 ): ItemRanking[] {
   const mapa = new Map<string, { nome: string; quantidade: number; receita: number }>();
   for (const a of ags) {
@@ -367,11 +409,34 @@ export function rankingAtendimentos(
     if (!a.pacote_cliente_id) item.receita += num(a.valor);
     mapa.set(chave, item);
   }
+  for (const x of extras) {
+    const chave = por === 'servico' ? x.servico_id : por === 'profissional' ? x.profissional_id : x.cliente_id;
+    if (!chave) continue;
+    const nome = (por === 'servico' ? x.servico?.nome : por === 'profissional' ? x.profissional?.nome : x.cliente?.nome)
+      ?? NOME_PADRAO[por];
+    const item = mapa.get(chave) ?? { nome, quantidade: 0, receita: 0 };
+    item.receita += valorServicoExtra(x);
+    mapa.set(chave, item);
+  }
   const lista = [...mapa.entries()]
     .map(([chave, v]) => ({ chave, nome: v.nome, quantidade: v.quantidade, receita: arredondar(v.receita), percentual: 0 }))
     .sort((a, b) => b.receita - a.receita || b.quantidade - a.quantidade);
   const max = lista[0]?.receita ?? 0;
   return lista.map(i => ({ ...i, percentual: max > 0 ? (i.receita / max) * 100 : 0 }));
+}
+
+/**
+ * Receita de serviços extras da comanda por profissional (comanda_itens.profissional_id),
+ * para somar ao faturado de cada uma (Equipe). Extra sem profissional não é atribuído.
+ */
+export function receitaExtrasPorProfissional(extras: Pick<ServicoExtraFinRow, 'profissional_id' | 'valor_unit' | 'quantidade'>[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const x of extras) {
+    if (!x.profissional_id) continue;
+    out[x.profissional_id] = (out[x.profissional_id] ?? 0) + valorServicoExtra(x);
+  }
+  for (const k of Object.keys(out)) out[k] = arredondar(out[k]);
+  return out;
 }
 
 export type ResumoMetodo = { metodo: string; valor: number; quantidade: number; percentual: number };
@@ -484,7 +549,10 @@ export function resumoComissoesProfissional(
   };
 }
 
-/** "Fat. hoje" da profissional: valor previsto do dia, sem cancelados, faltas nem sessões de pacote. */
+/**
+ * "Fat. hoje" da profissional: valor previsto do dia, sem cancelados, faltas nem sessões de pacote.
+ * É previsão da agenda: serviço extra só existe depois que a comanda fecha, então não entra aqui.
+ */
 export function faturamentoPrevistoDia(
   ags: { valor: Valor; status: string; pacote_cliente_id: string | null }[],
 ): number {

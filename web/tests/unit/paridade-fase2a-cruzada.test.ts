@@ -102,3 +102,62 @@ describe('todas as telas usam as funções únicas e nenhum cálculo antigo sobr
     expect(ler('mobile/app/(empresa)/dashboard.tsx')).not.toContain('+12% vs mês anterior');
   });
 });
+
+describe('serviços extras da comanda no faturamento (decisão do dono, 2026-10-08)', () => {
+  /** Banco da fixture + um extra cru (com a comanda aninhada) em 15/09. */
+  function dbComExtra(): ClienteDb {
+    const base = dbDaFixture();
+    const extra = {
+      id: 'e1', valor_unit: '40.00', quantidade: '2.000', profissional_id: 'p1', servico_id: 's1', descricao: 'Extra',
+      servico: { nome: 'Limpeza de pele' }, profissional: { nome: 'Ana' },
+      comanda: { fechada_at: '2026-09-15T15:00:00Z', status: 'fechada', clientes_id: 'c1', cliente: { nome: 'Carla' } },
+    };
+    return {
+      from(tabela: string) {
+        if (tabela !== 'comanda_itens') return base.from(tabela);
+        const b: Record<string, unknown> = new Proxy({}, {
+          get(_a, prop) {
+            if (prop === 'then') return undefined;
+            return (...args: unknown[]) => (prop === 'range'
+              ? Promise.resolve({ data: (args[0] as number) === 0 ? [extra] : [], error: null })
+              : b);
+          },
+        });
+        return b;
+      },
+    } as unknown as ClienteDb;
+  }
+
+  it('o extra entra igual no bruto, lucro e ticket de todas as janelas (Financeiro, Dashboard, Relatórios)', async () => {
+    const SET = limitesMes('2026-09');
+    const relMes = limitesDoPeriodo('mes', '2026-09-30');
+    const janelas = [
+      uniaoLimites(limitesMes(somarMeses('2026-09', -5)), SET),
+      uniaoLimites(limitesMes('2026-08'), SET),
+      uniaoLimites(relMes.anterior, relMes.atual),
+    ];
+    const resultados = await Promise.all(janelas.map(async j =>
+      calcularKpisFinanceiros(await carregarDadosFinanceiros(dbComExtra(), 'emp', j), SET)));
+    for (const r of resultados) expect(r).toEqual(resultados[0]);
+    expect(resultados[0]).toMatchObject({ receitaServicosExtras: 80, bruto: 640, lucro: 197, ticketMedio: 215 });
+  });
+
+  it('as duas plataformas passam os extras aos rankings e à exportação da aba Financeiro', () => {
+    const TELAS: Record<string, string[]> = {
+      'web/app/(app)/relatorios/page.tsx': ['dadosPeriodo.servicosExtras', 'linhasAtendimentosRelatorio('],
+      'mobile/hooks/useRelatorios.ts': ['doPeriodo.servicosExtras', 'linhasAtendimentosRelatorio('],
+      'web/app/(app)/financeiro/page.tsx': ['doMes.servicosExtras', 'receitaServicosExtras'],
+      'mobile/hooks/useFinanceiro.ts': ['doMes.servicosExtras', 'receitaServicosExtras'],
+      'web/app/(app)/equipe/page.tsx': ['carregarServicosExtras(', 'receitaExtrasPorProfissional('],
+      'mobile/app/(empresa)/equipe.tsx': ['carregarServicosExtras(', 'receitaExtrasPorProfissional('],
+    };
+    for (const [arquivo, exigidos] of Object.entries(TELAS)) {
+      const src = ler(arquivo);
+      for (const e of exigidos) expect(src, `${arquivo} deveria usar ${e}`).toContain(e);
+    }
+    // rankingAtendimentos sem os extras deixaria receita de fora
+    for (const arquivo of ['web/app/(app)/relatorios/page.tsx', 'mobile/hooks/useRelatorios.ts', 'web/app/(app)/financeiro/page.tsx', 'mobile/hooks/useFinanceiro.ts']) {
+      expect(ler(arquivo), arquivo).not.toMatch(/rankingAtendimentos\([^,()]+,\s*'[a-z]+'\)/);
+    }
+  });
+});

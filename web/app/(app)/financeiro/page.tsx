@@ -1111,7 +1111,7 @@ export default function FinanceiroPage() {
       const doMes = recortarDados(dados, periodo);
       setKpis(calcularKpisFinanceiros(dados, periodo));
       setKpisAnt(calcularKpisFinanceiros(dados, limitesMes(somarMeses(chave, -1))));
-      setTopServicos(rankingAtendimentos(doMes.agendamentos, 'servico').slice(0, 5)
+      setTopServicos(rankingAtendimentos(doMes.agendamentos, 'servico', doMes.servicosExtras).slice(0, 5)
         .map(s => ({ nome: s.nome, quantidade: s.quantidade, receita: s.receita, percentual: Math.round(s.percentual) })));
       setMetodos(resumoMetodosPagamento(doMes.pagamentos));
       setEvolucao(evolucaoMensal(dados, chaves6)
@@ -1207,6 +1207,7 @@ export default function FinanceiroPage() {
   const lucro                  = kpis.lucro;
   const taxasCancelamentoPagas = kpis.receitaTaxasCancelamento;
   const taxasReservaPagas      = kpis.receitaTaxasReserva;
+  const servicosExtras         = kpis.receitaServicosExtras;
   const dReceita   = variacaoPercentual(kpis.bruto,     kpisAnt.bruto);
   const dComissoes = variacaoPercentual(kpis.comissoes, kpisAnt.comissoes);
   const dGastos    = variacaoPercentual(kpis.despesas,  kpisAnt.despesas);
@@ -1272,6 +1273,10 @@ export default function FinanceiroPage() {
           { label: 'Gastos Operacionais', value: gastos,           d: dGastos,    cor: 'text-rose',    invertDelta: true,  sub: null },
           { label: 'Lucro Real',          value: lucro,            d: null,       cor: lucro >= 0 ? 'text-primary' : 'text-red', invertDelta: false,
             sub: isOwner && retiradasMes > 0 ? `Após retiradas ${fmtBRL(aposRetiradas)}` : null },
+          // Serviços extras da comanda (já incluídos no Faturamento Bruto), como no app.
+          ...(servicosExtras > 0
+            ? [{ label: 'Serviços Extras', value: servicosExtras, d: null, cor: 'text-green', invertDelta: false, sub: null }]
+            : []),
           ...(taxasCancelamentoPagas > 0
             ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false, sub: null }]
             : []),

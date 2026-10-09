@@ -14,7 +14,8 @@ import { format } from 'date-fns';
 import Link from 'next/link';
 import { hojeBRT, limitesMes } from '@shared/periodos';
 import { pendentesPorProfissional, MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
-import { carregarComissoesPendentes } from '@shared/kpis-financeiros-consultas';
+import { carregarComissoesPendentes, carregarServicosExtras } from '@shared/kpis-financeiros-consultas';
+import { receitaExtrasPorProfissional } from '@shared/kpis-financeiros';
 import { pagarComissoes } from '@shared/comissoes-consultas';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
@@ -654,13 +655,14 @@ export default function EquipePage() {
     // Mês atual em Brasília: é o "período exibido" da Equipe (Pagar = pendentes dele).
     const mesAtual = limitesMes(hojeBRT().slice(0, 7));
     try {
-      const [rAgs, pendentes, cfg] = await Promise.all([
+      const [rAgs, pendentes, cfg, extras] = await Promise.all([
         supabase.from('agendamentos').select('profissional_id, valor')
           .eq('empresa_id', empId).eq('status', 'concluido')
           .gte('data_hora_inicio', mesAtual.startIso).lte('data_hora_inicio', mesAtual.endIso),
         carregarComissoesPendentes(supabase, empId),
         // Se a migration 083 ainda não rodou, a Equipe segue funcionando sem o selo.
         carregarConfigPermissoes(supabase, empId).catch(() => configVazia()),
+        carregarServicosExtras(supabase, empId, mesAtual),
       ]);
       setCfgPerms(cfg);
       if (rAgs.error) throw new Error(rAgs.error.message);
@@ -670,6 +672,11 @@ export default function EquipePage() {
         stats[a.profissional_id].total += Number(a.valor);
         stats[a.profissional_id].count += 1;
       });
+      // Serviços extras da comanda somam no faturado da profissional (não contam como atendimento).
+      for (const [profId, valor] of Object.entries(receitaExtrasPorProfissional(extras))) {
+        if (!stats[profId]) stats[profId] = { total: 0, count: 0 };
+        stats[profId].total += valor;
+      }
       const pend = pendentesPorProfissional(pendentes, mesAtual);
       setProfs(((membros ?? []) as any[]).map(m => ({
         ...m,

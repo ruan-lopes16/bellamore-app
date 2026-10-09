@@ -17,7 +17,7 @@ import {
 } from '@shared/kpis-financeiros';
 import { carregarDadosFinanceiros, carregarClientesComHistoricoAntes, carregarRetiradas } from '@shared/kpis-financeiros-consultas';
 import {
-  rankingDespesasPorCategoria, comissaoPorProfissional, resumoInsumos, resumoAvaliacoes, type AbaRelatorio,
+  rankingDespesasPorCategoria, comissaoPorProfissional, resumoInsumos, resumoAvaliacoes, linhasAtendimentosRelatorio, type AbaRelatorio,
 } from '@shared/relatorios';
 import { carregarSaidasEstoque, carregarAvaliacoes } from '@shared/relatorios-consultas';
 import { normalizarComissoes, comissoesPorProfissional, resumoComissoes, MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
@@ -125,7 +125,7 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo, 
       ticketMedio: k.ticketMedio, ticketMedioAnterior: ka.ticketMedio,
       totalAgendamentos: k.totalAgendamentos, perdidos: k.perdidos, pctCancelamento: k.pctCancelamento,
     };
-    const servicos: ServicoRelatorio[] = rankingAtendimentos(ags, 'servico').map(s => ({
+    const servicos: ServicoRelatorio[] = rankingAtendimentos(ags, 'servico', doPeriodo.servicosExtras).map(s => ({
       servico_id: s.chave, nome: s.nome, quantidade: s.quantidade, receita: s.receita, percentual: Math.round(s.percentual),
     }));
     const comPorProf = comissaoPorProfissional(doPeriodo.comissoes);
@@ -135,19 +135,16 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo, 
       const e = (extras[a.profissional_id] ??= { foto_url: a.profissional?.foto_url ?? undefined, cats: new Set() });
       if (a.servico?.categoria) e.cats.add(a.servico.categoria);
     }
-    const profissionais: ProfissionalRelatorio[] = rankingAtendimentos(ags, 'profissional').map(p => ({
+    const profissionais: ProfissionalRelatorio[] = rankingAtendimentos(ags, 'profissional', doPeriodo.servicosExtras).map(p => ({
       profissional_id: p.chave, nome: p.nome, foto_url: extras[p.chave]?.foto_url,
       especialidades: [...(extras[p.chave]?.cats ?? [])].slice(0, 2).join(' · ') || 'Geral',
       atendimentos: p.quantidade, faturamento: p.receita, comissao: comPorProf[p.chave] ?? 0, percentual: p.percentual,
     }));
-    const topClientes: ClienteRelatorio[] = rankingAtendimentos(ags, 'cliente').slice(0, 10).map(c => ({
+    const topClientes: ClienteRelatorio[] = rankingAtendimentos(ags, 'cliente', doPeriodo.servicosExtras).slice(0, 10).map(c => ({
       cliente_id: c.chave, nome: c.nome, visitas: c.quantidade, total: c.receita, percentual: c.percentual,
     }));
-    // Atendimentos concluídos do período (linha padrão da exportação da aba Financeiro, igual ao web).
-    const concluidos = ags.filter(a => a.status === 'concluido').map(a => ({
-      inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null,
-      valor: Number(a.valor ?? 0), status: a.status,
-    }));
+    // Concluídos + serviços extras da comanda (linha padrão da exportação da aba Financeiro, igual ao web).
+    const concluidos = linhasAtendimentosRelatorio(doPeriodo);
     return {
       kpis: k, kpisAnt: ka, resumo, retorno, servicos, profissionais, topClientes, concluidos,
       serie: serieFaturamento(dados, atual).map(p => ({ rotulo: p.rotulo, valor: p.valor })),

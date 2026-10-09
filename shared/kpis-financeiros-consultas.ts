@@ -20,7 +20,7 @@ import { buscarTodasPaginas } from './paginacao';
 import type { Limites } from './periodos';
 import type {
   AgendamentoFinRow, ComissaoFinRow, DadosFinanceiros, DespesaFinRow,
-  PagamentoFinRow, TaxaPagaFinRow, VendaFinRow,
+  PagamentoFinRow, ServicoExtraFinRow, TaxaPagaFinRow, VendaFinRow,
 } from './kpis-financeiros';
 import type { FinanceiroFechamentoRow } from './fechamentos-mensais';
 import type { RetiradaSociaDevolucaoRow, RetiradaSociaRow } from './retiradas-socia';
@@ -48,6 +48,43 @@ export const COLUNAS_AGENDAMENTO_FIN = `id, valor, status, data_hora_inicio, pac
   profissional:users!agendamentos_profissional_id_fkey(nome, foto_url),
   cliente:clientes!agendamentos_cliente_id_fkey(nome)`;
 
+/**
+ * Colunas dos serviços extras da comanda. `comandas!inner` deixa filtrar pela
+ * comanda (status e fechada_at) e descarta itens cuja comanda o RLS esconde.
+ */
+export const COLUNAS_SERVICO_EXTRA_FIN = `id, valor_unit, quantidade, profissional_id, servico_id, descricao,
+  servico:servicos(nome),
+  profissional:users(nome),
+  comanda:comandas!inner(fechada_at, status, clientes_id, cliente:clientes!comandas_clientes_id_fkey(nome))`;
+
+type ServicoExtraBrutoRow = Omit<ServicoExtraFinRow, 'fechada_at' | 'cliente_id' | 'cliente'> & {
+  comanda: { fechada_at: string; clientes_id: string | null; cliente?: { nome: string } | null } | null;
+};
+
+/**
+ * Serviços extras (comanda_itens tipo 'servico') das comandas FECHADAS com
+ * fechada_at dentro dos limites — receita desde 2026-10-08 (decisão do dono).
+ * RLS: a profissional só recebe os itens das comandas que ela enxerga; a
+ * consulta não falha por isso, igual às demais.
+ */
+export async function carregarServicosExtras(db: ClienteDb, empresaId: string, l: Limites): Promise<ServicoExtraFinRow[]> {
+  const linhas = await buscarTodasOuLancar<ServicoExtraBrutoRow>((de, ate) => db.from('comanda_itens')
+    .select(COLUNAS_SERVICO_EXTRA_FIN)
+    .eq('empresa_id', empresaId).eq('tipo', 'servico')
+    .eq('comanda.status', 'fechada')
+    .gte('comanda.fechada_at', l.startIso).lte('comanda.fechada_at', l.endIso)
+    .order('id')
+    .range(de, ate));
+  return linhas
+    .filter(x => x.comanda?.fechada_at)
+    .map(({ comanda, ...x }) => ({
+      ...x,
+      fechada_at: comanda!.fechada_at,
+      cliente_id: comanda!.clientes_id ?? null,
+      cliente: comanda!.cliente ?? null,
+    }));
+}
+
 export const COLUNAS_RETIRADA =
   'id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at';
 
@@ -57,7 +94,7 @@ export const COLUNAS_RETIRADA =
  * sobre o mesmo resultado — calcularKpisFinanceiros recorta sozinho.
  */
 export async function carregarDadosFinanceiros(db: ClienteDb, empresaId: string, l: Limites): Promise<DadosFinanceiros> {
-  const [agendamentos, vendas, taxasCancelamento, taxasReserva, pagamentos, comissoes, despesas, fechamentos] =
+  const [agendamentos, vendas, taxasCancelamento, taxasReserva, pagamentos, comissoes, despesas, fechamentos, servicosExtras] =
     await Promise.all([
       buscarTodasOuLancar<AgendamentoFinRow>((de, ate) => db.from('agendamentos')
         .select(COLUNAS_AGENDAMENTO_FIN)
@@ -107,8 +144,9 @@ export async function carregarDadosFinanceiros(db: ClienteDb, empresaId: string,
         .gte('mes', `${l.startDate.slice(0, 7)}-01`).lte('mes', l.endDate)
         .order('mes').order('id')
         .range(de, ate)),
+      carregarServicosExtras(db, empresaId, l),
     ]);
-  return { agendamentos, vendas, taxasCancelamento, taxasReserva, pagamentos, comissoes, despesas, fechamentos };
+  return { agendamentos, vendas, taxasCancelamento, taxasReserva, pagamentos, comissoes, despesas, fechamentos, servicosExtras };
 }
 
 export type ComissaoPendenteRow = { id: string; profissional_id: string; valor_comissao: number | string; created_at: string };

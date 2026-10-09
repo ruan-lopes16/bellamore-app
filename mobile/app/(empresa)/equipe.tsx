@@ -21,7 +21,10 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format } from 'date-fns';
+import { hojeBRT, limitesMes } from '@shared/periodos';
+import { carregarServicosExtras } from '@shared/kpis-financeiros-consultas';
+import { receitaExtrasPorProfissional } from '@shared/kpis-financeiros';
 
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
@@ -94,17 +97,19 @@ function useEquipe() {
 
       if (error) throw error;
 
-      // Stats do mês atual por profissional
-      const inicio = startOfMonth(new Date()).toISOString();
-      const fim    = endOfMonth(new Date()).toISOString();
+      // Stats do mês atual (Brasília, igual ao web) por profissional
+      const mesAtual = limitesMes(hojeBRT().slice(0, 7));
 
-      const { data: ags } = await supabase
-        .from('agendamentos')
-        .select('profissional_id, valor, status')
-        .eq('empresa_id', empresaId!)
-        .eq('status', 'concluido')
-        .gte('data_hora_inicio', inicio)
-        .lte('data_hora_inicio', fim);
+      const [{ data: ags }, extras] = await Promise.all([
+        supabase
+          .from('agendamentos')
+          .select('profissional_id, valor, status')
+          .eq('empresa_id', empresaId!)
+          .eq('status', 'concluido')
+          .gte('data_hora_inicio', mesAtual.startIso)
+          .lte('data_hora_inicio', mesAtual.endIso),
+        carregarServicosExtras(supabase, empresaId!, mesAtual),
+      ]);
 
       const statsPorProf: Record<string, { total: number; count: number }> = {};
       (ags ?? []).forEach((a) => {
@@ -112,6 +117,11 @@ function useEquipe() {
         statsPorProf[a.profissional_id].total += Number(a.valor);
         statsPorProf[a.profissional_id].count += 1;
       });
+      // Serviços extras da comanda somam no faturado da profissional (não contam como atendimento).
+      for (const [profId, valor] of Object.entries(receitaExtrasPorProfissional(extras))) {
+        if (!statsPorProf[profId]) statsPorProf[profId] = { total: 0, count: 0 };
+        statsPorProf[profId].total += valor;
+      }
 
       return (membros ?? []).map((m: any) => ({
         ...m,

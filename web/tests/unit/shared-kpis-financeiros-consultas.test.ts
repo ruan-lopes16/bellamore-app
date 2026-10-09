@@ -40,11 +40,11 @@ const opsDe = (chamadas: Chamada[], tabela: string) => chamadas.filter(c => c.ta
 const SET = limitesMes('2026-09');
 
 describe('carregarDadosFinanceiros — mesmos filtros nas duas plataformas', () => {
-  it('consulta as 8 tabelas', async () => {
+  it('consulta as 9 tabelas', async () => {
     const { db, chamadas } = fakeDb();
     await carregarDadosFinanceiros(db, 'emp', SET);
     expect(chamadas.map(c => c.tabela).sort()).toEqual([
-      'agendamentos', 'comissoes', 'despesas', 'financeiro_ajustes_mensais',
+      'agendamentos', 'comanda_itens', 'comissoes', 'despesas', 'financeiro_ajustes_mensais',
       'pagamentos', 'taxas_cancelamento', 'taxas_reserva', 'vendas',
     ]);
   });
