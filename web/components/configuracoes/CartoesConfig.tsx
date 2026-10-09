@@ -3,7 +3,8 @@
  * Configurações → Cartões: maquininhas (tabela padrão de taxas + exceções por bandeira) e bandeiras.
  * Edição exige a permissão `config.taxas`; sem ela, ou antes da migration 086 (`legado`), é só leitura.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, CreditCard, Loader2, Pencil, Plus, Star, Trash2, Undo2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
@@ -79,6 +80,26 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
   const [novaBandeira, setNovaBandeira] = useState('');
   const [nomesBandeira, setNomesBandeira] = useState<Record<string, string>>({});
   const [excecaoNova, setExcecaoNova] = useState('');
+  const inicialRef = useRef('');
+  const editorRef = useRef<Editor | null>(null);
+  editorRef.current = editor;
+  const ocupadoRef = useRef(false);
+  ocupadoRef.current = ocupado;
+
+  /** Fecha o editor; com alterações não salvas pede confirmação. */
+  const fecharEditor = useCallback(() => {
+    if (ocupadoRef.current) return;
+    const ed = editorRef.current;
+    if (ed && JSON.stringify(ed) !== inicialRef.current && !window.confirm('Descartar alterações?')) return;
+    setEditor(null);
+  }, []);
+
+  useEffect(() => {
+    if (!editor) return;
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') fecharEditor(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [editor === null, fecharEditor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recarregar = useCallback(async (): Promise<ConfigCartoes | null> => {
     try {
@@ -116,11 +137,13 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
     finally { setOcupado(false); }
   }
 
+  function abrir(ed: Editor) { inicialRef.current = JSON.stringify(ed); setEditor(ed); }
+
   function abrirNova() {
     const base = padrao;
     const max = base?.maxParcelas ?? 12;
     setErroEditor(''); setExcecaoNova('');
-    setEditor({
+    abrir({
       nome: '', max: String(max), ativa: true, padrao: false,
       ordem: Math.max(0, ...cfg.maquininhas.map(m => m.ordem)) + 1,
       originais: [],
@@ -133,7 +156,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
     setErroEditor(''); setExcecaoNova('');
     const excecoes: Record<string, GradeTaxas> = {};
     for (const bid of bandeirasComExcecao(m.taxas)) excecoes[bid] = taxasParaGrade(m.taxas, bid, m.maxParcelas);
-    setEditor({
+    abrir({
       id: m.id, nome: m.nome, max: String(m.maxParcelas), ativa: m.ativa, padrao: m.padrao, ordem: m.ordem,
       originais: m.taxas, padraoGrade: taxasParaGrade(m.taxas, null, m.maxParcelas), excecoes,
     });
@@ -167,9 +190,11 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
       await recarregar();
     } catch (e) {
       setErroEditor(msgErro(e, 'salvar a maquininha'));
+      const criada = (e as { maquininhaId?: string }).maquininhaId;
+      const idAtual = editor.id ?? criada;
       const c = await recarregar();
-      const atual = c?.maquininhas.find(m => m.id === editor.id);
-      if (atual) setEditor(ed => (ed ? { ...ed, originais: atual.taxas } : ed));
+      const atual = c?.maquininhas.find(m => m.id === idAtual);
+      setEditor(ed => (ed ? { ...ed, id: idAtual, originais: atual ? atual.taxas : ed.originais } : ed));
     } finally { setOcupado(false); }
   }
 
@@ -313,13 +338,14 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
       </div>
 
       {/* Editor de maquininha */}
-      {editor && (
-        <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !ocupado && setEditor(null)}/>
+      {editor && createPortal(
+        <div onKeyDown={e => { if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') e.preventDefault(); }}
+          className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fecharEditor}/>
           <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[90dvh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
               <h2 className="font-serif text-xl text-text">{editor.id ? 'Editar maquininha' : 'Nova maquininha'}</h2>
-              <button type="button" onClick={() => setEditor(null)} aria-label="Fechar" className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3"><X size={16}/></button>
+              <button type="button" onClick={fecharEditor} aria-label="Fechar" className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3"><X size={16}/></button>
             </div>
             <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px] gap-3">
@@ -381,15 +407,15 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
               {erroEditor && <p className="text-sm text-red" role="alert">{erroEditor}</p>}
             </div>
             <div className="p-5 border-t border-border flex justify-end gap-2 flex-shrink-0">
-              <button type="button" onClick={() => setEditor(null)} disabled={ocupado} className={btnSec}>Cancelar</button>
+              <button type="button" onClick={fecharEditor} disabled={ocupado} className={btnSec}>Cancelar</button>
               <button type="button" onClick={salvarEditor} disabled={ocupado}
                 className="h-9 px-4 rounded-xl bg-primary text-white text-sm font-bold disabled:opacity-50 inline-flex items-center gap-2">
                 {ocupado && <Loader2 size={14} className="animate-spin"/>} Salvar
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+        document.body)}
     </div>
   );
 }

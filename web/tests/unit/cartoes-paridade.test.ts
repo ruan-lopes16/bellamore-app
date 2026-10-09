@@ -77,6 +77,12 @@ describe('Configurações → Cartões (web)', () => {
     expect(src).not.toContain('temColunasCartao');
     expect(src).not.toContain('Taxas da maquininha');
   });
+  it('editor de maquininha sai do <form> da empresa (portal) e confirma descarte', () => {
+    const src = ler('web/components/configuracoes/CartoesConfig.tsx');
+    expect(src).toContain('createPortal(');
+    expect(src).toContain('Descartar alterações?');
+    expect(src).toContain("'Escape'");
+  });
   it('CartoesConfig usa as funções compartilhadas e a permissão config.taxas', () => {
     const src = ler('web/components/configuracoes/CartoesConfig.tsx');
     for (const f of ['validarTabela(', 'salvarMaquininha(', 'salvarBandeira(', 'definirPadrao(', 'carregarConfigCartoes(',

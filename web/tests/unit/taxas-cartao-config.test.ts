@@ -49,6 +49,16 @@ describe('grade editável de taxas', () => {
     expect(gradeParaTaxas({ debito: '', credito: ['4,99', ''] }, 'b1', 2, false))
       .toEqual([{ bandeiraId: 'b1', modalidade: 'credito', parcelas: 1, taxa: 0.0499 }]);
   });
+  it('ida e volta de uma grade de exceção e bandeirasComExcecao sem repetir', () => {
+    const exc: TaxaLinha[] = [
+      { bandeiraId: 'b1', modalidade: 'debito', parcelas: 1, taxa: 0.03 },
+      { bandeiraId: 'b1', modalidade: 'credito', parcelas: 2, taxa: 0.07 },
+    ];
+    const g = taxasParaGrade(exc, 'b1', 2);
+    expect(g).toEqual({ debito: '3,00', credito: ['', '7,00'] });
+    expect(gradeParaTaxas(g, 'b1', 2, false)).toEqual(exc);
+    expect(bandeirasComExcecao([...exc, ...exc])).toEqual(['b1']);
+  });
   it('descarta exceções iguais à padrão e lista bandeiras com exceção', () => {
     const t: TaxaLinha[] = [...base,
       { bandeiraId: 'b1', modalidade: 'debito', parcelas: 1, taxa: 0.0239 },

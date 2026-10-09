@@ -91,6 +91,7 @@ export async function salvarMaquininha(
     id = (data as { id: string }).id;
   }
 
+  try {
   const novas = m.taxas.filter(t => t.parcelas <= m.maxParcelas);
   const novasPorChave = new Map(novas.map(t => [chaveLinha(t), t]));
   const originaisPorChave = new Map(originais.filter(t => t.id).map(t => [chaveLinha(t), t]));
@@ -118,6 +119,11 @@ export async function salvarMaquininha(
     if (error) throw new Error(mensagemErroBanco(error, 'salvar as taxas'));
   }
   return { id: id as string };
+  } catch (e) {
+    // Maquininha nova já criada: quem chama usa o id para o retry atualizar em vez de inserir de novo.
+    if (!m.id && e instanceof Error) (e as Error & { maquininhaId?: string }).maquininhaId = id;
+    throw e;
+  }
 }
 
 /**
