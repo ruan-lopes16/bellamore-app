@@ -84,3 +84,18 @@ describe('textos iguais nas duas plataformas', () => {
       .toBe('Marcar como pagas as comissões pendentes de Ana em Setembro 2026 (R$ 80)?');
   });
 });
+
+describe('normalizarComissao — serviço extra da comanda', () => {
+  it('data e cliente da comanda, descrição com (extra)', () => {
+    const c = normalizarComissoes([{
+      id: 'x', profissional_id: 'p', agendamento_id: null, comanda_item_id: 'i1',
+      valor_servico: '40.00', percentual: '50', valor_comissao: '20.00', status: 'pendente', created_at: '2026-10-08T15:00:00Z',
+      profissional: { nome: 'Lu' }, agendamento: null,
+      item: { descricao: 'Esmaltação', comanda: { fechada_at: '2026-10-08T14:59:00Z', cliente: { nome: 'Ana' } } },
+    }])[0];
+    expect(c).toMatchObject({
+      agendamentoId: null, dataAtendimento: '2026-10-08T14:59:00Z', valorAtendimento: 40,
+      servicoNome: 'Esmaltação (extra)', clienteNome: 'Ana', servicoCategoria: null, valorComissao: 20,
+    });
+  });
+});

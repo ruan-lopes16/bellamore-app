@@ -7,23 +7,35 @@ import { buscarTodasOuLancar, type ClienteDb } from './kpis-financeiros-consulta
 import type { Limites } from './periodos';
 import type { ComissaoDetalheRow } from './comissoes';
 
-export const COLUNAS_COMISSAO_DETALHE = `id, profissional_id, agendamento_id, valor_servico, percentual, valor_comissao, status, created_at,
+/** Colunas de antes da migration 085 (sem comissão de serviço extra). */
+export const COLUNAS_COMISSAO_DETALHE_LEGADO = `id, profissional_id, agendamento_id, valor_servico, percentual, valor_comissao, status, created_at,
   profissional:users!comissoes_profissional_id_fkey(nome),
   agendamento:agendamentos(data_hora_inicio, valor,
     servico:servicos(nome, categoria, categoria_id),
     cliente:clientes!agendamentos_cliente_id_fkey(nome))`;
 
+/** Colunas atuais: + comissão de serviço extra (comanda_item_id → item → comanda → cliente). */
+export const COLUNAS_COMISSAO_DETALHE = `${COLUNAS_COMISSAO_DETALHE_LEGADO}, comanda_item_id,
+  item:comanda_itens(descricao, comanda:comandas(fechada_at, cliente:clientes!comandas_clientes_id_fkey(nome)))`;
+
 /** Comissões geradas no período (created_at), mais recentes primeiro. `profissionalId` = tela da profissional. */
 export async function carregarComissoesDoPeriodo(
   db: ClienteDb, empresaId: string, l: Limites, opcoes: { profissionalId?: string } = {},
 ): Promise<ComissaoDetalheRow[]> {
-  return buscarTodasOuLancar<ComissaoDetalheRow>((de, ate) => {
-    let q = db.from('comissoes').select(COLUNAS_COMISSAO_DETALHE)
+  const buscar = (colunas: string) => buscarTodasOuLancar<ComissaoDetalheRow>((de, ate) => {
+    let q = db.from('comissoes').select(colunas)
       .eq('empresa_id', empresaId)
       .gte('created_at', l.startIso).lte('created_at', l.endIso);
     if (opcoes.profissionalId) q = q.eq('profissional_id', opcoes.profissionalId);
     return q.order('created_at', { ascending: false }).order('id').range(de, ate);
   });
+  try {
+    return await buscar(COLUNAS_COMISSAO_DETALHE);
+  } catch (e) {
+    // Banco sem a migration 085: coluna/relação de comanda_item_id não existe.
+    if (e instanceof Error && /comanda_item/.test(e.message)) return buscar(COLUNAS_COMISSAO_DETALHE_LEGADO);
+    throw e;
+  }
 }
 
 export type ResultadoPagamento = { confirmados: string[]; naoConfirmados: string[]; erro: string | null };

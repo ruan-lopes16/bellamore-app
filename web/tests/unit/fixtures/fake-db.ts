@@ -6,6 +6,8 @@ type Resposta = { data: unknown[] | null; error: { message: string } | null };
 export function fakeDb(opcoes: {
   linhas?: Record<string, unknown[]>;
   erroEm?: string;
+  /** Erro só quando o `select` da tabela contém o texto (ex.: coluna que a migration ainda não criou). */
+  erroQuandoSelectContem?: Record<string, string>;
   /** Consultas sem `range`: `await` na cadeia devolve `linhas[tabela]` (ou erro, se `erroEm`). */
   awaitavel?: boolean;
   respostaUpdate?: (tabela: string, ids: string[], lote: number) => Resposta;
@@ -27,6 +29,11 @@ export function fakeDb(opcoes: {
           return (...args: unknown[]) => {
             chamada.ops.push([String(prop), args]);
             if (prop === 'range') {
+              const trecho = opcoes.erroQuandoSelectContem?.[tabela];
+              const sel = chamada.ops.find(([m]) => m === 'select')?.[1][0];
+              if (trecho && typeof sel === 'string' && sel.includes(trecho)) {
+                return Promise.resolve({ data: null, error: { message: `column ${trecho} does not exist` } });
+              }
               if (tabela === opcoes.erroEm) return Promise.resolve({ data: null, error: { message: `falha em ${tabela}` } });
               const [de, ate] = args as [number, number];
               return Promise.resolve({ data: (opcoes.linhas?.[tabela] ?? []).slice(de, ate + 1), error: null });

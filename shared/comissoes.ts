@@ -21,6 +21,9 @@ export type ComissaoDetalheRow = {
   valor_comissao: Valor;
   status: string;
   created_at: string;
+  comanda_item_id?: string | null;
+  /** Serviço extra da comanda (migration 085): descrição e comanda de origem. */
+  item?: { descricao: string | null; comanda?: { fechada_at: string | null; cliente?: { nome: string | null } | null } | null } | null;
   profissional?: { nome: string | null } | null;
   agendamento?: {
     data_hora_inicio: string | null;
@@ -52,6 +55,7 @@ export type ComissaoItem = {
 /** Converte uma linha crua (numeric vem como string) no formato usado pelas telas. */
 export function normalizarComissao(r: ComissaoDetalheRow): ComissaoItem {
   const ag = r.agendamento ?? null;
+  const extra = !ag && r.item ? r.item : null;
   return {
     id: r.id,
     profissionalId: r.profissional_id,
@@ -62,12 +66,12 @@ export function normalizarComissao(r: ComissaoDetalheRow): ComissaoItem {
     valorComissao: num(r.valor_comissao),
     status: r.status === 'pago' ? 'pago' : 'pendente',
     criadaEm: r.created_at,
-    dataAtendimento: ag?.data_hora_inicio ?? null,
-    valorAtendimento: ag && ag.valor != null ? num(ag.valor) : null,
-    servicoNome: ag?.servico?.nome || 'Serviço',
+    dataAtendimento: ag?.data_hora_inicio ?? extra?.comanda?.fechada_at ?? null,
+    valorAtendimento: ag && ag.valor != null ? num(ag.valor) : extra ? num(r.valor_servico) : null,
+    servicoNome: extra ? `${extra.descricao || 'Serviço'} (extra)` : ag?.servico?.nome || 'Serviço',
     servicoCategoria: ag?.servico?.categoria ?? null,
     servicoCategoriaId: ag?.servico?.categoria_id ?? null,
-    clienteNome: ag?.cliente?.nome || '—',
+    clienteNome: ag?.cliente?.nome || extra?.comanda?.cliente?.nome || '—',
   };
 }
 
