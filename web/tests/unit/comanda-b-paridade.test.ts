@@ -64,3 +64,21 @@ describe('Comanda B — app: itens e recibo', () => {
     expect(app).not.toMatch(/item\.tipo !== 'agendamento' && \(\s*<TouchableOpacity onPress=\{\(\) => removerItem/);
   });
 });
+
+describe('Comanda B — app: editar comanda fechada', () => {
+  it('cartões por comanda, edição por diff, permissão de editar fechada', () => {
+    expect(app).toContain('cartoesComandaDoDia(');
+    expect(app).toContain('carregarComandasSoExtrasDoDia(');
+    expect(app).toContain('diffItensComanda(');
+    expect(app).toContain('carregarComissoesPagasDosItens(');
+    expect(app).toContain("pode('comanda.editar_fechada')");
+    expect(app).toMatch(/async function editarComanda\(/);
+    expect(app).toMatch(/taxaGravada/);
+  });
+  it('abertura com contador, carga falha bloqueia salvar, sem apagar todos os itens', () => {
+    expect(app).toContain('aberturaRef');
+    expect(app).toContain('cargaFalhou');
+    expect(app).not.toMatch(/from\('comanda_itens'\)\.delete\(\)\.eq\('comanda_id'/);
+    expect(app).toContain('Comissão já paga');
+  });
+});
