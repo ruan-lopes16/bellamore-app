@@ -21,14 +21,12 @@ describe('Configurações: taxas da maquininha', () => {
     const c = CATALOGO_PERMISSOES.find(p => p.chave === 'config.taxas')!;
     expect(c.rotulo).toBe('Editar taxas de reserva, cancelamento e maquininha');
   });
-  for (const arq of ['mobile/app/(empresa)/configuracoes.tsx']) {
-    it(`${arq} edita as 3 taxas`, () => {
-      const src = ler(arq);
-      expect(src).toContain('Taxas da maquininha');
-      for (const col of ['taxa_cartao_debito', 'taxa_cartao_credito_avista', 'taxa_cartao_credito_parcelado']) expect(src).toContain(col);
-      expect(src).toContain("pode('config.taxas')");
-    });
-  }
+  it('app: Cartões saiu das 3 taxas fixas e vive em CartoesConfig', () => {
+    const src = ler('mobile/app/(empresa)/configuracoes.tsx');
+    expect(src).toContain('<CartoesConfig');
+    expect(src).not.toContain('Taxas da maquininha');
+    expect(src).not.toContain('taxa_cartao_debito');
+  });
 });
 
 import { taxasParaGrade, gradeParaTaxas, descartarExcecoesRedundantes, bandeirasComExcecao, type TaxaLinha } from '@shared/taxas-cartao';

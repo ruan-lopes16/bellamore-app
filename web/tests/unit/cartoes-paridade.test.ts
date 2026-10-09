@@ -115,3 +115,23 @@ describe('Configurações → Cartões (web)', () => {
     }
   });
 });
+
+describe('Configurações → Cartões (app)', () => {
+  it('tela renderiza CartoesConfig e não envia mais taxa_cartao_*', () => {
+    const src = ler('mobile/app/(empresa)/configuracoes.tsx');
+    expect(src).toContain('<CartoesConfig');
+    expect(src).not.toContain('taxa_cartao_debito');
+    expect(src).not.toContain('temColunasCartao');
+    expect(src).not.toContain('Taxas da maquininha');
+  });
+  it('CartoesConfig do app usa as funções compartilhadas, a permissão e confirma descarte', () => {
+    const src = ler('mobile/components/configuracoes/CartoesConfig.tsx');
+    for (const f of ['validarTabela(', 'salvarMaquininha(', 'salvarBandeira(', 'definirPadrao(', 'carregarConfigCartoes(',
+      'descartarExcecoesRedundantes(', "pode('config.taxas')", 'mensagemErroBanco(', 'decimal-pad', 'maquininhaId',
+      'Descartar alterações?', 'Escolha outra maquininha padrão antes de remover esta',
+      'Mantenha ao menos uma maquininha ativa', 'Já existe uma bandeira ativa com esse nome',
+      'Disponível após a atualização do sistema', 'Restaurar']) {
+      expect(src).toContain(f);
+    }
+  });
+});
