@@ -1028,6 +1028,66 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-08/09 — Paridade Comanda B (recursos no app + comissão e receita do serviço extra)
+
+*Escopo: a comanda do app ganha tudo o que a do web faz e as duas passam a tratar o serviço extra como serviço de verdade.*
+*(1) Migration 085: serviço extra com profissional gera comissão (triggers em `comanda_itens`, SECURITY DEFINER), com*
+*trava de comissão já paga. (2) `shared/`: `diffItensComanda`, `cartoesComandaDoDia`, `gerarTextoRecibo`/`linkWhatsAppRecibo`,*
+*`comanda-consultas` (backlog, comandas só com extras, comissões pagas dos itens). (3) Telas de comissão mostram a comissão do*
+*extra (com fallback antes da 085). (4) Web: um cartão por comanda fechada, comanda só com extras reabre, edição por diferença.*
+*(5) App: escolher o dia (semana/mês/comandas abertas), tirar atendimento, profissional no extra, valor e quantidade, recibo*
+*por WhatsApp, editar comanda fechada. (6) Decisão do dono na revisão final: serviço extra entra no faturamento (data =*
+*`comandas.fechada_at`) em todas as telas de números das duas plataformas. 7 tasks + revisão final (opus) + 2 ondas de correção.*
+*Spec e plano: `docs/superpowers/{specs,plans}/2026-10-08-comanda-b-recursos-app*`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 1238/1238; mobile com os mesmos 6 erros pré-existentes |
+| UX / Padrões    | 9.0  | App espelha o web (seletor de dias, travas de edição, textos de aviso); "Serviços extras" como linha própria em Financeiro/Relatórios/exportações |
+| Segurança       | 9.0  | 085 aditiva e idempotente: índice único (uma comissão por item), comissão paga nunca apagada e troca de profissional bloqueada no banco; RLS existente cobre as leituras (profissional só vê as próprias comandas) |
+| Documentação    | 9.0  | Spec, plano, cabeçalho da 085 com rollback, JSDoc pt-BR nos módulos novos de `shared/` |
+| Arquitetura     | 9.5  | Comissão do extra no banco (vale web e app sem repetir regra); receita do extra pelo mesmo `calcularKpisFinanceiros` (fechamento importado, Brasília, séries e deltas herdados) |
+| Performance     | 9.0  | Extras carregados numa consulta paginada por janela; comissões pagas só dos itens da comanda aberta |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Comanda do app com todos os recursos do web; Vendas avulsas no app fica para a Comanda C |
+| **Proatividade**| 9.5  | Achados que ninguém pediu: serviço extra nunca entrou no faturamento (pré-existente, agora corrigido); abrir comanda fechada editava a comanda errada; corrida entre dias/cartões que gravaria itens de uma comanda em outra; resumo diário sem comissão de extra; desconto de reserva zerado em silêncio |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Decisões do dono (2026-10-08):**
+- Serviço extra com profissional gera comissão (percentual dela), por trigger no banco.
+- Escolha de dia no app igual ao web.
+- Serviço extra entra no faturamento na data de fechamento da comanda; ticket médio = (serviços + extras) ÷ atendimentos faturáveis; extra nunca conta como atendimento.
+
+**Regras da comissão do extra (085):** nasce no INSERT do item; valor/quantidade alterados acompanham (pendente ou paga, mesma regra da 075); trocar/remover profissional ou apagar o item apaga a pendente e é bloqueado se paga; UPDATE sem mudança relevante nunca cria comissão retroativa (sem backfill).
+
+**Bugs corrigidos (revisões):**
+- Abrir comanda fechada pegava a 1ª `comanda_id` da cliente (web e app) — agora um cartão por comanda.
+- Edição apagava e reinseria todos os itens (recriaria comissões) — agora por diferença, itens gravados antes dos totais.
+- Estado da comanda anterior vazando para a próxima (falha de abertura ou troca rápida de cartão) gravaria/apagaria itens de outra comanda — contador de abertura + `cargaFalhou` nas duas plataformas.
+- Troca rápida de dia mostrava a lista de um dia sob outro (web e app) — contador de requisição.
+- Erro ao ler taxas de reserva zerava o desconto em silêncio (cobrança cheia) — fechamento bloqueado até recarregar.
+- Nova tentativa após falha parcial da edição no web duplicava extras e comissões.
+- "Profissional (opcional)" no web gravava `''` (erro de uuid).
+- Resumo diário (cron) descartava comissão de extra; comissão de extra contava como "atendimento".
+- Serviço extra nunca entrava no faturamento (pré-existente).
+
+**Pendências para produção:**
+- Aplicar `085_comissao_servico_extra.sql` no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Ordem livre: sem a 085 o extra não gera comissão e as telas de comissão usam as colunas antigas. A receita do extra não depende da 085.
+- Depois do deploy, abrir Financeiro, Dashboard e Relatórios uma vez (embeds novos conferidos via API, mas sem login).
+
+**Registrados, não corrigidos:**
+- Em mês com fechamento importado, a linha/card "Serviços extras" mostra o valor ao vivo enquanto o bruto mostra o importado (igual a vendas/taxas).
+- Profissional com permissão de Financeiro/Relatórios vê só os extras das próprias comandas (RLS), sem aviso.
+- Item adicionado ao editar uma comanda fechada em outro mês: comissão por `created_at`, receita por `fechada_at`.
+- Desconto da comanda não é rateado entre atendimento e extra (igual ao atendimento hoje).
+- Equipe: consulta de agendamentos sem paginação/erro conferido no app; faturado conta sessões de pacote (pré-existente).
+- Voltar/trocar de dia durante o salvamento não é bloqueado; `totalDia` não soma comandas só com extras; erros da carga do dia sobrescrevem um ao outro; edição não atômica (até a RPC).
+- Testes de paridade por varredura de código.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
