@@ -313,12 +313,6 @@ export default function NovaComandaScreen() {
       setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
   }
 
-  // Aviso só para dias anteriores a hoje
-  const backlogAnterior = useMemo(
-    () => backlog.filter(b => b.data < startOfDay(new Date())),
-    [backlog],
-  );
-
   const clientesDia = useMemo<ClienteComanda[]>(() => {
     const map: Record<string, ClienteComanda> = {};
     for (const ag of agDia) {
@@ -941,13 +935,13 @@ export default function NovaComandaScreen() {
             </View>
           )}
 
-          {backlogAnterior.length > 0 && (
-            <TouchableOpacity onPress={() => selecionarDia(backlogAnterior[0].data)} activeOpacity={0.7}
+          {backlog.length > 0 && (
+            <TouchableOpacity onPress={() => selecionarDia(backlog[0].data)} activeOpacity={0.7}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.roseSoft, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(212,96,138,0.25)', paddingHorizontal: 12, paddingVertical: 8 }}>
               <AlertCircle size={14} color={C.rose} strokeWidth={2.5} />
               <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11.5, color: C.rose }}>
-                {backlogAnterior.length === 1 ? '1 comanda não fechada' : `${backlogAnterior.length} comandas não fechadas`}
-                {' · mais antiga '}{format(backlogAnterior[0].data, 'dd/MM')}
+                {backlog.length === 1 ? '1 comanda não fechada' : `${backlog.length} comandas não fechadas`}
+                {' · mais antiga '}{format(backlog[0].data, 'dd/MM')}
               </Text>
             </TouchableOpacity>
           )}
