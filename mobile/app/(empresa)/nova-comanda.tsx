@@ -200,6 +200,9 @@ export default function NovaComandaScreen() {
   // Comanda fechada sendo lida do banco (itens/pagamentos ainda não chegaram)
   const [carregandoComanda, setCarregandoComanda] = useState(false);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
+  // Falha ao ler as taxas de reserva pagas do dia: bloqueia fechar/salvar comanda com atendimento
+  const [erroTaxasReserva, setErroTaxasReserva] = useState<string | null>(null);
+  const [recarregandoTaxas, setRecarregandoTaxas] = useState(false);
   const [servicos, setServicos] = useState<{ id: string; nome: string; preco: number }[]>([]);
   const [produtos, setProdutos] = useState<{ id: string; nome: string; preco_venda: number }[]>([]);
   const [membros, setMembros] = useState<{ id: string; nome: string }[]>([]);
@@ -307,9 +310,15 @@ export default function NovaComandaScreen() {
 
       if (req !== reqDiaRef.current) return;
 
+      // Sem as taxas pagas o desconto da reserva viraria R$ 0 em silêncio (cliente cobrado a
+      // mais): guarda o erro, que BLOQUEIA fechar/salvar comanda com atendimento (bloqueioTaxaReserva).
       if (rTaxasReserva.error) {
         console.error('Erro ao buscar taxas de reserva pagas:', rTaxasReserva.error.message);
+        setErroTaxasReserva(mensagemErroBanco(rTaxasReserva.error, 'carregar as taxas de reserva pagas'));
+      } else {
+        setErroTaxasReserva(null);
       }
+      setRecarregandoTaxas(false);
 
       setAgDia(agsDoDia);
       setSoExtrasDia(rSoExtras.lista);
@@ -339,8 +348,33 @@ export default function NovaComandaScreen() {
     setSoExtrasDia([]);
     setErroSoExtras(null);
     setTaxasReservaPagas([]);
+    setErroTaxasReserva(null);
+    setRecarregandoTaxas(false);
     setErroDia(null);
   }, [dataComanda]);
+
+  /**
+   * Relê só as taxas de reserva pagas dos atendimentos do dia ("Tentar de novo" do bloqueio),
+   * sem sair da comanda — mesmo comportamento do web. Resposta de outro dia é ignorada.
+   */
+  async function recarregarTaxasReserva() {
+    if (!empresaId) return;
+    const req = reqDiaRef.current;
+    const agIds = agDia.map(ag => ag.id);
+    setRecarregandoTaxas(true);
+    const r = agIds.length > 0
+      ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
+          .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
+      : { data: [] as { agendamento_id: string; valor: number }[], error: null };
+    if (req !== reqDiaRef.current) return;
+    setRecarregandoTaxas(false);
+    if (r.error) {
+      setErroTaxasReserva(mensagemErroBanco(r.error, 'carregar as taxas de reserva pagas'));
+      return;
+    }
+    setTaxasReservaPagas((r.data ?? []) as { agendamento_id: string; valor: number }[]);
+    setErroTaxasReserva(null);
+  }
 
   /** Comandas não fechadas (atendimentos passados sem comanda), de qualquer dia. Erro -> lista vazia. */
   const carregarBacklog = useCallback(async () => {
@@ -586,8 +620,20 @@ export default function NovaComandaScreen() {
       profissional: item.profissional_id ? membros.find(m => m.id === item.profissional_id)?.nome : undefined,
     }));
 
-    // Extras com comissão já paga ficam travados (profissional e remoção) — o banco recusaria (085)
-    const pagas = await carregarComissoesPagasDosItens(supabase, extras.map(e => e.item_id!));
+    // Extras com comissão já paga ficam travados (profissional e remoção) — o banco recusaria (085).
+    // Falha na leitura (fora "sem a 085") = carga falha, igual ao web: sem saber o que está pago,
+    // salvar destravaria itens pagos e o trigger recusaria no meio do salvamento.
+    let pagas: Set<string>;
+    try {
+      pagas = await carregarComissoesPagasDosItens(supabase, extras.map(e => e.item_id!));
+    } catch (e) {
+      if (abertura !== aberturaRef.current) return;
+      setItens([]); setItensOriginais([]); setSplits([]); setDescontoEntrada('');
+      setCargaFalhou(true); setCarregandoComanda(false);
+      Alert.alert('Erro', mensagemErroBanco(e as { code?: string; message?: string }, 'abrir a comanda'));
+      setEtapa('lista');
+      return;
+    }
     if (abertura !== aberturaRef.current) return;
     for (const e of extras) e.comissao_paga = pagas.has(e.item_id!);
 
@@ -704,7 +750,13 @@ export default function NovaComandaScreen() {
   // Botão principal: "Fechar comanda" (comanda.fechar) ou "Salvar alterações" (comanda.editar_fechada),
   // mesma regra do web (resumo.podeFechar, itens > 0, carga da comanda fechada ok).
   const podeAcaoPrincipal = emEdicao ? podeEditarFechada : podeFechar;
+  // Taxas de reserva não lidas + comanda com atendimento: o desconto da reserva sairia R$ 0
+  // (cobrança a mais). Bloqueia fechar/salvar até recarregar — mesma regra do web.
+  const bloqueioTaxaReserva = erroTaxasReserva && agendamentoIdsNaComanda.length > 0
+    ? `Não foi possível ler as taxas de reserva pagas — sem elas o desconto da reserva sairia R$ 0. Tente de novo antes de fechar. (${erroTaxasReserva})`
+    : null;
   const botaoDesabilitado = fechando || itens.length === 0 || !podeAcaoPrincipal || !resumo.podeFechar
+    || !!bloqueioTaxaReserva
     || (emEdicao ? (cargaFalhou || carregandoComanda) : comandaParcialAberta);
 
   function adicionarSplit(metodo: string) {
@@ -783,14 +835,17 @@ export default function NovaComandaScreen() {
 
   /**
    * Salva a edição de uma comanda já fechada — mesma ordem do `editarComanda` do web:
-   * 1) UPDATE de `comandas` (total, desconto, desconto_reserva), conferindo linhas afetadas;
-   * 2) valor dos atendimentos (persistirValoresAgendamento sem status/comanda_id — o trigger
-   *    075 acerta a comissão); 3) extras por diferença (diffItensComanda: UPDATE/DELETE por id,
-   *    INSERT dos novos — nunca apaga tudo, a comissão do serviço extra mora no item, 085);
+   * 1) extras por diferença (diffItensComanda: UPDATE/DELETE por id, INSERT dos novos — nunca
+   *    apaga tudo, a comissão do serviço extra mora no item, 085). PRIMEIRO porque é a etapa
+   *    que o trigger da 085 pode recusar ('Comissão deste serviço já foi paga'): a recusa
+   *    aborta antes de mexer no total/desconto da comanda e nos valores dos atendimentos;
+   * 2) UPDATE de `comandas` (total, desconto, desconto_reserva), conferindo linhas afetadas;
+   * 3) valor dos atendimentos (persistirValoresAgendamento sem status/comanda_id — o trigger
+   *    075 acerta a comissão);
    * 4) apaga os pagamentos, confere que não sobrou nenhum e reinsere (montarPagamentos mantém
-   *    a taxa e a data dos reabertos não alterados).
-   * Qualquer falha avisa com a etapa e trava o Salvar (cargaFalhou): parte já foi gravada e a
-   * base do diff ficou velha — é preciso reabrir a comanda para não duplicar itens.
+   *    a taxa e a data dos reabertos não alterados) — sempre por último.
+   * Qualquer falha avisa com a etapa e trava o Salvar (cargaFalhou): parte pode já ter sido
+   * gravada e a base do diff ficou velha — é preciso reabrir a comanda para não duplicar itens.
    */
   async function editarComanda(comandaId: string) {
     if (cargaFalhou || carregandoComanda) {
@@ -798,6 +853,7 @@ export default function NovaComandaScreen() {
       return;
     }
     if (!clienteSel || !empresaId || fechando || !podeEditarFechada) return;
+    if (bloqueioTaxaReserva) { Alert.alert('Não é possível salvar', bloqueioTaxaReserva); return; }
     setFechando(true);
     const falhar = (etapaFalha: string, erro: Parameters<typeof falharFechamento>[1]) => {
       setCargaFalhou(true);
@@ -805,20 +861,7 @@ export default function NovaComandaScreen() {
       falharFechamento(etapaFalha, `${msg} Volte e abra a comanda de novo para conferir.`, 'salvar a comanda');
     };
 
-    // 1. Comanda (.select: RLS barrando devolve 0 linhas sem erro)
-    const { data: cmdAtualizada, error: errCmd } = await supabase.from('comandas')
-      .update({ valor_total: subtotal, desconto: descontoN + descontoReservaAplicado, desconto_reserva: descontoReservaAplicado })
-      .eq('id', comandaId).eq('empresa_id', empresaId).select('id');
-    if (errCmd) { falhar('salvar comanda', errCmd); return; }
-    if (!cmdAtualizada || cmdAtualizada.length === 0) {
-      falhar('salvar comanda', 'Não foi possível salvar a comanda. Verifique sua permissão.'); return;
-    }
-
-    // 2. Valor editado dos procedimentos no próprio atendimento (sem status/comanda_id/vínculo)
-    const falhaValor = await persistirValoresAgendamento({}, {});
-    if (falhaValor) { falhar(falhaValor.etapa, falhaValor.erro); return; }
-
-    // 3. Itens extras por diferença
+    // 1. Itens extras por diferença
     const { inserir, atualizar, apagar } = diffItensComanda(itensOriginais, itens
       .filter(i => i.tipo !== 'agendamento')
       .map(i => ({ item_id: i.item_id, tipo: i.tipo as 'servico' | 'produto' | 'pacote', descricao: i.descricao,
@@ -846,6 +889,19 @@ export default function NovaComandaScreen() {
       })));
       if (error) { falhar('incluir item', mensagemErroBanco(error, 'salvar os itens da comanda')); return; }
     }
+
+    // 2. Comanda (.select: RLS barrando devolve 0 linhas sem erro)
+    const { data: cmdAtualizada, error: errCmd } = await supabase.from('comandas')
+      .update({ valor_total: subtotal, desconto: descontoN + descontoReservaAplicado, desconto_reserva: descontoReservaAplicado })
+      .eq('id', comandaId).eq('empresa_id', empresaId).select('id');
+    if (errCmd) { falhar('salvar comanda', errCmd); return; }
+    if (!cmdAtualizada || cmdAtualizada.length === 0) {
+      falhar('salvar comanda', 'Não foi possível salvar a comanda. Verifique sua permissão.'); return;
+    }
+
+    // 3. Valor editado dos procedimentos no próprio atendimento (sem status/comanda_id/vínculo)
+    const falhaValor = await persistirValoresAgendamento({}, {});
+    if (falhaValor) { falhar(falhaValor.etapa, falhaValor.erro); return; }
 
     // 4. Pagamentos: apaga, confere que apagou (sem a policy da 075 o DELETE falha em silêncio
     //    e os pagamentos duplicariam), reinsere pela regra única.
@@ -897,6 +953,7 @@ export default function NovaComandaScreen() {
       Alert.alert('Não é possível fechar', resumo.motivo ?? 'Não foi possível fechar a comanda.');
       return;
     }
+    if (bloqueioTaxaReserva) { Alert.alert('Não é possível fechar', bloqueioTaxaReserva); return; }
     // Comanda já fechada reaberta: UPDATE (editarComanda), não um novo INSERT.
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
     if (!podeFechar) return;
@@ -1914,6 +1971,19 @@ export default function NovaComandaScreen() {
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
               Volte e abra a comanda de novo antes de salvar.
             </Text>
+          )}
+          {bloqueioTaxaReserva && (
+            <View style={{ alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center' }}>
+                {bloqueioTaxaReserva}
+              </Text>
+              <TouchableOpacity onPress={recarregarTaxasReserva} disabled={recarregandoTaxas} activeOpacity={0.7}
+                style={{ marginTop: 4, opacity: recarregandoTaxas ? 0.5 : 1 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                  {recarregandoTaxas ? 'Carregando...' : 'Tentar de novo'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
           {!emEdicao && comandaParcialAberta && (
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>

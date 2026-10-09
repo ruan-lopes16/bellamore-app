@@ -188,6 +188,11 @@ export default function ComandaPage() {
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
+  // Falha ao ler as taxas de reserva pagas do dia: bloqueia fechar/salvar comanda com atendimento
+  const [erroTaxasReserva,  setErroTaxasReserva]  = useState<string | null>(null);
+  const [recarregandoTaxas, setRecarregandoTaxas] = useState(false);
+  // Contador das cargas do dia: resposta de um dia que já não está selecionado é ignorada
+  const reqDiaRef = useRef(0);
   const [dataComanda,       setDataComanda]       = useState<Date>(new Date());
   const [view,              setView]              = useState<'semana' | 'mes'>('semana');
   const [semana,            setSemana]            = useState<Date[]>(() =>
@@ -282,8 +287,20 @@ export default function ComandaPage() {
   // ── Carregar dados do dia selecionado
   useEffect(() => {
     if (!empresaId) return;
+    // Só a resposta da carga mais recente pode alterar o estado (troca rápida de dia), igual ao
+    // `reqDiaRef` do app. Conferido depois de CADA await, antes de qualquer set*.
+    const req = ++reqDiaRef.current;
+    // Abertura de comanda fechada ainda em voo não pode reabrir a tela depois da troca de dia.
+    aberturaRef.current++;
+    // A lista do dia anterior some na hora: nunca aparece sob o rótulo do novo dia.
     setLoading(true);
     setClienteSel(null);
+    setComandaExistenteId(null);
+    setAgDia([]);
+    setSoExtrasDia([]);
+    setTaxasReservaPagas([]);
+    setErroTaxasReserva(null);
+    setRecarregandoTaxas(false);
     Promise.all([
       // Agendamentos do dia (exceto cancelados)
       supabase.from('agendamentos')
@@ -306,6 +323,7 @@ export default function ComandaPage() {
         .eq('empresa_id', empresaId).eq('ativo', true),
       supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
     ]).then(async ([rAgs, rServs, rProds, rMembros, rPacotes]) => {
+      if (req !== reqDiaRef.current) return;
       const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
 
       // Taxas de reserva já pagas — buscadas só depois de sabermos os
@@ -320,19 +338,25 @@ export default function ComandaPage() {
         ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
             .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
         : { data: [] as { agendamento_id: string; valor: number }[], error: null };
+      if (req !== reqDiaRef.current) return;
 
+      // Sem as taxas pagas o desconto da reserva viraria R$ 0 em silêncio (cliente cobrado a
+      // mais): guarda o erro, que BLOQUEIA fechar/salvar comanda com atendimento (bloqueioTaxaReserva).
       if (rTaxasReserva.error) {
         console.error('Erro ao buscar taxas de reserva pagas:', rTaxasReserva.error.message);
-        setErro(rTaxasReserva.error.message);
+        setErroTaxasReserva(mensagemErroBanco(rTaxasReserva.error, 'carregar as taxas de reserva pagas'));
       }
 
       let extrasDoDia: ComandaSoExtras[] = [];
+      let erroExtras = '';
       try {
         const dia = chaveDiaExibido(dataComanda);
         extrasDoDia = await carregarComandasSoExtrasDoDia(supabase, empresaId, limitesDias(dia, dia));
       } catch (e) {
-        setErro(mensagemErroBanco({ message: e instanceof Error ? e.message : '' }, 'carregar as comandas do dia'));
+        erroExtras = mensagemErroBanco({ message: e instanceof Error ? e.message : '' }, 'carregar as comandas do dia');
       }
+      if (req !== reqDiaRef.current) return;
+      if (erroExtras) setErro(erroExtras);
 
       setSoExtrasDia(extrasDoDia);
       setAgDia(agsDoDia);
@@ -346,6 +370,29 @@ export default function ComandaPage() {
       setLoading(false);
     });
   }, [empresaId, dataComanda]);
+
+  /**
+   * Relê só as taxas de reserva pagas dos atendimentos do dia (botão "Tentar de novo" do
+   * bloqueio). Mantém a comanda aberta; resposta de um dia que já não está selecionado é ignorada.
+   */
+  async function recarregarTaxasReserva() {
+    if (!empresaId) return;
+    const req = reqDiaRef.current;
+    const agIds = agDia.map(ag => ag.id);
+    setRecarregandoTaxas(true);
+    const r = agIds.length > 0
+      ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
+          .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
+      : { data: [] as { agendamento_id: string; valor: number }[], error: null };
+    if (req !== reqDiaRef.current) return;
+    setRecarregandoTaxas(false);
+    if (r.error) {
+      setErroTaxasReserva(mensagemErroBanco(r.error, 'carregar as taxas de reserva pagas'));
+      return;
+    }
+    setTaxasReservaPagas((r.data ?? []) as { agendamento_id: string; valor: number }[]);
+    setErroTaxasReserva(null);
+  }
 
   // Backlog de comandas não fechadas — atendimentos já ocorridos (data_hora_fim
   // passada), sem comanda_id, que não foram cancelados/faltaram. Cobre tanto
@@ -585,8 +632,18 @@ export default function ComandaPage() {
       profissional_id: item.profissional_id ?? undefined,
     }));
 
-    // Extras com comissão já paga ficam travados (profissional e remoção) — o banco recusaria (085)
-    const pagas = await carregarComissoesPagasDosItens(supabase, extras.map(e => e.item_id!));
+    // Extras com comissão já paga ficam travados (profissional e remoção) — o banco recusaria (085).
+    // Falha na leitura (fora "sem a 085") = carga falha: sem saber o que está pago, salvar
+    // destravaria itens pagos e o trigger recusaria no meio do salvamento.
+    let pagas: Set<string>;
+    try {
+      pagas = await carregarComissoesPagasDosItens(supabase, extras.map(e => e.item_id!));
+    } catch (e) {
+      if (abertura !== aberturaRef.current) return;
+      setItens([]); setItensOriginais([]); setSplits([]); setDescontoEntrada(''); setCargaFalhou(true);
+      setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'abrir a comanda'));
+      return;
+    }
     if (abertura !== aberturaRef.current) return;
     for (const e of extras) e.comissao_paga = pagas.has(e.item_id!);
     setItensOriginais(extras.map(e => ({
@@ -689,26 +746,29 @@ export default function ComandaPage() {
   // ── Editar comanda já fechada (UPDATE ao invés de INSERT)
   async function editarComanda(comandaId: string) {
     if (cargaFalhou) { setErro('Não foi possível ler a comanda — reabra-a antes de salvar'); return; }
+    if (bloqueioTaxaReserva) { setErro(bloqueioTaxaReserva); return; }
     setFechando(true); setErro('');
 
-    // Ordem: 1) UPDATE da comanda (com .select: RLS barrando devolve 0 linhas sem erro);
-    // 2) valores dos atendimentos; 3) itens extras por diferença; 4) apagar + reinserir
-    // pagamentos. Cada DELETE é conferido (conferirDeleteVazio) — sem a policy da migration
-    // 075 o DELETE de `pagamentos` falha em silêncio e os splits duplicariam a cada save.
-    const { data: cmdAtualizada, error: errCmd } = await supabase.from('comandas')
-      .update({ valor_total: subtotal, desconto: descontoN + descontoReservaAplicado, desconto_reserva: descontoReservaAplicado })
-      .eq('id', comandaId).select('id');
-    if (errCmd || !cmdAtualizada || cmdAtualizada.length === 0) {
-      setErro(mensagemErroBanco(errCmd, 'salvar a comanda')); setFechando(false); return;
-    }
+    // Qualquer falha trava o Salvar (cargaFalhou), igual ao `falhar` do app: parte pode já ter
+    // sido gravada e `itensOriginais` (base do diff) ficou velho — um segundo "Salvar" reinseriria
+    // extras e comissões. É preciso reabrir a comanda.
+    const falhar = (msg: string) => {
+      setCargaFalhou(true);
+      setErro(`${msg} Feche e abra a comanda de novo para conferir.`);
+      setFechando(false);
+    };
 
-    // Persiste o valor editado dos procedimentos no próprio atendimento
-    // (dispara o trigger de sincronização da comissão — migration 075).
-    const errValor = await persistirValoresAgendamento();
-    if (errValor) { setErro(errValor); setFechando(false); return; }
+    // Ordem:
+    // 1) itens extras por diferença — PRIMEIRO, porque é a etapa que o trigger da 085 pode
+    //    recusar ('Comissão deste serviço já foi paga'): a recusa aborta antes de mexer no
+    //    total/desconto da comanda e nos valores dos atendimentos;
+    // 2) UPDATE da comanda (com .select: RLS barrando devolve 0 linhas sem erro);
+    // 3) valores dos atendimentos; 4) apagar + reinserir pagamentos (sempre por último).
+    // Cada DELETE é conferido (conferirDeleteVazio) — sem a policy da migration 075 o DELETE
+    // de `pagamentos` falha em silêncio e os splits duplicariam a cada save.
 
-    // Itens extras por diferença: a comissão do serviço extra mora no item (085), então
-    // apagar e reinserir recriaria a comissão (ou falharia se já paga).
+    // 1. Itens extras por diferença: a comissão do serviço extra mora no item (085), então
+    //    apagar e reinserir recriaria a comissão (ou falharia se já paga).
     const { inserir, atualizar, apagar } = diffItensComanda(itensOriginais, itens
       .filter(i => i.tipo !== 'agendamento')
       .map(i => ({ item_id: i.item_id, tipo: i.tipo as 'servico' | 'produto' | 'pacote', descricao: i.descricao,
@@ -717,13 +777,13 @@ export default function ComandaPage() {
 
     for (const id of apagar) {
       const { data, error } = await supabase.from('comanda_itens').delete().eq('id', id).select('id');
-      if (error || !data || data.length === 0) { setErro(mensagemErroBanco(error, 'remover o item da comanda')); setFechando(false); return; }
+      if (error || !data || data.length === 0) { falhar(mensagemErroBanco(error, 'remover o item da comanda')); return; }
     }
     for (const u of atualizar) {
       const { data, error } = await supabase.from('comanda_itens')
         .update({ valor_unit: u.valor_unit, quantidade: u.quantidade, profissional_id: u.profissional_id })
         .eq('id', u.item_id).select('id');
-      if (error || !data || data.length === 0) { setErro(mensagemErroBanco(error, 'salvar o item da comanda')); setFechando(false); return; }
+      if (error || !data || data.length === 0) { falhar(mensagemErroBanco(error, 'salvar o item da comanda')); return; }
     }
     if (inserir.length > 0) {
       const { error } = await supabase.from('comanda_itens').insert(inserir.map(i => ({
@@ -731,20 +791,33 @@ export default function ComandaPage() {
         servico_id: i.servico_id ?? null, produto_id: i.produto_id ?? null, pacote_id: i.pacote_id ?? null,
         profissional_id: i.profissional_id ?? null, quantidade: i.quantidade, valor_unit: i.valor,
       })));
-      if (error) { setErro(mensagemErroBanco(error, 'salvar os itens da comanda')); setFechando(false); return; }
+      if (error) { falhar(mensagemErroBanco(error, 'salvar os itens da comanda')); return; }
     }
 
-    // Troca os pagamentos: apaga, confere que apagou, reinsere pela regra única
-    // (total R$0 sem pagamento → Cortesia R$0; reabertos mantêm taxa e data — montarPagamentos)
+    // 2. Comanda
+    const { data: cmdAtualizada, error: errCmd } = await supabase.from('comandas')
+      .update({ valor_total: subtotal, desconto: descontoN + descontoReservaAplicado, desconto_reserva: descontoReservaAplicado })
+      .eq('id', comandaId).select('id');
+    if (errCmd || !cmdAtualizada || cmdAtualizada.length === 0) {
+      falhar(mensagemErroBanco(errCmd, 'salvar a comanda')); return;
+    }
+
+    // 3. Persiste o valor editado dos procedimentos no próprio atendimento
+    //    (dispara o trigger de sincronização da comissão — migration 075).
+    const errValor = await persistirValoresAgendamento();
+    if (errValor) { falhar(errValor); return; }
+
+    // 4. Troca os pagamentos: apaga, confere que apagou, reinsere pela regra única
+    //    (total R$0 sem pagamento → Cortesia R$0; reabertos mantêm taxa e data — montarPagamentos)
     await supabase.from('pagamentos').delete().eq('comanda_id', comandaId);
     const errPagDel = await conferirDeleteVazio('pagamentos', comandaId);
-    if (errPagDel) { setErro(errPagDel); setFechando(false); return; }
+    if (errPagDel) { falhar(errPagDel); return; }
 
     if (empresaId) {
       const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
       if (linhasPag.length > 0) {
         const { error: errPag } = await supabase.from('pagamentos').insert(linhasPag);
-        if (errPag) { setErro(mensagemErroBanco(errPag, 'salvar a comanda')); setFechando(false); return; }
+        if (errPag) { falhar(`${mensagemErroBanco(errPag, 'salvar a comanda')} A comanda ficou sem pagamento — lance o pagamento de novo.`); return; }
       }
     }
 
@@ -825,10 +898,14 @@ export default function ComandaPage() {
     const n = parseValorBR(v);
     setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: n > 0 ? n : 1 } : i));
   }
+  /**
+   * "Profissional (opcional)" no seletor vem como '' — vira `undefined` (gravado como null),
+   * igual ao app. '' numa coluna uuid quebraria o INSERT/UPDATE do item.
+   */
   function atualizarProfissional(u: string, profId: string) {
     const m = membros.find(x => x.id === profId);
     setItens(prev => prev.map(i =>
-      i.uid === u ? { ...i, profissional_id: profId, profissional: m?.nome } : i
+      i.uid === u ? { ...i, profissional_id: profId || undefined, profissional: m?.nome } : i
     ));
   }
 
@@ -845,6 +922,11 @@ export default function ComandaPage() {
     subtotal, desconto: descontoN, erroDesconto, descontoReserva: descontoReservaAplicado, splits: splitsNumericos,
   });
   const { total, recebido, falta, troco } = resumo;
+  // Taxas de reserva não lidas + comanda com atendimento: o desconto da reserva sairia R$ 0
+  // (cobrança a mais). Bloqueia fechar/salvar até recarregar — mesma regra do app.
+  const bloqueioTaxaReserva = erroTaxasReserva && agendamentoIdsNaComanda.length > 0
+    ? `Não foi possível ler as taxas de reserva pagas — sem elas o desconto da reserva sairia R$ 0. Tente de novo antes de fechar. (${erroTaxasReserva})`
+    : null;
 
   /**
    * Pagamentos do recibo/tela de sucesso: os lançados; com a Cortesia automática (total R$ 0
@@ -882,6 +964,7 @@ export default function ComandaPage() {
     if (!clienteSel || !empresaId || fechando) return;
     // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
     if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível fechar a comanda.'); return; }
+    if (bloqueioTaxaReserva) { setErro(bloqueioTaxaReserva); return; }
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
     // Comanda desta cliente criada e não terminada nesta tela: nada de um segundo INSERT.
     if (comandasParciais[clienteSel.id]) { setErro(AVISO_COMANDA_PARCIAL); return; }
@@ -1836,7 +1919,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || cargaFalhou || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
+                  disabled={fechando || cargaFalhou || !!bloqueioTaxaReserva || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
                   title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -1849,6 +1932,19 @@ export default function ComandaPage() {
                     </>
                   )}
                 </button>
+                {bloqueioTaxaReserva && (
+                  <div className="mt-2 text-center">
+                    <p className="text-xs font-semibold text-red">{bloqueioTaxaReserva}</p>
+                    <button
+                      type="button"
+                      onClick={recarregarTaxasReserva}
+                      disabled={recarregandoTaxas}
+                      className="mt-1 text-xs font-bold text-primary underline disabled:opacity-50"
+                    >
+                      {recarregandoTaxas ? 'Carregando...' : 'Tentar de novo'}
+                    </button>
+                  </div>
+                )}
                 {!comandaExistenteId && clienteSel && comandasParciais[clienteSel.id] && (
                   <p className="text-xs text-center mt-2 font-semibold text-red">{AVISO_COMANDA_PARCIAL}</p>
                 )}
