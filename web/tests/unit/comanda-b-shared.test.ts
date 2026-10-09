@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { diffItensComanda } from '@shared/comanda-fechamento';
 import { cartoesComandaDoDia } from '@shared/comanda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
-import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
+import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens, erroSemMigration085 } from '@shared/comanda-consultas';
 import { limitesDias } from '@shared/periodos';
 import { fakeDb, opsDe } from './fixtures/fake-db';
 
@@ -115,5 +115,42 @@ describe('consultas da comanda', () => {
     const { db, chamadas } = fakeDb();
     expect((await carregarComissoesPagasDosItens(db, [])).size).toBe(0);
     expect(opsDe(chamadas, 'comissoes')).toEqual([]);
+  });
+});
+
+describe('carregarComissoesPagasDosItens — erro só vira vazio sem a migration 085', () => {
+  /** Client mínimo: a consulta de comissões devolve `resposta`. */
+  const dbCom = (resposta: { data: unknown[] | null; error: { code?: string; message: string } | null }) => {
+    const b: Record<string, unknown> = new Proxy({}, {
+      get(_a, prop) {
+        if (prop === 'then') return (ok: (v: typeof resposta) => unknown) => ok(resposta);
+        return () => b;
+      },
+    });
+    return { from: () => b };
+  };
+  it('devolve os ids pagos', async () => {
+    const r = await carregarComissoesPagasDosItens(dbCom({ data: [{ comanda_item_id: 'i1' }], error: null }), ['i1', 'i2']);
+    expect([...r]).toEqual(['i1']);
+  });
+  it('coluna/relação da 085 ausente → vazio', async () => {
+    for (const error of [
+      { code: '42703', message: 'column comissoes.comanda_item_id does not exist' },
+      { code: 'PGRST200', message: 'Could not find a relationship' },
+      { message: 'column comanda_item_id does not exist' },
+    ]) {
+      expect((await carregarComissoesPagasDosItens(dbCom({ data: null, error }), ['i1'])).size).toBe(0);
+    }
+  });
+  it('qualquer outro erro é lançado (com o code)', async () => {
+    await expect(carregarComissoesPagasDosItens(dbCom({ data: null, error: { code: '42501', message: 'permission denied' } }), ['i1']))
+      .rejects.toMatchObject({ message: 'permission denied', code: '42501' });
+    await expect(carregarComissoesPagasDosItens(dbCom({ data: null, error: { message: 'Failed to fetch' } }), ['i1']))
+      .rejects.toThrow('Failed to fetch');
+  });
+  it('erroSemMigration085', () => {
+    expect(erroSemMigration085(null)).toBe(false);
+    expect(erroSemMigration085({ code: '42501', message: 'x' })).toBe(false);
+    expect(erroSemMigration085({ code: '42703', message: 'x' })).toBe(true);
   });
 });

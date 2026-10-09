@@ -39,13 +39,28 @@ export async function carregarComandasSoExtrasDoDia(db: ClienteDb, empresaId: st
 }
 
 /**
+ * Erro de "a migration 085 ainda não foi aplicada": coluna `comissoes.comanda_item_id` ou a
+ * relação com `comanda_itens` não existe (Postgres 42703 / PostgREST PGRST200, ou a mensagem
+ * cita `comanda_item`).
+ */
+export function erroSemMigration085(error: { code?: string | null; message?: string | null } | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === '42703' || error.code === 'PGRST200' || /comanda_item/.test(error.message ?? '');
+}
+
+/**
  * Ids de `comanda_itens` cuja comissão já foi paga (trava profissional/remover na edição).
  * Sem a migration 085 a coluna não existe: devolve vazio (não há comissão de item).
+ * Qualquer OUTRO erro é lançado — devolver vazio destravaria itens com comissão paga e o
+ * trigger da 085 recusaria o salvamento no meio. Quem chama trata como carga falha.
  */
 export async function carregarComissoesPagasDosItens(db: ClienteDb, itemIds: string[]): Promise<Set<string>> {
   if (itemIds.length === 0) return new Set();
   const { data, error } = await db.from('comissoes')
     .select('comanda_item_id').in('comanda_item_id', itemIds).eq('status', 'pago');
-  if (error) return new Set();
+  if (error) {
+    if (erroSemMigration085(error)) return new Set();
+    throw Object.assign(new Error(error.message ?? 'Erro ao ler as comissões dos itens'), { code: (error as { code?: string }).code });
+  }
   return new Set(((data ?? []) as { comanda_item_id: string }[]).map(r => r.comanda_item_id));
 }
