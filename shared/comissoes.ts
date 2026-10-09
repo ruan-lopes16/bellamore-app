@@ -52,10 +52,18 @@ export type ComissaoItem = {
   clienteNome: string;
 };
 
-/** Converte uma linha crua (numeric vem como string) no formato usado pelas telas. */
+/**
+ * Converte uma linha crua (numeric vem como string) no formato usado pelas telas.
+ * Serviço extra da comanda (085) cujo item/comanda o RLS esconde (extra de uma profissional
+ * diferente da do atendimento): mesmo assim sai como "Serviço (extra)", com a data da
+ * comissão (`created_at`) em vez de sem data.
+ */
 export function normalizarComissao(r: ComissaoDetalheRow): ComissaoItem {
   const ag = r.agendamento ?? null;
   const extra = !ag && r.item ? r.item : null;
+  // Extra com o embed oculto pelo RLS: sem atendimento e sem item, mas com comanda_item_id
+  const extraOculto = !ag && !extra && !!r.comanda_item_id;
+  const ehExtra = !!extra || extraOculto;
   return {
     id: r.id,
     profissionalId: r.profissional_id,
@@ -66,9 +74,9 @@ export function normalizarComissao(r: ComissaoDetalheRow): ComissaoItem {
     valorComissao: num(r.valor_comissao),
     status: r.status === 'pago' ? 'pago' : 'pendente',
     criadaEm: r.created_at,
-    dataAtendimento: ag?.data_hora_inicio ?? extra?.comanda?.fechada_at ?? null,
-    valorAtendimento: ag && ag.valor != null ? num(ag.valor) : extra ? num(r.valor_servico) : null,
-    servicoNome: extra ? `${extra.descricao || 'Serviço'} (extra)` : ag?.servico?.nome || 'Serviço',
+    dataAtendimento: ag?.data_hora_inicio ?? extra?.comanda?.fechada_at ?? (ehExtra ? r.created_at : null),
+    valorAtendimento: ag && ag.valor != null ? num(ag.valor) : ehExtra ? num(r.valor_servico) : null,
+    servicoNome: ehExtra ? `${extra?.descricao || 'Serviço'} (extra)` : ag?.servico?.nome || 'Serviço',
     servicoCategoria: ag?.servico?.categoria ?? null,
     servicoCategoriaId: ag?.servico?.categoria_id ?? null,
     clienteNome: ag?.cliente?.nome || extra?.comanda?.cliente?.nome || '—',
@@ -113,6 +121,10 @@ export type ComissoesDaProfissional = {
   total: number;
   pendente: number;
   pago: number;
+  /**
+   * Atendimentos distintos com comissão (só as que têm `agendamentoId`). Comissão de serviço
+   * extra da comanda (085) entra no total, mas não conta como atendimento.
+   */
   atendimentos: number;
   /** Percentual das comissões do período, se for um só; null quando variou. */
   percentual: number | null;
@@ -136,7 +148,7 @@ export function comissoesPorProfissional(itens: ComissaoItem[]): ComissoesDaProf
       nome: doProf[0].profissionalNome,
       itens: doProf,
       total: r.total, pendente: r.pendente, pago: r.pago,
-      atendimentos: doProf.length,
+      atendimentos: new Set(doProf.filter(c => c.agendamentoId).map(c => c.agendamentoId)).size,
       percentual: percentuais.size === 1 ? doProf[0].percentual : null,
       idsPendentes: doProf.filter(c => c.status === 'pendente').map(c => c.id),
     });
