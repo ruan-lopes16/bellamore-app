@@ -36,7 +36,9 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao } from '@shared/taxas-cartao';
+import { fmtTaxa, valorLiquido, configLegada, maquininhaPadrao, parcelasDisponiveis, taxaDoCartao, type ConfigCartoes } from '@shared/taxas-cartao';
+import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
+import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
@@ -103,7 +105,9 @@ const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wid
 
 export default function VendasPage() {
   const [empresaId, setEmpresaId] = useState<string | null>(null);
-  const [taxas, setTaxas] = useState<TaxasCartao>(TAXAS_PADRAO);
+  // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084).
+  // Até a Task 6 o PDV cobra sempre na maquininha padrão.
+  const [config, setConfig] = useState<ConfigCartoes>(() => configLegada(null));
   const [aba, setAba]             = useState<'pdv' | 'historico'>('pdv');
 
   // Catálogo
@@ -135,9 +139,13 @@ export default function VendasPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (data) {
         setEmpresaId(data.empresa_id);
-        // select('*'): as colunas de taxa (migration 084) podem ainda não existir
-        const { data: emp } = await supabase.from('empresas').select('*').eq('id', data.empresa_id).single();
-        setTaxas(taxasDaEmpresa(emp as Record<string, unknown> | null));
+        try {
+          setConfig(await carregarConfigCartoes(supabase, data.empresa_id));
+        } catch (e) {
+          setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões'));
+          const { data: emp } = await supabase.from('empresas').select('*').eq('id', data.empresa_id).single();
+          setConfig(configLegada(emp as Record<string, unknown> | null));
+        }
       }
     })();
   }, []);
@@ -301,20 +309,26 @@ export default function VendasPage() {
     if (e3) { setErro(e3.message); setFinalizando(false); return; }
 
     // 4. Pagamentos
+    const maqPadraoId = maquininhaPadrao(config)?.id ?? null;
     const { error: e4 } = await supabase.from('pagamentos').insert(
       splits.map(sp => {
         const v    = parseFloat(sp.valor.replace(',', '.')) || 0;
         const parc = sp.metodo === 'credito' ? (sp.parcelas ?? 1) : 1;
-        const taxa = calcTaxa(sp.metodo, parc, taxas);
+        const cartao = sp.metodo === 'credito' || sp.metodo === 'debito';
+        // null = combinação sem taxa cadastrada: grava sem taxa (nunca inventa)
+        const taxa = taxaDoCartao(config, { maquininhaId: maqPadraoId, bandeiraChave: sp.bandeira, metodo: sp.metodo, parcelas: parc });
+        const comTaxa = taxa !== null && taxa > 0;
         return {
           empresa_id:    empresaId,
           venda_id:      venda.id,
           valor:         v,
           metodo:        sp.metodo,
-          bandeira:      (sp.metodo === 'credito' || sp.metodo === 'debito') ? (sp.bandeira ?? null) : null,
+          bandeira:      cartao ? (sp.bandeira ?? null) : null,
           parcelas:      parc,
-          taxa_perc:     taxa > 0 ? taxa : null,
-          valor_liquido: taxa > 0 ? valorLiquido(v, taxa) : null,
+          taxa_perc:     comTaxa ? taxa : null,
+          valor_liquido: comTaxa ? valorLiquido(v, taxa) : null,
+          // maquininha_id só existe depois da migration 086
+          ...(config.legado ? {} : { maquininha_id: cartao ? maqPadraoId : null }),
           status:        'pago',
         };
       })
@@ -530,7 +544,7 @@ export default function VendasPage() {
                     const m      = METODOS_PAG.find(x => x.id === sp.metodo)!;
                     const Icon   = m.icon;
                     const isCard = sp.metodo === 'credito' || sp.metodo === 'debito';
-                    const taxa   = calcTaxa(sp.metodo, sp.parcelas ?? 1, taxas);
+                    const taxa   = taxaDoCartao(config, { maquininhaId: null, bandeiraChave: sp.bandeira, metodo: sp.metodo, parcelas: sp.parcelas ?? 1 });
                     const valorN = parseFloat(sp.valor.replace(',', '.')) || 0;
                     return (
                       <div key={sp.metodo} className="flex flex-col gap-2 rounded-xl px-3 py-2.5 border border-border bg-bg">
@@ -570,13 +584,19 @@ export default function VendasPage() {
                               value={sp.parcelas ?? 1}
                               onChange={e => updateSplitParcelas(sp.metodo, Number(e.target.value))}
                               className="h-7 px-2 rounded-lg border border-border/60 bg-surface text-xs font-semibold text-text-2 focus:outline-none focus:border-accent transition">
-                              {OPCOES_PARCELAS.map(n => (
-                                <option key={n} value={n}>{n}x{n === 1 ? ' (à vista)' : ''}</option>
-                              ))}
+                              {(() => {
+                                const maq = maquininhaPadrao(config);
+                                return (maq ? parcelasDisponiveis(maq) : [1]).map(n => (
+                                  <option key={n} value={n}>{n}x{n === 1 ? ' (à vista)' : ''}</option>
+                                ));
+                              })()}
                             </select>
                           </div>
                         )}
-                        {isCard && valorN > 0 && (
+                        {isCard && taxa === null && (
+                          <div className="text-xs font-semibold text-amber">Taxa não cadastrada para esta combinação</div>
+                        )}
+                        {isCard && taxa !== null && valorN > 0 && (
                           <div className="flex items-center justify-between text-xs text-text-3">
                             <span>Taxa {fmtTaxa(taxa)}</span>
                             <span>Líquido {fmtBRL(valorLiquido(valorN, taxa))}</span>
