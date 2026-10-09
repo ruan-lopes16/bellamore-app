@@ -186,3 +186,53 @@ export function chaveBandeira(nome: string, existentes: string[]): string {
   while (existentes.includes(`${base}-${n}`)) n++;
   return `${base}-${n}`;
 }
+
+// ── Grade editável de taxas (tela Configurações → Cartões, web e app) ──
+
+/** Tabela como campos de texto em percentual ("4,99"): débito (1x) e crédito 1x..N (índice 0 = 1x). */
+export type GradeTaxas = { debito: string; credito: string[] };
+
+/**
+ * Monta a grade editável de uma bandeira (`null` = tabela padrão) a partir das linhas.
+ * Combinação sem linha → campo vazio.
+ */
+export function taxasParaGrade(taxas: TaxaLinha[], bandeiraId: string | null, maxParcelas: number): GradeTaxas {
+  const campo = (modalidade: Modalidade, parcelas: number) => {
+    const l = taxas.find(t => t.bandeiraId === bandeiraId && t.modalidade === modalidade && t.parcelas === parcelas);
+    return l ? taxaParaCampo(l.taxa) : '';
+  };
+  return {
+    debito: campo('debito', 1),
+    credito: Array.from({ length: maxParcelas }, (_, i) => campo('credito', i + 1)),
+  };
+}
+
+/**
+ * Converte a grade em linhas de taxa. Campo vazio ou inválido (fora de 0–20%): na tabela padrão
+ * (`completa` = true) devolve null; na exceção, o campo é simplesmente ignorado (usa a padrão).
+ */
+export function gradeParaTaxas(grade: GradeTaxas, bandeiraId: string | null, maxParcelas: number, completa: boolean): TaxaLinha[] | null {
+  const out: TaxaLinha[] = [];
+  const deb = campoParaTaxa(grade.debito);
+  if (deb === null) { if (completa) return null; } else out.push({ bandeiraId, modalidade: 'debito', parcelas: 1, taxa: deb });
+  for (let n = 1; n <= maxParcelas; n++) {
+    const t = campoParaTaxa(grade.credito[n - 1] ?? '');
+    if (t === null) { if (completa) return null; continue; }
+    out.push({ bandeiraId, modalidade: 'credito', parcelas: n, taxa: t });
+  }
+  return out;
+}
+
+/** Remove das exceções as linhas idênticas à taxa padrão da mesma combinação (não gravar redundância). */
+export function descartarExcecoesRedundantes(taxas: TaxaLinha[]): TaxaLinha[] {
+  return taxas.filter(t => {
+    if (t.bandeiraId === null) return true;
+    const p = taxas.find(x => x.bandeiraId === null && x.modalidade === t.modalidade && x.parcelas === t.parcelas);
+    return !p || p.taxa !== t.taxa;
+  });
+}
+
+/** Bandeiras (ids) que têm ao menos uma exceção nas linhas. */
+export function bandeirasComExcecao(taxas: TaxaLinha[]): string[] {
+  return Array.from(new Set(taxas.filter(t => t.bandeiraId !== null).map(t => t.bandeiraId as string)));
+}

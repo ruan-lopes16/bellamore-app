@@ -68,3 +68,21 @@ describe('cobrança pela configuração de cartões (maquininhas)', () => {
     expect(src).not.toContain('BANDEIRAS_CARTAO');
   });
 });
+
+describe('Configurações → Cartões (web)', () => {
+  it('página renderiza CartoesConfig e não envia mais taxa_cartao_*', () => {
+    const src = ler('web/app/(app)/configuracoes/page.tsx');
+    expect(src).toContain('<CartoesConfig');
+    expect(src).not.toContain('taxa_cartao_debito');
+    expect(src).not.toContain('temColunasCartao');
+    expect(src).not.toContain('Taxas da maquininha');
+  });
+  it('CartoesConfig usa as funções compartilhadas e a permissão config.taxas', () => {
+    const src = ler('web/components/configuracoes/CartoesConfig.tsx');
+    for (const f of ['validarTabela(', 'salvarMaquininha(', 'salvarBandeira(', 'definirPadrao(', 'carregarConfigCartoes(',
+      'descartarExcecoesRedundantes(', "pode('config.taxas')", 'mensagemErroBanco(',
+      'Escolha outra maquininha padrão antes de remover esta', 'Disponível após a atualização do sistema', 'Restaurar']) {
+      expect(src).toContain(f);
+    }
+  });
+});
