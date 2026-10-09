@@ -45,3 +45,11 @@ describe('Comanda B — app: dias', () => {
     expect(app).not.toMatch(/const hoje = new Date\(\);\s*await Promise\.all/);
   });
 });
+
+describe('Comanda B — app: dias sem corrida', () => {
+  it('ignora respostas antigas do carregarDia e mostra erro da consulta', () => {
+    expect(app).toContain('reqDiaRef');
+    expect(app).toContain('req !== reqDiaRef.current');
+    expect(app).toContain('erroDia');
+  });
+});

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   ActivityIndicator, Alert, StatusBar, KeyboardAvoidingView,
@@ -160,6 +160,8 @@ export default function NovaComandaScreen() {
     Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i)));
   const [agsMes, setAgsMes] = useState<Map<string, number>>(new Map());
   const [backlog, setBacklog] = useState<{ id: string; data: Date }[]>([]);
+  const reqDiaRef = useRef(0);
+  const [erroDia, setErroDia] = useState<string | null>(null);
   const [agDia, setAgDia] = useState<AgDia[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
   const [servicos, setServicos] = useState<{ id: string; nome: string; preco: number }[]>([]);
@@ -206,6 +208,8 @@ export default function NovaComandaScreen() {
   /** Carrega (ou recarrega, após uma falha no fechamento) os atendimentos do dia e os catálogos. */
   const carregarDia = useCallback(async () => {
     if (!empresaId) return;
+    // Só a resposta da chamada mais recente pode alterar o estado (troca rápida de dia).
+    const req = ++reqDiaRef.current;
     await Promise.all([
       supabase.from('agendamentos')
         .select(`id, data_hora_inicio, status, valor, comanda_id, pacote_cliente_id,
@@ -224,6 +228,14 @@ export default function NovaComandaScreen() {
       // select('*'): as colunas de taxa (migration 084) podem ainda não existir
       supabase.from('empresas').select('*').eq('id', empresaId).single(),
     ]).then(async ([rAgs, rServs, rProds, rPacotes, rEmpresa]) => {
+      if (req !== reqDiaRef.current) return;
+      if (rAgs.error) {
+        setErroDia(mensagemErroBanco(rAgs.error, 'carregar os atendimentos do dia'));
+        setAgDia([]);
+        setLoading(false);
+        return;
+      }
+      setErroDia(null);
       setTaxas(taxasDaEmpresa(rEmpresa.data as Record<string, unknown> | null));
       const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
 
@@ -239,6 +251,8 @@ export default function NovaComandaScreen() {
         ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
             .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
         : { data: [] as { agendamento_id: string; valor: number }[], error: null };
+
+      if (req !== reqDiaRef.current) return;
 
       if (rTaxasReserva.error) {
         console.error('Erro ao buscar taxas de reserva pagas:', rTaxasReserva.error.message);
@@ -256,9 +270,14 @@ export default function NovaComandaScreen() {
   useEffect(() => { carregarDia(); }, [carregarDia]);
 
   // Trocar de dia fecha a comanda aberta e volta para a lista.
+  // A lista antiga some na hora: nunca aparece sob o rótulo do novo dia.
   useEffect(() => {
     setClienteSel(null);
     setEtapa('lista');
+    setLoading(true);
+    setAgDia([]);
+    setTaxasReservaPagas([]);
+    setErroDia(null);
   }, [dataComanda]);
 
   /** Comandas não fechadas (atendimentos passados sem comanda), de qualquer dia. Erro -> lista vazia. */
@@ -986,6 +1005,15 @@ export default function NovaComandaScreen() {
         ) : loading ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <ActivityIndicator size="large" color={C.primary} />
+          </View>
+        ) : erroDia ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 10 }}>
+            <AlertCircle size={28} color={C.rose} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text2, textAlign: 'center' }}>{erroDia}</Text>
+            <TouchableOpacity onPress={() => { setLoading(true); carregarDia(); }}
+              style={{ borderRadius: 10, backgroundColor: C.primarySoft, paddingHorizontal: 14, height: 34, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>Tentar de novo</Text>
+            </TouchableOpacity>
           </View>
         ) : clientesDia.length === 0 ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
