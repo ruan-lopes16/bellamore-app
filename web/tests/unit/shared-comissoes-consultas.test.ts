@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { limitesMes } from '@shared/periodos';
-import { carregarComissoesDoPeriodo, pagarComissoes, COLUNAS_COMISSAO_DETALHE } from '@shared/comissoes-consultas';
+import { carregarComissoesDoPeriodo, pagarComissoes, COLUNAS_COMISSAO_DETALHE, COLUNAS_COMISSAO_DETALHE_LEGADO } from '@shared/comissoes-consultas';
 import { carregarComissoesPendentes } from '@shared/kpis-financeiros-consultas';
 import { fakeDb, opsDe } from './fixtures/fake-db';
 
@@ -17,6 +17,12 @@ describe('carregarComissoesDoPeriodo', () => {
     expect(ops).toContainEqual(['lte', ['created_at', SET.endIso]]);
     expect(ops).toContainEqual(['order', ['id']]);
     expect(ops.some(([m, a]) => m === 'eq' && a[0] === 'profissional_id')).toBe(false);
+  });
+  it('sem a migration 085 cai nas colunas antigas', async () => {
+    const { db, chamadas } = fakeDb({ erroQuandoSelectContem: { comissoes: 'comanda_item_id' } });
+    await carregarComissoesDoPeriodo(db, 'emp', SET);
+    const selects = opsDe(chamadas, 'comissoes').map(ops => ops.find(([m]) => m === 'select')?.[1][0]);
+    expect(selects).toEqual([COLUNAS_COMISSAO_DETALHE, COLUNAS_COMISSAO_DETALHE_LEGADO]);
   });
   it('profissional: filtra pelo próprio id', async () => {
     const { db, chamadas } = fakeDb();

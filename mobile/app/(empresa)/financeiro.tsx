@@ -1628,9 +1628,11 @@ export default function Financeiro() {
           ))}
         </View>
         )}
-        {((resumo?.taxasCancelamento ?? 0) > 0 || (resumo?.taxasReserva ?? 0) > 0) && (
-          <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', gap: 8 }}>
+        {((resumo?.servicosExtras ?? 0) > 0 || (resumo?.taxasCancelamento ?? 0) > 0 || (resumo?.taxasReserva ?? 0) > 0) && (
+          <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {[
+              // Serviços extras da comanda (já incluídos no faturamento bruto), como no web.
+              { label: 'Serviços extras',       value: resumo?.servicosExtras ?? 0 },
               { label: 'Taxas de cancelamento', value: resumo?.taxasCancelamento ?? 0 },
               { label: 'Taxas de reserva',      value: resumo?.taxasReserva ?? 0 },
             ].filter(t => t.value > 0).map(t => (

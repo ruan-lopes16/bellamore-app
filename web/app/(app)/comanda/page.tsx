@@ -37,7 +37,7 @@
  * pacotes e quantidades só leitura; valores de serviço, desconto e pagamentos editáveis.
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Clock, User, Plus, Trash2, X, Check, ChevronRight, ChevronLeft,
   Banknote, Zap, CreditCard, Gift, Receipt, Tag, Pencil,
@@ -55,11 +55,13 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao } from '@shared/taxas-cartao';
-import { calcularDesconto, resumoComanda, montarPagamentos, taxaDoSplit, parseValorBR, BANDEIRAS_CARTAO, ROTULOS_BANDEIRA, type ModoDesconto } from '@shared/comanda-fechamento';
+import { calcularDesconto, resumoComanda, montarPagamentos, taxaDoSplit, parseValorBR, BANDEIRAS_CARTAO, diffItensComanda, type ItemComandaOriginal, type ModoDesconto } from '@shared/comanda-fechamento';
 import { mensagemErroBanco } from '@shared/erros';
-import { toWhatsApp } from '@/lib/masks';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
-import { agruparValoresPorAgendamento, marcarAgendamentosFechados } from '@shared/comanda';
+import { agruparValoresPorAgendamento, marcarAgendamentosFechados, cartoesComandaDoDia, type ComandaSoExtras } from '@shared/comanda';
+import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
+import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
+import { limitesDias, chaveDiaExibido } from '@shared/periodos';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -100,6 +102,8 @@ type ComandaItem = {
   produto_id?:    string;
   pacote_id?:     string;
   profissional_id?: string;
+  item_id?:       string;   // linha já gravada em comanda_itens (edição de comanda fechada)
+  comissao_paga?: boolean;  // comissão deste extra já paga: profissional e remoção travadas
 };
 
 /**
@@ -114,6 +118,8 @@ type Split = {
 
 type ClienteComanda = {
   id: string;
+  chave: string;               // identidade do cartão (cliente + comanda, ou cliente + 'aberta')
+  comandaId: string | null;    // comanda fechada deste cartão; null = ainda aberta
   nome: string;
   telefone?: string;
   agendamentos: AgDia[];       // todos os ags do dia para esse cliente
@@ -167,37 +173,6 @@ type SucessoRecibo = {
 /** Comanda só com extras que falhou depois de criada (mesmo texto no app). */
 const AVISO_COMANDA_PARCIAL = 'A comanda foi criada mas não terminou de gravar — confira em Comanda/Financeiro antes de lançar de novo';
 
-const MET_LABELS: Record<string, string> = {
-  dinheiro: 'Dinheiro', pix: 'PIX', credito: 'Crédito', debito: 'Débito', cortesia: 'Cortesia',
-};
-
-function gerarTextoRecibo(s: SucessoRecibo): string {
-  const data = format(s.data, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
-  const linhas: string[] = [
-    `🌸 *Recibo de Atendimento*`,
-    ``,
-    `👤 ${s.nome}`,
-    `📅 ${data}`,
-    ``,
-    `*Serviços:*`,
-    ...s.itens.map(i => `• ${i.descricao}${i.quantidade > 1 ? ` (${i.quantidade}x)` : ''} — ${fmtBRL(i.valor * i.quantidade)}`),
-    ...(s.descontoReserva > 0 ? [`• Taxa de reserva paga — −${fmtBRL(s.descontoReserva)}`] : []),
-    ...(s.desconto > 0 ? [`• Desconto — −${fmtBRL(s.desconto)}`] : []),
-    ``,
-    `💰 *Total: ${fmtBRL(s.valor)}*`,
-    ``,
-    `*Pagamento:*`,
-    ...s.splits.map(sp => {
-      const valorN = parseValorBR(sp.valor);
-      let label = MET_LABELS[sp.metodo] ?? sp.metodo;
-      if (sp.bandeira) label += ` ${ROTULOS_BANDEIRA[sp.bandeira] ?? sp.bandeira}`;
-      if (sp.metodo === 'credito' && (sp.parcelas ?? 1) > 1) label += ` ${sp.parcelas}x`;
-      return `• ${label} — ${fmtBRL(valorN)}`;
-    }),
-  ];
-  return linhas.join('\n');
-}
-
 // ── Componente principal ──────────────────────────────────────
 
 export default function ComandaPage() {
@@ -213,6 +188,11 @@ export default function ComandaPage() {
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
+  // Falha ao ler as taxas de reserva pagas do dia: bloqueia fechar/salvar comanda com atendimento
+  const [erroTaxasReserva,  setErroTaxasReserva]  = useState<string | null>(null);
+  const [recarregandoTaxas, setRecarregandoTaxas] = useState(false);
+  // Contador das cargas do dia: resposta de um dia que já não está selecionado é ignorada
+  const reqDiaRef = useRef(0);
   const [dataComanda,       setDataComanda]       = useState<Date>(new Date());
   const [view,              setView]              = useState<'semana' | 'mes'>('semana');
   const [semana,            setSemana]            = useState<Date[]>(() =>
@@ -220,6 +200,14 @@ export default function ComandaPage() {
   );
   const [agsMes,            setAgsMes]            = useState<Map<string, number>>(new Map());
   const [comandaExistenteId, setComandaExistenteId] = useState<string | null>(null);
+  // Comandas fechadas no dia sem nenhum atendimento (só extras) — viram cartões próprios
+  const [soExtrasDia, setSoExtrasDia] = useState<ComandaSoExtras[]>([]);
+  // Extras como estavam no banco ao reabrir a comanda fechada (base do diff na edição)
+  const [itensOriginais, setItensOriginais] = useState<ItemComandaOriginal[]>([]);
+  // Contador de requisição das aberturas de comanda: resposta de uma abertura antiga é ignorada
+  const aberturaRef = useRef(0);
+  // Carga da comanda fechada falhou: bloqueia o Salvar (itens/pagamentos não foram lidos)
+  const [cargaFalhou, setCargaFalhou] = useState(false);
   // Pacotes ativos do cliente selecionado, elegíveis pra vincular a um atendimento
   const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
   // Vínculos feitos NESTA sessão de comanda (agendamento_id -> pacote_clientes.id), ainda não
@@ -299,8 +287,20 @@ export default function ComandaPage() {
   // ── Carregar dados do dia selecionado
   useEffect(() => {
     if (!empresaId) return;
+    // Só a resposta da carga mais recente pode alterar o estado (troca rápida de dia), igual ao
+    // `reqDiaRef` do app. Conferido depois de CADA await, antes de qualquer set*.
+    const req = ++reqDiaRef.current;
+    // Abertura de comanda fechada ainda em voo não pode reabrir a tela depois da troca de dia.
+    aberturaRef.current++;
+    // A lista do dia anterior some na hora: nunca aparece sob o rótulo do novo dia.
     setLoading(true);
     setClienteSel(null);
+    setComandaExistenteId(null);
+    setAgDia([]);
+    setSoExtrasDia([]);
+    setTaxasReservaPagas([]);
+    setErroTaxasReserva(null);
+    setRecarregandoTaxas(false);
     Promise.all([
       // Agendamentos do dia (exceto cancelados)
       supabase.from('agendamentos')
@@ -323,6 +323,7 @@ export default function ComandaPage() {
         .eq('empresa_id', empresaId).eq('ativo', true),
       supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
     ]).then(async ([rAgs, rServs, rProds, rMembros, rPacotes]) => {
+      if (req !== reqDiaRef.current) return;
       const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
 
       // Taxas de reserva já pagas — buscadas só depois de sabermos os
@@ -337,12 +338,27 @@ export default function ComandaPage() {
         ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
             .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
         : { data: [] as { agendamento_id: string; valor: number }[], error: null };
+      if (req !== reqDiaRef.current) return;
 
+      // Sem as taxas pagas o desconto da reserva viraria R$ 0 em silêncio (cliente cobrado a
+      // mais): guarda o erro, que BLOQUEIA fechar/salvar comanda com atendimento (bloqueioTaxaReserva).
       if (rTaxasReserva.error) {
         console.error('Erro ao buscar taxas de reserva pagas:', rTaxasReserva.error.message);
-        setErro(rTaxasReserva.error.message);
+        setErroTaxasReserva(mensagemErroBanco(rTaxasReserva.error, 'carregar as taxas de reserva pagas'));
       }
 
+      let extrasDoDia: ComandaSoExtras[] = [];
+      let erroExtras = '';
+      try {
+        const dia = chaveDiaExibido(dataComanda);
+        extrasDoDia = await carregarComandasSoExtrasDoDia(supabase, empresaId, limitesDias(dia, dia));
+      } catch (e) {
+        erroExtras = mensagemErroBanco({ message: e instanceof Error ? e.message : '' }, 'carregar as comandas do dia');
+      }
+      if (req !== reqDiaRef.current) return;
+      if (erroExtras) setErro(erroExtras);
+
+      setSoExtrasDia(extrasDoDia);
       setAgDia(agsDoDia);
       setServicos((rServs.data ?? []) as { id: string; nome: string; preco: number }[]);
       setProdutos((rProds.data ?? []) as { id: string; nome: string; preco_venda: number }[]);
@@ -355,21 +371,40 @@ export default function ComandaPage() {
     });
   }, [empresaId, dataComanda]);
 
+  /**
+   * Relê só as taxas de reserva pagas dos atendimentos do dia (botão "Tentar de novo" do
+   * bloqueio). Mantém a comanda aberta; resposta de um dia que já não está selecionado é ignorada.
+   */
+  async function recarregarTaxasReserva() {
+    if (!empresaId) return;
+    const req = reqDiaRef.current;
+    const agIds = agDia.map(ag => ag.id);
+    setRecarregandoTaxas(true);
+    const r = agIds.length > 0
+      ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
+          .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
+      : { data: [] as { agendamento_id: string; valor: number }[], error: null };
+    if (req !== reqDiaRef.current) return;
+    setRecarregandoTaxas(false);
+    if (r.error) {
+      setErroTaxasReserva(mensagemErroBanco(r.error, 'carregar as taxas de reserva pagas'));
+      return;
+    }
+    setTaxasReservaPagas((r.data ?? []) as { agendamento_id: string; valor: number }[]);
+    setErroTaxasReserva(null);
+  }
+
   // Backlog de comandas não fechadas — atendimentos já ocorridos (data_hora_fim
   // passada), sem comanda_id, que não foram cancelados/faltaram. Cobre tanto
   // quem esqueceu de fechar quanto o atalho "Marcar como concluído" do app
   // mobile, que muda o status sem nunca gerar a comanda.
   const fetchBacklog = useCallback(async (empId: string) => {
-    const { data } = await supabase.from('agendamentos')
-      .select('id, data_hora_inicio')
-      .eq('empresa_id', empId)
-      .is('comanda_id', null)
-      .not('status', 'in', '("cancelado","faltou")')
-      .lt('data_hora_fim', new Date().toISOString())
-      .order('data_hora_inicio', { ascending: true })
-      .limit(500);
-    setBacklog(((data ?? []) as { id: string; data_hora_inicio: string }[])
-      .map(r => ({ id: r.id, data: parseISO(r.data_hora_inicio) })));
+    try {
+      const rows = await carregarBacklogComandas(supabase, empId, new Date().toISOString());
+      setBacklog(rows.map(r => ({ id: r.id, data: parseISO(r.data_hora_inicio) })));
+    } catch {
+      setBacklog([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -418,26 +453,11 @@ export default function ComandaPage() {
   }
 
   // ── Clientes do dia (agrupados)
-  const clientesDia = useMemo<ClienteComanda[]>(() => {
-    const map: Record<string, ClienteComanda> = {};
-    for (const ag of agDia) {
-      const cid = ag.cliente?.id ?? '__sem__';
-      if (!map[cid]) {
-        map[cid] = {
-          id: cid,
-          nome: ag.cliente?.nome ?? 'Cliente',
-          telefone: ag.cliente?.telefone,
-          agendamentos: [],
-        };
-      }
-      map[cid].agendamentos.push(ag);
-    }
-    return Object.values(map).sort((a, b) => {
-      const ha = a.agendamentos[0]?.data_hora_inicio ?? '';
-      const hb = b.agendamentos[0]?.data_hora_inicio ?? '';
-      return ha.localeCompare(hb);
-    });
-  }, [agDia]);
+  const clientesDia = useMemo<ClienteComanda[]>(() =>
+    cartoesComandaDoDia(agDia, soExtrasDia).map(c => ({
+      id: c.clienteId, chave: c.chave, nome: c.nome, telefone: c.telefone,
+      agendamentos: c.agendamentos, comandaId: c.comandaId,
+    })), [agDia, soExtrasDia]);
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) no dia selecionado */
   const totalDia = useMemo(
@@ -454,10 +474,11 @@ export default function ComandaPage() {
   }
 
   /** Próximo cliente da fila: comanda ainda aberta, horário já passou e que a pessoa pode fechar */
-  function proximoClienteAberto(excluirId: string): ClienteComanda | null {
+  function proximoClienteAberto(excluirChave: string): ClienteComanda | null {
     const agora = new Date();
     return clientesDia.find(c =>
-      c.id !== excluirId &&
+      c.comandaId === null &&
+      c.chave !== excluirChave &&
       !temAtendimentoDeOutra(c) &&
       c.agendamentos.some(a => a.status !== 'concluido' || !a.comanda_id) &&
       c.agendamentos.some(a => parseISO(a.data_hora_inicio) <= agora)
@@ -468,6 +489,9 @@ export default function ComandaPage() {
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
     setComandaExistenteId(null);
+    aberturaRef.current++;
+    setCargaFalhou(false);
+    setItensOriginais([]);
     setErro('');
     setDescontoEntrada('');
     setDescontoModo('percentual');
@@ -529,12 +553,13 @@ export default function ComandaPage() {
 
   // ── Abrir comanda já fechada para edição
   async function abrirComandaFechada(cliente: ClienteComanda) {
-    const comandaId = cliente.agendamentos.find(a => a.comanda_id)?.comanda_id ?? null;
+    const abertura = ++aberturaRef.current;
+    const comandaId = cliente.comandaId;
     if (!comandaId) { abrirComanda(cliente); return; }
 
     setClienteSel(cliente);
     setComandaExistenteId(comandaId);
-    setErro(''); setDescontoEntrada(''); setDescontoModo('valor'); setSplits([]); setItens([]);
+    setErro(''); setDescontoEntrada(''); setDescontoModo('valor'); setSplits([]); setItens([]); setItensOriginais([]); setCargaFalhou(false);
     // Só os atendimentos DESTA comanda: a mesma cliente pode ter mais de uma
     // comanda no dia, e misturá-las regravaria valores/pagamentos da outra.
     const agsDaComanda = cliente.agendamentos.filter(ag => ag.comanda_id === comandaId);
@@ -575,15 +600,16 @@ export default function ComandaPage() {
 
     const [rCmd, rItens, rPags] = await Promise.all([
       supabase.from('comandas').select('desconto, desconto_reserva').eq('id', comandaId).single(),
-      supabase.from('comanda_itens').select('tipo,descricao,servico_id,produto_id,pacote_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId),
+      supabase.from('comanda_itens').select('id,tipo,descricao,servico_id,produto_id,pacote_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId).order('created_at'),
       // taxa_perc e created_at: o pagamento reaberto mantém a taxa e a data de quando foi lançado
       supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas,taxa_perc,created_at').eq('comanda_id', comandaId).order('created_at'),
     ]);
     // Sem os dados gravados não dá para editar com segurança (salvar zeraria desconto/itens/
     // pagamentos): mostra o erro e deixa a comanda sem itens (botão Salvar desabilitado).
+    if (abertura !== aberturaRef.current) return;
     const errCarga = rCmd.error ?? rItens.error ?? rPags.error;
     if (errCarga) {
-      setItens([]);
+      setItens([]); setItensOriginais([]); setCargaFalhou(true);
       setErro(mensagemErroBanco(errCarga, 'abrir a comanda'));
       return;
     }
@@ -597,6 +623,7 @@ export default function ComandaPage() {
 
     const extras: ComandaItem[] = (extraItems ?? []).map((item: any) => ({
       uid: uid(), tipo: item.tipo as 'servico' | 'produto' | 'pacote',
+      item_id: item.id as string,
       descricao: item.descricao ?? '—',
       valor: item.valor_unit, quantidade: item.quantidade,
       servico_id: item.servico_id ?? undefined,
@@ -604,6 +631,24 @@ export default function ComandaPage() {
       pacote_id: item.pacote_id ?? undefined,
       profissional_id: item.profissional_id ?? undefined,
     }));
+
+    // Extras com comissão já paga ficam travados (profissional e remoção) — o banco recusaria (085).
+    // Falha na leitura (fora "sem a 085") = carga falha: sem saber o que está pago, salvar
+    // destravaria itens pagos e o trigger recusaria no meio do salvamento.
+    let pagas: Set<string>;
+    try {
+      pagas = await carregarComissoesPagasDosItens(supabase, extras.map(e => e.item_id!));
+    } catch (e) {
+      if (abertura !== aberturaRef.current) return;
+      setItens([]); setItensOriginais([]); setSplits([]); setDescontoEntrada(''); setCargaFalhou(true);
+      setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'abrir a comanda'));
+      return;
+    }
+    if (abertura !== aberturaRef.current) return;
+    for (const e of extras) e.comissao_paga = pagas.has(e.item_id!);
+    setItensOriginais(extras.map(e => ({
+      item_id: e.item_id!, valor: e.valor, quantidade: e.quantidade, profissional_id: e.profissional_id ?? null,
+    })));
 
     setItens([...agItems, ...extras]);
     setSplits((pags ?? []).map((p: any) => ({
@@ -688,70 +733,91 @@ export default function ComandaPage() {
    * linhas, sem erro) e os splits duplicam a cada "Salvar edição". Retorna
    * string de erro ou null.
    */
-  async function conferirDeleteVazio(tabela: 'pagamentos' | 'comanda_itens', comandaId: string): Promise<string | null> {
+  async function conferirDeleteVazio(tabela: 'pagamentos', comandaId: string): Promise<string | null> {
     const { count, error } = await supabase.from(tabela)
       .select('id', { count: 'exact', head: true }).eq('comanda_id', comandaId);
     if (error) return error.message;
     if ((count ?? 0) > 0) {
-      return tabela === 'pagamentos'
-        ? 'Não foi possível substituir os pagamentos (permissão). Aplique a migration 075 no banco.'
-        : 'Não foi possível substituir os itens da comanda (permissão). Aplique a migration 075 no banco.';
+      return 'Não foi possível substituir os pagamentos (permissão). Aplique a migration 075 no banco.';
     }
     return null;
   }
 
   // ── Editar comanda já fechada (UPDATE ao invés de INSERT)
   async function editarComanda(comandaId: string) {
+    if (cargaFalhou) { setErro('Não foi possível ler a comanda — reabra-a antes de salvar'); return; }
+    if (bloqueioTaxaReserva) { setErro(bloqueioTaxaReserva); return; }
     setFechando(true); setErro('');
 
-    // Ordem: 1) UPDATE da comanda (com .select: RLS barrando devolve 0 linhas sem erro);
-    // 2) valores dos atendimentos; 3) apagar + reinserir itens; 4) apagar + reinserir
-    // pagamentos. Cada DELETE é conferido (conferirDeleteVazio) — sem a policy da migration
-    // 075 o DELETE de `pagamentos` falha em silêncio e os splits duplicariam a cada save.
+    // Qualquer falha trava o Salvar (cargaFalhou), igual ao `falhar` do app: parte pode já ter
+    // sido gravada e `itensOriginais` (base do diff) ficou velho — um segundo "Salvar" reinseriria
+    // extras e comissões. É preciso reabrir a comanda.
+    const falhar = (msg: string) => {
+      setCargaFalhou(true);
+      setErro(`${msg} Feche e abra a comanda de novo para conferir.`);
+      setFechando(false);
+    };
+
+    // Ordem:
+    // 1) itens extras por diferença — PRIMEIRO, porque é a etapa que o trigger da 085 pode
+    //    recusar ('Comissão deste serviço já foi paga'): a recusa aborta antes de mexer no
+    //    total/desconto da comanda e nos valores dos atendimentos;
+    // 2) UPDATE da comanda (com .select: RLS barrando devolve 0 linhas sem erro);
+    // 3) valores dos atendimentos; 4) apagar + reinserir pagamentos (sempre por último).
+    // Cada DELETE é conferido (conferirDeleteVazio) — sem a policy da migration 075 o DELETE
+    // de `pagamentos` falha em silêncio e os splits duplicariam a cada save.
+
+    // 1. Itens extras por diferença: a comissão do serviço extra mora no item (085), então
+    //    apagar e reinserir recriaria a comissão (ou falharia se já paga).
+    const { inserir, atualizar, apagar } = diffItensComanda(itensOriginais, itens
+      .filter(i => i.tipo !== 'agendamento')
+      .map(i => ({ item_id: i.item_id, tipo: i.tipo as 'servico' | 'produto' | 'pacote', descricao: i.descricao,
+        servico_id: i.servico_id, produto_id: i.produto_id, pacote_id: i.pacote_id,
+        profissional_id: i.profissional_id ?? null, quantidade: i.quantidade, valor: i.valor })));
+
+    for (const id of apagar) {
+      const { data, error } = await supabase.from('comanda_itens').delete().eq('id', id).select('id');
+      if (error || !data || data.length === 0) { falhar(mensagemErroBanco(error, 'remover o item da comanda')); return; }
+    }
+    for (const u of atualizar) {
+      const { data, error } = await supabase.from('comanda_itens')
+        .update({ valor_unit: u.valor_unit, quantidade: u.quantidade, profissional_id: u.profissional_id })
+        .eq('id', u.item_id).select('id');
+      if (error || !data || data.length === 0) { falhar(mensagemErroBanco(error, 'salvar o item da comanda')); return; }
+    }
+    if (inserir.length > 0) {
+      const { error } = await supabase.from('comanda_itens').insert(inserir.map(i => ({
+        comanda_id: comandaId, empresa_id: empresaId, tipo: i.tipo, descricao: i.descricao,
+        servico_id: i.servico_id ?? null, produto_id: i.produto_id ?? null, pacote_id: i.pacote_id ?? null,
+        profissional_id: i.profissional_id ?? null, quantidade: i.quantidade, valor_unit: i.valor,
+      })));
+      if (error) { falhar(mensagemErroBanco(error, 'salvar os itens da comanda')); return; }
+    }
+
+    // 2. Comanda
     const { data: cmdAtualizada, error: errCmd } = await supabase.from('comandas')
       .update({ valor_total: subtotal, desconto: descontoN + descontoReservaAplicado, desconto_reserva: descontoReservaAplicado })
       .eq('id', comandaId).select('id');
     if (errCmd || !cmdAtualizada || cmdAtualizada.length === 0) {
-      setErro(mensagemErroBanco(errCmd, 'salvar a comanda')); setFechando(false); return;
+      falhar(mensagemErroBanco(errCmd, 'salvar a comanda')); return;
     }
 
-    // Persiste o valor editado dos procedimentos no próprio atendimento
-    // (dispara o trigger de sincronização da comissão — migration 075).
+    // 3. Persiste o valor editado dos procedimentos no próprio atendimento
+    //    (dispara o trigger de sincronização da comissão — migration 075).
     const errValor = await persistirValoresAgendamento();
-    if (errValor) { setErro(errValor); setFechando(false); return; }
+    if (errValor) { falhar(errValor); return; }
 
-    // Troca os itens extras: apaga, confere que apagou, reinsere
-    await supabase.from('comanda_itens').delete().eq('comanda_id', comandaId);
-    const errItensDel = await conferirDeleteVazio('comanda_itens', comandaId);
-    if (errItensDel) { setErro(errItensDel); setFechando(false); return; }
-
-    const extras = itens.filter(i => i.tipo !== 'agendamento');
-    if (extras.length > 0) {
-      const { error: errItens } = await supabase.from('comanda_itens').insert(
-        extras.map(i => ({
-          comanda_id: comandaId, empresa_id: empresaId,
-          tipo: i.tipo, descricao: i.descricao,
-          servico_id: i.servico_id ?? null,
-          produto_id: i.produto_id ?? null,
-          pacote_id: i.pacote_id ?? null,
-          profissional_id: i.profissional_id ?? null,
-          quantidade: i.quantidade, valor_unit: i.valor,
-        }))
-      );
-      if (errItens) { setErro(errItens.message); setFechando(false); return; }
-    }
-
-    // Troca os pagamentos: apaga, confere que apagou, reinsere pela regra única
-    // (total R$0 sem pagamento → Cortesia R$0; reabertos mantêm taxa e data — montarPagamentos)
+    // 4. Troca os pagamentos: apaga, confere que apagou, reinsere pela regra única
+    //    (total R$0 sem pagamento → Cortesia R$0; reabertos mantêm taxa e data — montarPagamentos)
     await supabase.from('pagamentos').delete().eq('comanda_id', comandaId);
     const errPagDel = await conferirDeleteVazio('pagamentos', comandaId);
-    if (errPagDel) { setErro(errPagDel); setFechando(false); return; }
+    if (errPagDel) { falhar(errPagDel); return; }
 
     if (empresaId) {
       const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
       if (linhasPag.length > 0) {
         const { error: errPag } = await supabase.from('pagamentos').insert(linhasPag);
-        if (errPag) { setErro(mensagemErroBanco(errPag, 'salvar a comanda')); setFechando(false); return; }
+        if (errPag) { falhar(`${mensagemErroBanco(errPag, 'salvar a comanda')} A comanda ficou sem pagamento — lance o pagamento de novo.`); return; }
       }
     }
 
@@ -832,10 +898,14 @@ export default function ComandaPage() {
     const n = parseValorBR(v);
     setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: n > 0 ? n : 1 } : i));
   }
+  /**
+   * "Profissional (opcional)" no seletor vem como '' — vira `undefined` (gravado como null),
+   * igual ao app. '' numa coluna uuid quebraria o INSERT/UPDATE do item.
+   */
   function atualizarProfissional(u: string, profId: string) {
     const m = membros.find(x => x.id === profId);
     setItens(prev => prev.map(i =>
-      i.uid === u ? { ...i, profissional_id: profId, profissional: m?.nome } : i
+      i.uid === u ? { ...i, profissional_id: profId || undefined, profissional: m?.nome } : i
     ));
   }
 
@@ -852,6 +922,11 @@ export default function ComandaPage() {
     subtotal, desconto: descontoN, erroDesconto, descontoReserva: descontoReservaAplicado, splits: splitsNumericos,
   });
   const { total, recebido, falta, troco } = resumo;
+  // Taxas de reserva não lidas + comanda com atendimento: o desconto da reserva sairia R$ 0
+  // (cobrança a mais). Bloqueia fechar/salvar até recarregar — mesma regra do app.
+  const bloqueioTaxaReserva = erroTaxasReserva && agendamentoIdsNaComanda.length > 0
+    ? `Não foi possível ler as taxas de reserva pagas — sem elas o desconto da reserva sairia R$ 0. Tente de novo antes de fechar. (${erroTaxasReserva})`
+    : null;
 
   /**
    * Pagamentos do recibo/tela de sucesso: os lançados; com a Cortesia automática (total R$ 0
@@ -889,6 +964,7 @@ export default function ComandaPage() {
     if (!clienteSel || !empresaId || fechando) return;
     // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
     if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível fechar a comanda.'); return; }
+    if (bloqueioTaxaReserva) { setErro(bloqueioTaxaReserva); return; }
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
     // Comanda desta cliente criada e não terminada nesta tela: nada de um segundo INSERT.
     if (comandasParciais[clienteSel.id]) { setErro(AVISO_COMANDA_PARCIAL); return; }
@@ -1087,7 +1163,7 @@ export default function ComandaPage() {
     const reciboSplits = splitsParaRecibo();
     const reciboDesconto = descontoN;
     const reciboDescontoReserva = descontoReservaAplicado;
-    setProximoCliente(proximoClienteAberto(clienteSel.id));
+    setProximoCliente(proximoClienteAberto(clienteSel.chave));
     setClienteSel(null);
     setSucesso({ nome: nomeCliente, valor: total, telefone: telefoneCliente, itens: reciboItens, splits: reciboSplits, desconto: reciboDesconto, descontoReserva: reciboDescontoReserva, data: new Date() });
     if (empresaId) fetchBacklog(empresaId);
@@ -1222,15 +1298,15 @@ export default function ComandaPage() {
           ) : (
             <div className="p-2 flex flex-col gap-1">
               {clientesDia.map(cliente => {
-                const ativo  = clienteSel?.id === cliente.id;
-                const jaFeita = cliente.agendamentos.every(a => a.status === 'concluido');
+                const ativo  = clienteSel?.chave === cliente.chave;
+                const jaFeita = cliente.comandaId !== null;
                 // Comanda já fechada só reabre para quem pode editá-la; senão o card fica sem ação.
                 const deOutra = temAtendimentoDeOutra(cliente);
                 const semAcao = deOutra || (jaFeita ? !podeEditarFechada : !podeFechar);
                 const primeiroAg = cliente.agendamentos[0];
                 return (
                   <button
-                    key={cliente.id}
+                    key={cliente.chave}
                     onClick={() => jaFeita ? abrirComandaFechada(cliente) : abrirComanda(cliente)}
                     disabled={semAcao}
                     title={semAcao ? (deOutra ? 'Atendimento de outra profissional' : jaFeita ? 'Comanda fechada' : 'Sem permissão para fechar comanda') : undefined}
@@ -1250,11 +1326,13 @@ export default function ComandaPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-text truncate">{cliente.nome}</p>
                         <p className="text-xs text-text-3 truncate">
-                          {fmtHora(primeiroAg.data_hora_inicio)} · {
-                            (primeiroAg.agendamento_servicos ?? []).length > 0
-                              ? [...(primeiroAg.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
-                              : primeiroAg.servico?.nome ?? '—'
-                          }
+                          {!primeiroAg ? 'Só produtos/serviços extras' : <>
+                            {fmtHora(primeiroAg.data_hora_inicio)} · {
+                              (primeiroAg.agendamento_servicos ?? []).length > 0
+                                ? [...(primeiroAg.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem).map(s => s.servico?.nome).filter(Boolean).join(' + ')
+                                : primeiroAg.servico?.nome ?? '—'
+                            }
+                          </>}
                         </p>
                       </div>
                       {jaFeita ? (
@@ -1383,9 +1461,13 @@ export default function ComandaPage() {
               {sucesso.telefone && (
                 <button
                   onClick={() => {
-                    const texto = gerarTextoRecibo(sucesso);
-                    const tel = sucesso.telefone!.replace(/\D/g, '');
-                    window.open(`https://wa.me/55${tel}?text=${encodeURIComponent(texto)}`, '_blank');
+                    const texto = gerarTextoRecibo({
+                      nome: sucesso.nome, valor: sucesso.valor, dataIso: sucesso.data.toISOString(),
+                      itens: sucesso.itens.map(i => ({ descricao: i.descricao, quantidade: i.quantidade, valor: i.valor })),
+                      splits: sucesso.splits.map(sp => ({ metodo: sp.metodo, valor: parseValorBR(sp.valor), bandeira: sp.bandeira, parcelas: sp.parcelas })),
+                      desconto: sucesso.desconto, descontoReserva: sucesso.descontoReserva,
+                    });
+                    window.open(linkWhatsAppRecibo(sucesso.telefone!, texto), '_blank');
                   }}
                   className="press w-full px-8 py-3.5 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2"
                   style={{ background: 'var(--color-green)', boxShadow: '0 6px 20px rgba(21,122,91,0.3)' }}>
@@ -1433,7 +1515,9 @@ export default function ComandaPage() {
                 <div>
                   <h2 className="font-semibold text-text">{clienteSel.nome}</h2>
                   <p className="text-xs text-text-3">
-                    {clienteSel.agendamentos.length} serviço{clienteSel.agendamentos.length !== 1 ? 's' : ''} agendado{clienteSel.agendamentos.length !== 1 ? 's' : ''}
+                    {clienteSel.agendamentos.length === 0
+                      ? 'Só produtos/serviços extras'
+                      : <>{clienteSel.agendamentos.length} serviço{clienteSel.agendamentos.length !== 1 ? 's' : ''} agendado{clienteSel.agendamentos.length !== 1 ? 's' : ''}</>}
                     {clienteSel.telefone && ` · ${clienteSel.telefone}`}
                   </p>
                 </div>
@@ -1466,7 +1550,8 @@ export default function ComandaPage() {
                       // desvincule o pacote) — no fechamento novo e na edição.
                       const cobertoPorPacote = item.tipo === 'agendamento' && !!item.agendamento_id && !!pacoteLinks[item.agendamento_id];
                       const valorSoLeitura = itemSoLeitura || cobertoPorPacote;
-                      const podeRemover = !emEdicao || item.tipo === 'servico';
+                      const travadoComissao = emEdicao && !!item.comissao_paga;
+                      const podeRemover = (!emEdicao || item.tipo === 'servico') && !travadoComissao;
                       return (
                       <div key={item.uid}
                         className={`rounded-xl px-4 py-3 border ${
@@ -1533,6 +1618,7 @@ export default function ComandaPage() {
                             <select
                               value={item.profissional_id ?? ''}
                               onChange={e => atualizarProfissional(item.uid, e.target.value)}
+                              disabled={travadoComissao}
                               className="w-full h-8 px-2 text-xs rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition text-text-2"
                             >
                               <option value="">Profissional (opcional)</option>
@@ -1540,6 +1626,9 @@ export default function ComandaPage() {
                                 <option key={m.id} value={m.id}>{m.nome}</option>
                               ))}
                             </select>
+                            {travadoComissao && (
+                              <p className="text-[11px] text-text-3 mt-1">Comissão já paga — profissional e remoção travadas</p>
+                            )}
                           </div>
                         )}
                         {/* Vínculo com sessão de pacote — uma vez por atendimento, não por linha de serviço */}
@@ -1830,7 +1919,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
+                  disabled={fechando || cargaFalhou || !!bloqueioTaxaReserva || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
                   title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -1843,6 +1932,19 @@ export default function ComandaPage() {
                     </>
                   )}
                 </button>
+                {bloqueioTaxaReserva && (
+                  <div className="mt-2 text-center">
+                    <p className="text-xs font-semibold text-red">{bloqueioTaxaReserva}</p>
+                    <button
+                      type="button"
+                      onClick={recarregarTaxasReserva}
+                      disabled={recarregandoTaxas}
+                      className="mt-1 text-xs font-bold text-primary underline disabled:opacity-50"
+                    >
+                      {recarregandoTaxas ? 'Carregando...' : 'Tentar de novo'}
+                    </button>
+                  </div>
+                )}
                 {!comandaExistenteId && clienteSel && comandasParciais[clienteSel.id] && (
                   <p className="text-xs text-center mt-2 font-semibold text-red">{AVISO_COMANDA_PARCIAL}</p>
                 )}

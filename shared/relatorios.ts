@@ -4,8 +4,10 @@
  * calcularKpisFinanceiros; aqui ficam as listas que as duas telas desenham
  * (cartões, resumo financeiro) e os rankings das abas.
  */
-import { arredondar, num, variacaoPercentual, type KpisFinanceiros, type Valor } from './kpis-financeiros';
-import { ROTULO_COMPARACAO, type PeriodoRelatorio } from './periodos';
+import {
+  arredondar, num, valorServicoExtra, variacaoPercentual, type DadosFinanceiros, type KpisFinanceiros, type Valor,
+} from './kpis-financeiros';
+import { ROTULO_COMPARACAO, instanteMs, type PeriodoRelatorio } from './periodos';
 
 export type AbaRelatorio = 'financeiro' | 'servicos' | 'equipe' | 'clientes' | 'estoque' | 'comissoes' | 'avaliacoes';
 
@@ -118,6 +120,14 @@ export type CartaoKpiRelatorio = {
   negativo: boolean;
 };
 
+/** Subtítulo do cartão "Faturamento bruto": o que além dos atendimentos entrou (vendas, serviços extras). */
+function subBruto(k: KpisFinanceiros, fmt: (v: number) => string): string | null {
+  const partes: string[] = [];
+  if (k.receitaVendas > 0) partes.push(`${fmt(k.receitaVendas)} em vendas`);
+  if (k.receitaServicosExtras > 0) partes.push(`${fmt(k.receitaServicosExtras)} em serviços extras`);
+  return partes.length > 0 ? `inc. ${partes.join(' + ')}` : null;
+}
+
 /** Grade de KPIs dos Relatórios — a MESMA lista no web e no app. */
 export function cartoesKpiRelatorio(
   k: KpisFinanceiros, kAnt: KpisFinanceiros,
@@ -128,7 +138,7 @@ export function cartoesKpiRelatorio(
   const base = { sub: null, delta: null, rotuloDelta: null, negativo: false };
   const lista: CartaoKpiRelatorio[] = [{
     ...base, id: 'bruto', rotulo: 'Faturamento bruto', valor: fmt(k.bruto),
-    sub: k.receitaVendas > 0 ? `inc. ${fmt(k.receitaVendas)} em vendas` : null,
+    sub: subBruto(k, fmt),
     delta: variacaoPercentual(k.bruto, kAnt.bruto), rotuloDelta: rd,
   }];
   if (k.taxasCartao > 0) lista.push({ ...base, id: 'cartao', rotulo: 'Taxas de cartão', valor: fmt(k.taxasCartao), negativo: true });
@@ -155,7 +165,7 @@ export function cartoesKpiRelatorio(
 }
 
 export type LinhaResumoFinanceiro = {
-  id: 'servicos' | 'vendas' | 'taxas' | 'bruto' | 'cartao' | 'comissoes' | 'despesas' | 'lucro' | 'retiradas' | 'aposRetiradas';
+  id: 'servicos' | 'servicosExtras' | 'vendas' | 'taxas' | 'bruto' | 'cartao' | 'comissoes' | 'despesas' | 'lucro' | 'retiradas' | 'aposRetiradas';
   rotulo: string;
   valor: number;
   tipo: 'entrada' | 'total' | 'saida' | 'resultado';
@@ -166,6 +176,9 @@ export function linhasResumoFinanceiro(
   k: KpisFinanceiros, o: { isOwner: boolean; retiradasPeriodo: number },
 ): LinhaResumoFinanceiro[] {
   const l: LinhaResumoFinanceiro[] = [{ id: 'servicos', rotulo: 'Serviços concluídos', valor: k.receitaServicos, tipo: 'entrada' }];
+  if (k.receitaServicosExtras > 0) {
+    l.push({ id: 'servicosExtras', rotulo: 'Serviços extras', valor: k.receitaServicosExtras, tipo: 'entrada' });
+  }
   if (k.receitaVendas > 0) l.push({ id: 'vendas', rotulo: 'Vendas avulsas', valor: k.receitaVendas, tipo: 'entrada' });
   const taxas = arredondar(k.receitaTaxasCancelamento + k.receitaTaxasReserva);
   if (taxas > 0) l.push({ id: 'taxas', rotulo: 'Taxas (cancel. + reserva)', valor: taxas, tipo: 'entrada' });
@@ -183,4 +196,27 @@ export function linhasResumoFinanceiro(
     );
   }
   return l;
+}
+
+/** Rótulo de status da linha de serviço extra na exportação da aba Financeiro. */
+export const STATUS_SERVICO_EXTRA = 'Serviço extra';
+
+/**
+ * Linhas da exportação da aba Financeiro dos Relatórios (web e app): os
+ * atendimentos concluídos + os serviços extras da comanda (receita desde
+ * 2026-10-08, data = fechamento da comanda), em ordem cronológica.
+ * `d` já recortado ao período (recortarDados).
+ */
+export function linhasAtendimentosRelatorio(
+  d: Pick<DadosFinanceiros, 'agendamentos' | 'servicosExtras'>,
+): { inicio: string; cliente: string | null; servico: string | null; valor: number; status: string }[] {
+  const ags = d.agendamentos.filter(a => a.status === 'concluido').map(a => ({
+    inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null,
+    valor: num(a.valor), status: a.status,
+  }));
+  const extras = d.servicosExtras.map(x => ({
+    inicio: x.fechada_at, cliente: x.cliente?.nome ?? null, servico: x.servico?.nome ?? x.descricao ?? null,
+    valor: arredondar(valorServicoExtra(x)), status: STATUS_SERVICO_EXTRA,
+  }));
+  return [...ags, ...extras].sort((a, b) => instanteMs(a.inicio) - instanteMs(b.inicio));
 }

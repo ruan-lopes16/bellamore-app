@@ -59,5 +59,6 @@ export function fixtureSetembro(): DadosFinanceiros {
       { id: 'd5', valor: 77,   categoria: 'Outros',  status: 'pendente', data_pagamento: '2026-09-20' },
     ],
     fechamentos: [],
+    servicosExtras: [],
   };
 }

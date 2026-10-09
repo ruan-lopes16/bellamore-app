@@ -134,3 +134,34 @@ export function montarPagamentos(
     return linha;
   });
 }
+
+/** Item extra da comanda como a tela o tem; `item_id` = linha já gravada em `comanda_itens`. */
+export type ItemComandaPersistivel = {
+  item_id?: string; tipo: 'servico' | 'produto' | 'pacote'; descricao: string;
+  servico_id?: string; produto_id?: string; pacote_id?: string; profissional_id?: string | null;
+  quantidade: number; valor: number;
+};
+/** Como o item estava no banco ao reabrir a comanda fechada. */
+export type ItemComandaOriginal = { item_id: string; valor: number; quantidade: number; profissional_id: string | null };
+
+/**
+ * Edição de comanda fechada por diferença (não apaga e reinsere): a comissão do serviço extra
+ * mora no item (migration 085) e recriar o item recriaria a comissão — ou falharia se já paga.
+ */
+export function diffItensComanda(originais: ItemComandaOriginal[], atuais: ItemComandaPersistivel[]) {
+  const porId = new Map(originais.map(o => [o.item_id, o]));
+  const mantidos = new Set<string>();
+  const inserir: ItemComandaPersistivel[] = [];
+  const atualizar: { item_id: string; valor_unit: number; quantidade: number; profissional_id: string | null }[] = [];
+  for (const i of atuais) {
+    const o = i.item_id ? porId.get(i.item_id) : undefined;
+    if (!o) { inserir.push(i); continue; }
+    mantidos.add(o.item_id);
+    const prof = i.profissional_id ?? null;
+    if (centavos(i.valor) !== centavos(o.valor) || i.quantidade !== o.quantidade || prof !== o.profissional_id) {
+      atualizar.push({ item_id: o.item_id, valor_unit: centavos(i.valor), quantidade: i.quantidade, profissional_id: prof });
+    }
+  }
+  const apagar = originais.filter(o => !mantidos.has(o.item_id)).map(o => o.item_id);
+  return { inserir, atualizar, apagar };
+}

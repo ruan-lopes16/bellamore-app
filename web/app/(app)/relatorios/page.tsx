@@ -47,7 +47,7 @@ import {
   carregarDadosFinanceiros, carregarClientesComHistoricoAntes, carregarRetiradas,
 } from '@shared/kpis-financeiros-consultas';
 import {
-  ABAS_RELATORIO, cartoesKpiRelatorio, linhasResumoFinanceiro, rankingDespesasPorCategoria, comissaoPorProfissional,
+  ABAS_RELATORIO, cartoesKpiRelatorio, linhasResumoFinanceiro, linhasAtendimentosRelatorio, rankingDespesasPorCategoria, comissaoPorProfissional,
   resumoInsumos, resumoAvaliacoes, type AbaRelatorio, type ItemInsumo, type CartaoKpiRelatorio, type MovEstoqueRow, type AvaliacaoRow,
 } from '@shared/relatorios';
 import { carregarSaidasEstoque, carregarAvaliacoes } from '@shared/relatorios-consultas';
@@ -68,21 +68,6 @@ const supabase = createClient();
 // ── Tipos ─────────────────────────────────────────────────────
 
 type Periodo = PeriodoRelatorio;
-
-/** Dados brutos de um agendamento com joins resolvidos */
-type Ag = {
-  id: string;
-  valor: number;
-  status: string;
-  data_hora_inicio: string;
-  pacote_cliente_id: string | null;
-  servico_id:       string | null;
-  profissional_id:  string | null;
-  cliente_id:       string | null;
-  servico:      { nome: string } | null;
-  profissional: { nome: string } | null;
-  cliente:      { nome: string } | null;
-};
 
 /** Item genérico de ranking (serviços, equipe, clientes) */
 type RankItem = { nome: string; valor: number; qtd: number; pct: number };
@@ -413,11 +398,8 @@ export default function RelatoriosPage() {
   const dadosPeriodo = useMemo(() => recortarDados(dados, atual), [dados, atual]);
   const kpis    = useMemo(() => calcularKpisFinanceiros(dados, atual),    [dados, atual]);
   const kpisAnt = useMemo(() => calcularKpisFinanceiros(dados, anterior), [dados, anterior]);
-  const ags = useMemo(() => dadosPeriodo.agendamentos.map(a => ({
-    ...a, valor: Number(a.valor ?? 0),
-    servico: a.servico ?? null, profissional: a.profissional ?? null, cliente: a.cliente ?? null,
-  })) as Ag[], [dadosPeriodo]);
-  const concluidos = useMemo(() => ags.filter(a => a.status === 'concluido'), [ags]);
+  // Concluídos + serviços extras da comanda (linha padrão da exportação da aba Financeiro, igual ao app).
+  const linhasAtendimentos = useMemo(() => linhasAtendimentosRelatorio(dadosPeriodo), [dadosPeriodo]);
 
   const bruto = kpis.bruto;
   const comTot = kpis.comissoes;
@@ -433,16 +415,16 @@ export default function RelatoriosPage() {
   // ── Rankings (quantidade = concluídos; receita = só sem pacote)
   const paraRank = (lista: ItemRanking[]): RankItem[] =>
     lista.map(r => ({ nome: r.nome, valor: r.receita, qtd: r.quantidade, pct: r.percentual }));
-  const rankServicos = useMemo(() => paraRank(rankingAtendimentos(dadosPeriodo.agendamentos, 'servico')), [dadosPeriodo]);
+  const rankServicos = useMemo(() => paraRank(rankingAtendimentos(dadosPeriodo.agendamentos, 'servico', dadosPeriodo.servicosExtras)), [dadosPeriodo]);
   // Comissão por profissional: mesma fonte do KPI (linhas de comissoes do período).
   const comPorProf = useMemo(() => comissaoPorProfissional(dadosPeriodo.comissoes), [dadosPeriodo]);
   const rankEquipe = useMemo<(RankItem & { comissao: number })[]>(() => {
-    return rankingAtendimentos(dadosPeriodo.agendamentos, 'profissional').map(r => ({
+    return rankingAtendimentos(dadosPeriodo.agendamentos, 'profissional', dadosPeriodo.servicosExtras).map(r => ({
       nome: r.nome, valor: r.receita, qtd: r.quantidade, pct: r.percentual, comissao: comPorProf[r.chave] ?? 0,
     }));
   }, [dadosPeriodo, comPorProf]);
   const rankClientes = useMemo(
-    () => paraRank(rankingAtendimentos(dadosPeriodo.agendamentos, 'cliente').slice(0, 10)),
+    () => paraRank(rankingAtendimentos(dadosPeriodo.agendamentos, 'cliente', dadosPeriodo.servicosExtras).slice(0, 10)),
     [dadosPeriodo],
   );
 
@@ -524,7 +506,7 @@ export default function RelatoriosPage() {
     aba === 'clientes' ? rankClientes.map(r => ({ nome: r.nome, quantidade: r.qtd, valor: r.valor })) :
     aba === 'estoque' ? insumos.ranking.map(r => ({ nome: r.nome, quantidade: r.qtd, custo: r.custo })) :
     aba === 'comissoes' ? comissoes.map(c => ({ profissional: c.profissionalNome, dia: chaveDiaBRT(c.dataAtendimento ?? c.criadaEm), cliente: c.clienteNome, servico: c.servicoNome, valorAtendimento: c.valorAtendimento, percentual: c.percentual, comissao: c.valorComissao, pago: c.status === 'pago' })) :
-    concluidos.map(a => ({ inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null, valor: a.valor, status: a.status }));
+    linhasAtendimentos;
 
   return (
     <div className="bm-page">

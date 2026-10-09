@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import { corpoResumoDiario, corpoResumoDiarioProfissional } from '@shared/lembretes';
+import { hojeBRT, limitesDias } from '@shared/periodos';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic';
  * - owner/gestor: visão da empresa — nº de atendimentos do dia, despesas
  *   vencendo hoje, estoque baixo.
  * - profissional: visão pessoal — nº de atendimentos dela hoje e quanto ela
- *   já comissionou hoje (de atendimentos já concluídos).
+ *   já comissionou hoje (comissões geradas hoje, inclusive de serviço extra).
  * Quem não tem nada a reportar não recebe push nem linha em notificacoes.
  * Quem desligou `users.notif_resumo_diario` (migration 077) também não —
  * a preferência é "parar de receber" de verdade, não só silenciar o push.
@@ -36,12 +37,9 @@ export async function GET(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  // "Hoje" em America/Sao_Paulo, como YYYY-MM-DD
-  const hojeStr = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
-  const inicioHoje = `${hojeStr}T00:00:00-03:00`;
-  const fimHoje    = `${hojeStr}T23:59:59-03:00`;
+  // "Hoje" em Brasília (YYYY-MM-DD) e os limites do dia, pela fonte única de períodos.
+  const hojeStr = hojeBRT();
+  const { startIso: inicioHoje, endIso: fimHoje } = limitesDias(hojeStr, hojeStr);
 
   const { data: empresas } = await db.from('empresas').select('id').eq('ativo', true);
 
@@ -55,9 +53,12 @@ export async function GET(req: NextRequest) {
         .eq('empresa_id', empId)
         .gte('data_hora_inicio', inicioHoje).lte('data_hora_inicio', fimHoje)
         .not('status', 'in', '("cancelado","faltou")'),
-      db.from('comissoes').select('valor_comissao, profissional_id, agendamento:agendamentos!inner(data_hora_inicio)')
+      // Comissão gerada hoje: filtra por comissoes.created_at (decisão 2 da Fase 2A),
+      // sem embed de agendamentos — assim entram também as comissões de serviço
+      // extra da comanda (agendamento_id null, migration 085).
+      db.from('comissoes').select('valor_comissao, profissional_id')
         .eq('empresa_id', empId)
-        .gte('agendamento.data_hora_inicio', inicioHoje).lte('agendamento.data_hora_inicio', fimHoje),
+        .gte('created_at', inicioHoje).lte('created_at', fimHoje),
       db.from('despesas').select('id')
         .eq('empresa_id', empId).eq('status', 'pendente')
         .eq('data_vencimento', hojeStr),

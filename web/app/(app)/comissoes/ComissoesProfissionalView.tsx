@@ -80,7 +80,7 @@ export default function ComissoesProfissionalView() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const resumo = useMemo(() => resumoComissoesProfissional(
-    itens.map(c => ({ valor_servico: c.valorServico, valor_comissao: c.valorComissao, status: c.status })),
+    itens.map(c => ({ agendamento_id: c.agendamentoId, valor_servico: c.valorServico, valor_comissao: c.valorComissao, status: c.status })),
   ), [itens]);
 
   const lista = useMemo(() => filtrarComissoes(itens, filtro), [itens, filtro]);

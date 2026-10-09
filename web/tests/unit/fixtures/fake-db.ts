@@ -6,6 +6,10 @@ type Resposta = { data: unknown[] | null; error: { message: string } | null };
 export function fakeDb(opcoes: {
   linhas?: Record<string, unknown[]>;
   erroEm?: string;
+  /** Erro só quando o `select` da tabela contém o texto (ex.: coluna que a migration ainda não criou). */
+  erroQuandoSelectContem?: Record<string, string>;
+  /** Consultas sem `range`: `await` na cadeia devolve `linhas[tabela]` (ou erro, se `erroEm`). */
+  awaitavel?: boolean;
   respostaUpdate?: (tabela: string, ids: string[], lote: number) => Resposta;
 } = {}) {
   const chamadas: Chamada[] = [];
@@ -16,10 +20,20 @@ export function fakeDb(opcoes: {
       chamadas.push(chamada);
       const builder: Record<string, unknown> = new Proxy({}, {
         get(_a, prop) {
-          if (prop === 'then') return undefined;
+          if (prop === 'then') {
+            if (!opcoes.awaitavel || chamada.ops.some(([m]) => m === 'range')) return undefined;
+            return (ok: (v: Resposta) => unknown) => ok(tabela === opcoes.erroEm
+              ? { data: null, error: { message: `falha em ${tabela}` } }
+              : { data: opcoes.linhas?.[tabela] ?? [], error: null });
+          }
           return (...args: unknown[]) => {
             chamada.ops.push([String(prop), args]);
             if (prop === 'range') {
+              const trecho = opcoes.erroQuandoSelectContem?.[tabela];
+              const sel = chamada.ops.find(([m]) => m === 'select')?.[1][0];
+              if (trecho && typeof sel === 'string' && sel.includes(trecho)) {
+                return Promise.resolve({ data: null, error: { message: `column ${trecho} does not exist` } });
+              }
               if (tabela === opcoes.erroEm) return Promise.resolve({ data: null, error: { message: `falha em ${tabela}` } });
               const [de, ate] = args as [number, number];
               return Promise.resolve({ data: (opcoes.linhas?.[tabela] ?? []).slice(de, ate + 1), error: null });

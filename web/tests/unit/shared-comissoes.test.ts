@@ -13,7 +13,7 @@ const ROWS: ComissaoDetalheRow[] = [
   { id: 'k2', profissional_id: 'p1', agendamento_id: 'a2', valor_servico: 100, percentual: 30, valor_comissao: 30,
     status: 'pago', created_at: '2026-10-01T02:45:00Z', profissional: { nome: 'Ana' },
     agendamento: { data_hora_inicio: '2026-10-01T02:00:00Z', valor: 100, servico: { nome: 'Drenagem' }, cliente: { nome: 'Duda' } } },
-  { id: 'k3', profissional_id: 'p2', agendamento_id: null, valor_servico: 150, percentual: 40, valor_comissao: 60,
+  { id: 'k3', profissional_id: 'p2', agendamento_id: 'a3', valor_servico: 150, percentual: 40, valor_comissao: 60,
     status: 'pendente', created_at: '2026-08-31T23:00:00Z', profissional: null, agendamento: null },
 ];
 const itens = normalizarComissoes(ROWS);
@@ -82,5 +82,57 @@ describe('textos iguais nas duas plataformas', () => {
     expect(rotuloPercentualComissao(null)).toBe('vários %');
     expect(textoConfirmarPagamento('Ana', 'R$ 80', 'Setembro 2026'))
       .toBe('Marcar como pagas as comissões pendentes de Ana em Setembro 2026 (R$ 80)?');
+  });
+});
+
+describe('normalizarComissao — serviço extra da comanda', () => {
+  it('data e cliente da comanda, descrição com (extra)', () => {
+    const c = normalizarComissoes([{
+      id: 'x', profissional_id: 'p', agendamento_id: null, comanda_item_id: 'i1',
+      valor_servico: '40.00', percentual: '50', valor_comissao: '20.00', status: 'pendente', created_at: '2026-10-08T15:00:00Z',
+      profissional: { nome: 'Lu' }, agendamento: null,
+      item: { descricao: 'Esmaltação', comanda: { fechada_at: '2026-10-08T14:59:00Z', cliente: { nome: 'Ana' } } },
+    }])[0];
+    expect(c).toMatchObject({
+      agendamentoId: null, dataAtendimento: '2026-10-08T14:59:00Z', valorAtendimento: 40,
+      servicoNome: 'Esmaltação (extra)', clienteNome: 'Ana', servicoCategoria: null, valorComissao: 20,
+    });
+  });
+});
+
+describe('normalizarComissao — extra com item/comanda ocultos pelo RLS', () => {
+  it('sai como "Serviço (extra)" com a data da comissão', () => {
+    const c = normalizarComissoes([{
+      id: 'y', profissional_id: 'p', agendamento_id: null, comanda_item_id: 'i9',
+      valor_servico: 30, percentual: 50, valor_comissao: 15, status: 'pendente', created_at: '2026-10-08T16:00:00Z',
+      profissional: { nome: 'Lu' }, agendamento: null, item: null,
+    }])[0];
+    expect(c).toMatchObject({
+      agendamentoId: null, servicoNome: 'Serviço (extra)', dataAtendimento: '2026-10-08T16:00:00Z',
+      valorAtendimento: 30, clienteNome: '—',
+    });
+  });
+  it('comanda oculta mas item visível: data cai para created_at', () => {
+    const c = normalizarComissoes([{
+      id: 'z', profissional_id: 'p', agendamento_id: null, comanda_item_id: 'i8',
+      valor_servico: 30, percentual: 50, valor_comissao: 15, status: 'pendente', created_at: '2026-10-08T17:00:00Z',
+      agendamento: null, item: { descricao: 'Esmaltação', comanda: null },
+    }])[0];
+    expect(c).toMatchObject({ servicoNome: 'Esmaltação (extra)', dataAtendimento: '2026-10-08T17:00:00Z' });
+  });
+});
+
+describe('cards por profissional — comissão de extra não é atendimento', () => {
+  it('conta só atendimentos distintos com agendamentoId; extra entra no total', () => {
+    const lista = normalizarComissoes([
+      { id: 'a', profissional_id: 'p', agendamento_id: 'ag1', valor_servico: 100, percentual: 40, valor_comissao: 40,
+        status: 'pendente', created_at: '2026-10-08T12:00:00Z' },
+      { id: 'b', profissional_id: 'p', agendamento_id: null, comanda_item_id: 'i1', valor_servico: 50, percentual: 40,
+        valor_comissao: 20, status: 'pendente', created_at: '2026-10-08T12:00:00Z' },
+    ]);
+    const [card] = comissoesPorProfissional(lista);
+    expect(card.atendimentos).toBe(1);
+    expect(card.total).toBe(60);
+    expect(card.idsPendentes).toEqual(['a', 'b']);
   });
 });

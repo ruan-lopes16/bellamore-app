@@ -40,6 +40,8 @@ export interface ResumoMes {
   aposRetiradas: number;
   taxasCancelamento: number;
   taxasReserva: number;
+  /** Serviços extras da comanda (já incluídos em `receita`). */
+  servicosExtras: number;
   mesesComFechamento: string[];
 }
 
@@ -214,13 +216,14 @@ export function useFinanceiro(mesRef: Date) {
     aposRetiradas: resultadoAposRetiradas(kpis.lucro, retiradasPeriodo),
     taxasCancelamento: kpis.receitaTaxasCancelamento,
     taxasReserva: kpis.receitaTaxasReserva,
+    servicosExtras: kpis.receitaServicosExtras,
     mesesComFechamento: kpis.mesesComFechamento,
   } : undefined;
 
   const metodos: MetodoPagamento[] = resumoMetodosPagamento(doMes.pagamentos)
     .map(m => ({ ...m, metodo: m.metodo as PagamentoMetodo }));
 
-  const topServicos: TopServico[] = rankingAtendimentos(doMes.agendamentos, 'servico').slice(0, 5)
+  const topServicos: TopServico[] = rankingAtendimentos(doMes.agendamentos, 'servico', doMes.servicosExtras).slice(0, 5)
     .map(s => ({ servico_id: s.chave, nome: s.nome, quantidade: s.quantidade, receita: s.receita, percentual: Math.round(s.percentual) }));
 
   const evolucao: EvolucaoMes[] = dadosQ.data && !erroKpis
