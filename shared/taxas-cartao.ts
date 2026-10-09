@@ -168,6 +168,13 @@ export function validarTabela(m: Pick<Maquininha, 'maxParcelas' | 'taxas'>): str
   if (validas.some(t => !Number.isFinite(t.taxa) || t.taxa < 0 || t.taxa > 0.2)) {
     return 'As taxas precisam ficar entre 0% e 20%';
   }
+  if (validas.some(t => t.modalidade === 'debito' && t.parcelas !== 1)) return 'O débito só tem taxa em 1x';
+  const vistas = new Set<string>();
+  for (const t of validas) {
+    const k = `${t.bandeiraId ?? ''}|${t.modalidade}|${t.parcelas}`;
+    if (vistas.has(k)) return 'Há taxas repetidas para a mesma combinação';
+    vistas.add(k);
+  }
   const padrao = validas.filter(t => t.bandeiraId === null);
   if (!padrao.some(t => t.modalidade === 'debito' && t.parcelas === 1)) return 'Preencha a taxa do débito';
   for (let n = 1; n <= m.maxParcelas; n++) {
@@ -178,7 +185,7 @@ export function validarTabela(m: Pick<Maquininha, 'maxParcelas' | 'taxas'>): str
 
 /** Chave (slug sem acento) para uma bandeira nova; sufixa -2, -3… se já existir. */
 export function chaveBandeira(nome: string, existentes: string[]): string {
-  const base = nome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+  const base = nome.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'bandeira';
   if (!existentes.includes(base)) return base;
   let n = 2;

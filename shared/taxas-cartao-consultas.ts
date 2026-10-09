@@ -67,6 +67,9 @@ const chaveLinha = (t: Pick<TaxaLinha, 'bandeiraId' | 'modalidade' | 'parcelas'>
  * apaga as que sumiram (ou passaram do máximo), atualiza as alteradas e insere as novas,
  * nessa ordem (respeita o índice único). `padrao` não é gravado aqui — use `definirPadrao`.
  * Lança Error em português se a tabela for inválida ou o banco recusar.
+ * A gravação não é transacional: após QUALQUER erro, quem chama deve recarregar a configuração
+ * (`carregarConfigCartoes`) antes de tentar de novo. O delete é idempotente (linhas que já sumiram
+ * não são erro), então um retry com `originais` desatualizado não vira falso "sem permissão".
  */
 export async function salvarMaquininha(
   db: ClienteDb, empresaId: string, m: Omit<Maquininha, 'id'> & { id?: string }, originais: TaxaLinha[],
@@ -98,7 +101,7 @@ export async function salvarMaquininha(
   if (apagar.length) {
     const { data, error } = await db.from('cartao_taxas').delete().in('id', apagar).select('id');
     if (error) throw new Error(mensagemErroBanco(error, 'salvar as taxas'));
-    if (!data || data.length !== apagar.length) throw recusado('salvar as taxas');
+    void data; // idempotente: menos linhas que o esperado = já apagadas (retry após falha parcial)
   }
   for (const t of novas) {
     const o = originaisPorChave.get(chaveLinha(t));
@@ -123,11 +126,22 @@ export async function salvarMaquininha(
  */
 export async function definirPadrao(db: ClienteDb, empresaId: string, maquininhaId: string): Promise<void> {
   const acao = 'definir a maquininha padrão';
+  const alvo = await db.from('cartao_maquininhas').select('id, ativa').eq('id', maquininhaId).eq('empresa_id', empresaId);
+  if (alvo.error) throw new Error(mensagemErroBanco(alvo.error, acao));
+  const linhaAlvo = (alvo.data as { id: string; ativa: boolean }[] | null)?.[0];
+  if (!linhaAlvo) throw new Error('Maquininha não encontrada');
+  if (!linhaAlvo.ativa) throw new Error('Ative a maquininha antes de torná-la padrão');
   const r1 = await db.from('cartao_maquininhas').update({ padrao: false }).eq('empresa_id', empresaId).eq('padrao', true).select('id');
   if (r1.error) throw new Error(mensagemErroBanco(r1.error, acao));
+  const anteriores = ((r1.data ?? []) as { id: string }[]).map(x => x.id);
   const r2 = await db.from('cartao_maquininhas').update({ padrao: true }).eq('id', maquininhaId).eq('empresa_id', empresaId).select('id');
-  if (r2.error) throw new Error(mensagemErroBanco(r2.error, acao));
-  if (!r2.data || r2.data.length !== 1) throw recusado(acao);
+  if (r2.error || !r2.data || r2.data.length !== 1) {
+    // Não deixa a empresa sem padrão: tenta devolver a marca à anterior (melhor esforço).
+    if (anteriores.length) {
+      await db.from('cartao_maquininhas').update({ padrao: true }).in('id', anteriores).eq('empresa_id', empresaId).select('id');
+    }
+    throw r2.error ? new Error(mensagemErroBanco(r2.error, acao)) : recusado(acao);
+  }
 }
 
 /**

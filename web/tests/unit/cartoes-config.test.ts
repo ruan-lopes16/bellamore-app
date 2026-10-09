@@ -44,6 +44,8 @@ describe('validarTabela', () => {
     expect(validarTabela({ maxParcelas: 3, taxas: tabela(0.02, 0.04, 0.05).filter(t => t.modalidade !== 'debito') })).toBe('Preencha a taxa do débito');
     expect(validarTabela({ maxParcelas: 3, taxas: tabela(0.25, 0.04, 0.05) })).toBe('As taxas precisam ficar entre 0% e 20%');
     expect(validarTabela({ maxParcelas: 19, taxas: [] })).toBe('O máximo de parcelas precisa ficar entre 1 e 18');
+    expect(validarTabela({ maxParcelas: 3, taxas: [...tabela(0.02, 0.04, 0.05), { bandeiraId: null, modalidade: 'debito', parcelas: 2, taxa: 0.02 }] })).toBe('O débito só tem taxa em 1x');
+    expect(validarTabela({ maxParcelas: 3, taxas: [...tabela(0.02, 0.04, 0.05), { bandeiraId: null, modalidade: 'credito', parcelas: 2, taxa: 0.06 }] })).toBe('Há taxas repetidas para a mesma combinação');
   });
 });
 
@@ -131,9 +133,44 @@ describe('salvarMaquininha e definirPadrao', () => {
     expect(taxas.filter(([m]) => m === 'insert')).toHaveLength(0);
   });
   it('definirPadrao desmarca as outras e marca a escolhida', async () => {
-    const { db, chamadas } = fakeDb({ awaitavel: true });
+    const { db, chamadas } = fakeDb({ awaitavel: true, linhas: { cartao_maquininhas: [{ id: 'm2', ativa: true }] } });
     await definirPadrao(db, 'emp', 'm2');
-    const ups = opsDe(chamadas, 'cartao_maquininhas').map(o => o.find(([m]) => m === 'update')![1][0]);
+    const ups = opsDe(chamadas, 'cartao_maquininhas').map(o => o.find(([m]) => m === 'update')?.[1][0]).filter(Boolean);
     expect(ups).toEqual([{ padrao: false }, { padrao: true }]);
+  });
+  it('retry com originais desatualizados: delete de linhas já apagadas não é erro', async () => {
+    const originais = [
+      { id: 'o1', bandeiraId: null, modalidade: 'debito' as const, parcelas: 1, taxa: 0.02 },
+      { id: 'o2', bandeiraId: null, modalidade: 'credito' as const, parcelas: 1, taxa: 0.04 },
+      { id: 'o3', bandeiraId: null, modalidade: 'credito' as const, parcelas: 2, taxa: 0.05 },
+    ];
+    const { db } = fakeDb({ awaitavel: true, respostaUpdate: (tabela) => ({ data: tabela === 'cartao_taxas' ? [] : [{ id: 'm1' }], error: null }) });
+    await expect(salvarMaquininha(db, 'emp', {
+      id: 'm1', nome: 'Stone', maxParcelas: 1, ativa: true, padrao: true, ordem: 1,
+      taxas: [
+        { bandeiraId: null, modalidade: 'debito', parcelas: 1, taxa: 0.02 },
+        { bandeiraId: null, modalidade: 'credito', parcelas: 1, taxa: 0.04 },
+      ],
+    }, originais)).resolves.toEqual({ id: 'm1' });
+  });
+  it('definirPadrao rejeita maquininha inativa ou inexistente sem alterar nada', async () => {
+    const a = fakeDb({ awaitavel: true, linhas: { cartao_maquininhas: [{ id: 'm2', ativa: false }] } });
+    await expect(definirPadrao(a.db, 'emp', 'm2')).rejects.toThrow('Ative a maquininha antes de torná-la padrão');
+    expect(a.chamadas).toHaveLength(1);
+    const b = fakeDb({ awaitavel: true, linhas: { cartao_maquininhas: [] } });
+    await expect(definirPadrao(b.db, 'emp', 'm2')).rejects.toThrow('Maquininha não encontrada');
+  });
+  it('definirPadrao: se marcar falhar, devolve a marca à padrão anterior', async () => {
+    const { db, chamadas } = fakeDb({
+      awaitavel: true,
+      linhas: { cartao_maquininhas: [{ id: 'm2', ativa: true }] },
+      respostaUpdate: (_t, _ids, lote) => lote === 0 ? { data: [{ id: 'antigo' }], error: null }
+        : lote === 1 ? { data: [], error: null } : { data: [{ id: 'antigo' }], error: null },
+    });
+    await expect(definirPadrao(db, 'emp', 'm2')).rejects.toThrow();
+    const ups = opsDe(chamadas, 'cartao_maquininhas').map(o => o.find(([m]) => m === 'update')?.[1][0]).filter(Boolean);
+    expect(ups).toEqual([{ padrao: false }, { padrao: true }, { padrao: true }]);
+    const ultimo = opsDe(chamadas, 'cartao_maquininhas').at(-1)!;
+    expect(ultimo.find(([m]) => m === 'in')![1]).toEqual(['id', ['antigo']]);
   });
 });
