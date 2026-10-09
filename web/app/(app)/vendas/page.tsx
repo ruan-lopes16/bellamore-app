@@ -8,22 +8,21 @@
  * - PDV       : carrinho + checkout (produtos → pagamento → finalizar)
  * - Histórico : lista das últimas 50 vendas com itens e formas de pagamento
  *
- * ## Fluxo de venda
- * 1. Busca e adiciona produtos ao carrinho
- * 2. Escolhe cliente (opcional) e desconto
- * 3. Seleciona método(s) de pagamento e preenche valores
- * 4. Clica "Finalizar" → INSERT vendas → INSERT venda_itens
- *    → INSERT estoque_movimentos (saída) → INSERT pagamentos
+ * ## Regras (as mesmas do app e da comanda)
+ * - carrinho com limite de estoque     = shared/venda.ts (adicionarAoCarrinho, alterarQuantidade)
+ * - desconto % ou R$ (gravado em R$)   = calcularDesconto (shared/comanda-fechamento.ts)
+ * - total, falta, troco, cortesia      = resumoComanda (descontoReserva sempre 0 na venda)
+ * - cartão: maquininha/bandeira/parcelas/taxa da configuração (shared/taxas-cartao.ts)
+ * - gravação vendas → venda_itens → estoque_movimentos → pagamentos = gravarVenda
+ *   (estoque_atual decrementado pelo trigger trg_atualizar_estoque)
  *
- * ## Integrações automáticas
- * - estoque_atual decrementado via trigger trg_atualizar_estoque
- * - Sem N+1: todos os produtos carregados de uma vez, filtro local
+ * Sem N+1: todos os produtos carregados de uma vez, filtro local.
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   ShoppingCart, Search, Plus, Minus, X, Trash2,
-  Banknote, Zap, CreditCard, Gift, Package,
+  Banknote, Zap, CreditCard, Gift, Package, Tag,
   AlertCircle, Check, History,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
@@ -36,8 +35,13 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { fmtTaxa, valorLiquido, configLegada, maquininhaPadrao, parcelasDisponiveis, taxaDoCartao, type ConfigCartoes } from '@shared/taxas-cartao';
+import {
+  fmtTaxa, valorLiquido, configLegada, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas,
+  nomeBandeira, parcelasDisponiveis, type ConfigCartoes,
+} from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
+import { calcularDesconto, resumoComanda, taxaDoSplit, parseValorBR, type ModoDesconto } from '@shared/comanda-fechamento';
+import { adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, type ItemVenda } from '@shared/venda';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
@@ -54,16 +58,8 @@ type Produto = {
   unidade: string;
 };
 
-type CartItem = {
-  produto_id: string;
-  nome: string;
-  preco_unitario: number;
-  quantidade: number;
-  estoque_atual: number;
-  unidade: string;
-};
-
-type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number };
+/** Pagamento na tela (valor como texto). Métodos podem se repetir (ex.: dois cartões). */
+type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number; maquininhaId?: string | null };
 
 type Cliente = Pick<ClienteBase, 'id' | 'nome'>;
 
@@ -75,8 +71,10 @@ type VendaHistorico = {
   desconto: number;
   valor_final: number;
   itens: { produto: { nome: string } | null; quantidade: number; preco_unitario: number }[];
-  pagamentos_venda: { metodo: string; valor: number }[];
+  pagamentos_venda: { metodo: string; valor: number; bandeira: string | null; parcelas: number | null }[];
 };
+
+type Toast = { texto: string; tipo: 'ok' | 'aviso' };
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -88,25 +86,24 @@ const METODOS_PAG = [
   { id: 'cortesia', label: 'Cortesia', icon: Gift       },
 ];
 
-const BANDEIRAS = [
-  { key: 'visa',       label: 'Visa'      },
-  { key: 'mastercard', label: 'Master'    },
-  { key: 'elo',        label: 'Elo'       },
-  { key: 'amex',       label: 'Amex'      },
-  { key: 'hipercard',  label: 'Hipercard' },
-];
-
 // ── Helpers ───────────────────────────────────────────────────
 
 const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5";
+
+/** Rótulo de um pagamento no histórico: método + bandeira cadastrada + parcelas. */
+function rotuloPagamento(config: ConfigCartoes, p: VendaHistorico['pagamentos_venda'][number]): string {
+  const metodo = METODOS_PAG.find(m => m.id === p.metodo)?.label ?? p.metodo;
+  const bandeira = nomeBandeira(config, p.bandeira);
+  const parcelas = p.metodo === 'credito' && (p.parcelas ?? 1) > 1 ? ` ${p.parcelas}x` : '';
+  return `${metodo}${bandeira ? ` ${bandeira}` : ''}${parcelas}`;
+}
 
 // ── Página principal ──────────────────────────────────────────
 
 export default function VendasPage() {
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084).
-  // Até a Task 6 o PDV cobra sempre na maquininha padrão.
   const [config, setConfig] = useState<ConfigCartoes>(() => configLegada(null));
   const [aba, setAba]             = useState<'pdv' | 'historico'>('pdv');
 
@@ -117,13 +114,20 @@ export default function VendasPage() {
   const [busca,     setBusca]     = useState('');
 
   // Carrinho
-  const [cart,       setCart]       = useState<CartItem[]>([]);
+  const [cart,       setCart]       = useState<ItemVenda[]>([]);
   const [clienteId,  setClienteId]  = useState('');
-  const [descontoPct, setDescontoPct] = useState('');
+  // Desconto: o que a pessoa digitou + se é % ou R$ (grava-se sempre o valor em reais)
+  const [descontoEntrada, setDescontoEntrada] = useState('');
+  const [descontoModo,    setDescontoModo]    = useState<ModoDesconto>('percentual');
   const [splits,     setSplits]     = useState<Split[]>([]);
   const [finalizando,setFinalizando]= useState(false);
   const [erro,       setErro]       = useState('');
-  const [toast,      setToast]      = useState('');
+  const [toast,      setToast]      = useState<Toast | null>(null);
+  // Venda gravada pela metade (ex.: pagamentos falharam depois de a venda existir): bloqueia
+  // um novo "Finalizar" deste carrinho para não registrar a mesma venda duas vezes.
+  const [vendaIncompleta, setVendaIncompleta] = useState<string | null>(null);
+  // Trava de duplo clique (o estado `finalizando` só vale no próximo render)
+  const gravandoRef = useRef(false);
 
   // Histórico
   const [vendas,        setVendas]        = useState<VendaHistorico[]>([]);
@@ -164,7 +168,7 @@ export default function VendasPage() {
     setProdutos((rProdutos.data ?? []) as Produto[]);
     setClientes((rClientes.data ?? []) as Cliente[]);
     setLoading(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => { if (empresaId) carregar(empresaId); }, [empresaId, carregar]);
 
@@ -177,14 +181,14 @@ export default function VendasPage() {
         id, created_at, valor_total, desconto, valor_final,
         cliente:clientes(nome),
         itens:venda_itens(quantidade, preco_unitario, produto:produtos(nome)),
-        pagamentos_venda:pagamentos!pagamentos_venda_id_fkey(metodo, valor)
+        pagamentos_venda:pagamentos!pagamentos_venda_id_fkey(metodo, valor, bandeira, parcelas)
       `)
       .eq('empresa_id', empId)
       .order('created_at', { ascending: false })
       .limit(50);
     setVendas((data ?? []) as unknown as VendaHistorico[]);
     setLoadingVendas(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     if (aba === 'historico' && empresaId) carregarVendas(empresaId);
@@ -200,147 +204,93 @@ export default function VendasPage() {
     );
   }, [produtos, busca]);
 
-  // ── Cálculos do carrinho
-  const subtotal  = useMemo(() => cart.reduce((s, i) => s + i.preco_unitario * i.quantidade, 0), [cart]);
-  const descontoPctN = parseFloat(descontoPct.replace(',', '.')) || 0;
-  const descontoN    = subtotal * (descontoPctN / 100);
-  const total        = Math.max(0, subtotal - descontoN);
-  const totalPago = splits.reduce((s, sp) => s + (parseFloat(sp.valor.replace(',', '.')) || 0), 0);
-  const restante  = total - totalPago;
-  const troco     = totalPago - total;
+  // ── Totais (mesma regra da comanda)
+  const subtotal = subtotalVenda(cart);
+  const descontoEntradaN = parseValorBR(descontoEntrada);
+  const { valor: descontoN, erro: erroDesconto } = calcularDesconto(subtotal, descontoEntradaN, descontoModo);
+  const splitsNumericos = splits.map(s => ({ ...s, valor: parseValorBR(s.valor) }));
+  const resumo = resumoComanda({ subtotal, desconto: descontoN, erroDesconto, descontoReserva: 0, splits: splitsNumericos });
+  const { total, recebido, falta, troco } = resumo;
 
-  // ── Ações do carrinho
-  function addToCart(p: Produto) {
-    if (p.estoque_atual <= 0) return;
-    setCart(prev => {
-      const existing = prev.find(i => i.produto_id === p.id);
-      if (existing) {
-        if (existing.quantidade >= p.estoque_atual) return prev;
-        return prev.map(i => i.produto_id === p.id ? { ...i, quantidade: i.quantidade + 1 } : i);
-      }
-      return [...prev, {
-        produto_id: p.id, nome: p.nome,
-        preco_unitario: p.preco_venda, quantidade: 1,
-        estoque_atual: p.estoque_atual, unidade: p.unidade,
-      }];
-    });
+  // ── Pagamento (métodos podem se repetir)
+  function adicionarSplit(metodo: string) {
+    const cartao = metodo === 'credito' || metodo === 'debito';
+    setSplits(prev => [...prev, {
+      metodo,
+      valor: falta > 0 ? falta.toFixed(2).replace('.', ',') : '',
+      ...(cartao ? { maquininhaId: maquininhaPadrao(config)?.id ?? null } : {}),
+    }]);
   }
-
-  function updateQtd(id: string, delta: number) {
-    setCart(prev => prev.map(i => {
-      if (i.produto_id !== id) return i;
-      const q = i.quantidade + delta;
-      if (q <= 0 || q > i.estoque_atual) return i;
-      return { ...i, quantidade: q };
+  function atualizarSplit(idx: number, valor: string) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, valor } : s));
+  }
+  function removerSplit(idx: number) {
+    setSplits(prev => prev.filter((_, i) => i !== idx));
+  }
+  function atualizarSplitBandeira(idx: number, bandeira: string) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
+  }
+  function atualizarSplitParcelas(idx: number, parcelas: number) {
+    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas } : s));
+  }
+  /** Troca a maquininha; se ela aceita menos parcelas que as escolhidas, ajusta para o máximo dela. */
+  function atualizarSplitMaquininha(idx: number, maquininhaId: string) {
+    const maq = config.maquininhas.find(m => m.id === maquininhaId);
+    setSplits(prev => prev.map((s, i) => {
+      if (i !== idx) return s;
+      const parcelas = maq && (s.parcelas ?? 1) > maq.maxParcelas ? maq.maxParcelas : s.parcelas;
+      return { ...s, maquininhaId, parcelas };
     }));
   }
-
-  function removeFromCart(id: string) {
-    setCart(prev => prev.filter(i => i.produto_id !== id));
+  /** Maquininha efetiva do split: a escolhida (se existir na configuração) ou a padrão. */
+  function maquininhaDoSplit(s: Split) {
+    return config.maquininhas.find(m => m.id === s.maquininhaId) ?? maquininhaPadrao(config);
   }
 
-  // ── Pagamento
-  function addSplit(metodo: string) {
-    if (splits.find(s => s.metodo === metodo)) return;
-    // Auto-preenche o valor restante ao adicionar o primeiro método
-    const autoValor = splits.length === 0
-      ? total.toFixed(2).replace('.', ',')
-      : restante > 0 ? restante.toFixed(2).replace('.', ',') : '';
-    setSplits(prev => [...prev, { metodo, valor: autoValor }]);
+  function limparVenda() {
+    setCart([]); setClienteId(''); setDescontoEntrada(''); setSplits([]);
+    setVendaIncompleta(null); setErro('');
   }
 
-  function removeSplit(metodo: string) {
-    setSplits(prev => prev.filter(s => s.metodo !== metodo));
-  }
-
-  function updateSplitValor(metodo: string, valor: string) {
-    setSplits(prev => prev.map(s => s.metodo === metodo ? { ...s, valor } : s));
-  }
-
-  function updateSplitBandeira(metodo: string, bandeira: string) {
-    setSplits(prev => prev.map(s => s.metodo === metodo ? { ...s, bandeira } : s));
-  }
-
-  function updateSplitParcelas(metodo: string, parcelas: number) {
-    setSplits(prev => prev.map(s => s.metodo === metodo ? { ...s, parcelas } : s));
+  function mostrarToast(t: Toast) {
+    setToast(t);
+    setTimeout(() => setToast(null), t.tipo === 'aviso' ? 7000 : 3500);
   }
 
   // ── Finalizar venda
   async function finalizar() {
-    if (cart.length === 0)     { setErro('Carrinho vazio'); return; }
-    if (descontoPctN > 100)    { setErro('Desconto não pode ser maior que 100%'); return; }
-    if (splits.length === 0)   { setErro('Selecione um método de pagamento'); return; }
-    if (restante > 0.01)       { setErro(`Faltam ${fmtBRL(restante)} para cobrir o total`); return; }
+    if (!empresaId || gravandoRef.current) return;
+    if (vendaIncompleta) { setErro('Esta venda já foi registrada. Confira em Financeiro e clique em "Nova venda".'); return; }
+    if (cart.length === 0) { setErro('Carrinho vazio'); return; }
+    // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
+    if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível finalizar a venda.'); return; }
 
+    gravandoRef.current = true;
     setFinalizando(true); setErro('');
-
-    // 1. Criar venda
-    const { data: venda, error: e1 } = await supabase.from('vendas').insert({
-      empresa_id: empresaId,
-      cliente_id: clienteId || null,
-      valor_total: subtotal,
-      desconto: descontoN,
-    }).select('id').single();
-
-    if (e1 || !venda) { setErro(e1?.message ?? 'Erro ao criar venda'); setFinalizando(false); return; }
-
-    // 2. Itens da venda
-    const { error: e2 } = await supabase.from('venda_itens').insert(
-      cart.map(i => ({
-        empresa_id:    empresaId,
-        venda_id:      venda.id,
-        produto_id:    i.produto_id,
-        quantidade:    i.quantidade,
-        preco_unitario: i.preco_unitario,
-      }))
-    );
-    if (e2) { setErro(e2.message); setFinalizando(false); return; }
-
-    // 3. Baixa no estoque (trigger trg_atualizar_estoque cuida do estoque_atual)
-    const { error: e3 } = await supabase.from('estoque_movimentos').insert(
-      cart.map(i => ({
-        empresa_id: empresaId,
-        produto_id: i.produto_id,
-        tipo:       'saida',
-        quantidade: i.quantidade,
-        motivo:     `Venda avulsa`,
-      }))
-    );
-    if (e3) { setErro(e3.message); setFinalizando(false); return; }
-
-    // 4. Pagamentos
-    const maqPadraoId = maquininhaPadrao(config)?.id ?? null;
-    const { error: e4 } = await supabase.from('pagamentos').insert(
-      splits.map(sp => {
-        const v    = parseFloat(sp.valor.replace(',', '.')) || 0;
-        const parc = sp.metodo === 'credito' ? (sp.parcelas ?? 1) : 1;
-        const cartao = sp.metodo === 'credito' || sp.metodo === 'debito';
-        // null = combinação sem taxa cadastrada: grava sem taxa (nunca inventa)
-        const taxa = taxaDoCartao(config, { maquininhaId: maqPadraoId, bandeiraChave: sp.bandeira, metodo: sp.metodo, parcelas: parc });
-        const comTaxa = taxa !== null && taxa > 0;
-        return {
-          empresa_id:    empresaId,
-          venda_id:      venda.id,
-          valor:         v,
-          metodo:        sp.metodo,
-          bandeira:      cartao ? (sp.bandeira ?? null) : null,
-          parcelas:      parc,
-          taxa_perc:     comTaxa ? taxa : null,
-          valor_liquido: comTaxa ? valorLiquido(v, taxa) : null,
-          // maquininha_id só existe depois da migration 086
-          ...(config.legado ? {} : { maquininha_id: cartao ? maqPadraoId : null }),
-          status:        'pago',
-        };
-      })
-    );
-    if (e4) { setErro(e4.message); setFinalizando(false); return; }
-
-    // 5. Reset + feedback
-    setCart([]); setClienteId(''); setDescontoPct(''); setSplits([]);
-    setFinalizando(false);
-    setToast(`Venda de ${fmtBRL(total)} finalizada!`);
-    setTimeout(() => setToast(''), 3500);
-    if (empresaId) carregar(empresaId); // atualiza estoque nos cards
+    try {
+      const r = await gravarVenda(supabase, {
+        empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN,
+        splits: splitsNumericos, config, total,
+      });
+      limparVenda();
+      mostrarToast(r.avisoEstoque
+        ? { texto: r.avisoEstoque, tipo: 'aviso' }
+        : { texto: `Venda de ${fmtBRL(total)} finalizada!`, tipo: 'ok' });
+      carregar(empresaId); // atualiza o estoque nos cards
+    } catch (e) {
+      if (e instanceof ErroVenda) {
+        if (e.vendaId) {
+          setVendaIncompleta(e.vendaId);
+          carregar(empresaId); // o estoque pode já ter sido baixado
+        }
+        setErro(e.message);
+      } else {
+        setErro(e instanceof Error ? e.message : 'Não foi possível finalizar a venda.');
+      }
+    } finally {
+      gravandoRef.current = false;
+      setFinalizando(false);
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -348,8 +298,8 @@ export default function VendasPage() {
     <div className="bm-page">
       {/* Toast */}
       {toast && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-green text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm animate-in fade-in slide-in-from-top-2">
-          <Check size={16} strokeWidth={2.5}/> {toast}
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm animate-in fade-in slide-in-from-top-2 max-w-[calc(100vw-32px)] ${toast.tipo === 'aviso' ? 'bg-amber' : 'bg-green'}`}>
+          {toast.tipo === 'aviso' ? <AlertCircle size={16} strokeWidth={2.5} className="flex-shrink-0"/> : <Check size={16} strokeWidth={2.5}/>} {toast.texto}
         </div>
       )}
 
@@ -400,11 +350,11 @@ export default function VendasPage() {
                   </p>
                 </div>
               ) : produtosFiltrados.map(p => {
-                const noCart = cart.find(i => i.produto_id === p.id);
+                const noCart = cart.find(i => i.produtoId === p.id);
                 const semEstoque = p.estoque_atual <= 0;
                 return (
-                  <button key={p.id} onClick={() => addToCart(p)}
-                    disabled={semEstoque}
+                  <button key={p.id} onClick={() => setCart(prev => adicionarAoCarrinho(prev, p))}
+                    disabled={semEstoque || !!vendaIncompleta}
                     className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl border text-left transition flex-shrink-0 ${
                       semEstoque
                         ? 'border-border bg-bg opacity-50 cursor-not-allowed'
@@ -444,7 +394,7 @@ export default function VendasPage() {
                     </span>
                   )}
                 </h3>
-                {cart.length > 0 && (
+                {cart.length > 0 && !vendaIncompleta && (
                   <button onClick={() => setCart([])}
                     className="text-xs text-text-4 hover:text-red transition">
                     Limpar
@@ -460,31 +410,33 @@ export default function VendasPage() {
               ) : (
                 <div className="flex flex-col">
                   {cart.map((item, idx) => (
-                    <div key={item.produto_id}
+                    <div key={item.produtoId}
                       className={`flex items-center gap-3 py-2.5 ${idx < cart.length - 1 ? 'border-b border-border' : ''}`}>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-text truncate">{item.nome}</p>
-                        <p className="text-xs text-text-3">{fmtBRL(item.preco_unitario)} / {item.unidade}</p>
+                        <p className="text-xs text-text-3">{fmtBRL(item.precoUnitario)} / {item.unidade}</p>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
-                          onClick={() => item.quantidade > 1 ? updateQtd(item.produto_id, -1) : removeFromCart(item.produto_id)}
-                          className="w-7 h-7 rounded-lg border border-border text-text-2 flex items-center justify-center hover:bg-bg transition">
+                          onClick={() => setCart(prev => alterarQuantidade(prev, item.produtoId, item.quantidade - 1))}
+                          disabled={!!vendaIncompleta}
+                          className="w-7 h-7 rounded-lg border border-border text-text-2 flex items-center justify-center hover:bg-bg transition disabled:opacity-30">
                           {item.quantidade > 1 ? <Minus size={11}/> : <Trash2 size={11}/>}
                         </button>
                         <span className="w-7 text-center text-sm font-bold text-text">{item.quantidade}</span>
                         <button
-                          onClick={() => updateQtd(item.produto_id, 1)}
-                          disabled={item.quantidade >= item.estoque_atual}
+                          onClick={() => setCart(prev => alterarQuantidade(prev, item.produtoId, item.quantidade + 1))}
+                          disabled={item.quantidade >= item.estoqueAtual || !!vendaIncompleta}
                           className="w-7 h-7 rounded-lg border border-border text-text-2 flex items-center justify-center hover:bg-bg transition disabled:opacity-30">
                           <Plus size={11}/>
                         </button>
                       </div>
                       <p className="text-sm font-bold text-text w-16 text-right flex-shrink-0">
-                        {fmtBRL(item.preco_unitario * item.quantidade)}
+                        {fmtBRL(item.precoUnitario * item.quantidade)}
                       </p>
-                      <button onClick={() => removeFromCart(item.produto_id)}
-                        className="w-6 h-6 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                      <button onClick={() => setCart(prev => alterarQuantidade(prev, item.produtoId, 0))}
+                        disabled={!!vendaIncompleta}
+                        className="w-6 h-6 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition disabled:opacity-30">
                         <X size={12}/>
                       </button>
                     </div>
@@ -505,13 +457,30 @@ export default function VendasPage() {
                   />
                 </div>
                 <div>
-                  <label className={labelCls}>Desconto (%)</label>
-                  <div className="relative">
-                    <input value={descontoPct} onChange={e => setDescontoPct(e.target.value)}
-                      inputMode="decimal" placeholder="0"
-                      className={`${inputCls} pr-9`}/>
-                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
+                  <label className={labelCls}>Desconto</label>
+                  <div className="flex items-center gap-2">
+                    <Tag size={15} className="text-text-3 flex-shrink-0"/>
+                    {/* Seletor % / R$ — trocar o modo limpa o valor para não reinterpretar o número */}
+                    <div className="flex rounded-lg border border-border overflow-hidden flex-shrink-0">
+                      {([['percentual', '%'], ['valor', 'R$']] as const).map(([modo, rotulo]) => (
+                        <button key={modo} type="button"
+                          onClick={() => { if (descontoModo !== modo) { setDescontoModo(modo); setDescontoEntrada(''); } }}
+                          aria-pressed={descontoModo === modo}
+                          className={`h-10 px-3 text-xs font-bold transition ${descontoModo === modo ? 'bg-primary text-white' : 'bg-surface text-text-3 hover:text-text'}`}>
+                          {rotulo}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="relative flex-1">
+                      <input value={descontoEntrada} onChange={e => setDescontoEntrada(e.target.value)}
+                        inputMode="decimal" placeholder={descontoModo === 'percentual' ? '0' : '0,00'}
+                        className={`${inputCls} pr-9 ${erroDesconto ? '!border-red' : ''}`}/>
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">{descontoModo === 'percentual' ? '%' : 'R$'}</span>
+                    </div>
                   </div>
+                  {erroDesconto && (
+                    <p className="text-xs text-red font-semibold mt-2">{erroDesconto}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -520,59 +489,62 @@ export default function VendasPage() {
             <div className="bg-surface border border-border rounded-2xl p-4 flex flex-col gap-4">
               <h3 className="font-semibold text-text">Pagamento</h3>
 
-              {/* Chips de método */}
+              {/* Chips de método — cada clique adiciona um pagamento (pode repetir) */}
               <div className="flex gap-2 flex-wrap">
-                {METODOS_PAG.map(({ id, label, icon: Icon }) => {
-                  const ativo = !!splits.find(s => s.metodo === id);
-                  return (
-                    <button key={id} onClick={() => ativo ? removeSplit(id) : addSplit(id)}
-                      className={`flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold border transition ${
-                        ativo
-                          ? 'bg-primary text-white border-primary'
-                          : 'bg-surface border-border text-text-2 hover:border-accent/60'
-                      }`}>
-                      <Icon size={12}/> {label}
-                    </button>
-                  );
-                })}
+                {METODOS_PAG.map(({ id, label, icon: Icon }) => (
+                  <button key={id} onClick={() => adicionarSplit(id)}
+                    disabled={!!vendaIncompleta}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold border transition bg-surface border-border text-text-2 hover:border-accent/60 disabled:opacity-40">
+                    <Icon size={12}/> {label}
+                  </button>
+                ))}
               </div>
 
-              {/* Inputs de valor por método */}
+              {/* Inputs de valor por pagamento */}
               {splits.length > 0 && (
                 <div className="flex flex-col gap-2">
-                  {splits.map(sp => {
-                    const m      = METODOS_PAG.find(x => x.id === sp.metodo)!;
+                  {splits.map((sp, i) => {
+                    const m      = METODOS_PAG.find(x => x.id === sp.metodo) ?? METODOS_PAG[0];
                     const Icon   = m.icon;
                     const isCard = sp.metodo === 'credito' || sp.metodo === 'debito';
-                    const taxa   = taxaDoCartao(config, { maquininhaId: null, bandeiraChave: sp.bandeira, metodo: sp.metodo, parcelas: sp.parcelas ?? 1 });
-                    const valorN = parseFloat(sp.valor.replace(',', '.')) || 0;
                     return (
-                      <div key={sp.metodo} className="flex flex-col gap-2 rounded-xl px-3 py-2.5 border border-border bg-bg">
+                      <div key={i} className="flex flex-col gap-2 rounded-xl px-3 py-2.5 border border-border bg-bg">
                         <div className="flex items-center gap-2">
                           <Icon size={13} className="text-text-3 flex-shrink-0"/>
                           <span className="text-xs font-semibold text-text-2 flex-1">{m.label}</span>
                           <span className="text-xs text-text-3">R$</span>
                           <input
                             value={sp.valor}
-                            onChange={e => updateSplitValor(sp.metodo, e.target.value)}
+                            onChange={e => atualizarSplit(i, e.target.value)}
                             inputMode="decimal" placeholder="0,00"
                             className="w-24 h-8 px-2 text-sm text-right rounded-lg border border-border bg-surface text-text focus:outline-none focus:border-accent transition font-semibold"
                           />
-                          <button onClick={() => removeSplit(sp.metodo)}
+                          <button onClick={() => removerSplit(i)}
                             className="w-6 h-6 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
                             <X size={12}/>
                           </button>
                         </div>
+                        {isCard && maquininhasAtivas(config).length >= 2 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-text-3 flex-shrink-0">Maquininha:</span>
+                            <select
+                              value={maquininhaDoSplit(sp)?.id ?? ''}
+                              onChange={e => atualizarSplitMaquininha(i, e.target.value)}
+                              className="h-7 px-2 rounded-lg border border-border/60 bg-surface text-xs font-semibold text-text-2 focus:outline-none focus:border-accent transition">
+                              {maquininhasAtivas(config).map(mq => <option key={mq.id} value={mq.id}>{mq.nome}</option>)}
+                            </select>
+                          </div>
+                        )}
                         {isCard && (
                           <div className="flex gap-1.5 flex-wrap">
-                            {BANDEIRAS.map(b => (
-                              <button key={b.key} type="button" onClick={() => updateSplitBandeira(sp.metodo, b.key)}
+                            {bandeirasAtivas(config).map(b => (
+                              <button key={b.chave} type="button" onClick={() => atualizarSplitBandeira(i, b.chave)}
                                 className={`px-2 py-0.5 rounded-lg text-xs font-semibold border transition ${
-                                  sp.bandeira === b.key
+                                  sp.bandeira === b.chave
                                     ? 'bg-accent/10 border-accent text-accent'
                                     : 'border-border/60 text-text-3 hover:border-accent/50 hover:text-text-2'
                                 }`}>
-                                {b.label}
+                                {b.nome}
                               </button>
                             ))}
                           </div>
@@ -582,10 +554,10 @@ export default function VendasPage() {
                             <span className="text-xs text-text-3 flex-shrink-0">Parcelas:</span>
                             <select
                               value={sp.parcelas ?? 1}
-                              onChange={e => updateSplitParcelas(sp.metodo, Number(e.target.value))}
+                              onChange={e => atualizarSplitParcelas(i, Number(e.target.value))}
                               className="h-7 px-2 rounded-lg border border-border/60 bg-surface text-xs font-semibold text-text-2 focus:outline-none focus:border-accent transition">
                               {(() => {
-                                const maq = maquininhaPadrao(config);
+                                const maq = maquininhaDoSplit(sp);
                                 return (maq ? parcelasDisponiveis(maq) : [1]).map(n => (
                                   <option key={n} value={n}>{n}x{n === 1 ? ' (à vista)' : ''}</option>
                                 ));
@@ -593,15 +565,26 @@ export default function VendasPage() {
                             </select>
                           </div>
                         )}
-                        {isCard && taxa === null && (
-                          <div className="text-xs font-semibold text-amber">Taxa não cadastrada para esta combinação</div>
-                        )}
-                        {isCard && taxa !== null && valorN > 0 && (
-                          <div className="flex items-center justify-between text-xs text-text-3">
-                            <span>Taxa {fmtTaxa(taxa)}</span>
-                            <span>Líquido {fmtBRL(valorLiquido(valorN, taxa))}</span>
-                          </div>
-                        )}
+                        {isCard && (() => {
+                          const valorN = parseValorBR(sp.valor);
+                          const taxa   = taxaDoSplit(sp, config);
+                          if (taxa === null) {
+                            // Taxa nunca inventada: a venda fecha normalmente, gravando o pagamento sem taxa.
+                            return (
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber">
+                                <AlertCircle size={12}/>
+                                <span>Taxa não cadastrada para esta combinação</span>
+                              </div>
+                            );
+                          }
+                          if (!valorN) return null;
+                          return (
+                            <div className="flex items-center justify-between text-xs text-text-3">
+                              <span>Taxa {fmtTaxa(taxa)}</span>
+                              <span>Líquido {fmtBRL(valorLiquido(valorN, taxa))}</span>
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -616,7 +599,8 @@ export default function VendasPage() {
                       <span>Subtotal</span><span><Secret>{fmtBRL(subtotal)}</Secret></span>
                     </div>
                     <div className="flex items-center justify-between text-xs text-green font-semibold">
-                      <span>Desconto (<Secret>{descontoPctN}%</Secret>)</span><span>− <Secret>{fmtBRL(descontoN)}</Secret></span>
+                      <span>(−) Desconto{descontoModo === 'percentual' && <> (<Secret>{String(descontoEntradaN).replace('.', ',')}%</Secret>)</>}</span>
+                      <span>− <Secret>{fmtBRL(descontoN)}</Secret></span>
                     </div>
                   </>
                 )}
@@ -624,14 +608,29 @@ export default function VendasPage() {
                   <span className="font-bold text-text">Total</span>
                   <span className="font-bold text-2xl text-text"><Secret>{fmtBRL(total)}</Secret></span>
                 </div>
-                {splits.length > 0 && Math.abs(restante) > 0.01 && (
-                  <div className={`flex items-center justify-between text-sm font-bold ${restante > 0 ? 'text-red' : 'text-green'}`}>
-                    <span>{restante > 0 ? 'Falta cobrir' : 'Troco'}</span>
-                    <span>{fmtBRL(Math.abs(restante))}</span>
-                  </div>
-                )}
-                {splits.length > 0 && troco > 0.01 && (
-                  <p className="text-xs text-text-4">O troco não é registrado automaticamente.</p>
+                {splits.length > 0 && (
+                  <>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-text-2">Recebido</span>
+                      <span className="font-bold text-text"><Secret>{fmtBRL(recebido)}</Secret></span>
+                    </div>
+                    {falta > 0.01 && (
+                      <div className="flex items-center justify-between text-sm font-bold text-amber">
+                        <span>Falta</span><span><Secret>{fmtBRL(falta)}</Secret></span>
+                      </div>
+                    )}
+                    {troco > 0.01 && (
+                      <div className="flex items-center justify-between text-sm font-bold text-primary">
+                        <span>Troco</span><span><Secret>{fmtBRL(troco)}</Secret></span>
+                      </div>
+                    )}
+                    {falta <= 0.01 && troco <= 0.01 && (
+                      <div className="flex items-center justify-center gap-1.5">
+                        <Check size={14} className="text-green" strokeWidth={3}/>
+                        <span className="text-green text-sm font-bold">Valor quitado</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -640,19 +639,37 @@ export default function VendasPage() {
             {erro && (
               <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
                 <AlertCircle size={14} className="text-red flex-shrink-0"/>
-                <p className="text-sm text-red">{erro}</p>
+                <p className="text-sm text-red flex-1">{erro}</p>
+                {vendaIncompleta && (
+                  <button onClick={limparVenda}
+                    className="text-xs font-bold text-primary underline flex-shrink-0">
+                    Nova venda
+                  </button>
+                )}
               </div>
             )}
 
             {/* Botão finalizar */}
-            <button
-              onClick={finalizar}
-              disabled={finalizando || cart.length === 0 || !empresaId}
-              className="w-full h-12 rounded-2xl bg-primary text-white font-bold text-base hover:opacity-90 transition disabled:opacity-40 flex items-center justify-center gap-2 flex-shrink-0">
-              {finalizando ? 'Finalizando...' : (
-                <><Check size={18} strokeWidth={2.5}/> Finalizar venda · {fmtBRL(total)}</>
+            <div className="flex-shrink-0">
+              <button
+                onClick={finalizar}
+                disabled={finalizando || cart.length === 0 || !empresaId || !resumo.podeFechar || !!vendaIncompleta}
+                className="w-full h-12 rounded-2xl bg-primary text-white font-bold text-base hover:opacity-90 transition disabled:opacity-40 flex items-center justify-center gap-2">
+                {finalizando ? 'Finalizando...' : (
+                  <><Check size={18} strokeWidth={2.5}/> Finalizar venda · {fmtBRL(total)}</>
+                )}
+              </button>
+              {cart.length > 0 && !vendaIncompleta && resumo.motivo && (
+                <p className={`text-xs text-center mt-2 font-semibold ${erroDesconto ? 'text-red' : 'text-amber'}`}>
+                  {resumo.motivo}
+                </p>
               )}
-            </button>
+              {cart.length > 0 && !vendaIncompleta && resumo.podeFechar && resumo.cortesiaAutomatica && splits.length === 0 && (
+                <p className="text-xs text-text-4 text-center mt-2">
+                  Total R$ 0 — será registrado como Cortesia
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -689,7 +706,7 @@ export default function VendasPage() {
                     {/* Cliente + data */}
                     <div className="flex items-center gap-2 mb-1.5">
                       <p className="text-sm font-bold text-text">
-                        {v.cliente ? (v.cliente as any).nome : 'Venda avulsa'}
+                        {v.cliente ? v.cliente.nome : 'Venda avulsa'}
                       </p>
                       <span className="text-text-4">·</span>
                       <p className="text-xs text-text-4">
@@ -702,12 +719,12 @@ export default function VendasPage() {
                       {v.itens.map(i => `${i.produto?.nome ?? '?'} × ${i.quantidade}`).join('  ·  ')}
                     </p>
 
-                    {/* Formas de pagamento */}
+                    {/* Formas de pagamento (métodos podem se repetir) */}
                     <div className="flex gap-1.5 flex-wrap">
-                      {v.pagamentos_venda.map(p => (
-                        <span key={p.metodo}
+                      {v.pagamentos_venda.map((p, i) => (
+                        <span key={i}
                           className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-bg border border-border text-text-3">
-                          {METODOS_PAG.find(m => m.id === p.metodo)?.label ?? p.metodo} {fmtBRL(p.valor)}
+                          {rotuloPagamento(config, p)} {fmtBRL(p.valor)}
                         </span>
                       ))}
                     </div>

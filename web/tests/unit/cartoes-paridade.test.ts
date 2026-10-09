@@ -69,6 +69,29 @@ describe('cobrança pela configuração de cartões (maquininhas)', () => {
   });
 });
 
+describe('Vendas avulsas (PDV web) pela regra da comanda', () => {
+  it('shared/venda.ts grava pagamentos por montarPagamentos e erros por mensagemErroBanco', () => {
+    const src = ler('shared/venda.ts');
+    expect(src).toContain('montarPagamentos(');
+    expect(src).toContain('mensagemErroBanco(');
+    expect(src).toContain("select('id').single()");
+  });
+  it('PDV usa carrinho, desconto, resumo e gravação de shared/', () => {
+    const src = ler('web/app/(app)/vendas/page.tsx');
+    for (const f of ['adicionarAoCarrinho(', 'alterarQuantidade(', 'subtotalVenda(', 'gravarVenda(', 'calcularDesconto(', 'resumoComanda(',
+      'parseValorBR(', 'taxaDoSplit(', 'maquininhasAtivas(config).length >= 2', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(',
+      'nomeBandeira(', 'Taxa não cadastrada para esta combinação', 'será registrado como Cortesia', 'resumo.podeFechar', 'useRef(']) {
+      expect(src, f).toContain(f);
+    }
+    // Nada de gravação/regra própria na tela
+    expect(src).not.toMatch(/from\('vendas'\)\s*\.insert/);
+    expect(src).not.toMatch(/from\('pagamentos'\)\s*\.insert/);
+    expect(src).not.toContain('taxaDoCartao(');
+    expect(src).not.toContain('const BANDEIRAS');
+    expect(src).not.toContain("parseFloat(");
+  });
+});
+
 describe('Configurações → Cartões (web)', () => {
   it('página renderiza CartoesConfig e não envia mais taxa_cartao_*', () => {
     const src = ler('web/app/(app)/configuracoes/page.tsx');
