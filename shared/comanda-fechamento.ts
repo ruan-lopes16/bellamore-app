@@ -4,23 +4,9 @@
  * O valor cobrado por atendimento continua em shared/comanda.ts (agruparValoresPorAgendamento).
  */
 import { formatarMoeda } from './moeda';
-import { calcTaxa, valorLiquido, type TaxasCartao } from './taxas-cartao';
+import { maquininhaPadrao, taxaDoCartao, valorLiquido, type ConfigCartoes } from './taxas-cartao';
 
 export type ModoDesconto = 'percentual' | 'valor';
-
-/** Bandeiras de cartão oferecidas no pagamento (crédito/débito) — mesma lista no web e no app. */
-export const BANDEIRAS_CARTAO = [
-  { key: 'visa',       label: 'Visa'      },
-  { key: 'mastercard', label: 'Master'    },
-  { key: 'elo',        label: 'Elo'       },
-  { key: 'amex',       label: 'Amex'      },
-  { key: 'hipercard',  label: 'Hipercard' },
-] as const;
-
-/** Rótulo de exibição por chave de bandeira (recibo, tela de sucesso). */
-export const ROTULOS_BANDEIRA: Record<string, string> = Object.fromEntries(
-  BANDEIRAS_CARTAO.map(b => [b.key, b.label]),
-);
 
 const centavos = (v: number) => Math.round(v * 100) / 100;
 const ERRO_DESCONTO = 'O desconto não pode ser maior que o subtotal';
@@ -61,6 +47,12 @@ export type SplitPagamento = {
   parcelasGravadas?: number;
   /** `created_at` original do pagamento — regravado para o pagamento não mudar de data. */
   criadoEm?: string | null;
+  /** Maquininha escolhida (cartão). Ausente/null = a padrão da empresa. */
+  maquininhaId?: string | null;
+  /** `maquininha_id` gravado no split reaberto (null = gravado antes da migration 086). */
+  maquininhaGravada?: string | null;
+  /** `bandeira` gravada no split reaberto. */
+  bandeiraGravada?: string | null;
 };
 
 export type ResumoComanda = {
@@ -88,46 +80,77 @@ export function resumoComanda(e: {
 }
 
 export type LinhaPagamento = {
-  empresa_id: string; comanda_id: string; valor: number; metodo: string;
-  bandeira: string | null; parcelas: number; taxa_perc: number | null; valor_liquido: number | null; status: 'pago';
+  empresa_id: string; comanda_id?: string; venda_id?: string; valor: number; metodo: string;
+  bandeira: string | null; parcelas: number; taxa_perc: number | null; valor_liquido: number | null;
+  /** Maquininha usada (só cartão; null fora do cartão ou sem a migration 086). */
+  maquininha_id: string | null;
+  status: 'pago';
   /** Só em pagamento reaberto na edição: mantém a data original. */
   created_at?: string;
 };
 
 /**
- * Taxa decimal de um split: a gravada, se ele foi reaberto com o mesmo método e parcelas de
- * quando foi gravado; senão a taxa atual da empresa (calcTaxa). Usada no INSERT e na tela.
+ * Split reaberto sem nenhuma mudança que afete a taxa: mesmo método, parcelas, maquininha e
+ * bandeira de quando foi gravado. Pagamento antigo (antes da 086) tem `maquininhaGravada` null:
+ * continua "a mesma maquininha" enquanto ninguém escolher uma (maquininhaId null/ausente).
  */
-export function taxaDoSplit(
-  s: Pick<SplitPagamento, 'metodo' | 'parcelas' | 'taxaGravada' | 'metodoGravado' | 'parcelasGravadas'>,
-  taxas: TaxasCartao,
-): number {
-  const parcelas = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
-  const inalterado = s.taxaGravada !== undefined && s.metodoGravado === s.metodo && (s.parcelasGravadas ?? 1) === parcelas;
-  return inalterado ? (s.taxaGravada ?? 0) : calcTaxa(s.metodo, parcelas, taxas);
+function reabertoInalterado(s: SplitPagamento, parcelas: number): boolean {
+  if (s.taxaGravada === undefined) return false;
+  if (s.metodoGravado !== s.metodo || (s.parcelasGravadas ?? 1) !== parcelas) return false;
+  if (s.maquininhaGravada !== undefined && (s.maquininhaId ?? null) !== (s.maquininhaGravada ?? null)) return false;
+  if (s.bandeiraGravada !== undefined && (s.bandeira ?? null) !== (s.bandeiraGravada ?? null)) return false;
+  return true;
 }
 
 /**
- * Linhas de `pagamentos`: cartão com bandeira/parcelas/taxa/líquido; total zero sem splits = cortesia R$0.
- * Split reaberto (com `taxaGravada`) e com o mesmo método e parcelas de quando foi gravado mantém a
- * taxa gravada; alterado ou novo usa a taxa atual da empresa. `criadoEm` volta como `created_at`.
+ * Taxa decimal de um split: a gravada, se ele foi reaberto sem mudar método, parcelas, maquininha
+ * e bandeira; senão a da tabela configurada (`taxaDoCartao`). `null` = combinação sem taxa
+ * cadastrada (a tela avisa e o pagamento é gravado sem taxa). Pix/dinheiro/cortesia → 0.
+ */
+export function taxaDoSplit(
+  s: Pick<SplitPagamento, 'metodo' | 'parcelas' | 'bandeira' | 'taxaGravada' | 'metodoGravado' | 'parcelasGravadas' | 'maquininhaId' | 'maquininhaGravada' | 'bandeiraGravada'>,
+  config: ConfigCartoes,
+): number | null {
+  const parcelas = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
+  if (reabertoInalterado(s as SplitPagamento, parcelas)) return s.taxaGravada ?? 0;
+  return taxaDoCartao(config, { maquininhaId: s.maquininhaId, bandeiraChave: s.bandeira, metodo: s.metodo, parcelas });
+}
+
+/**
+ * Linhas de `pagamentos`: cartão com maquininha/bandeira/parcelas/taxa/líquido; total zero sem
+ * splits = cortesia R$0. Taxa por `taxaDoSplit` (null ou 0 → grava sem taxa). `maquininha_id` só
+ * no cartão e fora do legado (sem a 086 a coluna não existe): a escolhida ou a padrão.
+ * Grava só `comanda_id` (comanda) ou só `venda_id` (venda avulsa), conforme o ctx.
+ * `criadoEm` volta como `created_at`.
  */
 export function montarPagamentos(
   splits: SplitPagamento[],
-  ctx: { empresaId: string; comandaId: string; taxas: TaxasCartao; total: number },
+  ctx: { empresaId: string; comandaId?: string; vendaId?: string; config: ConfigCartoes; total: number },
 ): LinhaPagamento[] {
+  const vinculo = (): Pick<LinhaPagamento, 'comanda_id' | 'venda_id'> =>
+    ctx.comandaId ? { comanda_id: ctx.comandaId } : ctx.vendaId ? { venda_id: ctx.vendaId } : {};
   const validos = splits.filter(s => s.valor > 0);
   if (validos.length === 0 && ctx.total < 0.01) {
-    return [{ empresa_id: ctx.empresaId, comanda_id: ctx.comandaId, valor: 0, metodo: 'cortesia', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null, status: 'pago' }];
+    return [{ empresa_id: ctx.empresaId, ...vinculo(), valor: 0, metodo: 'cortesia', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null, maquininha_id: null, status: 'pago' }];
   }
+  const padraoId = maquininhaPadrao(ctx.config)?.id ?? null;
+  // Reaberto inalterado mantém a maquininha gravada (inclusive null de antes da 086, sem atribuir
+  // à padrão um pagamento antigo). Id fora da configuração (ex.: 'legado' escolhido antes de a
+  // configuração carregar) → a padrão.
+  const maquininhaDaLinha = (s: SplitPagamento, parcelas: number): string | null => {
+    if (s.maquininhaGravada !== undefined && reabertoInalterado(s, parcelas)) return s.maquininhaGravada;
+    return ctx.config.maquininhas.some(m => m.id === s.maquininhaId) ? (s.maquininhaId as string) : padraoId;
+  };
   return validos.map(s => {
     const cartao = s.metodo === 'credito' || s.metodo === 'debito';
     const parcelas = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
-    const taxa = taxaDoSplit(s, ctx.taxas);
+    const taxa = taxaDoSplit(s, ctx.config);
+    const comTaxa = taxa !== null && taxa > 0;
     const linha: LinhaPagamento = {
-      empresa_id: ctx.empresaId, comanda_id: ctx.comandaId, valor: centavos(s.valor), metodo: s.metodo,
+      empresa_id: ctx.empresaId, ...vinculo(), valor: centavos(s.valor), metodo: s.metodo,
       bandeira: cartao ? (s.bandeira ?? null) : null, parcelas,
-      taxa_perc: taxa > 0 ? taxa : null, valor_liquido: taxa > 0 ? valorLiquido(s.valor, taxa) : null,
+      taxa_perc: comTaxa ? taxa : null, valor_liquido: comTaxa ? valorLiquido(s.valor, taxa) : null,
+      maquininha_id: cartao && !ctx.config.legado ? maquininhaDaLinha(s, parcelas) : null,
       status: 'pago',
     };
     if (s.criadoEm) linha.created_at = s.criadoEm;

@@ -82,6 +82,15 @@ describe('gerarTextoRecibo', () => {
       '💰 *Total: R$ 90,00*', '', '*Pagamento:*', '• Crédito Visa 2x — R$ 50,00', '• PIX — R$ 40,00',
     ]);
   });
+  it('bandeira pelo nome cadastrado (nomeBandeira); sem função, nomes das 5 iniciais', () => {
+    const base = {
+      nome: 'Ana', valor: 10, dataIso: '2026-10-08T17:30:00Z', itens: [], desconto: 0, descontoReserva: 0,
+      splits: [{ metodo: 'debito', valor: 10, bandeira: 'mastercard' }, { metodo: 'credito', valor: 0, bandeira: 'sorocred' }],
+    };
+    expect(gerarTextoRecibo(base).split('\n').slice(-2)).toEqual(['• Débito Master — R$ 10,00', '• Crédito sorocred — R$ 0,00']);
+    const t = gerarTextoRecibo({ ...base, nomeBandeira: c => (c === 'sorocred' ? 'Sorocred' : `X-${c}`) });
+    expect(t.split('\n').slice(-2)).toEqual(['• Débito X-mastercard — R$ 10,00', '• Crédito Sorocred — R$ 0,00']);
+  });
   it('link do WhatsApp com DDI e texto codificado', () => {
     expect(linkWhatsAppRecibo('(34) 99178-0000', 'a b')).toBe('https://wa.me/5534991780000?text=a%20b');
   });

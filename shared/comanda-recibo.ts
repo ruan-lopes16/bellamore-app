@@ -3,7 +3,7 @@
  * Texto do recibo da comanda enviado por WhatsApp — o MESMO no web e no app.
  */
 import { formatarMoeda } from './moeda';
-import { ROTULOS_BANDEIRA } from './comanda-fechamento';
+import { BANDEIRAS_INICIAIS } from './taxas-cartao';
 import { chaveDiaBRT, horaBRT, rotuloDataBR } from './periodos';
 import { toWhatsApp } from './mascaras';
 
@@ -17,7 +17,11 @@ export type DadosRecibo = {
   desconto: number;
   /** Taxa de reserva já paga, descontada à parte. */
   descontoReserva: number;
+  /** Nome da bandeira pela chave (ex.: `c => nomeBandeira(config, c)`). Ausente → nomes das 5 bandeiras iniciais. */
+  nomeBandeira?: (chave: string) => string;
 };
+
+const NOMES_INICIAIS: Record<string, string> = Object.fromEntries(BANDEIRAS_INICIAIS.map(b => [b.chave, b.nome]));
 
 /** Recibo em texto (negrito do WhatsApp com *). Data/hora em Brasília. */
 export function gerarTextoRecibo(d: DadosRecibo): string {
@@ -34,7 +38,7 @@ export function gerarTextoRecibo(d: DadosRecibo): string {
     '*Pagamento:*',
     ...d.splits.map(s => {
       let rotulo = METODOS[s.metodo] ?? s.metodo;
-      if (s.bandeira) rotulo += ` ${ROTULOS_BANDEIRA[s.bandeira] ?? s.bandeira}`;
+      if (s.bandeira) rotulo += ` ${d.nomeBandeira ? d.nomeBandeira(s.bandeira) : (NOMES_INICIAIS[s.bandeira] ?? s.bandeira)}`;
       if (s.metodo === 'credito' && (s.parcelas ?? 1) > 1) rotulo += ` ${s.parcelas}x`;
       return `• ${rotulo} — ${formatarMoeda(s.valor)}`;
     }),

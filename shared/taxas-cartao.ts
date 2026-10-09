@@ -7,8 +7,6 @@ export type TaxasCartao = { debito: number; creditoAvista: number; creditoParcel
 
 export const TAXAS_PADRAO: TaxasCartao = { debito: 0.0239, creditoAvista: 0.0499, creditoParcelado: 0.0559 };
 
-export const OPCOES_PARCELAS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18];
-
 function taxaValida(v: unknown, padrao: number): number {
   const n = typeof v === 'string' ? Number(v) : v;
   return typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 0.2 ? n : padrao;
@@ -21,13 +19,6 @@ export function taxasDaEmpresa(empresa: Record<string, unknown> | null | undefin
     creditoAvista:    taxaValida(empresa?.taxa_cartao_credito_avista, TAXAS_PADRAO.creditoAvista),
     creditoParcelado: taxaValida(empresa?.taxa_cartao_credito_parcelado, TAXAS_PADRAO.creditoParcelado),
   };
-}
-
-/** Taxa decimal (ex.: 0.0499) conforme método e parcelas. Pix/dinheiro/cortesia → 0. */
-export function calcTaxa(metodo: string, parcelas = 1, taxas: TaxasCartao = TAXAS_PADRAO): number {
-  if (metodo === 'debito') return taxas.debito;
-  if (metodo === 'credito') return parcelas === 1 ? taxas.creditoAvista : taxas.creditoParcelado;
-  return 0;
 }
 
 /** "4,99%". */
