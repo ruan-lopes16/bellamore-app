@@ -8,6 +8,7 @@
  * `agendamento_servicos.valor`) — senao some ao reabrir a comanda e a
  * comissao continua calculada sobre o preco antigo. Ver migration 075.
  */
+import { instanteMs } from './periodos';
 
 /** Item da comanda, na forma minima necessaria para calcular a persistencia. */
 export type ItemComandaValor = {
@@ -109,4 +110,49 @@ export function marcarAgendamentosFechados<T extends { id: string; status: strin
 ): T[] {
   const ids = new Set(agIds);
   return ags.map(ag => (ids.has(ag.id) ? { ...ag, status: 'concluido', comanda_id: comandaId } : ag));
+}
+
+export type AgendamentoCartao = {
+  id: string; data_hora_inicio: string; status: string; comanda_id: string | null;
+  cliente: { id: string; nome: string; telefone?: string } | null;
+};
+export type ComandaSoExtras = {
+  id: string; fechada_at: string;
+  cliente: { id: string; nome: string; telefone?: string | null } | null;
+};
+/** Um cartão da lista do dia: os atendimentos abertos da cliente, ou UMA comanda fechada. */
+export type CartaoComanda<T> = {
+  chave: string; clienteId: string; nome: string; telefone?: string;
+  agendamentos: T[]; comandaId: string | null; fechada: boolean; ordem: string;
+};
+
+/**
+ * Cartões da lista de comandas do dia (web e app). Cada comanda fechada é um cartão — a mesma
+ * cliente pode ter duas no dia, e abrir "a primeira comanda_id" editava a comanda errada.
+ * Atendimento concluído SEM comanda_id (atalho do app / backlog) continua aberto. Comandas só
+ * com extras (nenhum atendimento vinculado) também viram cartão, para poderem ser reabertas.
+ */
+export function cartoesComandaDoDia<T extends AgendamentoCartao>(ags: T[], soExtras: ComandaSoExtras[]): CartaoComanda<T>[] {
+  const mapa = new Map<string, CartaoComanda<T>>();
+  for (const ag of ags) {
+    const clienteId = ag.cliente?.id ?? '__sem__';
+    const fechada = ag.status === 'concluido' && !!ag.comanda_id;
+    const chave = `${clienteId}|${fechada ? ag.comanda_id : 'aberta'}`;
+    let c = mapa.get(chave);
+    if (!c) {
+      c = { chave, clienteId, nome: ag.cliente?.nome ?? 'Cliente', telefone: ag.cliente?.telefone,
+        agendamentos: [], comandaId: fechada ? ag.comanda_id : null, fechada, ordem: ag.data_hora_inicio };
+      mapa.set(chave, c);
+    }
+    c.agendamentos.push(ag);
+    if (instanteMs(ag.data_hora_inicio) < instanteMs(c.ordem)) c.ordem = ag.data_hora_inicio;
+  }
+  for (const k of soExtras) {
+    const clienteId = k.cliente?.id ?? '__sem__';
+    mapa.set(`${clienteId}|${k.id}`, {
+      chave: `${clienteId}|${k.id}`, clienteId, nome: k.cliente?.nome ?? 'Cliente',
+      telefone: k.cliente?.telefone ?? undefined, agendamentos: [], comandaId: k.id, fechada: true, ordem: k.fechada_at,
+    });
+  }
+  return [...mapa.values()].sort((a, b) => instanteMs(a.ordem) - instanteMs(b.ordem) || a.chave.localeCompare(b.chave));
 }

@@ -6,6 +6,8 @@ type Resposta = { data: unknown[] | null; error: { message: string } | null };
 export function fakeDb(opcoes: {
   linhas?: Record<string, unknown[]>;
   erroEm?: string;
+  /** Consultas sem `range`: `await` na cadeia devolve `linhas[tabela]` (ou erro, se `erroEm`). */
+  awaitavel?: boolean;
   respostaUpdate?: (tabela: string, ids: string[], lote: number) => Resposta;
 } = {}) {
   const chamadas: Chamada[] = [];
@@ -16,7 +18,12 @@ export function fakeDb(opcoes: {
       chamadas.push(chamada);
       const builder: Record<string, unknown> = new Proxy({}, {
         get(_a, prop) {
-          if (prop === 'then') return undefined;
+          if (prop === 'then') {
+            if (!opcoes.awaitavel || chamada.ops.some(([m]) => m === 'range')) return undefined;
+            return (ok: (v: Resposta) => unknown) => ok(tabela === opcoes.erroEm
+              ? { data: null, error: { message: `falha em ${tabela}` } }
+              : { data: opcoes.linhas?.[tabela] ?? [], error: null });
+          }
           return (...args: unknown[]) => {
             chamada.ops.push([String(prop), args]);
             if (prop === 'range') {
