@@ -36,4 +36,8 @@ describe('Migration 086: cartões', () => {
     expect(sql).toMatch(/drop trigger if exists trg_semear_cartoes_empresa/);
     expect(sql.trim().endsWith("notify pgrst, 'reload schema';")).toBe(true);
   });
+  it('funções de seed fora do alcance da API', () => {
+    expect(sql).toContain('revoke execute on function public.semear_cartoes_empresa(uuid) from public, anon, authenticated');
+    expect(sql).toContain('revoke execute on function public.trg_fn_semear_cartoes_empresa() from public, anon, authenticated');
+  });
 });

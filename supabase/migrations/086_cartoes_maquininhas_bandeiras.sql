@@ -140,6 +140,13 @@ create trigger trg_semear_cartoes_empresa
   after insert on public.empresas
   for each row execute function public.trg_fn_semear_cartoes_empresa();
 
+-- As funções de seed rodam só pelo trigger e por esta migration: ninguém chama pela API.
+revoke execute on function public.semear_cartoes_empresa(uuid) from public, anon, authenticated;
+revoke execute on function public.trg_fn_semear_cartoes_empresa() from public, anon, authenticated;
+
+create index if not exists idx_cartao_taxas_bandeira on public.cartao_taxas (bandeira_id) where bandeira_id is not null;
+create index if not exists idx_pagamentos_maquininha on public.pagamentos (maquininha_id) where maquininha_id is not null;
+
 -- Empresas existentes.
 select public.semear_cartoes_empresa(id) from public.empresas;
 
