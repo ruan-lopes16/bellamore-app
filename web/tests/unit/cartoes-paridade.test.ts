@@ -57,4 +57,14 @@ describe('cobrança pela configuração de cartões (maquininhas)', () => {
     expect(src).toContain('maquininhaGravada');
     expect(src).toContain('bandeiraGravada');
   });
+  it('comanda app: maquininha em chips (2+ ativas), bandeiras e parcelas da configuração, aviso e reabertura', () => {
+    const src = ler('mobile/app/(empresa)/nova-comanda.tsx');
+    for (const f of ['maquininhasAtivas(', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(', 'nomeBandeira(', 'atualizarSplitMaquininha(']) expect(src).toContain(f);
+    expect(src).toContain('maquininhasAtivas(config).length >= 2');
+    expect(src).toContain('Taxa não cadastrada para esta combinação');
+    expect(src).toContain('maquininha_id');
+    expect(src).toContain('maquininhaGravada');
+    expect(src).toContain('bandeiraGravada');
+    expect(src).not.toContain('BANDEIRAS_CARTAO');
+  });
 });

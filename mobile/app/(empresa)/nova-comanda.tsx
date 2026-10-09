@@ -47,7 +47,7 @@ import {
   type ItemComandaOriginal, type ModoDesconto,
 } from '@shared/comanda-fechamento';
 import {
-  fmtTaxa, valorLiquido, configLegada, maquininhaPadrao, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
+  fmtTaxa, valorLiquido, configLegada, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
   type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
@@ -129,7 +129,7 @@ type ComandaItem = {
  * como foi gravado (`taxaGravada`, `metodoGravado`, `parcelasGravadas`, `maquininhaGravada`,
  * `bandeiraGravada`, `criadoEm`): a taxa da época vale enquanto método, parcelas, maquininha e
  * bandeira não mudarem (taxaDoSplit / montarPagamentos), igual ao web.
- * `maquininhaId` ausente = a padrão (o seletor de maquininha do app vem na Task 4).
+ * `maquininhaId` ausente = a padrão; cartão novo já nasce com a padrão (seletor em chips com 2+ ativas).
  */
 type Split = {
   metodo: string; valor: string; bandeira?: string; parcelas?: number;
@@ -797,7 +797,12 @@ export default function NovaComandaScreen() {
     || (emEdicao ? (cargaFalhou || carregandoComanda) : comandaParcialAberta);
 
   function adicionarSplit(metodo: string) {
-    setSplits(prev => [...prev, { metodo, valor: falta > 0 ? falta.toFixed(2).replace('.', ',') : '' }]);
+    const cartao = metodo === 'credito' || metodo === 'debito';
+    setSplits(prev => [...prev, {
+      metodo,
+      valor: falta > 0 ? falta.toFixed(2).replace('.', ',') : '',
+      ...(cartao ? { maquininhaId: maquininhaPadrao(config)?.id ?? null } : {}),
+    }]);
   }
   function removerSplit(idx: number) { setSplits(prev => prev.filter((_, i) => i !== idx)); }
   function atualizarSplitBandeira(idx: number, bandeira: string) {
@@ -805,6 +810,15 @@ export default function NovaComandaScreen() {
   }
   function atualizarSplitParcelas(idx: number, parcelas: number) {
     setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas } : s));
+  }
+  /** Troca a maquininha; se ela aceita menos parcelas que as escolhidas, ajusta para o máximo dela. */
+  function atualizarSplitMaquininha(idx: number, maquininhaId: string) {
+    const maq = config.maquininhas.find(m => m.id === maquininhaId);
+    setSplits(prev => prev.map((s, i) => {
+      if (i !== idx) return s;
+      const parcelas = maq && (s.parcelas ?? 1) > maq.maxParcelas ? maq.maxParcelas : s.parcelas;
+      return { ...s, maquininhaId, parcelas };
+    }));
   }
 
   /**
@@ -1892,7 +1906,7 @@ export default function NovaComandaScreen() {
                   const valorN = parseValorBR(s.valor);
                   // Pagamento reaberto e não alterado mostra a taxa gravada (a mesma que será salva)
                   const taxa = taxaDoSplit(s, config);
-                  // Maquininha efetiva (até a Task 4: a gravada no reaberto ou a padrão)
+                  // Maquininha efetiva: a escolhida (ou gravada no reaberto) ou a padrão
                   const maq = config.maquininhas.find(x => x.id === s.maquininhaId) ?? maquininhaPadrao(config);
                   const opcoesParcelas = maq ? parcelasDisponiveis(maq) : [1];
                   if (!opcoesParcelas.includes(s.parcelas ?? 1)) opcoesParcelas.push(s.parcelas ?? 1);
@@ -1916,6 +1930,31 @@ export default function NovaComandaScreen() {
                           <X size={14} color={C.text4} />
                         </TouchableOpacity>
                       </View>
+                      {isCard && maquininhasAtivas(config).length >= 2 && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>Maquininha:</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                            {(() => {
+                              // Maquininha gravada que foi desativada continua visível no pagamento reaberto
+                              const ativas = maquininhasAtivas(config);
+                              const lista = maq && !ativas.some(x => x.id === maq.id) ? [...ativas, maq] : ativas;
+                              return lista.map(mq => {
+                                const ativa = maq?.id === mq.id;
+                                return (
+                                  <TouchableOpacity key={mq.id} onPress={() => atualizarSplitMaquininha(i, mq.id)}
+                                    accessibilityRole="button" accessibilityState={{ selected: ativa }}
+                                    style={{
+                                      paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
+                                      borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? C.surface : 'transparent',
+                                    }}>
+                                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{mq.nome}</Text>
+                                  </TouchableOpacity>
+                                );
+                              });
+                            })()}
+                          </ScrollView>
+                        </View>
+                      )}
                       {isCard && (
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                           {bandeiras.map(b => {
