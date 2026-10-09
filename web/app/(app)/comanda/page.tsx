@@ -37,7 +37,7 @@
  * pacotes e quantidades só leitura; valores de serviço, desconto e pagamentos editáveis.
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Clock, User, Plus, Trash2, X, Check, ChevronRight, ChevronLeft,
   Banknote, Zap, CreditCard, Gift, Receipt, Tag, Pencil,
@@ -199,6 +199,10 @@ export default function ComandaPage() {
   const [soExtrasDia, setSoExtrasDia] = useState<ComandaSoExtras[]>([]);
   // Extras como estavam no banco ao reabrir a comanda fechada (base do diff na edição)
   const [itensOriginais, setItensOriginais] = useState<ItemComandaOriginal[]>([]);
+  // Contador de requisição das aberturas de comanda: resposta de uma abertura antiga é ignorada
+  const aberturaRef = useRef(0);
+  // Carga da comanda fechada falhou: bloqueia o Salvar (itens/pagamentos não foram lidos)
+  const [cargaFalhou, setCargaFalhou] = useState(false);
   // Pacotes ativos do cliente selecionado, elegíveis pra vincular a um atendimento
   const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
   // Vínculos feitos NESTA sessão de comanda (agendamento_id -> pacote_clientes.id), ainda não
@@ -438,6 +442,8 @@ export default function ComandaPage() {
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
     setComandaExistenteId(null);
+    aberturaRef.current++;
+    setCargaFalhou(false);
     setItensOriginais([]);
     setErro('');
     setDescontoEntrada('');
@@ -500,12 +506,13 @@ export default function ComandaPage() {
 
   // ── Abrir comanda já fechada para edição
   async function abrirComandaFechada(cliente: ClienteComanda) {
+    const abertura = ++aberturaRef.current;
     const comandaId = cliente.comandaId;
     if (!comandaId) { abrirComanda(cliente); return; }
 
     setClienteSel(cliente);
     setComandaExistenteId(comandaId);
-    setErro(''); setDescontoEntrada(''); setDescontoModo('valor'); setSplits([]); setItens([]);
+    setErro(''); setDescontoEntrada(''); setDescontoModo('valor'); setSplits([]); setItens([]); setItensOriginais([]); setCargaFalhou(false);
     // Só os atendimentos DESTA comanda: a mesma cliente pode ter mais de uma
     // comanda no dia, e misturá-las regravaria valores/pagamentos da outra.
     const agsDaComanda = cliente.agendamentos.filter(ag => ag.comanda_id === comandaId);
@@ -552,9 +559,10 @@ export default function ComandaPage() {
     ]);
     // Sem os dados gravados não dá para editar com segurança (salvar zeraria desconto/itens/
     // pagamentos): mostra o erro e deixa a comanda sem itens (botão Salvar desabilitado).
+    if (abertura !== aberturaRef.current) return;
     const errCarga = rCmd.error ?? rItens.error ?? rPags.error;
     if (errCarga) {
-      setItens([]);
+      setItens([]); setItensOriginais([]); setCargaFalhou(true);
       setErro(mensagemErroBanco(errCarga, 'abrir a comanda'));
       return;
     }
@@ -579,6 +587,7 @@ export default function ComandaPage() {
 
     // Extras com comissão já paga ficam travados (profissional e remoção) — o banco recusaria (085)
     const pagas = await carregarComissoesPagasDosItens(supabase, extras.map(e => e.item_id!));
+    if (abertura !== aberturaRef.current) return;
     for (const e of extras) e.comissao_paga = pagas.has(e.item_id!);
     setItensOriginais(extras.map(e => ({
       item_id: e.item_id!, valor: e.valor, quantidade: e.quantidade, profissional_id: e.profissional_id ?? null,
@@ -679,10 +688,11 @@ export default function ComandaPage() {
 
   // ── Editar comanda já fechada (UPDATE ao invés de INSERT)
   async function editarComanda(comandaId: string) {
+    if (cargaFalhou) { setErro('Não foi possível ler a comanda — reabra-a antes de salvar'); return; }
     setFechando(true); setErro('');
 
     // Ordem: 1) UPDATE da comanda (com .select: RLS barrando devolve 0 linhas sem erro);
-    // 2) valores dos atendimentos; 3) apagar + reinserir itens; 4) apagar + reinserir
+    // 2) valores dos atendimentos; 3) itens extras por diferença; 4) apagar + reinserir
     // pagamentos. Cada DELETE é conferido (conferirDeleteVazio) — sem a policy da migration
     // 075 o DELETE de `pagamentos` falha em silêncio e os splits duplicariam a cada save.
     const { data: cmdAtualizada, error: errCmd } = await supabase.from('comandas')
@@ -1826,7 +1836,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
+                  disabled={fechando || cargaFalhou || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
                   title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >

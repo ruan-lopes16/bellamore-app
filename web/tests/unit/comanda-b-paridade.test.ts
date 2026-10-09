@@ -26,3 +26,12 @@ describe('Comanda B — web', () => {
     expect(web).toContain('Comissão já paga');
   });
 });
+
+describe('Comanda B — web: abertura de comanda fechada', () => {
+  it('zera os originais e ignora respostas de aberturas antigas', () => {
+    const corpo = web.match(/async function abrirComandaFechada[\s\S]*?\n {2}\}\r?\n/)?.[0] ?? '';
+    expect(corpo).toContain('setItensOriginais([])');
+    expect(corpo).toContain('aberturaRef.current');
+    expect(web).toContain('cargaFalhou');
+  });
+});
