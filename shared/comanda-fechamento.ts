@@ -82,8 +82,11 @@ export function resumoComanda(e: {
 export type LinhaPagamento = {
   empresa_id: string; comanda_id?: string; venda_id?: string; valor: number; metodo: string;
   bandeira: string | null; parcelas: number; taxa_perc: number | null; valor_liquido: number | null;
-  /** Maquininha usada (só cartão; null fora do cartão ou sem a migration 086). */
-  maquininha_id: string | null;
+  /**
+   * Maquininha usada (só cartão; null fora do cartão). AUSENTE sem a migration 086: a coluna não
+   * existe e o PostgREST recusaria o INSERT inteiro (PGRST204).
+   */
+  maquininha_id?: string | null;
   status: 'pago';
   /** Só em pagamento reaberto na edição: mantém a data original. */
   created_at?: string;
@@ -112,14 +115,18 @@ export function taxaDoSplit(
   config: ConfigCartoes,
 ): number | null {
   const parcelas = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
-  if (reabertoInalterado(s as SplitPagamento, parcelas)) return s.taxaGravada ?? 0;
+  if (reabertoInalterado(s as SplitPagamento, parcelas)) {
+    // Cartão gravado sem taxa = taxa não cadastrada na época: continua null (aviso), nunca 0%.
+    const cartao = s.metodo === 'credito' || s.metodo === 'debito';
+    return s.taxaGravada ?? (cartao ? null : 0);
+  }
   return taxaDoCartao(config, { maquininhaId: s.maquininhaId, bandeiraChave: s.bandeira, metodo: s.metodo, parcelas });
 }
 
 /**
  * Linhas de `pagamentos`: cartão com maquininha/bandeira/parcelas/taxa/líquido; total zero sem
- * splits = cortesia R$0. Taxa por `taxaDoSplit` (null ou 0 → grava sem taxa). `maquininha_id` só
- * no cartão e fora do legado (sem a 086 a coluna não existe): a escolhida ou a padrão.
+ * splits = cortesia R$0. Taxa por `taxaDoSplit` (null ou 0 → grava sem taxa). `maquininha_id`: no
+ * cartão a escolhida ou a padrão, fora do cartão null; no legado (sem a 086) a chave é omitida.
  * Grava só `comanda_id` (comanda) ou só `venda_id` (venda avulsa), conforme o ctx.
  * `criadoEm` volta como `created_at`.
  */
@@ -131,7 +138,7 @@ export function montarPagamentos(
     ctx.comandaId ? { comanda_id: ctx.comandaId } : ctx.vendaId ? { venda_id: ctx.vendaId } : {};
   const validos = splits.filter(s => s.valor > 0);
   if (validos.length === 0 && ctx.total < 0.01) {
-    return [{ empresa_id: ctx.empresaId, ...vinculo(), valor: 0, metodo: 'cortesia', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null, maquininha_id: null, status: 'pago' }];
+    return [{ empresa_id: ctx.empresaId, ...vinculo(), valor: 0, metodo: 'cortesia', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null, ...(ctx.config.legado ? {} : { maquininha_id: null }), status: 'pago' }];
   }
   const padraoId = maquininhaPadrao(ctx.config)?.id ?? null;
   // Reaberto inalterado mantém a maquininha gravada (inclusive null de antes da 086, sem atribuir
@@ -150,7 +157,8 @@ export function montarPagamentos(
       empresa_id: ctx.empresaId, ...vinculo(), valor: centavos(s.valor), metodo: s.metodo,
       bandeira: cartao ? (s.bandeira ?? null) : null, parcelas,
       taxa_perc: comTaxa ? taxa : null, valor_liquido: comTaxa ? valorLiquido(s.valor, taxa) : null,
-      maquininha_id: cartao && !ctx.config.legado ? maquininhaDaLinha(s, parcelas) : null,
+      // Sem a 086 (legado) a chave nem vai: a coluna não existe.
+      ...(ctx.config.legado ? {} : { maquininha_id: cartao ? maquininhaDaLinha(s, parcelas) : null }),
       status: 'pago',
     };
     if (s.criadoEm) linha.created_at = s.criadoEm;

@@ -82,18 +82,18 @@ export const BANDEIRAS_INICIAIS: { chave: string; nome: string }[] = [
 ];
 
 /**
- * Configuração equivalente quando a 086 não existe: uma maquininha virtual ("legado", 12x)
- * com as taxas da migration 084 e as 5 bandeiras fixas.
+ * Configuração equivalente quando a 086 não existe: uma maquininha virtual ("legado", até 18x,
+ * como o seletor antigo) com as taxas da migration 084 e as 5 bandeiras fixas.
  */
 export function configLegada(empresa: Record<string, unknown> | null | undefined): ConfigCartoes {
   const t = taxasDaEmpresa(empresa);
   const taxas: TaxaLinha[] = [{ bandeiraId: null, modalidade: 'debito', parcelas: 1, taxa: t.debito }];
-  for (let n = 1; n <= 12; n++) {
+  for (let n = 1; n <= MAX_PARCELAS; n++) {
     taxas.push({ bandeiraId: null, modalidade: 'credito', parcelas: n, taxa: n === 1 ? t.creditoAvista : t.creditoParcelado });
   }
   return {
     legado: true,
-    maquininhas: [{ id: 'legado', nome: 'Maquininha', maxParcelas: 12, ativa: true, padrao: true, ordem: 1, taxas }],
+    maquininhas: [{ id: 'legado', nome: 'Maquininha', maxParcelas: MAX_PARCELAS, ativa: true, padrao: true, ordem: 1, taxas }],
     bandeiras: BANDEIRAS_INICIAIS.map((b, i) => ({ id: `legado-${b.chave}`, chave: b.chave, nome: b.nome, ativa: true, ordem: i + 1 })),
   };
 }

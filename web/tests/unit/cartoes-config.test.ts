@@ -66,7 +66,9 @@ describe('chaveBandeira e auxiliares', () => {
     const c = configLegada({ taxa_cartao_debito: 0.03, taxa_cartao_credito_avista: 0.04, taxa_cartao_credito_parcelado: 0.06 });
     expect(c.legado).toBe(true);
     expect(c.maquininhas).toHaveLength(1);
-    expect(c.maquininhas[0]).toMatchObject({ id: 'legado', maxParcelas: 12, padrao: true });
+    expect(c.maquininhas[0]).toMatchObject({ id: 'legado', maxParcelas: 18, padrao: true });
+    // Antes da 086 o crédito ia até 18x (taxa de parcelado): continua oferecido
+    expect(taxaDoCartao(c, { maquininhaId: 'legado', bandeiraChave: 'visa', metodo: 'credito', parcelas: 18 })).toBe(0.06);
     expect(taxaDoCartao(c, { maquininhaId: 'legado', bandeiraChave: 'visa', metodo: 'credito', parcelas: 12 })).toBe(0.06);
     expect(c.bandeiras.map(b => b.chave)).toEqual(['visa', 'mastercard', 'elo', 'amex', 'hipercard']);
   });

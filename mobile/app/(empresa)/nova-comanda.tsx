@@ -229,6 +229,8 @@ export default function NovaComandaScreen() {
   const [splits, setSplits] = useState<Split[]>([]);
   // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084).
   const [config, setConfig] = useState<ConfigCartoes>(() => configLegada(null));
+  // Falha ao ler a configuração de cartões: avisa uma vez por sessão da tela, não a cada recarga do dia.
+  const avisoCartoesRef = useRef(false);
   const [fechando, setFechando] = useState(false);
   const [sucessoData, setSucessoData] = useState<{
     nome: string; valor: number; telefone?: string;
@@ -299,7 +301,10 @@ export default function NovaComandaScreen() {
       }
       setErroDia(null);
       setConfig(rCartoes.config);
-      if (rCartoes.erro) Alert.alert('Cartões', rCartoes.erro);
+      if (rCartoes.erro && !avisoCartoesRef.current) {
+        avisoCartoesRef.current = true;
+        Alert.alert('Cartões', rCartoes.erro);
+      }
       const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
 
       // Taxas de reserva já pagas — buscadas só depois de sabermos os

@@ -58,14 +58,16 @@ describe('montarPagamentos', () => {
       { metodo: 'debito', valor: 100, bandeira: 'master' },
       { metodo: 'pix', valor: 100, bandeira: 'visa' },
     ], ctx);
-    expect(linhas[0]).toEqual({ empresa_id: 'e', comanda_id: 'c', valor: 100, metodo: 'credito', bandeira: 'visa', parcelas: 3, taxa_perc: 0.0559, valor_liquido: 94.41, maquininha_id: null, status: 'pago' });
+    expect(linhas[0]).toEqual({ empresa_id: 'e', comanda_id: 'c', valor: 100, metodo: 'credito', bandeira: 'visa', parcelas: 3, taxa_perc: 0.0559, valor_liquido: 94.41, status: 'pago' });
+    // Sem a 086 a coluna maquininha_id não existe: a chave nem vai no INSERT
+    for (const l of linhas) expect(l).not.toHaveProperty('maquininha_id');
     expect(linhas[1]).toMatchObject({ metodo: 'debito', parcelas: 1, taxa_perc: 0.0239, valor_liquido: 97.61, bandeira: 'master' });
     expect(linhas[2]).toMatchObject({ metodo: 'pix', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null });
   });
   it('ignora splits de valor zero; total zero sem splits = cortesia', () => {
     expect(montarPagamentos([{ metodo: 'pix', valor: 0 }], ctx)).toEqual([]);
     expect(montarPagamentos([], { ...ctx, total: 0 })).toEqual([
-      { empresa_id: 'e', comanda_id: 'c', valor: 0, metodo: 'cortesia', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null, maquininha_id: null, status: 'pago' },
+      { empresa_id: 'e', comanda_id: 'c', valor: 0, metodo: 'cortesia', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null, status: 'pago' },
     ]);
   });
 });
@@ -165,10 +167,18 @@ describe('montarPagamentos — maquininha', () => {
     const l = montarPagamentos([{ metodo: 'pix', valor: 10 }], { empresaId: 'e', vendaId: 'v', config: cfg, total: 10 })[0];
     expect(l).toMatchObject({ venda_id: 'v' });
     expect(l).not.toHaveProperty('comanda_id');
-    expect(montarPagamentos([{ metodo: 'debito', valor: 10 }], { empresaId: 'e', comandaId: 'c', config: configLegada({}), total: 10 })[0].maquininha_id).toBeNull();
+    expect(montarPagamentos([{ metodo: 'debito', valor: 10 }], { empresaId: 'e', comandaId: 'c', config: configLegada({}), total: 10 })[0]).not.toHaveProperty('maquininha_id');
+    expect(montarPagamentos([], { empresaId: 'e', comandaId: 'c', config: configLegada({}), total: 0 })[0]).not.toHaveProperty('maquininha_id');
+    expect(montarPagamentos([], { empresaId: 'e', comandaId: 'c', config: cfg, total: 0 })[0]).toMatchObject({ metodo: 'cortesia', maquininha_id: null });
   });
   it('maquininha fora da configuração grava a padrão', () => {
     expect(montarPagamentos([{ metodo: 'debito', valor: 10, maquininhaId: 'legado' }], ctx)[0]).toMatchObject({ maquininha_id: 'm1', taxa_perc: 0.02 });
+  });
+  it('cartão reaberto gravado sem taxa continua "taxa não cadastrada" (null), não 0%', () => {
+    const sem = { metodo: 'credito', parcelas: 1, bandeira: 'visa', taxaGravada: null, metodoGravado: 'credito', parcelasGravadas: 1, maquininhaId: 'm1', maquininhaGravada: 'm1', bandeiraGravada: 'visa' };
+    expect(taxaDoSplit(sem, cfg)).toBeNull();
+    expect(montarPagamentos([{ ...sem, valor: 100 }], ctx)[0]).toMatchObject({ taxa_perc: null, valor_liquido: null });
+    expect(taxaDoSplit({ metodo: 'pix', taxaGravada: null, metodoGravado: 'pix', parcelasGravadas: 1 }, cfg)).toBe(0);
   });
   it('taxaDoSplit: null quando a combinação não tem taxa; 0 fora do cartão', () => {
     expect(taxaDoSplit({ metodo: 'credito', parcelas: 5, maquininhaId: 'm1' }, cfg)).toBeNull();

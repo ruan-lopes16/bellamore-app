@@ -38,6 +38,17 @@ describe('cobrança pela configuração de cartões (maquininhas)', () => {
     }
   });
 
+  it('montarPagamentos omite maquininha_id no legado (coluna só existe depois da 086)', () => {
+    const src = ler('shared/comanda-fechamento.ts');
+    const corpo = src.slice(src.indexOf('export function montarPagamentos('));
+    // Toda atribuição de maquininha_id no INSERT fica atrás do "legado ? {} : { ... }"
+    const atribuicoes = corpo.match(/maquininha_id:/g) ?? [];
+    const guardadas = corpo.match(/config\.legado \? \{\} : \{ maquininha_id:/g) ?? [];
+    expect(atribuicoes.length).toBeGreaterThan(0);
+    expect(guardadas.length).toBe(atribuicoes.length);
+    expect(src).toContain('maquininha_id?: string | null');
+  });
+
   it('comanda web: seletor de maquininha, bandeiras e parcelas da configuração, aviso de taxa ausente', () => {
     const src = ler('web/app/(app)/comanda/page.tsx');
     for (const f of ['maquininhasAtivas(', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(', 'nomeBandeira(']) expect(src).toContain(f);
