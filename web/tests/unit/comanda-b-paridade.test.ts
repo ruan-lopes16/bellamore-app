@@ -35,3 +35,13 @@ describe('Comanda B — web: abertura de comanda fechada', () => {
     expect(web).toContain('cargaFalhou');
   });
 });
+
+const app = readFileSync(join(raiz, 'mobile/app/(empresa)/nova-comanda.tsx'), 'utf8');
+describe('Comanda B — app: dias', () => {
+  it('navega por dia/semana/mês e mostra backlog de shared', () => {
+    expect(app).toContain('carregarBacklogComandas(');
+    expect(app).toMatch(/startOfWeek\([^)]*weekStartsOn: 0/);
+    expect(app).toContain('startOfDay(dataComanda)');
+    expect(app).not.toMatch(/const hoje = new Date\(\);\s*await Promise\.all/);
+  });
+});

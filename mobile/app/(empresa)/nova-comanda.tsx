@@ -10,9 +10,12 @@ import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ChevronLeft, ChevronRight, Check, X, Trash2, User,
-  Banknote, Zap, CreditCard, Gift, Tag, Receipt,
+  Banknote, Zap, CreditCard, Gift, Tag, Receipt, AlertCircle,
 } from 'lucide-react-native';
-import { format, startOfDay, endOfDay, parseISO, addDays } from 'date-fns';
+import {
+  format, startOfDay, endOfDay, parseISO, addDays, startOfWeek, startOfMonth, endOfMonth,
+  addMonths, subMonths, isSameDay, isSameMonth, isToday, eachDayOfInterval,
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 import {
@@ -45,6 +48,7 @@ import {
   calcTaxa, fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao,
 } from '@shared/taxas-cartao';
 import { formatarMoeda } from '@shared/moeda';
+import { carregarBacklogComandas } from '@shared/comanda-consultas';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -129,6 +133,8 @@ function avatarHue(nome: string) {
 let uidCount = 0;
 function uid() { return `tmp_${++uidCount}`; }
 
+const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
 type Etapa = 'lista' | 'comanda' | 'sucesso';
 
 /** Comanda só com extras que falhou depois de criada (mesmo texto no web). */
@@ -147,6 +153,13 @@ export default function NovaComandaScreen() {
   const qc = useQueryClient();
 
   const [loading, setLoading] = useState(true);
+  // Dia da comanda (como no web): semana de 7 dias a partir do domingo, ou visão do mês.
+  const [dataComanda, setDataComanda] = useState<Date>(() => new Date());
+  const [view, setView] = useState<'semana' | 'mes'>('semana');
+  const [semana, setSemana] = useState<Date[]>(() =>
+    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i)));
+  const [agsMes, setAgsMes] = useState<Map<string, number>>(new Map());
+  const [backlog, setBacklog] = useState<{ id: string; data: Date }[]>([]);
   const [agDia, setAgDia] = useState<AgDia[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
   const [servicos, setServicos] = useState<{ id: string; nome: string; preco: number }[]>([]);
@@ -193,7 +206,6 @@ export default function NovaComandaScreen() {
   /** Carrega (ou recarrega, após uma falha no fechamento) os atendimentos do dia e os catálogos. */
   const carregarDia = useCallback(async () => {
     if (!empresaId) return;
-    const hoje = new Date();
     await Promise.all([
       supabase.from('agendamentos')
         .select(`id, data_hora_inicio, status, valor, comanda_id, pacote_cliente_id,
@@ -202,8 +214,8 @@ export default function NovaComandaScreen() {
           servico:servicos(id, nome, preco),
           agendamento_servicos(id, valor, ordem, servico:servicos(id, nome))`)
         .eq('empresa_id', empresaId)
-        .gte('data_hora_inicio', startOfDay(hoje).toISOString())
-        .lte('data_hora_inicio', endOfDay(hoje).toISOString())
+        .gte('data_hora_inicio', startOfDay(dataComanda).toISOString())
+        .lte('data_hora_inicio', endOfDay(dataComanda).toISOString())
         .not('status', 'in', '("cancelado","faltou")')
         .order('data_hora_inicio'),
       supabase.from('servicos').select('id, nome, preco').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
@@ -239,9 +251,73 @@ export default function NovaComandaScreen() {
       setTaxasReservaPagas((rTaxasReserva.data ?? []) as { agendamento_id: string; valor: number }[]);
       setLoading(false);
     });
-  }, [empresaId]);
+  }, [empresaId, dataComanda]);
 
   useEffect(() => { carregarDia(); }, [carregarDia]);
+
+  // Trocar de dia fecha a comanda aberta e volta para a lista.
+  useEffect(() => {
+    setClienteSel(null);
+    setEtapa('lista');
+  }, [dataComanda]);
+
+  /** Comandas não fechadas (atendimentos passados sem comanda), de qualquer dia. Erro -> lista vazia. */
+  const carregarBacklog = useCallback(async () => {
+    if (!empresaId) return;
+    try {
+      const rows = await carregarBacklogComandas(supabase, empresaId, new Date().toISOString());
+      setBacklog(rows.map(r => ({ id: r.id, data: parseISO(r.data_hora_inicio) })));
+    } catch {
+      setBacklog([]);
+    }
+  }, [empresaId]);
+
+  useEffect(() => { carregarBacklog(); }, [carregarBacklog]);
+
+  // Contagem de atendimentos por dia para a visão mensal
+  useEffect(() => {
+    if (!empresaId || view !== 'mes') return;
+    let ativo = true;
+    supabase.from('agendamentos')
+      .select('data_hora_inicio')
+      .eq('empresa_id', empresaId)
+      .not('status', 'in', '("cancelado","faltou")')
+      .gte('data_hora_inicio', startOfMonth(dataComanda).toISOString())
+      .lte('data_hora_inicio', endOfMonth(dataComanda).toISOString())
+      .then(({ data: rows }: { data: { data_hora_inicio: string }[] | null }) => {
+        if (!ativo) return;
+        const map = new Map<string, number>();
+        (rows ?? []).forEach(r => {
+          const k = format(parseISO(r.data_hora_inicio), 'yyyy-MM-dd');
+          map.set(k, (map.get(k) ?? 0) + 1);
+        });
+        setAgsMes(map);
+      });
+    return () => { ativo = false; };
+  }, [view, dataComanda, empresaId]);
+
+  /** Move a seleção um dia por vez; realoca a faixa da semana quando o dia sai da semana visível */
+  function navDia(dir: number) {
+    const novaData = addDays(dataComanda, dir);
+    setDataComanda(novaData);
+    if (!semana.some(s => isSameDay(s, novaData)))
+      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(novaData, { weekStartsOn: 0 }), i)));
+  }
+  function navMes(dir: number) {
+    setDataComanda(d => dir > 0 ? addMonths(d, 1) : subMonths(d, 1));
+  }
+  function selecionarDia(d: Date) {
+    setDataComanda(d);
+    setView('semana');
+    if (!semana.some(s => isSameDay(s, d)))
+      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
+  }
+
+  // Aviso só para dias anteriores a hoje
+  const backlogAnterior = useMemo(
+    () => backlog.filter(b => b.data < startOfDay(new Date())),
+    [backlog],
+  );
 
   const clientesDia = useMemo<ClienteComanda[]>(() => {
     const map: Record<string, ClienteComanda> = {};
@@ -640,6 +716,7 @@ export default function NovaComandaScreen() {
     // Receita, comissão e alerta de comandas abertas mudaram: atualiza todas as telas.
     invalidarFinanceiro(qc);
     qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    carregarBacklog();
     // Valor cobrado, vínculo de pacote, status E comanda_id — senão o atendimento
     // continua listado como aberto (e o "Total do dia" usa o valor antigo).
     setAgDia(prev => marcarAgendamentosFechados(prev.map(ag => {
@@ -796,7 +873,7 @@ export default function NovaComandaScreen() {
           <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2 }}>Comanda</Text>
             <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text }}>
-              {format(new Date(), "EEEE, d 'de' MMM", { locale: ptBR })}
+              {isToday(dataComanda) ? 'Hoje' : format(dataComanda, "EEEE, d 'de' MMM", { locale: ptBR })}
             </Text>
           </View>
           {totalDia > 0 && (
@@ -811,7 +888,108 @@ export default function NovaComandaScreen() {
           )}
         </View>
 
-        {loading ? (
+        {/* Escolha do dia: semana / mês, "Hoje" e aviso de comandas abertas */}
+        <View style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8, borderBottomWidth: 1, borderColor: C.border, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <TouchableOpacity onPress={() => (view === 'mes' ? navMes(-1) : navDia(-1))}
+              style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronLeft size={16} color={C.text3} />
+            </TouchableOpacity>
+            <Text style={{ flex: 1, textAlign: 'center', fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text2, textTransform: 'capitalize' }}>
+              {view === 'mes'
+                ? format(dataComanda, 'MMMM yyyy', { locale: ptBR })
+                : format(dataComanda, "EEE, d 'de' MMM", { locale: ptBR })}
+            </Text>
+            <TouchableOpacity onPress={() => (view === 'mes' ? navMes(1) : navDia(1))}
+              style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronRight size={16} color={C.text3} />
+            </TouchableOpacity>
+            {!isToday(dataComanda) && (
+              <TouchableOpacity onPress={() => selecionarDia(new Date())}
+                style={{ borderRadius: 10, backgroundColor: C.primarySoft, paddingHorizontal: 10, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>Hoje</Text>
+              </TouchableOpacity>
+            )}
+            <View style={{ flexDirection: 'row', backgroundColor: C.surface, borderRadius: 10, padding: 2 }}>
+              {(['semana', 'mes'] as const).map(v => (
+                <TouchableOpacity key={v} onPress={() => setView(v)}
+                  style={{ borderRadius: 8, paddingHorizontal: 9, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: view === v ? C.primary : 'transparent' }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: view === v ? '#fff' : C.text3 }}>
+                    {v === 'semana' ? 'Semana' : 'Mês'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {view === 'semana' && (
+            <View style={{ flexDirection: 'row', gap: 2 }}>
+              {semana.map(d => {
+                const sel = isSameDay(d, dataComanda);
+                return (
+                  <TouchableOpacity key={d.toISOString()} onPress={() => selecionarDia(d)}
+                    style={{ flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: 12, backgroundColor: sel ? C.primary : 'transparent' }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, textTransform: 'uppercase', marginBottom: 2, color: sel ? 'rgba(255,255,255,0.7)' : C.text4 }}>
+                      {DIAS[d.getDay()]}
+                    </Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: sel ? '#fff' : isToday(d) ? C.rose : C.text2 }}>
+                      {format(d, 'd')}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
+          {backlogAnterior.length > 0 && (
+            <TouchableOpacity onPress={() => selecionarDia(backlogAnterior[0].data)} activeOpacity={0.7}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.roseSoft, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(212,96,138,0.25)', paddingHorizontal: 12, paddingVertical: 8 }}>
+              <AlertCircle size={14} color={C.rose} strokeWidth={2.5} />
+              <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11.5, color: C.rose }}>
+                {backlogAnterior.length === 1 ? '1 comanda não fechada' : `${backlogAnterior.length} comandas não fechadas`}
+                {' · mais antiga '}{format(backlogAnterior[0].data, 'dd/MM')}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {view === 'mes' ? (
+          <ScrollView contentContainerStyle={{ padding: 12 }}>
+            <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+              {DIAS.map(d => (
+                <Text key={d} style={{ flex: 1, textAlign: 'center', fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text4, paddingVertical: 4 }}>{d}</Text>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+              {eachDayOfInterval({
+                start: startOfWeek(startOfMonth(dataComanda), { weekStartsOn: 0 }),
+                end: addDays(startOfWeek(startOfMonth(dataComanda), { weekStartsOn: 0 }), 41),
+              }).map(d => {
+                const key = format(d, 'yyyy-MM-dd');
+                const count = agsMes.get(key) ?? 0;
+                const sel = isSameDay(d, dataComanda);
+                const dMes = isSameMonth(d, dataComanda);
+                return (
+                  <View key={key} style={{ width: `${100 / 7}%`, padding: 1 }}>
+                    <TouchableOpacity onPress={() => selecionarDia(d)}
+                      style={{ aspectRatio: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: sel ? C.primary : isToday(d) ? C.primarySoft : 'transparent' }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13,
+                        color: sel ? '#fff' : isToday(d) ? C.primary : dMes ? C.text2 : C.text4 }}>
+                        {format(d, 'd')}
+                      </Text>
+                      {count > 0 && (
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 9, color: sel ? 'rgba(255,255,255,0.8)' : C.rose }}>
+                          {count}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          </ScrollView>
+        ) : loading ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <ActivityIndicator size="large" color={C.primary} />
           </View>
@@ -819,7 +997,7 @@ export default function NovaComandaScreen() {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
             <Receipt size={28} color={C.text4} />
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text3, marginTop: 8 }}>
-              Nenhum atendimento hoje
+              {isToday(dataComanda) ? 'Nenhum atendimento hoje' : 'Nenhum atendimento neste dia'}
             </Text>
           </View>
         ) : (
