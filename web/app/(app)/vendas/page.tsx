@@ -6,7 +6,10 @@
  *
  * ## Abas
  * - PDV       : carrinho + checkout (produtos → pagamento → finalizar)
- * - Histórico : lista das últimas 50 vendas com itens e formas de pagamento
+ * - Histórico : vendas do dia escolhido (em Brasília), com itens, formas de pagamento e exportação
+ *               — o mesmo conteúdo do app (mobile/app/(empresa)/vendas.tsx)
+ * - Pós-venda : tela de sucesso com itens/pagamentos, aviso de estoque e recibo por WhatsApp
+ *               quando a cliente tem telefone (gerarTextoRecibo com tipo "compra")
  *
  * ## Regras (as mesmas do app e da comanda)
  * - carrinho com limite de estoque     = shared/venda.ts (adicionarAoCarrinho, alterarQuantidade)
@@ -23,20 +26,19 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   ShoppingCart, Search, Plus, Minus, X, Trash2,
   Banknote, Zap, CreditCard, Gift, Package, Tag,
-  AlertCircle, Check, History,
+  AlertCircle, Check, History, ChevronLeft, ChevronRight, Share2,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
-import { definicaoVendas } from '@shared/exportacao/vendas';
+import { definicaoVendas, linhasVendas } from '@shared/exportacao/vendas';
 import { createClient } from '@/lib/supabase/client';
+import { usePermissoes } from '@/components/PermissoesProvider';
 import type { Cliente as ClienteBase } from '@/types';
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
-import { format, parseISO } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 import {
-  fmtTaxa, valorLiquido, configLegada, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas,
+  fmtTaxa, valorLiquido, configIndisponivel, AVISO_CARTOES_SEM_TAXA, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas,
   nomeBandeira, parcelasDisponiveis, type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
@@ -44,6 +46,8 @@ import { calcularDesconto, resumoComanda, taxaDoSplit, parseValorBR, type ModoDe
 import { adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, type ItemVenda } from '@shared/venda';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
+import { hojeBRT, somarDias, limitesDias, rotuloDiaExtenso, rotuloDataHoraBRT } from '@shared/periodos';
 
 const supabase = createClient();
 
@@ -61,7 +65,7 @@ type Produto = {
 /** Pagamento na tela (valor como texto). Métodos podem se repetir (ex.: dois cartões). */
 type Split = { metodo: string; valor: string; bandeira?: string; parcelas?: number; maquininhaId?: string | null };
 
-type Cliente = Pick<ClienteBase, 'id' | 'nome'>;
+type Cliente = Pick<ClienteBase, 'id' | 'nome' | 'telefone'>;
 
 type VendaHistorico = {
   id: string;
@@ -74,7 +78,14 @@ type VendaHistorico = {
   pagamentos_venda: { metodo: string; valor: number; bandeira: string | null; parcelas: number | null }[];
 };
 
-type Toast = { texto: string; tipo: 'ok' | 'aviso' };
+/** Venda recém-finalizada (tela de sucesso e recibo por WhatsApp, igual ao app). */
+type Sucesso = {
+  total: number; desconto: number; dataIso: string;
+  cliente: Cliente | null;
+  itens: { descricao: string; quantidade: number; valor: number }[];
+  splits: Split[];
+  avisoEstoque: string | null;
+};
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -102,9 +113,15 @@ function rotuloPagamento(config: ConfigCartoes, p: VendaHistorico['pagamentos_ve
 // ── Página principal ──────────────────────────────────────────
 
 export default function VendasPage() {
+  // Desconto e Cortesia: mesma regra da comanda (comanda.desconto). Sem a permissão, nada de
+  // campo de desconto nem chip Cortesia; a cortesia automática de total R$ 0 continua valendo.
+  const { pode } = usePermissoes();
+  const podeDesconto = pode('comanda.desconto');
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084).
-  const [config, setConfig] = useState<ConfigCartoes>(() => configLegada(null));
+  const [config, setConfig] = useState<ConfigCartoes>(() => configIndisponivel());
+  // Finalizar fica desligado até a configuração terminar de carregar (igual à comanda).
+  const [configPronta, setConfigPronta] = useState(false);
   const [aba, setAba]             = useState<'pdv' | 'historico'>('pdv');
 
   // Catálogo
@@ -122,16 +139,20 @@ export default function VendasPage() {
   const [splits,     setSplits]     = useState<Split[]>([]);
   const [finalizando,setFinalizando]= useState(false);
   const [erro,       setErro]       = useState('');
-  const [toast,      setToast]      = useState<Toast | null>(null);
+  const [sucesso,    setSucesso]    = useState<Sucesso | null>(null);
   // Venda gravada pela metade (ex.: pagamentos falharam depois de a venda existir): bloqueia
   // um novo "Finalizar" deste carrinho para não registrar a mesma venda duas vezes.
   const [vendaIncompleta, setVendaIncompleta] = useState<string | null>(null);
   // Trava de duplo clique (o estado `finalizando` só vale no próximo render)
   const gravandoRef = useRef(false);
 
-  // Histórico
+  // Histórico: vendas do dia escolhido (chave 'yyyy-MM-dd' em Brasília)
+  const [diaHist,       setDiaHist]       = useState<string>(() => hojeBRT());
   const [vendas,        setVendas]        = useState<VendaHistorico[]>([]);
   const [loadingVendas, setLoadingVendas] = useState(false);
+  const [erroVendas,    setErroVendas]    = useState<string | null>(null);
+  // Contador de requisição: troca rápida de dia nunca mostra as vendas de outro dia
+  const reqVendasRef = useRef(0);
 
   // ── Carregar empresa
   useEffect(() => {
@@ -146,9 +167,11 @@ export default function VendasPage() {
         try {
           setConfig(await carregarConfigCartoes(supabase, data.empresa_id));
         } catch (e) {
-          setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões'));
-          const { data: emp } = await supabase.from('empresas').select('*').eq('id', data.empresa_id).single();
-          setConfig(configLegada(emp as Record<string, unknown> | null));
+          // Taxa nunca inventada: sem configuração, todo cartão é gravado sem taxa (com aviso).
+          setErro(`${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões')} ${AVISO_CARTOES_SEM_TAXA}`);
+          setConfig(configIndisponivel());
+        } finally {
+          setConfigPronta(true);
         }
       }
     })();
@@ -162,7 +185,7 @@ export default function VendasPage() {
         .select('id, nome, categoria, preco_venda, estoque_atual, unidade')
         .eq('empresa_id', empId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
       supabase.from('clientes')
-        .select('id, nome')
+        .select('id, nome, telefone')
         .eq('empresa_id', empId).eq('ativo', true).order('nome'),
     ]);
     setProdutos((rProdutos.data ?? []) as Produto[]);
@@ -172,10 +195,12 @@ export default function VendasPage() {
 
   useEffect(() => { if (empresaId) carregar(empresaId); }, [empresaId, carregar]);
 
-  // ── Carregar histórico ao mudar de aba
-  const carregarVendas = useCallback(async (empId: string) => {
+  // ── Vendas do dia escolhido (limites do dia em Brasília, igual ao app)
+  const carregarVendas = useCallback(async (empId: string, dia: string) => {
+    const req = ++reqVendasRef.current;
+    const { startIso, endIso } = limitesDias(dia, dia);
     setLoadingVendas(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('vendas')
       .select(`
         id, created_at, valor_total, desconto, valor_final,
@@ -184,15 +209,17 @@ export default function VendasPage() {
         pagamentos_venda:pagamentos!pagamentos_venda_id_fkey(metodo, valor, bandeira, parcelas)
       `)
       .eq('empresa_id', empId)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    setVendas((data ?? []) as unknown as VendaHistorico[]);
+      .gte('created_at', startIso).lte('created_at', endIso)
+      .order('created_at', { ascending: false });
+    if (req !== reqVendasRef.current) return; // resposta de um dia que já não está na tela
+    if (error) { setErroVendas(mensagemErroBanco(error, 'carregar as vendas')); setVendas([]); }
+    else { setErroVendas(null); setVendas((data ?? []) as unknown as VendaHistorico[]); }
     setLoadingVendas(false);
   }, []);
 
   useEffect(() => {
-    if (aba === 'historico' && empresaId) carregarVendas(empresaId);
-  }, [aba, empresaId, carregarVendas]);
+    if (aba === 'historico' && empresaId) carregarVendas(empresaId, diaHist);
+  }, [aba, empresaId, diaHist, carregarVendas]);
 
   // ── Filtro de produtos (local)
   const produtosFiltrados = useMemo(() => {
@@ -252,11 +279,6 @@ export default function VendasPage() {
     setVendaIncompleta(null); setErro('');
   }
 
-  function mostrarToast(t: Toast) {
-    setToast(t);
-    setTimeout(() => setToast(null), t.tipo === 'aviso' ? 7000 : 3500);
-  }
-
   // ── Finalizar venda
   async function finalizar() {
     if (!empresaId || gravandoRef.current) return;
@@ -264,18 +286,24 @@ export default function VendasPage() {
     if (cart.length === 0) { setErro('Carrinho vazio'); return; }
     // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
     if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível finalizar a venda.'); return; }
+    if (!configPronta) { setErro('Aguarde: carregando as taxas dos cartões.'); return; }
 
     gravandoRef.current = true;
     setFinalizando(true); setErro('');
     try {
       const r = await gravarVenda(supabase, {
         empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN,
-        splits: splitsNumericos, config, total,
+        splits: splitsNumericos, config,
+      });
+      const lancados = splits.filter(sp => parseValorBR(sp.valor) > 0);
+      setSucesso({
+        total, desconto: descontoN, dataIso: new Date().toISOString(),
+        cliente: clientes.find(c => c.id === clienteId) ?? null,
+        itens: cart.map(i => ({ descricao: i.nome, quantidade: i.quantidade, valor: i.precoUnitario })),
+        splits: lancados.length === 0 && resumo.cortesiaAutomatica ? [{ metodo: 'cortesia', valor: '0,00' }] : lancados,
+        avisoEstoque: r.avisoEstoque,
       });
       limparVenda();
-      mostrarToast(r.avisoEstoque
-        ? { texto: r.avisoEstoque, tipo: 'aviso' }
-        : { texto: `Venda de ${fmtBRL(total)} finalizada!`, tipo: 'ok' });
       carregar(empresaId); // atualiza o estoque nos cards
     } catch (e) {
       if (e instanceof ErroVenda) {
@@ -296,13 +324,6 @@ export default function VendasPage() {
   // ── Render ────────────────────────────────────────────────────
   return (
     <div className="bm-page">
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm animate-in fade-in slide-in-from-top-2 max-w-[calc(100vw-32px)] ${toast.tipo === 'aviso' ? 'bg-amber' : 'bg-green'}`}>
-          {toast.tipo === 'aviso' ? <AlertCircle size={16} strokeWidth={2.5} className="flex-shrink-0"/> : <Check size={16} strokeWidth={2.5}/>} {toast.texto}
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
@@ -321,8 +342,75 @@ export default function VendasPage() {
         onChange={key => setAba(key as 'pdv' | 'historico')}
       />
 
+      {/* ══════════ PÓS-VENDA (igual ao app) ══════════ */}
+      {aba === 'pdv' && sucesso && (
+        <div className="max-w-md mx-auto flex flex-col items-center gap-4 py-6">
+          <div className="w-16 h-16 rounded-full bg-green/10 flex items-center justify-center">
+            <Check size={30} className="text-green" strokeWidth={3}/>
+          </div>
+          <div className="text-center">
+            <p style={{ fontFamily: 'var(--font-serif)', fontSize: 22, fontWeight: 600, color: 'var(--color-ink)' }}>Venda finalizada</p>
+            <p className="text-sm font-bold text-green mt-1"><Secret>{fmtBRL(sucesso.total)}</Secret></p>
+            <p className="text-xs text-text-3 mt-0.5">{sucesso.cliente ? sucesso.cliente.nome : 'Venda avulsa'} · {rotuloDataHoraBRT(sucesso.dataIso)}</p>
+          </div>
+
+          <div className="w-full bg-bg border border-border rounded-2xl p-4 flex flex-col gap-1.5">
+            <p className="text-[11px] font-bold text-text-3 uppercase tracking-wide">Itens</p>
+            {sucesso.itens.map((i, idx) => (
+              <div key={idx} className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-text truncate">{i.descricao} × {i.quantidade}</span>
+                <span className="font-semibold text-text flex-shrink-0">{fmtBRL(i.valor * i.quantidade)}</span>
+              </div>
+            ))}
+            {sucesso.desconto > 0 && (
+              <div className="flex items-center justify-between text-sm text-green font-semibold">
+                <span>(−) Desconto</span><span>− {fmtBRL(sucesso.desconto)}</span>
+              </div>
+            )}
+            <p className="text-[11px] font-bold text-text-3 uppercase tracking-wide mt-2">Pagamento</p>
+            {sucesso.splits.map((sp, idx) => (
+              <div key={idx} className="flex items-center justify-between gap-2 text-sm">
+                <span className="font-semibold text-text-2">{rotuloPagamento(config, { metodo: sp.metodo, valor: 0, bandeira: sp.bandeira ?? null, parcelas: sp.parcelas ?? null })}</span>
+                <span className="text-text-3">{fmtBRL(parseValorBR(sp.valor))}</span>
+              </div>
+            ))}
+          </div>
+
+          {sucesso.avisoEstoque && (
+            <div className="w-full flex items-start gap-2 bg-amber/10 border border-amber/20 rounded-xl px-3 py-2.5">
+              <AlertCircle size={14} className="text-amber flex-shrink-0 mt-0.5"/>
+              <p className="text-xs font-semibold text-amber">{sucesso.avisoEstoque}</p>
+            </div>
+          )}
+
+          <div className="w-full flex flex-col gap-2">
+            {!!sucesso.cliente?.telefone && (
+              <button
+                onClick={() => {
+                  const texto = gerarTextoRecibo({
+                    tipo: 'compra',
+                    nome: sucesso.cliente!.nome, valor: sucesso.total, dataIso: sucesso.dataIso, itens: sucesso.itens,
+                    splits: sucesso.splits.map(sp => ({ metodo: sp.metodo, valor: parseValorBR(sp.valor), bandeira: sp.bandeira, parcelas: sp.parcelas })),
+                    desconto: sucesso.desconto, descontoReserva: 0,
+                    nomeBandeira: chave => nomeBandeira(config, chave),
+                  });
+                  window.open(linkWhatsAppRecibo(sucesso.cliente!.telefone!, texto), '_blank');
+                }}
+                className="w-full h-12 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 hover:opacity-90 transition"
+                style={{ background: 'var(--color-green)' }}>
+                <Share2 size={16}/> Enviar recibo por WhatsApp
+              </button>
+            )}
+            <button onClick={() => setSucesso(null)}
+              className="w-full h-12 rounded-2xl text-sm font-bold border border-border text-text-2 hover:bg-bg transition">
+              Nova venda
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ══════════ TAB: PDV ══════════ */}
-      {aba === 'pdv' && (
+      {aba === 'pdv' && !sucesso && (
         <div className="flex flex-col lg:flex-row gap-6 lg:h-[calc(100dvh-220px)]">
 
           {/* ── Coluna esquerda: produtos ── */}
@@ -445,9 +533,9 @@ export default function VendasPage() {
               )}
             </div>
 
-            {/* Cliente + Desconto */}
+            {/* Cliente + Desconto (desconto só com comanda.desconto, igual à comanda) */}
             <div className="bg-surface border border-border rounded-2xl p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className={`grid grid-cols-1 gap-3 ${podeDesconto ? 'sm:grid-cols-2' : ''}`}>
                 <div>
                   <label className={labelCls}>Cliente (opcional)</label>
                   <SearchSelect
@@ -456,6 +544,7 @@ export default function VendasPage() {
                     placeholder="Sem cliente"
                   />
                 </div>
+                {podeDesconto && (
                 <div>
                   <label className={labelCls}>Desconto</label>
                   <div className="flex items-center gap-2">
@@ -482,6 +571,7 @@ export default function VendasPage() {
                     <p className="text-xs text-red font-semibold mt-2">{erroDesconto}</p>
                   )}
                 </div>
+                )}
               </div>
             </div>
 
@@ -489,9 +579,9 @@ export default function VendasPage() {
             <div className="bg-surface border border-border rounded-2xl p-4 flex flex-col gap-4">
               <h3 className="font-semibold text-text">Pagamento</h3>
 
-              {/* Chips de método — cada clique adiciona um pagamento (pode repetir) */}
+              {/* Chips de método — cada clique adiciona um pagamento (pode repetir). Cortesia só com comanda.desconto. */}
               <div className="flex gap-2 flex-wrap">
-                {METODOS_PAG.map(({ id, label, icon: Icon }) => (
+                {METODOS_PAG.filter(m => podeDesconto || m.id !== 'cortesia').map(({ id, label, icon: Icon }) => (
                   <button key={id} onClick={() => adicionarSplit(id)}
                     disabled={!!vendaIncompleta}
                     className="flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold border transition bg-surface border-border text-text-2 hover:border-accent/60 disabled:opacity-40">
@@ -653,12 +743,15 @@ export default function VendasPage() {
             <div className="flex-shrink-0">
               <button
                 onClick={finalizar}
-                disabled={finalizando || cart.length === 0 || !empresaId || !resumo.podeFechar || !!vendaIncompleta}
+                disabled={finalizando || !configPronta || cart.length === 0 || !empresaId || !resumo.podeFechar || !!vendaIncompleta}
                 className="w-full h-12 rounded-2xl bg-primary text-white font-bold text-base hover:opacity-90 transition disabled:opacity-40 flex items-center justify-center gap-2">
                 {finalizando ? 'Finalizando...' : (
                   <><Check size={18} strokeWidth={2.5}/> Finalizar venda · {fmtBRL(total)}</>
                 )}
               </button>
+              {cart.length > 0 && !configPronta && (
+                <p className="text-xs text-center mt-2 font-semibold text-text-3">Carregando as taxas dos cartões…</p>
+              )}
               {cart.length > 0 && !vendaIncompleta && resumo.motivo && (
                 <p className={`text-xs text-center mt-2 font-semibold ${erroDesconto ? 'text-red' : 'text-amber'}`}>
                   {resumo.motivo}
@@ -677,22 +770,51 @@ export default function VendasPage() {
       {/* ══════════ TAB: HISTÓRICO ══════════ */}
       {aba === 'historico' && (
         <div>
-          {vendas.length > 0 && (
-            <div className="flex justify-end mb-4">
-              <ExportButton
-                definicao={definicaoVendas()}
-                getLinhas={() => vendas.map(v => ({ criadoEm: v.created_at, cliente: v.cliente ? (v.cliente as { nome: string }).nome : null, itens: v.itens.map(i => ({ produto: i.produto?.nome ?? '?', quantidade: i.quantidade })), total: v.valor_final, pagamentos: v.pagamentos_venda.map(p => ({ metodo: METODOS_PAG.find(m => m.id === p.metodo)?.label ?? p.metodo, valor: p.valor })) }))}
-              />
+          {/* Seletor de dia (Brasília), igual ao app */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="flex items-center flex-1 sm:flex-none sm:w-80 bg-surface border border-border rounded-2xl p-1">
+              <button onClick={() => setDiaHist(d => somarDias(d, -1))} aria-label="Dia anterior"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-text-2 hover:bg-bg transition">
+                <ChevronLeft size={18}/>
+              </button>
+              <div className="flex-1 text-center">
+                <p className="text-sm font-bold text-text">{diaHist === hojeBRT() ? 'Hoje' : rotuloDiaExtenso(diaHist)}</p>
+                {diaHist === hojeBRT() && <p className="text-[11px] text-text-3">{rotuloDiaExtenso(diaHist)}</p>}
+              </div>
+              <button onClick={() => setDiaHist(d => somarDias(d, 1))} disabled={diaHist >= hojeBRT()} aria-label="Próximo dia"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-text-2 hover:bg-bg transition disabled:opacity-30">
+                <ChevronRight size={18}/>
+              </button>
             </div>
-          )}
+            {!loadingVendas && !erroVendas && vendas.length > 0 && (
+              <div className="flex items-center gap-3 ml-auto">
+                <p className="text-xs font-semibold text-text-3">
+                  {vendas.length} {vendas.length === 1 ? 'venda' : 'vendas'} · <Secret>{fmtBRL(vendas.reduce((acc, v) => acc + Math.round(Number(v.valor_final) * 100), 0) / 100)}</Secret>
+                </p>
+                <ExportButton
+                  definicao={definicaoVendas()}
+                  getLinhas={() => linhasVendas(vendas, m => METODOS_PAG.find(x => x.id === m)?.label ?? m)}
+                />
+              </div>
+            )}
+          </div>
           {loadingVendas ? (
             <div className="flex flex-col gap-3">
               {[1,2,3,4].map(i => <Sk key={i} className="h-20 rounded-2xl"/>)}
             </div>
+          ) : erroVendas ? (
+            <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
+              <AlertCircle size={14} className="text-red flex-shrink-0"/>
+              <p className="text-sm text-red flex-1">{erroVendas}</p>
+              <button onClick={() => { if (empresaId) carregarVendas(empresaId, diaHist); }}
+                className="text-xs font-bold text-primary underline flex-shrink-0">
+                Tentar de novo
+              </button>
+            </div>
           ) : vendas.length === 0 ? (
             <div className="text-center py-16">
               <History size={36} className="mx-auto mb-3 text-text-4"/>
-              <p className="text-text-3 text-sm">Nenhuma venda registrada ainda.</p>
+              <p className="text-text-3 text-sm">Nenhuma venda neste dia.</p>
               <button onClick={() => setAba('pdv')}
                 className="mt-4 px-5 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:opacity-90 transition">
                 Ir para o PDV
@@ -710,7 +832,7 @@ export default function VendasPage() {
                       </p>
                       <span className="text-text-4">·</span>
                       <p className="text-xs text-text-4">
-                        {format(parseISO(v.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                        {rotuloDataHoraBRT(v.created_at)}
                       </p>
                     </div>
 

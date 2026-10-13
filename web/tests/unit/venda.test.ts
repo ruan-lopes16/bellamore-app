@@ -48,7 +48,7 @@ describe('gravarVenda', () => {
     maquininhas: configLegada(null).maquininhas.map(m => ({ ...m, id: 'maq1' })) };
   const itens = alterarQuantidade(adicionarAoCarrinho([], oleo), 'p2', 2); // 10,10
   const dados = (extra: Partial<DadosVenda> = {}): DadosVenda => ({
-    empresaId: 'e1', clienteId: 'c1', itens, desconto: 0.1, config, total: 10,
+    empresaId: 'e1', clienteId: 'c1', itens, desconto: 0.1, config,
     splits: [{ metodo: 'credito', valor: 10, bandeira: 'visa', parcelas: 2 }], ...extra,
   });
   const linhas = { vendas: [{ id: 'v1' }] };
@@ -86,9 +86,19 @@ describe('gravarVenda', () => {
 
   it('total zero sem pagamento grava Cortesia R$ 0', async () => {
     const { db, chamadas } = fakeDb({ awaitavel: true, linhas });
-    await gravarVenda(db, dados({ desconto: 10.1, total: 0, splits: [] }));
+    await gravarVenda(db, dados({ desconto: 10.1, splits: [] }));
     const [pag] = opsDe(chamadas, 'pagamentos')[0][0][1] as [Record<string, unknown>[]];
     expect(pag).toEqual([expect.objectContaining({ metodo: 'cortesia', valor: 0, venda_id: 'v1' })]);
+  });
+
+  it('cortesia decidida pelo total recalculado, nunca por um total vindo da tela (I2)', async () => {
+    // Uma tela com total desatualizado em 0 não vira cortesia: o total real (10,00) foi pago com troco.
+    const { db, chamadas } = fakeDb({ awaitavel: true, linhas });
+    const comTotalVelho = { ...dados({ splits: [{ metodo: 'dinheiro', valor: 20 }] }), total: 0 } as DadosVenda;
+    await gravarVenda(db, comTotalVelho);
+    const [pag] = opsDe(chamadas, 'pagamentos')[0][0][1] as [Record<string, unknown>[]];
+    expect(pag).toEqual([expect.objectContaining({ metodo: 'dinheiro', valor: 20 })]);
+    expect(pag.some(l => l.metodo === 'cortesia')).toBe(false);
   });
 
   it('total não coberto: lança antes de gravar qualquer coisa', async () => {

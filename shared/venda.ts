@@ -48,12 +48,13 @@ export function subtotalVenda(itens: ItemVenda[]): number {
 }
 
 /**
- * Tudo que a gravação precisa. `desconto` já em reais (calcularDesconto); `total` = resumoComanda
- * (usado para a cortesia automática de R$ 0); `splits` com valores numéricos (parseValorBR).
+ * Tudo que a gravação precisa. `desconto` já em reais (calcularDesconto); `splits` com valores
+ * numéricos (parseValorBR). O total NÃO vem da tela: gravarVenda o recalcula (resumoComanda) e usa
+ * esse mesmo número para validar e para a cortesia automática de R$ 0.
  */
 export type DadosVenda = {
   empresaId: string; clienteId: string | null; itens: ItemVenda[]; desconto: number;
-  splits: SplitPagamento[]; config: ConfigCartoes; total: number;
+  splits: SplitPagamento[]; config: ConfigCartoes;
 };
 
 /** Venda gravada. `avisoEstoque` preenchido = venda e pagamentos ok, mas a baixa do estoque falhou. */
@@ -128,8 +129,9 @@ export async function gravarVenda(db: ClienteDb, d: DadosVenda): Promise<Resulta
     avisoEstoque = `Venda registrada, mas a baixa do estoque falhou: ${mensagemErroBanco(eEstoque, 'baixar o estoque')} — ajuste o saldo em Estoque.`;
   }
 
-  // 4. Pagamentos (cortesia R$ 0 automática quando o total é zero e não há pagamento)
-  const linhas = montarPagamentos(d.splits, { empresaId: d.empresaId, vendaId, config: d.config, total: d.total });
+  // 4. Pagamentos (cortesia R$ 0 automática quando o total é zero e não há pagamento). O total é o
+  //    recalculado aqui (o mesmo que validou), nunca um número vindo da tela.
+  const linhas = montarPagamentos(d.splits, { empresaId: d.empresaId, vendaId, config: d.config, total: resumo.total });
   const { error: ePag } = await db.from('pagamentos').insert(linhas);
   if (ePag) {
     throw new ErroVenda('pagamentos',

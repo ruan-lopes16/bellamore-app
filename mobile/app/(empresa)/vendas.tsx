@@ -39,9 +39,11 @@ import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import SuccessCheck from '@/components/SuccessCheck';
 import { SmoothTabs } from '@/components/SmoothTabs';
+import { BotaoExportar } from '@/components/BotaoExportar';
+import { definicaoVendas, linhasVendas } from '@shared/exportacao/vendas';
 import PagamentosEditor, { METODOS_PAGAMENTO, type SplitEditavel } from '@/components/comanda/PagamentosEditor';
 import { calcularDesconto, resumoComanda, parseValorBR, type ModoDesconto } from '@shared/comanda-fechamento';
-import { configLegada, nomeBandeira, type ConfigCartoes } from '@shared/taxas-cartao';
+import { configIndisponivel, AVISO_CARTOES_SEM_TAXA, nomeBandeira, type ConfigCartoes } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import {
   adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda,
@@ -107,11 +109,14 @@ export default function VendasScreen() {
   const empresaId = useAuthStore(s => s.empresaAtiva?.id ?? null);
   const { pode } = usePermissoes();
   const podeVendas = pode('vendas.acessar');
+  // Desconto e Cortesia: mesma regra da comanda (comanda.desconto). Sem a permissão, nada de
+  // campo de desconto nem chip Cortesia; a cortesia automática de total R$ 0 continua valendo.
+  const podeDesconto = pode('comanda.desconto');
   const qc = useQueryClient();
 
   const [aba, setAba] = useState<'nova' | 'historico'>('nova');
   // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084).
-  const [config, setConfig] = useState<ConfigCartoes>(() => configLegada(null));
+  const [config, setConfig] = useState<ConfigCartoes>(() => configIndisponivel());
 
   // Catálogo
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -159,16 +164,14 @@ export default function VendasScreen() {
       supabase.from('clientes')
         .select('id, nome, telefone')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
-      // Erro de leitura não derruba a tela: avisa e cai nas taxas da empresa (084), nunca numa taxa inventada.
+      // Erro de leitura não derruba a tela: avisa e usa configIndisponivel (cartão sem taxa) —
+      // nunca as taxas antigas da 084 nem o padrão.
       carregarConfigCartoes(supabase, empresaId).then(
         c => ({ config: c, erro: null as string | null }),
-        async (e: unknown) => {
-          const { data: emp } = await supabase.from('empresas').select('*').eq('id', empresaId).single();
-          return {
-            config: configLegada(emp as Record<string, unknown> | null),
-            erro: mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões') as string | null,
-          };
-        },
+        (e: unknown) => ({
+          config: configIndisponivel(),
+          erro: `${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões')} ${AVISO_CARTOES_SEM_TAXA}` as string | null,
+        }),
       ),
     ]);
     if (rProdutos.error) setErroCarga(mensagemErroBanco(rProdutos.error, 'carregar os produtos'));
@@ -254,7 +257,7 @@ export default function VendasScreen() {
     try {
       const r = await gravarVenda(supabase, {
         empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN,
-        splits: splitsNumericos, config, total,
+        splits: splitsNumericos, config,
       });
       const lancados = splits.filter(s => parseValorBR(s.valor) > 0);
       setSucesso({
@@ -353,6 +356,7 @@ export default function VendasScreen() {
             <TouchableOpacity
               onPress={() => {
                 const texto = gerarTextoRecibo({
+                  tipo: 'compra',
                   nome: s.cliente!.nome, valor: s.total, dataIso: s.dataIso, itens: s.itens,
                   splits: s.splits.map(sp => ({ metodo: sp.metodo, valor: parseValorBR(sp.valor), bandeira: sp.bandeira, parcelas: sp.parcelas })),
                   desconto: s.desconto, descontoReserva: 0,
@@ -542,7 +546,8 @@ export default function VendasScreen() {
                 )}
               </View>
 
-              {/* ── Desconto (igual ao web: sem chave extra de permissão) ── */}
+              {/* ── Desconto (mesma permissão da comanda: comanda.desconto) ── */}
+              {podeDesconto && (
               <View pointerEvents={travada ? 'none' : 'auto'}>
                 <Text style={{ fontFamily: fonte('700'), fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Desconto</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: erroDesconto ? C.red : C.border }}>
@@ -571,6 +576,7 @@ export default function VendasScreen() {
                   <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.red, marginTop: 6 }}>{erroDesconto}</Text>
                 )}
               </View>
+              )}
 
               {/* ── Resumo ── */}
               <View style={{ backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, overflow: 'hidden' }}>
@@ -594,11 +600,11 @@ export default function VendasScreen() {
                 </View>
               </View>
 
-              {/* ── Pagamento (mesmo bloco da comanda; cortesia sempre disponível, igual ao PDV do web) ── */}
+              {/* ── Pagamento (mesmo bloco da comanda; chip Cortesia só com comanda.desconto, igual à comanda) ── */}
               <PagamentosEditor
                 splits={splits} setSplits={setSplits} config={config}
                 resumo={{ recebido, falta, troco }}
-                permitirCortesia desabilitado={travada}
+                permitirCortesia={podeDesconto} desabilitado={travada}
               />
 
               {!!erro && (
@@ -655,9 +661,17 @@ export default function VendasScreen() {
             </View>
 
             {!loadingVendas && !erroVendas && vendas.length > 0 && (
-              <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.text3, textAlign: 'right' }}>
-                {vendas.length} {vendas.length === 1 ? 'venda' : 'vendas'} · {formatarMoeda(vendas.reduce((s, v) => s + Math.round(Number(v.valor_final) * 100), 0) / 100)}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.text3, textAlign: 'right' }}>
+                  {vendas.length} {vendas.length === 1 ? 'venda' : 'vendas'} · {formatarMoeda(vendas.reduce((s, v) => s + Math.round(Number(v.valor_final) * 100), 0) / 100)}
+                </Text>
+                {/* Mesma exportação do web (shared/exportacao/vendas.ts), com as vendas do dia */}
+                <BotaoExportar
+                  definicao={definicaoVendas()}
+                  getLinhas={() => linhasVendas(vendas, m => METODOS_PAGAMENTO.find(x => x.key === m)?.label ?? m)}
+                  cor={C.text2}
+                />
+              </View>
             )}
 
             {loadingVendas ? (

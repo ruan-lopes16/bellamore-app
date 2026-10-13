@@ -41,11 +41,13 @@ describe('cobrança pela configuração de cartões (maquininhas)', () => {
   it('montarPagamentos omite maquininha_id no legado (coluna só existe depois da 086)', () => {
     const src = ler('shared/comanda-fechamento.ts');
     const corpo = src.slice(src.indexOf('export function montarPagamentos('));
-    // Toda atribuição de maquininha_id no INSERT fica atrás do "legado ? {} : { ... }"
+    // A única atribuição de maquininha_id no INSERT é a de colunaMaquininha, atrás do
+    // "legado (ou indisponível com null) ? {} : { ... }"; as linhas usam só colunaMaquininha(...).
     const atribuicoes = corpo.match(/maquininha_id:/g) ?? [];
-    const guardadas = corpo.match(/config\.legado \? \{\} : \{ maquininha_id:/g) ?? [];
-    expect(atribuicoes.length).toBeGreaterThan(0);
-    expect(guardadas.length).toBe(atribuicoes.length);
+    const guardadas = corpo.match(/ctx\.config\.legado \|\| \(ctx\.config\.indisponivel && id === null\) \? \{\} : \{ maquininha_id: id \}/g) ?? [];
+    expect(atribuicoes.length).toBe(1);
+    expect(guardadas.length).toBe(1);
+    expect((corpo.match(/\.\.\.colunaMaquininha\(/g) ?? []).length).toBe(2);
     expect(src).toContain('maquininha_id?: string | null');
   });
 
@@ -166,5 +168,86 @@ describe('Configurações → Cartões (app)', () => {
       'Disponível após a atualização do sistema', 'Restaurar']) {
       expect(src).toContain(f);
     }
+  });
+});
+
+describe('Revisão final — correções (I1–I5, M1, M2, desconto/cortesia)', () => {
+  const comandaWeb = 'web/app/(app)/comanda/page.tsx';
+  const comandaApp = 'mobile/app/(empresa)/nova-comanda.tsx';
+  const pdvWeb = 'web/app/(app)/vendas/page.tsx';
+  const vendasApp = 'mobile/app/(empresa)/vendas.tsx';
+
+  it('I2: gravarVenda usa o total recalculado (resumo.total), DadosVenda sem total', () => {
+    const src = ler('shared/venda.ts');
+    expect(src).toContain('total: resumo.total');
+    expect(src).not.toContain('d.total');
+    for (const t of [pdvWeb, vendasApp]) expect(ler(t), t).not.toMatch(/splits: splitsNumericos, config, total/);
+  });
+
+  it('I3: histórico do web por dia em Brasília, com contador de requisição e erro visível', () => {
+    const src = ler(pdvWeb);
+    for (const f of ['limitesDias(', 'somarDias(', 'hojeBRT(', 'reqVendasRef', 'setErroVendas(', 'Tentar de novo', "gte('created_at'", "lte('created_at'"]) expect(src, f).toContain(f);
+    expect(src).not.toContain('.limit(50)');
+  });
+  it('I3: pós-venda do web com recibo por WhatsApp (telefone carregado) e aviso de estoque', () => {
+    const src = ler(pdvWeb);
+    for (const f of ["select('id, nome, telefone')", 'gerarTextoRecibo(', 'linkWhatsAppRecibo(', 'Venda finalizada', 'avisoEstoque', 'Nova venda']) expect(src, f).toContain(f);
+    expect(src).not.toContain('mostrarToast(');
+  });
+  it('I3: exportar o histórico no app e no web pela mesma definição e montagem', () => {
+    for (const t of [pdvWeb, vendasApp]) {
+      const src = ler(t);
+      expect(src, t).toContain('definicaoVendas()');
+      expect(src, t).toContain('linhasVendas(vendas');
+    }
+    expect(ler(vendasApp)).toContain('<BotaoExportar');
+  });
+
+  it('I4: recibo de venda é "compra" nas duas plataformas; a comanda segue no padrão', () => {
+    for (const t of [pdvWeb, vendasApp]) expect(ler(t), t).toContain("tipo: 'compra'");
+    for (const t of [comandaWeb, comandaApp]) expect(ler(t), t).not.toContain("tipo: 'compra'");
+  });
+
+  it('I5: venda dos produtos da comanda com id gerado no cliente e INSERT sem .select()', () => {
+    for (const t of [comandaWeb, comandaApp]) {
+      const src = ler(t);
+      expect(src, t).toContain('novoUuid()');
+      expect(src, t).not.toMatch(/from\('vendas'\)\.insert\(\{[\s\S]{0,400}?\}\)\.select\('id'\)/);
+      expect(src, t).toMatch(/venda_id:\s+vendaId/);
+    }
+  });
+
+  it('M1: nenhuma tela de cobrança cai nas taxas da 084 nem relê empresas quando a configuração falha', () => {
+    for (const t of [comandaWeb, comandaApp, pdvWeb, vendasApp]) {
+      const src = ler(t);
+      expect(src, t).toContain('configIndisponivel()');
+      expect(src, t).toContain('AVISO_CARTOES_SEM_TAXA');
+      expect(src, t).not.toContain('configLegada(');
+      expect(src, t).not.toMatch(/from\('empresas'\)\.select\('\*'\)/);
+    }
+    const fech = ler('shared/comanda-fechamento.ts');
+    expect(fech).toContain('ctx.config.indisponivel && id === null');
+  });
+
+  it('M2: comanda e PDV do web só cobram depois de a configuração carregar', () => {
+    for (const t of [comandaWeb, pdvWeb]) {
+      const src = ler(t);
+      expect(src, t).toContain('const [configPronta');
+      expect(src, t).toContain('setConfigPronta(true)');
+      expect(src, t).toMatch(/disabled=\{[^}]*!configPronta/);
+      expect(src, t).toContain('Carregando as taxas dos cartões');
+    }
+  });
+
+  it('desconto e Cortesia da venda seguem comanda.desconto, igual à comanda (web e app)', () => {
+    const web = ler(pdvWeb);
+    expect(web).toContain("pode('comanda.desconto')");
+    expect(web).toContain('{podeDesconto && (');
+    expect(web).toContain("METODOS_PAG.filter(m => podeDesconto || m.id !== 'cortesia')");
+    const app = ler(vendasApp);
+    expect(app).toContain("pode('comanda.desconto')");
+    expect(app).toContain('{podeDesconto && (');
+    expect(app).toContain('permitirCortesia={podeDesconto}');
+    expect(app).not.toMatch(/permitirCortesia\s+desabilitado/);
   });
 });
