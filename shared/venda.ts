@@ -9,6 +9,15 @@ import { mensagemErroBanco } from './erros';
 import type { ClienteDb } from './kpis-financeiros-consultas';
 import type { ConfigCartoes } from './taxas-cartao';
 
+/** Cliente do banco para a venda: tabelas (caminho antigo) e `rpc` (função da 087). Estrutural. */
+export type ClienteDbVenda = ClienteDb & {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc(fn: string, args?: Record<string, unknown>): any;
+};
+
+/** Função ainda não criada no banco (a 087 não foi rodada): PostgREST devolve PGRST202. */
+const funcaoInexistente = (e: { code?: string | null } | null | undefined) => e?.code === 'PGRST202' || e?.code === '42883';
+
 /** Produto de venda como vem do catálogo (`produtos` com `tipo = 'venda'`). */
 export type ProdutoVenda = { id: string; nome: string; preco_venda: number; estoque_atual: number; unidade: string };
 
@@ -76,13 +85,15 @@ export class ErroVenda extends Error {
 }
 
 /**
- * Grava a venda: `vendas` → `venda_itens` → `estoque_movimentos` (saída; o trigger
- * trg_atualizar_estoque baixa o saldo) → `pagamentos` (`venda_id`, via montarPagamentos).
- * Confere o total antes de gravar qualquer coisa. Falha nos itens tenta desfazer a venda.
- * Falha no estoque não interrompe (vira `avisoEstoque`). Falha nos pagamentos lança com
- * `vendaId` (a venda já existe). Lança sempre `ErroVenda`.
+ * Grava a venda. Caminho principal: a função `registrar_venda_avulsa` (migration 087) grava venda,
+ * itens, saída de estoque e pagamentos numa transação só, travando o estoque — qualquer erro desfaz
+ * tudo (`ErroVenda` com `vendaId` null: pode tentar de novo). Sem a 087 (`PGRST202`), usa o caminho
+ * antigo: `vendas` → `venda_itens` → `estoque_movimentos` (saída; o trigger trg_atualizar_estoque
+ * baixa o saldo) → `pagamentos` (`venda_id`, via montarPagamentos), com cada etapa conferida — falha
+ * nos itens tenta desfazer a venda, falha no estoque vira `avisoEstoque`, falha nos pagamentos lança
+ * com `vendaId`. Confere o total antes de gravar qualquer coisa. Lança sempre `ErroVenda`.
  */
-export async function gravarVenda(db: ClienteDb, d: DadosVenda): Promise<ResultadoVenda> {
+export async function gravarVenda(db: ClienteDbVenda, d: DadosVenda): Promise<ResultadoVenda> {
   if (d.itens.length === 0) throw new ErroVenda('venda', 'Carrinho vazio.', null);
   const subtotal = subtotalVenda(d.itens);
   const desconto = centavos(d.desconto);
@@ -90,6 +101,24 @@ export async function gravarVenda(db: ClienteDb, d: DadosVenda): Promise<Resulta
   const resumo = resumoComanda({ subtotal, desconto, descontoReserva: 0, splits: d.splits });
   if (!resumo.podeFechar) throw new ErroVenda('venda', resumo.motivo ?? 'Pagamento não cobre o total.', null);
 
+  // 0. Tudo ou nada pela função do banco (087). O total é o recalculado aqui (e de novo na função).
+  const pagamentosRpc = montarPagamentos(d.splits, { empresaId: d.empresaId, config: d.config, total: resumo.total })
+    .map(({ empresa_id: _e, comanda_id: _c, venda_id: _v, ...resto }) => resto);
+  const { data: idRpc, error: eRpc } = await db.rpc('registrar_venda_avulsa', {
+    p_empresa: d.empresaId,
+    p_cliente: d.clienteId || null,
+    p_desconto: desconto,
+    p_itens: d.itens.map(i => ({ produto_id: i.produtoId, quantidade: i.quantidade, preco_unitario: i.precoUnitario })),
+    p_pagamentos: pagamentosRpc,
+  });
+  if (!funcaoInexistente(eRpc)) {
+    if (eRpc || typeof idRpc !== 'string' || !idRpc) {
+      throw new ErroVenda('venda', mensagemErroBanco(eRpc, 'registrar a venda'), null);
+    }
+    return { vendaId: idRpc, avisoEstoque: null };
+  }
+
+  // Sem a 087: caminho antigo em 4 passos.
   // 1. Venda (valor_final é coluna gerada: valor_total − desconto)
   const { data: venda, error: eVenda } = await db.from('vendas').insert({
     empresa_id: d.empresaId,
