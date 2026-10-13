@@ -1168,7 +1168,8 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 **Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
 
 **Pendências para produção:**
-- Rodar `087_registrar_venda_avulsa.sql` no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Ordem livre em relação ao deploy (sem a 087 o caminho antigo continua). Depois, uma venda de teste no PIX e conferir em Histórico e Estoque.
+- ~~Rodar `087_registrar_venda_avulsa.sql` no SQL Editor~~ — **aplicada em produção em 2026-10-13** (conferido no schema da API: `/rpc/registrar_venda_avulsa` com `p_empresa, p_cliente, p_desconto, p_itens, p_pagamentos`).
+- Depois do deploy: uma venda de teste no PIX e conferir em Histórico e Estoque.
 
 **Registrados, não corrigidos:**
 - Sem chave de idempotência: queda de rede depois do commit mostra "Sem resposta do servidor… confira no Histórico" (não libera duplicar às cegas, mas não detecta sozinho).
