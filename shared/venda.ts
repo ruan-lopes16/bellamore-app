@@ -15,8 +15,11 @@ export type ClienteDbVenda = ClienteDb & {
   rpc(fn: string, args?: Record<string, unknown>): any;
 };
 
-/** Função ainda não criada no banco (a 087 não foi rodada): PostgREST devolve PGRST202. */
-const funcaoInexistente = (e: { code?: string | null } | null | undefined) => e?.code === 'PGRST202' || e?.code === '42883';
+/**
+ * Função ainda não criada no banco (a 087 não foi rodada): PostgREST devolve PGRST202. Só esse código:
+ * `42883` vem do Postgres quando a função EXISTE mas algo dentro dela falta, e não deve cair no caminho antigo.
+ */
+const funcaoInexistente = (e: { code?: string | null } | null | undefined) => e?.code === 'PGRST202';
 
 /** Produto de venda como vem do catálogo (`produtos` com `tipo = 'venda'`). */
 export type ProdutoVenda = { id: string; nome: string; preco_venda: number; estoque_atual: number; unidade: string };

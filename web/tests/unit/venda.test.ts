@@ -107,6 +107,15 @@ describe('gravarVenda', () => {
       expect(e.vendaId).toBeNull();
     });
 
+    it('42883 (algo dentro da função falta) é erro, não cai no caminho antigo', async () => {
+      const { db, chamadas } = fakeDb({ awaitavel: true, linhas,
+        rpc: () => ({ data: null, error: { code: '42883', message: 'function trim_scale(numeric) does not exist' } }) });
+      const e = await gravarVenda(db, dados()).catch(x => x);
+      expect(e).toBeInstanceOf(ErroVenda);
+      expect(e.vendaId).toBeNull();
+      expect(chamadas).toHaveLength(0);
+    });
+
     it('sem a 087 (PGRST202) usa o caminho antigo em 4 passos', async () => {
       const { db, chamadas, rpcs } = fakeDb({ awaitavel: true, linhas }); // sem `rpc` = PGRST202
       const r = await gravarVenda(db, dados());
