@@ -286,11 +286,13 @@ export default function VendasScreen() {
       carregar(); // atualiza o estoque nos cards
     } catch (e) {
       if (e instanceof ErroVenda) {
+        // Qualquer erro da gravação (estoque insuficiente, produto indisponível, sem resposta do
+        // servidor...) recarrega o catálogo: saldo dos cards e limite do carrinho voltam a ser reais.
         if (e.vendaId) {
           setVendaIncompleta(e.vendaId);
           invalidarFinanceiro(qc); // a venda existe e já conta no faturamento
-          carregar(); // o estoque pode já ter sido baixado
         }
+        carregar();
         setErro(e.message);
       } else {
         setErro(e instanceof Error ? e.message : 'Não foi possível finalizar a venda.');

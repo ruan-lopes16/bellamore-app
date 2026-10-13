@@ -83,6 +83,17 @@ describe('gravarVenda', () => {
       expect(rpcs[0].args.p_pagamentos).toEqual([expect.objectContaining({ metodo: 'cortesia', valor: 0 })]);
     });
 
+    it('erro sem code (rede caiu): não libera nova tentativa e manda conferir no Histórico', async () => {
+      const { db, chamadas } = fakeDb({ awaitavel: true, linhas,
+        rpc: () => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' } }) });
+      const e = await gravarVenda(db, dados()).catch(x => x);
+      expect(e).toBeInstanceOf(ErroVenda);
+      expect(e.etapa).toBe('venda');
+      expect(e.vendaId).toBeNull();
+      expect(e.message).toBe('venda: Sem resposta do servidor: a venda pode ter sido registrada. Confira no Histórico antes de tentar de novo.');
+      expect(chamadas).toHaveLength(0);
+    });
+
     it('erro da função (ex.: estoque insuficiente) vira ErroVenda sem vendaId e não tenta o caminho antigo', async () => {
       const { db, chamadas } = fakeDb({ awaitavel: true, linhas,
         rpc: () => ({ data: null, error: { code: 'P0001', message: 'Estoque insuficiente: Óleo (restam 1)' } }) });

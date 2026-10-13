@@ -17,6 +17,10 @@
 --    (estoque.acessar), que quem só tem vendas.acessar não tem.
 --  - Id da venda gerado aqui (sem RETURNING, que exigiria a policy de SELECT).
 --  - A baixa do saldo continua no trigger atualizar_estoque (saida).
+--  - A trava só protege venda avulsa contra venda avulsa: a comanda continua sem trava e pode
+--    vender o mesmo produto ao mesmo tempo (decisão do dono).
+--  - Mudar a assinatura desta função no futuro faz clientes antigos receberem PGRST202 e caírem
+--    no caminho não atômico; por isso, mudar sempre com uma função nova e manter esta.
 --  Requer a 086 (pagamentos.maquininha_id).
 --
 -- Rollback:
@@ -42,6 +46,7 @@ declare
   v_pago     numeric(10,2);
   v_nome     text;
   v_saldo    numeric;
+  v_vendavel boolean;
   r          record;
 begin
   if not tem_permissao(p_empresa, 'vendas.acessar') then
@@ -61,8 +66,11 @@ begin
   select round(sum(round(i.preco_unitario, 2) * i.quantidade), 2) into v_total
     from jsonb_to_recordset(p_itens) as i(produto_id uuid, quantidade numeric, preco_unitario numeric);
 
-  if v_desconto < 0 or v_desconto > v_total then
-    raise exception 'O desconto não pode ser maior que o subtotal';
+  if v_desconto < 0 then
+    raise exception 'Desconto inválido.';
+  end if;
+  if v_desconto > v_total then
+    raise exception 'O desconto não pode ser maior que o subtotal.';
   end if;
 
   -- Pagamentos
@@ -97,11 +105,14 @@ begin
      order by i.produto_id
   loop
     perform pg_advisory_xact_lock(hashtextextended('venda_estoque:' || r.produto_id::text, 0));
-    select pr.nome, pr.estoque_atual into v_nome, v_saldo
+    select pr.nome, pr.estoque_atual, (pr.tipo = 'venda' and pr.ativo) into v_nome, v_saldo, v_vendavel
       from public.produtos pr
-     where pr.id = r.produto_id and pr.empresa_id = p_empresa and pr.tipo = 'venda' and pr.ativo;
+     where pr.id = r.produto_id and pr.empresa_id = p_empresa;
     if not found then
       raise exception 'Produto indisponível para venda.';
+    end if;
+    if not v_vendavel then
+      raise exception 'Produto indisponível para venda: %.', v_nome;
     end if;
     if coalesce(v_saldo, 0) < r.qtd then
       raise exception 'Estoque insuficiente: % (restam %)', v_nome, trim_scale(coalesce(v_saldo, 0));
@@ -116,11 +127,13 @@ begin
 
   insert into public.venda_itens (empresa_id, venda_id, produto_id, quantidade, preco_unitario)
   select p_empresa, v_venda, i.produto_id, i.quantidade, round(i.preco_unitario, 2)
-    from jsonb_to_recordset(p_itens) as i(produto_id uuid, quantidade numeric, preco_unitario numeric);
+    from jsonb_to_recordset(p_itens) as i(produto_id uuid, quantidade numeric, preco_unitario numeric)
+   order by i.produto_id;
 
   insert into public.estoque_movimentos (empresa_id, produto_id, tipo, quantidade, motivo)
   select p_empresa, i.produto_id, 'saida', i.quantidade, 'Venda avulsa'
-    from jsonb_to_recordset(p_itens) as i(produto_id uuid, quantidade numeric);
+    from jsonb_to_recordset(p_itens) as i(produto_id uuid, quantidade numeric)
+   order by i.produto_id;
 
   insert into public.pagamentos
     (empresa_id, venda_id, valor, metodo, bandeira, parcelas, taxa_perc, valor_liquido, maquininha_id, status)

@@ -115,6 +115,11 @@ export async function gravarVenda(db: ClienteDbVenda, d: DadosVenda): Promise<Re
     p_pagamentos: pagamentosRpc,
   });
   if (!funcaoInexistente(eRpc)) {
+    // Erro SEM código = a chamada nem chegou a uma resposta do Postgres/PostgREST (rede caiu): o
+    // servidor pode ter gravado a venda. Não libera "tentar de novo" às cegas: manda conferir no Histórico.
+    if (eRpc && !eRpc.code) {
+      throw new ErroVenda('venda', 'Sem resposta do servidor: a venda pode ter sido registrada. Confira no Histórico antes de tentar de novo.', null);
+    }
     if (eRpc || typeof idRpc !== 'string' || !idRpc) {
       throw new ErroVenda('venda', mensagemErroBanco(eRpc, 'registrar a venda'), null);
     }

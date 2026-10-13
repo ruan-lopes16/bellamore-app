@@ -39,6 +39,16 @@ describe('migration 087 — registrar_venda_avulsa', () => {
     expect(corpo).toContain('insert into public.pagamentos');
     expect(corpo).toContain("'venda avulsa'");
   });
+  it('baixa de estoque na mesma ordem das travas (order by produto_id no loop e nos 2 inserts)', () => {
+    expect(corpo.match(/order by i.produto_id/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+  it('separa desconto inválido de desconto maior que o subtotal', () => {
+    expect(corpo).toContain("'desconto inválido.'");
+    expect(corpo).toContain("'o desconto não pode ser maior que o subtotal.'");
+  });
+  it('diz qual produto está indisponível para venda', () => {
+    expect(corpo).toContain("'produto indisponível para venda: %.'");
+  });
   it('execução só para authenticated e recarrega o schema', () => {
     expect(corpo).toMatch(/revoke all on function public\.registrar_venda_avulsa\(uuid, uuid, numeric, jsonb, jsonb\) from public, anon/);
     expect(corpo).toMatch(/grant execute on function public\.registrar_venda_avulsa\(uuid, uuid, numeric, jsonb, jsonb\) to authenticated/);

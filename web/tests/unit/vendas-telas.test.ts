@@ -44,4 +44,16 @@ describe('tela de Vendas do web', () => {
   it('app não troca config boa de cartões por configIndisponivel numa recarga com erro', () => {
     expect(app).toContain('configCarregadaRef');
   });
+
+  it('qualquer ErroVenda recarrega o catálogo (carregar fora do if (e.vendaId)), nas duas telas', () => {
+    for (const [nome, fonte] of [['web', web], ['app', app]] as const) {
+      const i = fonte.indexOf('} catch (e) {', fonte.indexOf('await gravarVenda'));
+      const trecho = fonte.slice(i, fonte.indexOf('} finally', i));
+      const ifIdx = trecho.indexOf('if (e.vendaId) {');
+      const fechaIf = trecho.indexOf('\n        }', ifIdx);
+      expect(ifIdx, nome).toBeGreaterThan(-1);
+      expect(trecho.slice(ifIdx, fechaIf), nome).not.toContain('carregar(');
+      expect(trecho.slice(fechaIf), nome).toMatch(/carregar\(/);
+    }
+  });
 });
