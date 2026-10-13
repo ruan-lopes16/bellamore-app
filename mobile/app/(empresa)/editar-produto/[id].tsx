@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform,
@@ -19,7 +19,7 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
@@ -164,6 +164,15 @@ function TipoSelector({ value, onChange }: { value: TipoProduto; onChange: (v: T
   );
 }
 
+/** Invalida tudo que embute dados do produto: lista, movimentos (nome/unidade) e o alerta do Dashboard. */
+function invalidarEstoque(qc: QueryClient, empresaId: string) {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: ['estoque', empresaId] }),
+    qc.invalidateQueries({ queryKey: ['estoque-movimentos'] }),
+    qc.invalidateQueries({ queryKey: ['estoque-baixo'] }),
+  ]);
+}
+
 // ── Tela ─────────────────────────────────────────────────────
 
 export default function EditarProdutoScreen() {
@@ -171,12 +180,15 @@ export default function EditarProdutoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { empresaAtiva } = useAuthStore();
   const qc = useQueryClient();
-  const { unidadesVisiveis } = useEstoque();
+  const { unidadesVisiveis, erroUnidades } = useEstoque();
+  const salvandoRef = useRef(false);
 
   const [nome,       setNome]       = useState('');
   const [tipo,       setTipo]       = useState<TipoProduto>('material');
   const [categoria,  setCategoria]  = useState('outros');
   const [unidade,    setUnidade]    = useState('');
+  /** Unidade gravada no produto: fica sempre no seletor, mesmo oculta pela empresa e mesmo após trocar de chip. */
+  const [unidadeOriginal, setUnidadeOriginal] = useState<string | null>(null);
   const [qtdPorUn,   setQtdPorUn]   = useState('');
   const [estAtual,   setEstAtual]   = useState('0');
   const [estMin,     setEstMin]     = useState('0');
@@ -191,8 +203,8 @@ export default function EditarProdutoScreen() {
 
   // A unidade atual do produto sempre aparece, mesmo se a empresa a ocultou.
   const opcoesUnidade = useMemo(
-    () => unidadesParaSeletor(unidadesVisiveis, unidade || null).map((u) => ({ key: u, label: rotuloUnidade(u) === u ? u : `${rotuloUnidade(u)} (${u})` })),
-    [unidadesVisiveis, unidade],
+    () => unidadesParaSeletor(unidadesVisiveis, unidadeOriginal).map((u) => ({ key: u, label: rotuloUnidade(u) === u ? u : `${rotuloUnidade(u)} (${u})` })),
+    [unidadesVisiveis, unidadeOriginal],
   );
   // Categoria legada (fora do catálogo) vira um chip extra selecionado, para não sumir.
   const opcoesCategoria = useMemo(() => {
@@ -232,6 +244,7 @@ export default function EditarProdutoScreen() {
           setTipo(data.tipo === 'venda' ? 'venda' : 'material');
           setCategoria(data.categoria ?? 'outros');
           setUnidade(data.unidade ?? 'un');
+          setUnidadeOriginal(data.unidade ?? 'un');
           setQtdPorUn(qtd > 1 ? formatarQuantidadeBR(qtd) : '');
           setEstAtual(formatarQuantidadeBR(atual));
           setEstMin(formatarQuantidadeBR(minimo));
@@ -260,7 +273,7 @@ export default function EditarProdutoScreen() {
   }
 
   async function handleSalvar() {
-    if (!empresaAtiva || !id || !original) return;
+    if (!empresaAtiva || !id || !original || salvandoRef.current) return;
     const r = montarProduto(
       { nome, tipo, categoria, unidade, qtdPorUnidade: qtdPorUn, estoqueAtual: estAtual, estoqueMinimo: estMin, precoCusto: custo, precoVenda },
       { empresaId: empresaAtiva.id, editando: true, original },
@@ -270,6 +283,7 @@ export default function EditarProdutoScreen() {
       return;
     }
 
+    salvandoRef.current = true;
     setSalvando(true);
     try {
       const { data, error } = await supabase.from('produtos')
@@ -283,9 +297,10 @@ export default function EditarProdutoScreen() {
         Alert.alert('Não foi possível salvar', mensagemErroBanco({ code: '42501' }, 'salvar este produto'));
         return;
       }
-      await qc.invalidateQueries({ queryKey: ['estoque', empresaAtiva.id] });
+      await invalidarEstoque(qc, empresaAtiva.id);
       router.back();
     } finally {
+      salvandoRef.current = false;
       setSalvando(false);
     }
   }
@@ -317,7 +332,7 @@ export default function EditarProdutoScreen() {
           return;
         }
       }
-      await qc.invalidateQueries({ queryKey: ['estoque', empresaAtiva.id] });
+      await invalidarEstoque(qc, empresaAtiva.id);
       router.back();
     } finally {
       setExcluindo(false);
@@ -373,6 +388,11 @@ export default function EditarProdutoScreen() {
 
           <ChipSelector label="Categoria" options={opcoesCategoria} value={categoria} onChange={setCategoria} />
 
+          {!!erroUnidades && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4, marginBottom: 12 }}>
+              Não foi possível carregar as unidades da empresa; mostrando a lista padrão.
+            </Text>
+          )}
           <ChipSelector label="Unidade de medida" options={opcoesUnidade} value={unidade} onChange={setUnidade} />
 
           {unidadePedeQtdPorUnidade(unidade) && (

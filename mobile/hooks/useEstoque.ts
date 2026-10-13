@@ -79,6 +79,7 @@ export function useEstoque() {
     refetch: query.refetch,
     unidadesVisiveis: unidadesQuery.data?.unidades ?? null,
     unidadesDisponivel: unidadesQuery.data?.disponivel ?? false,
+    erroUnidades: unidadesQuery.error ? (unidadesQuery.error instanceof Error ? unidadesQuery.error.message : 'Não foi possível carregar as unidades.') : null,
     movimentar,
     salvarUnidades,
   };

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useState, useMemo, useRef } from 'react';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   View, Text, ScrollView, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform,
@@ -164,13 +164,23 @@ function TipoSelector({ value, onChange }: { value: TipoProduto; onChange: (v: T
   );
 }
 
+/** Invalida tudo que embute dados do produto: lista, movimentos (nome/unidade) e o alerta do Dashboard. */
+function invalidarEstoque(qc: QueryClient, empresaId: string) {
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: ['estoque', empresaId] }),
+    qc.invalidateQueries({ queryKey: ['estoque-movimentos'] }),
+    qc.invalidateQueries({ queryKey: ['estoque-baixo'] }),
+  ]);
+}
+
 // ── Tela ─────────────────────────────────────────────────────
 
 export default function NovoProdutoScreen() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const qc = useQueryClient();
-  const { unidadesVisiveis } = useEstoque();
+  const { unidadesVisiveis, erroUnidades } = useEstoque();
+  const salvandoRef = useRef(false);
 
   const opcoesUnidade = useMemo(
     () => unidadesParaSeletor(unidadesVisiveis).map((u) => ({ key: u, label: rotuloUnidade(u) === u ? u : `${rotuloUnidade(u)} (${u})` })),
@@ -204,7 +214,7 @@ export default function NovoProdutoScreen() {
   if (!fontsLoaded) return null;
 
   async function handleSalvar() {
-    if (!empresaAtiva) return;
+    if (!empresaAtiva || salvandoRef.current) return;
     const r = montarProduto(
       { nome, tipo, categoria, unidade, qtdPorUnidade: qtdPorUn, estoqueAtual: estAtual, estoqueMinimo: estMin, precoCusto: custo, precoVenda },
       { empresaId: empresaAtiva.id, editando: false },
@@ -214,6 +224,7 @@ export default function NovoProdutoScreen() {
       return;
     }
 
+    salvandoRef.current = true;
     setLoading(true);
     try {
       const { error } = await supabase.from('produtos').insert(r.payload);
@@ -221,9 +232,10 @@ export default function NovoProdutoScreen() {
         Alert.alert('Não foi possível cadastrar', mensagemErroBanco(error, 'cadastrar produto'));
         return;
       }
-      await qc.invalidateQueries({ queryKey: ['estoque', empresaAtiva.id] });
+      await invalidarEstoque(qc, empresaAtiva.id);
       router.back();
     } finally {
+      salvandoRef.current = false;
       setLoading(false);
     }
   }
@@ -270,6 +282,11 @@ export default function NovoProdutoScreen() {
 
           <ChipSelector label="Categoria" options={opcoesCategoria} value={categoria} onChange={setCategoria} />
 
+          {!!erroUnidades && (
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4, marginBottom: 12 }}>
+              Não foi possível carregar as unidades da empresa; mostrando a lista padrão.
+            </Text>
+          )}
           <ChipSelector label="Unidade de medida" options={opcoesUnidade} value={unidade} onChange={setUnidade} />
 
           {unidadePedeQtdPorUnidade(unidade) && (
