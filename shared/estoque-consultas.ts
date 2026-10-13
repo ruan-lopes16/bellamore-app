@@ -87,14 +87,14 @@ export async function movimentarEstoque(
   const { error: eIns } = await db.from('estoque_movimentos').insert({
     produto_id: d.produto.id, empresa_id: d.empresaId, tipo: d.tipo, quantidade: d.quantidade, motivo: motivo || null,
   });
-  if (eIns) throw new Error(mensagemErroBanco(eIns, 'movimentar o estoque'));
+  if (eIns) throw new Error(eIns.code ? mensagemErroBanco(eIns, 'movimentar o estoque') : SEM_RESPOSTA);
   const novo = d.tipo === 'entrada' ? d.produto.estoque_atual + d.quantidade : d.produto.estoque_atual - d.quantidade;
   return { novoSaldo: Math.round(novo * 1000) / 1000 };
 }
 
 /** Tabela inexistente (a 088 não foi rodada). */
 const tabelaInexistente = (e: { code?: string | null; message?: string | null }) =>
-  e.code === 'PGRST205' || e.code === '42P01' || /could not find the table|does not exist/i.test(e.message ?? '');
+  e.code === 'PGRST205' || e.code === '42P01' || /could not find the table/i.test(e.message ?? '');
 
 /**
  * Unidades visíveis da empresa. `unidades: null` = usar o padrão; `disponivel: false` = sem a 088

@@ -71,7 +71,19 @@ describe('movimentarEstoque', () => {
     expect(rpcs).toHaveLength(0);
     expect(chamadas).toHaveLength(0);
   });
+  it('rpc sem data e sem erro avisa para conferir antes de repetir', async () => {
+    const { db } = fakeDb({ rpc: () => ({ data: null, error: null }) });
+    await expect(movimentarEstoque(db, dados)).rejects.toThrow('Sem resposta do servidor: a movimentação pode ter sido registrada.');
+  });
+  it('rpc com saldo não numérico lança aviso (nunca sucesso falso)', async () => {
+    const { db } = fakeDb({ rpc: () => ({ data: 'abc', error: null }) });
+    await expect(movimentarEstoque(db, dados)).rejects.toThrow('Sem resposta do servidor');
+  });
   describe('sem a 088 (PGRST202): caminho antigo', () => {
+    it('insert com erro sem code (rede) avisa para conferir antes de repetir', async () => {
+      const { db } = fakeDb({ awaitavel: true, erroTabelasCodigo: { estoque_movimentos: { code: '', message: 'TypeError: Failed to fetch' } } });
+      await expect(movimentarEstoque(db, dados)).rejects.toThrow('Sem resposta do servidor: a movimentação pode ter sido registrada. Confira em Movimentações antes de repetir.');
+    });
     it('saída maior que o saldo da tela é recusada sem gravar', async () => {
       const { db, chamadas } = fakeDb({ awaitavel: true });
       await expect(movimentarEstoque(db, { ...dados, quantidade: 9 })).rejects.toThrow('Estoque insuficiente: Creme (restam 5 un)');
@@ -86,7 +98,7 @@ describe('movimentarEstoque', () => {
       expect(await movimentarEstoque(db, { ...dados, tipo: 'entrada', motivo: '' })).toEqual({ novoSaldo: 7 });
     });
     it('erro do insert lança (nunca sucesso falso)', async () => {
-      const { db } = fakeDb({ awaitavel: true, erroTabelas: { estoque_movimentos: 'new row violates row-level security policy' } });
+      const { db } = fakeDb({ awaitavel: true, erroTabelasCodigo: { estoque_movimentos: { code: '42501', message: 'new row violates row-level security policy' } } });
       await expect(movimentarEstoque(db, dados)).rejects.toThrow('Você não tem permissão para movimentar o estoque.');
     });
   });
@@ -109,6 +121,14 @@ describe('unidades visíveis', () => {
     const { db } = fakeDb({ awaitavel: true, erroTabelas: { estoque_unidades_empresa: 'boom' } });
     await expect(carregarUnidadesVisiveis(db, 'e1')).rejects.toThrow('boom');
   });
+  it('coluna ausente (42703) lança e não esconde o ajuste', async () => {
+    const { db } = fakeDb({ awaitavel: true, erroTabelasCodigo: { estoque_unidades_empresa: { code: '42703', message: 'column unidades does not exist' } } });
+    await expect(carregarUnidadesVisiveis(db, 'e1')).rejects.toThrow('column unidades does not exist');
+  });
+  it('tabela ausente detectada só pelo code PGRST205, com mensagem qualquer', async () => {
+    const { db } = fakeDb({ awaitavel: true, erroTabelasCodigo: { estoque_unidades_empresa: { code: 'PGRST205', message: 'qualquer coisa' } } });
+    expect(await carregarUnidadesVisiveis(db, 'e1')).toEqual({ unidades: null, disponivel: false });
+  });
   it('salvar: upsert normalizado; lista vazia é recusada', async () => {
     const { db, chamadas } = fakeDb({ awaitavel: true, linhas: { estoque_unidades_empresa: [{ empresa_id: 'e1' }] } });
     expect(await salvarUnidadesVisiveis(db, 'e1', ['kg', 'un', 'zz'])).toEqual(['un', 'kg']);
@@ -117,6 +137,10 @@ describe('unidades visíveis', () => {
     expect((ops[0][1][0] as Record<string, unknown>)).toMatchObject({ empresa_id: 'e1', unidades: ['un', 'kg'] });
     expect(ops).toContainEqual(['select', ['empresa_id']]);
     await expect(salvarUnidadesVisiveis(db, 'e1', ['zz'])).rejects.toThrow('Deixe pelo menos uma unidade ligada.');
+  });
+  it('salvar com 42501 do banco vira mensagem de permissão em português', async () => {
+    const { db } = fakeDb({ awaitavel: true, erroTabelasCodigo: { estoque_unidades_empresa: { code: '42501', message: 'new row violates row-level security policy' } } });
+    await expect(salvarUnidadesVisiveis(db, 'e1', ['un'])).rejects.toThrow('Você não tem permissão para ajustar as unidades. Fale com a dona ou a gestora.');
   });
   it('salvar sem linha devolvida = sem permissão', async () => {
     const { db } = fakeDb({ awaitavel: true, linhas: { estoque_unidades_empresa: [] } });
