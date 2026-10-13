@@ -1088,6 +1088,59 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-09/13 — Cartões configuráveis (maquininhas, bandeiras, taxas por parcela) + Comanda C (vendas no app)
+
+*Escopo: (1) Migration 086: `cartao_bandeiras`, `cartao_maquininhas` (máx. de parcelas 1–18, uma padrão),*
+*`cartao_taxas` (tabela padrão por maquininha + exceções por bandeira; débito e crédito por número de parcelas),*
+*`pagamentos.maquininha_id`, RLS (leitura de membro, escrita com `config.taxas`), seed de cada empresa com as taxas da 084 e*
+*trigger para empresa nova. (2) `shared/taxas-cartao(+-consultas).ts`: `taxaDoCartao`, `validarTabela`, `chaveBandeira`,*
+*`configLegada`/`configIndisponivel`, gravação por diferença. (3) Toda cobrança (comanda web/app, PDV web, Vendas app) escolhe*
+*maquininha/bandeira/parcelas e grava a maquininha; taxa nunca inventada. (4) Configurações → Cartões no web e no app.*
+*(5) `shared/venda.ts` + PDV do web na regra da comanda (desconto %/R$, total coberto, troco, métodos repetidos). (6) Tela de*
+*Vendas no app (nova venda, histórico por dia, exportação, recibo de compra por WhatsApp). 9 tasks + revisão final (opus) + 1 onda*
+*de correção. Spec e plano: `docs/superpowers/{specs,plans}/2026-10-09-cartoes-configuraveis-e-vendas-app*`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 1319/1319; mobile com os mesmos 6 erros pré-existentes |
+| UX / Padrões    | 9.0  | Cobrança com o mesmo bloco de cartão nas 4 telas (`PagamentosEditor` no app); Configurações → Cartões com as mesmas regras e textos nas duas plataformas |
+| Segurança       | 9.0  | RLS nas 3 tabelas novas com `config.taxas`; funções de seed sem execução pela API; DELETE de vendas só para desfazer venda recém-criada e sem itens |
+| Documentação    | 9.0  | Spec, plano, cabeçalho da 086 com rollback, JSDoc pt-BR em `shared/taxas-cartao*`, `shared/venda.ts`, `shared/uuid.ts` |
+| Arquitetura     | 9.5  | Uma regra de taxa (`taxaDoCartao` via `taxaDoSplit`) e uma gravação (`montarPagamentos`/`gravarVenda`) para todas as cobranças; funciona antes e depois da 086 |
+| Performance     | 9.0  | Configuração de cartões em 3 consultas paralelas por tela |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Cartões configuráveis em web e app; Vendas no app com paridade (histórico por dia, sucesso com WhatsApp e exportação nas duas) |
+| **Proatividade**| 9.5  | Achados que ninguém pediu: profissional com permissão de vendas era barrada pelo banco; venda de produto na comanda da profissional falhava no meio do fechamento (pré-existente); taxa padrão usada em silêncio quando a configuração falhava ou ainda carregava; Enter num campo de taxa salvava a empresa e recarregava a página |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Decisões do dono (2026-10-09/13):** maquininha + bandeira juntas; taxa por número de parcelas; tabela padrão + exceções por bandeira; lista de bandeiras editável; Vendas com a regra de pagamento da comanda; desconto e cortesia em Vendas exigem `comanda.desconto` (igual à comanda).
+
+**Regras:** taxa = exceção da bandeira, senão tabela padrão da maquininha; sem linha → aviso "Taxa não cadastrada para esta combinação" e pagamento sem taxa; pagamento reaberto mantém a taxa enquanto método, parcelas, maquininha e bandeira não mudam; remover maquininha/bandeira = desativar (pagamentos antigos mantêm o nome); configuração indisponível nunca usa taxa antiga.
+
+**Bugs corrigidos (revisões):**
+- Comanda gravava `maquininha_id` sem a 086 (todo fechamento falharia antes da migration).
+- Profissional com `vendas.acessar` não conseguia registrar venda nem ver o histórico (SELECT de `vendas` só gestor/dona) — policies na 086.
+- Venda de produtos na comanda da profissional falhava depois de gravar comanda e estoque (pré-existente) — id gerado no cliente, sem RETURNING.
+- Taxas antigas/padrão usadas quando a configuração falhava ou ainda carregava (web) — `configIndisponivel` e botões travados até carregar.
+- Enter no editor de maquininha salvava a empresa e recarregava a página; retry após falha duplicava maquininha; troca de padrão podia deixar a empresa sem padrão.
+- Recibo de venda saía como "Recibo de Atendimento".
+
+**Pendências para produção:**
+- ~~Aplicar `086_cartoes_maquininhas_bandeiras.sql`~~ — **aplicada em produção em 2026-10-13** (conferência: 1 maquininha, 5 bandeiras, 13 taxas; débito 0.0239, crédito 1x 0.0499, 2x–12x 0.0559).
+- Depois: conferir em Configurações → Cartões a maquininha "Maquininha" com as taxas atuais, e cobrar uma comanda e uma venda no cartão.
+- 085 (Comanda B) segue pendente, se ainda não aplicada.
+
+**Registrados, não corrigidos:**
+- Taxa de 0% configurada é gravada como null (reabre como "não cadastrada"; números certos).
+- Id da venda no app usa `Math.random` (sem `expo-crypto` no projeto); colisão vira erro de chave e é conferida.
+- Produção parece não ter a 046 aplicada (vendas com policy ampla "membro gerencia"); as policies novas só somam.
+- Exceção copiada da padrão não acompanha mudanças posteriores da padrão; seletor de maquininha oculto com 1 ativa e pagamento reaberto em inativa.
+- App Vendas: tela fica montada (estoque/dia antigos ao voltar), "Sem permissão" pisca ao abrir, clientes sem paginação; FKs entre empresas nas tabelas de cartão não amarradas.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

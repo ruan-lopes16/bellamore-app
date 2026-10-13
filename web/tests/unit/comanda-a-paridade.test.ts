@@ -29,14 +29,17 @@ describe('comanda web pela regra única', () => {
 describe('comanda app pela regra única', () => {
   const src = ler('mobile/app/(empresa)/nova-comanda.tsx');
   it('usa as mesmas funções do web', () => {
-    for (const f of ['calcularDesconto(', 'resumoComanda(', 'montarPagamentos(', 'agruparValoresPorAgendamento(', 'taxasDaEmpresa(']) expect(src).toContain(f);
+    for (const f of ['calcularDesconto(', 'resumoComanda(', 'montarPagamentos(', 'agruparValoresPorAgendamento(', 'carregarConfigCartoes(']) expect(src).toContain(f);
   });
   it('não fecha sem cobrir o total', () => {
     expect(src).toContain('resumo.podeFechar');
   });
   it('bandeiras e parcelas vindas de shared', () => {
-    expect(src).toContain('BANDEIRAS_CARTAO');
-    expect(src).toContain('OPCOES_PARCELAS');
+    // O bloco de pagamento fica em PagamentosEditor (compartilhado com Vendas do app).
+    expect(src).toContain('<PagamentosEditor');
+    const editor = ler('mobile/components/comanda/PagamentosEditor.tsx');
+    expect(editor).toContain('bandeirasAtivas(');
+    expect(editor).toContain('parcelasDisponiveis(');
   });
   it('confere erro de comanda_itens, vendas e pagamentos', () => {
     expect(src).toMatch(/from\('comanda_itens'\)\.insert\([\s\S]{0,400}?error/);
@@ -70,7 +73,8 @@ describe('ordem e conferência de erros no fechamento (revisão final)', () => {
       expect(inserts.length).toBeGreaterThan(0);
       expect(comErro.length).toBe(inserts.length);
     }
-    expect(src).toMatch(/if \(errVenda \|\| !venda\)/);
+    // Venda dos produtos com id gerado no cliente (INSERT sem .select()): confere só o error.
+    expect(src).toMatch(/if \(errVenda\) \{/);
     expect(src).toMatch(/if \(errVendaItens\)/);
   });
 });

@@ -27,7 +27,7 @@ export default function EmpresaLayout() {
         'editar-pacote/[id]', 'editar-produto/[id]', 'editar-servico/[id]',
         'equipe', 'estoque', 'notificacoes', 'nova-comanda', 'nova-despesa', 'nova-retirada',
         'novo-agendamento', 'novo-cliente', 'novo-pacote', 'novo-produto', 'novo-servico',
-        'pacotes', 'relatorios', 'servicos',
+        'pacotes', 'relatorios', 'servicos', 'vendas',
       ].map((name) => (
         <Tabs.Screen key={name} name={name} options={{ href: null }} />
       ))}

@@ -30,7 +30,8 @@
  *                   (via `shared/taxa-reserva.ts`), aplicada só depois do desconto manual
  * desconto        = % ou R$ (calcularDesconto; acima do subtotal bloqueia o fechamento)
  * total, falta, troco, podeFechar = resumoComanda (shared/comanda-fechamento.ts)
- * pagamentos      = montarPagamentos (bandeira/parcelas/taxa/líquido; total R$0 → Cortesia)
+ * pagamentos      = montarPagamentos (maquininha/bandeira/parcelas/taxa/líquido; total R$0 → Cortesia);
+ *                   taxas pela configuração de cartões (carregarConfigCartoes, migration 086)
  *
  * ## Edição de comanda fechada
  * Só os atendimentos da comanda escolhida; desconto manual reaberto em R$; produtos,
@@ -54,12 +55,17 @@ import {
   startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao } from '@shared/taxas-cartao';
-import { calcularDesconto, resumoComanda, montarPagamentos, taxaDoSplit, parseValorBR, BANDEIRAS_CARTAO, diffItensComanda, type ItemComandaOriginal, type ModoDesconto } from '@shared/comanda-fechamento';
+import {
+  fmtTaxa, valorLiquido, configIndisponivel, AVISO_CARTOES_SEM_TAXA, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
+  type ConfigCartoes,
+} from '@shared/taxas-cartao';
+import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
+import { calcularDesconto, resumoComanda, montarPagamentos, taxaDoSplit, parseValorBR, diffItensComanda, type ItemComandaOriginal, type ModoDesconto } from '@shared/comanda-fechamento';
 import { mensagemErroBanco } from '@shared/erros';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { agruparValoresPorAgendamento, marcarAgendamentosFechados, cartoesComandaDoDia, type ComandaSoExtras } from '@shared/comanda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
+import { novoUuid } from '@shared/uuid';
 import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido } from '@shared/periodos';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
@@ -108,12 +114,16 @@ type ComandaItem = {
 
 /**
  * Split de pagamento na tela (valor como texto). Reaberto na edição de comanda fechada, carrega
- * como foi gravado (`taxaGravada`, `metodoGravado`, `parcelasGravadas`, `criadoEm`): a taxa da
- * época vale enquanto método e parcelas não mudarem (taxaDoSplit / montarPagamentos).
+ * como foi gravado (`taxaGravada`, `metodoGravado`, `parcelasGravadas`, `maquininhaGravada`,
+ * `bandeiraGravada`, `criadoEm`): a taxa da época vale enquanto método, parcelas, maquininha e
+ * bandeira não mudarem (taxaDoSplit / montarPagamentos).
  */
 type Split = {
   metodo: string; valor: string; bandeira?: string; parcelas?: number;
+  /** Maquininha do cartão (null/ausente = a padrão). */
+  maquininhaId?: string | null;
   taxaGravada?: number | null; metodoGravado?: string; parcelasGravadas?: number; criadoEm?: string | null;
+  maquininhaGravada?: string | null; bandeiraGravada?: string | null;
 };
 
 type ClienteComanda = {
@@ -184,7 +194,11 @@ export default function ComandaPage() {
   const podeOutras        = pode('agenda.gerenciar_outras');
   const [meuUserId,         setMeuUserId]         = useState('');
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
-  const [taxas,             setTaxas]             = useState<TaxasCartao>(TAXAS_PADRAO);
+  // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084)
+  const [config,            setConfig]            = useState<ConfigCartoes>(() => configIndisponivel());
+  // Fechar fica desligado até a configuração terminar de carregar (senão a cobrança sairia sem a
+  // tabela da empresa). Igual ao app, que carrega a configuração junto com o dia.
+  const [configPronta,      setConfigPronta]      = useState(false);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
@@ -264,9 +278,16 @@ export default function ComandaPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (data) {
         setEmpresaId(data.empresa_id);
-        // select('*'): as colunas de taxa (migration 084) podem ainda não existir
-        const { data: emp } = await supabase.from('empresas').select('*').eq('id', data.empresa_id).single();
-        setTaxas(taxasDaEmpresa(emp as Record<string, unknown> | null));
+        try {
+          setConfig(await carregarConfigCartoes(supabase, data.empresa_id));
+        } catch (e) {
+          // Taxa nunca inventada: nada das taxas antigas da 084 nem do padrão — sem configuração,
+          // todo cartão fica "Taxa não cadastrada" e é gravado sem taxa (configIndisponivel).
+          setErro(`${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões')} ${AVISO_CARTOES_SEM_TAXA}`);
+          setConfig(configIndisponivel());
+        } finally {
+          setConfigPronta(true);
+        }
       }
     })();
   }, []);
@@ -601,8 +622,8 @@ export default function ComandaPage() {
     const [rCmd, rItens, rPags] = await Promise.all([
       supabase.from('comandas').select('desconto, desconto_reserva').eq('id', comandaId).single(),
       supabase.from('comanda_itens').select('id,tipo,descricao,servico_id,produto_id,pacote_id,profissional_id,quantidade,valor_unit').eq('comanda_id', comandaId).order('created_at'),
-      // taxa_perc e created_at: o pagamento reaberto mantém a taxa e a data de quando foi lançado
-      supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas,taxa_perc,created_at').eq('comanda_id', comandaId).order('created_at'),
+      // taxa_perc, maquininha_id e created_at: o pagamento reaberto mantém a taxa e a data de quando foi lançado
+      lerPagamentosDaComanda(comandaId),
     ]);
     // Sem os dados gravados não dá para editar com segurança (salvar zeraria desconto/itens/
     // pagamentos): mostra o erro e deixa a comanda sem itens (botão Salvar desabilitado).
@@ -656,11 +677,27 @@ export default function ComandaPage() {
       valor:    Number(p.valor).toFixed(2).replace('.', ','),
       bandeira: p.bandeira ?? undefined,
       parcelas: p.parcelas ?? 1,
+      maquininhaId:     p.maquininha_id ?? null,
       taxaGravada:      p.taxa_perc == null ? null : Number(p.taxa_perc),
       metodoGravado:    p.metodo,
       parcelasGravadas: p.parcelas ?? 1,
+      maquininhaGravada: p.maquininha_id ?? null,
+      bandeiraGravada:  p.bandeira ?? null,
       criadoEm:         p.created_at ?? null,
     })));
+  }
+
+  /**
+   * Pagamentos gravados da comanda. Sem a migration 086 a coluna `maquininha_id` não existe:
+   * relê sem ela (todos ficam como "gravados antes da 086", maquininha null).
+   */
+  async function lerPagamentosDaComanda(comandaId: string) {
+    const base = 'metodo,valor,bandeira,parcelas,taxa_perc,created_at';
+    const r = await supabase.from('pagamentos').select(`${base},maquininha_id`).eq('comanda_id', comandaId).order('created_at');
+    if (r.error && /maquininha_id/.test(r.error.message ?? '')) {
+      return supabase.from('pagamentos').select(base).eq('comanda_id', comandaId).order('created_at');
+    }
+    return r;
   }
 
   /**
@@ -814,7 +851,7 @@ export default function ComandaPage() {
     if (errPagDel) { falhar(errPagDel); return; }
 
     if (empresaId) {
-      const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
+      const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, config, total: resumo.total });
       if (linhasPag.length > 0) {
         const { error: errPag } = await supabase.from('pagamentos').insert(linhasPag);
         if (errPag) { falhar(`${mensagemErroBanco(errPag, 'salvar a comanda')} A comanda ficou sem pagamento — lance o pagamento de novo.`); return; }
@@ -941,9 +978,11 @@ export default function ComandaPage() {
   // ── Splits de pagamento
   function adicionarSplit(metodo: string) {
     const valorPre = falta;
+    const cartao = metodo === 'credito' || metodo === 'debito';
     setSplits(prev => [...prev, {
       metodo,
       valor: valorPre > 0 ? valorPre.toFixed(2).replace('.', ',') : '',
+      ...(cartao ? { maquininhaId: maquininhaPadrao(config)?.id ?? null } : {}),
     }]);
   }
   function atualizarSplit(idx: number, valor: string) {
@@ -958,6 +997,19 @@ export default function ComandaPage() {
   function atualizarSplitParcelas(idx: number, parcelas: number) {
     setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas } : s));
   }
+  /** Troca a maquininha; se ela aceita menos parcelas que as escolhidas, ajusta para o máximo dela. */
+  function atualizarSplitMaquininha(idx: number, maquininhaId: string) {
+    const maq = config.maquininhas.find(m => m.id === maquininhaId);
+    setSplits(prev => prev.map((s, i) => {
+      if (i !== idx) return s;
+      const parcelas = maq && (s.parcelas ?? 1) > maq.maxParcelas ? maq.maxParcelas : s.parcelas;
+      return { ...s, maquininhaId, parcelas };
+    }));
+  }
+  /** Maquininha efetiva do split: a escolhida (se existir na configuração) ou a padrão. */
+  function maquininhaDoSplit(s: Split) {
+    return config.maquininhas.find(m => m.id === s.maquininhaId) ?? maquininhaPadrao(config);
+  }
 
   // ── Fechar / salvar comanda
   async function fecharComanda() {
@@ -965,6 +1017,7 @@ export default function ComandaPage() {
     // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
     if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível fechar a comanda.'); return; }
     if (bloqueioTaxaReserva) { setErro(bloqueioTaxaReserva); return; }
+    if (!configPronta) { setErro('Aguarde: carregando as taxas dos cartões.'); return; }
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
     // Comanda desta cliente criada e não terminada nesta tela: nada de um segundo INSERT.
     if (comandasParciais[clienteSel.id]) { setErro(AVISO_COMANDA_PARCIAL); return; }
@@ -1118,19 +1171,23 @@ export default function ComandaPage() {
     // 3c. Registrar venda avulsa dos produtos (para histórico do cliente e módulo de vendas)
     if (extrasProdutos.length > 0) {
       const totalProdutos = extrasProdutos.reduce((s, i) => s + i.valor * i.quantidade, 0);
-      const { data: venda, error: errVenda } = await supabase.from('vendas').insert({
+      // Id gerado aqui e INSERT sem .select(): o RETURNING exige o SELECT de vendas, que a
+      // profissional sem vendas.acessar não tem — falharia depois da comanda e do estoque gravados.
+      const vendaId = novoUuid();
+      const { error: errVenda } = await supabase.from('vendas').insert({
+        id:          vendaId,
         empresa_id:  empresaId,
         cliente_id:  clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: totalProdutos,
         desconto:    0,
         observacao:  `Via comanda`,
-      }).select('id').single();
-      if (errVenda || !venda) { falharAposCriar(mensagemErroBanco(errVenda, 'registrar a venda dos produtos')); return; }
+      });
+      if (errVenda) { falharAposCriar(mensagemErroBanco(errVenda, 'registrar a venda dos produtos')); return; }
 
       const { error: errVendaItens } = await supabase.from('venda_itens').insert(
         extrasProdutos.map(i => ({
           empresa_id:     empresaId,
-          venda_id:       venda.id,
+          venda_id:       vendaId,
           produto_id:     i.produto_id!,
           quantidade:     i.quantidade,
           preco_unitario: i.valor,
@@ -1144,7 +1201,7 @@ export default function ComandaPage() {
     //    fechou em R$ 0 (sessão de pacote ou desconto de 100%), grava uma
     //    "Cortesia" de R$ 0 — fica claro no relatório de formas de pagamento
     //    que esse fechamento não gerou cobrança nova, sem somar na receita.
-    const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
+    const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, config, total: resumo.total });
     if (linhasPag.length > 0) {
       const { error: errPag } = await supabase.from('pagamentos').insert(linhasPag);
       if (errPag) { falharAposCriar(mensagemErroBanco(errPag, 'lançar o pagamento')); return; }
@@ -1429,7 +1486,10 @@ export default function ComandaPage() {
                         <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: m.bg }}>
                           <MIcon size={13} style={{ color: m.cor }}/>
                         </div>
-                        <span className="text-sm font-semibold text-text">{m.label}</span>
+                        <span className="text-sm font-semibold text-text">
+                          {m.label}{s.bandeira ? ` ${nomeBandeira(config, s.bandeira)}` : ''}
+                          {s.metodo === 'credito' && (s.parcelas ?? 1) > 1 ? ` ${s.parcelas}x` : ''}
+                        </span>
                         <span className="text-xs text-text-4 ml-auto">
                           {fmtBRL(parseValorBR(s.valor))}
                         </span>
@@ -1466,6 +1526,7 @@ export default function ComandaPage() {
                       itens: sucesso.itens.map(i => ({ descricao: i.descricao, quantidade: i.quantidade, valor: i.valor })),
                       splits: sucesso.splits.map(sp => ({ metodo: sp.metodo, valor: parseValorBR(sp.valor), bandeira: sp.bandeira, parcelas: sp.parcelas })),
                       desconto: sucesso.desconto, descontoReserva: sucesso.descontoReserva,
+                      nomeBandeira: chave => nomeBandeira(config, chave),
                     });
                     window.open(linkWhatsAppRecibo(sucesso.telefone!, texto), '_blank');
                   }}
@@ -1817,19 +1878,43 @@ export default function ComandaPage() {
                                 <X size={13}/>
                               </button>
                             </div>
+                            {isCard && maquininhasAtivas(config).length >= 2 && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-text-3 flex-shrink-0">Maquininha:</span>
+                                <select
+                                  value={maquininhaDoSplit(s)?.id ?? ''}
+                                  onChange={e => atualizarSplitMaquininha(i, e.target.value)}
+                                  className="h-7 px-2 rounded-lg border border-border/50 bg-surface text-xs font-semibold focus:outline-none focus:border-accent transition"
+                                  style={{ color: m.cor }}>
+                                  {(() => {
+                                    // Maquininha gravada que foi desativada continua visível no pagamento reaberto
+                                    const ativas = maquininhasAtivas(config);
+                                    const atual = maquininhaDoSplit(s);
+                                    const lista = atual && !ativas.some(x => x.id === atual.id) ? [...ativas, atual] : ativas;
+                                    return lista.map(mq => <option key={mq.id} value={mq.id}>{mq.nome}</option>);
+                                  })()}
+                                </select>
+                              </div>
+                            )}
                             {isCard && (
                               <div className="flex gap-1.5 flex-wrap">
-                                {BANDEIRAS_CARTAO.map(b => (
-                                  <button key={b.key} type="button" onClick={() => atualizarSplitBandeira(i, b.key)}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
-                                      s.bandeira === b.key
-                                        ? 'bg-white/60 border-current'
-                                        : 'border-border/50 opacity-60 hover:opacity-100 hover:border-current'
-                                    }`}
-                                    style={{ color: m.cor }}>
-                                    {b.label}
-                                  </button>
-                                ))}
+                                {(() => {
+                                  // Bandeira gravada que foi desativada continua visível no pagamento reaberto
+                                  const ativas = bandeirasAtivas(config);
+                                  const extra = s.bandeira && !ativas.some(b => b.chave === s.bandeira)
+                                    ? [{ chave: s.bandeira, nome: nomeBandeira(config, s.bandeira) }] : [];
+                                  return [...ativas, ...extra].map(b => (
+                                    <button key={b.chave} type="button" onClick={() => atualizarSplitBandeira(i, b.chave)}
+                                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                                        s.bandeira === b.chave
+                                          ? 'bg-white/60 border-current'
+                                          : 'border-border/50 opacity-60 hover:opacity-100 hover:border-current'
+                                      }`}
+                                      style={{ color: m.cor }}>
+                                      {b.nome}
+                                    </button>
+                                  ));
+                                })()}
                               </div>
                             )}
                             {s.metodo === 'credito' && (
@@ -1840,18 +1925,33 @@ export default function ComandaPage() {
                                   onChange={e => atualizarSplitParcelas(i, Number(e.target.value))}
                                   className="h-7 px-2 rounded-lg border border-border/50 bg-surface text-xs font-semibold focus:outline-none focus:border-accent transition"
                                   style={{ color: m.cor }}>
-                                  {OPCOES_PARCELAS.map(n => (
-                                    <option key={n} value={n}>{n}x{n === 1 ? ' (à vista)' : ''}</option>
-                                  ))}
+                                  {(() => {
+                                    const maq = maquininhaDoSplit(s);
+                                    const opcoes = maq ? parcelasDisponiveis(maq) : [1];
+                                    // Parcelas gravadas acima do máximo atual continuam visíveis no reaberto
+                                    const atual = s.parcelas ?? 1;
+                                    return (opcoes.includes(atual) ? opcoes : [...opcoes, atual]).map(n => (
+                                      <option key={n} value={n}>{n}x{n === 1 ? ' (à vista)' : ''}</option>
+                                    ));
+                                  })()}
                                 </select>
                               </div>
                             )}
                             {isCard && (() => {
                               const valorN = parseValorBR(s.valor);
                               // Pagamento reaberto e não alterado mostra a taxa gravada (a mesma que será salva)
-                              const taxa   = taxaDoSplit(s, taxas);
-                              const liq    = valorLiquido(valorN, taxa);
+                              const taxa   = taxaDoSplit(s, config);
+                              if (taxa === null) {
+                                // Taxa nunca inventada: fecha normalmente, gravando o pagamento sem taxa.
+                                return (
+                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-amber">
+                                    <AlertCircle size={12}/>
+                                    <span>Taxa não cadastrada para esta combinação</span>
+                                  </div>
+                                );
+                              }
                               if (!valorN) return null;
+                              const liq    = valorLiquido(valorN, taxa);
                               return (
                                 <div className="flex items-center justify-between text-xs opacity-70" style={{ color: m.cor }}>
                                   <span>Taxa {fmtTaxa(taxa)}</span>
@@ -1919,7 +2019,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || cargaFalhou || !!bloqueioTaxaReserva || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
+                  disabled={fechando || cargaFalhou || !!bloqueioTaxaReserva || !configPronta || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
                   title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -1944,6 +2044,9 @@ export default function ComandaPage() {
                       {recarregandoTaxas ? 'Carregando...' : 'Tentar de novo'}
                     </button>
                   </div>
+                )}
+                {!configPronta && itens.length > 0 && (
+                  <p className="text-xs text-center mt-2 font-semibold text-text-3">Carregando as taxas dos cartões…</p>
                 )}
                 {!comandaExistenteId && clienteSel && comandasParciais[clienteSel.id] && (
                   <p className="text-xs text-center mt-2 font-semibold text-red">{AVISO_COMANDA_PARCIAL}</p>

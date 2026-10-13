@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import {
   Scissors, Users, DollarSign, Settings, LogOut,
-  ChevronRight, Package, BarChart2, Bell, Gift, CheckCircle,
+  ChevronRight, Package, BarChart2, Bell, Gift, CheckCircle, ShoppingCart,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -344,6 +344,15 @@ export default function Mais() {
                   sublabel="Controle de insumos"
                   iconBg={C.amberSoft} iconColor={C.amber}
                   onPress={() => router.push('/(empresa)/estoque' as any)}
+                />
+              )}
+              {pode('vendas.acessar') && (
+                <MenuItem
+                  icon={<ShoppingCart size={16} color={C.green} strokeWidth={2} />}
+                  label="Vendas"
+                  sublabel="Vendas avulsas de produtos"
+                  iconBg={C.greenSoft} iconColor={C.green}
+                  onPress={() => router.push('/(empresa)/vendas' as any)}
                 />
               )}
               {pode('financeiro.ver') && (

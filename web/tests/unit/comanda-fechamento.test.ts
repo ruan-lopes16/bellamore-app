@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { calcularDesconto, resumoComanda, montarPagamentos, parseValorBR } from '@shared/comanda-fechamento';
-import { TAXAS_PADRAO } from '@shared/taxas-cartao';
+import { calcularDesconto, resumoComanda, montarPagamentos, parseValorBR, taxaDoSplit } from '@shared/comanda-fechamento';
+import { configLegada, configIndisponivel, type ConfigCartoes } from '@shared/taxas-cartao';
 
 describe('calcularDesconto', () => {
   it('percentual e valor', () => {
@@ -51,7 +51,7 @@ describe('resumoComanda', () => {
 });
 
 describe('montarPagamentos', () => {
-  const ctx = { empresaId: 'e', comandaId: 'c', taxas: TAXAS_PADRAO, total: 300 };
+  const ctx = { empresaId: 'e', comandaId: 'c', config: configLegada({}), total: 300 };
   it('cartão grava bandeira, parcelas, taxa e líquido; pix sem taxa', () => {
     const linhas = montarPagamentos([
       { metodo: 'credito', valor: 100, bandeira: 'visa', parcelas: 3 },
@@ -59,6 +59,8 @@ describe('montarPagamentos', () => {
       { metodo: 'pix', valor: 100, bandeira: 'visa' },
     ], ctx);
     expect(linhas[0]).toEqual({ empresa_id: 'e', comanda_id: 'c', valor: 100, metodo: 'credito', bandeira: 'visa', parcelas: 3, taxa_perc: 0.0559, valor_liquido: 94.41, status: 'pago' });
+    // Sem a 086 a coluna maquininha_id não existe: a chave nem vai no INSERT
+    for (const l of linhas) expect(l).not.toHaveProperty('maquininha_id');
     expect(linhas[1]).toMatchObject({ metodo: 'debito', parcelas: 1, taxa_perc: 0.0239, valor_liquido: 97.61, bandeira: 'master' });
     expect(linhas[2]).toMatchObject({ metodo: 'pix', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null });
   });
@@ -90,8 +92,8 @@ describe('parseValorBR', () => {
 });
 
 describe('montarPagamentos — split reaberto na edição (taxaGravada)', () => {
-  const taxasNovas = { debito: 0.03, creditoAvista: 0.06, creditoParcelado: 0.07 };
-  const ctx = { empresaId: 'e', comandaId: 'c', taxas: taxasNovas, total: 200 };
+  const taxasNovas = { taxa_cartao_debito: 0.03, taxa_cartao_credito_avista: 0.06, taxa_cartao_credito_parcelado: 0.07 };
+  const ctx = { empresaId: 'e', comandaId: 'c', config: configLegada(taxasNovas), total: 200 };
   it('split reaberto e não alterado mantém a taxa gravada e o created_at original', () => {
     const [l] = montarPagamentos([{
       metodo: 'credito', valor: 100, bandeira: 'visa', parcelas: 1,
@@ -119,5 +121,86 @@ describe('montarPagamentos — split reaberto na edição (taxaGravada)', () => 
     const [l] = montarPagamentos([{ metodo: 'credito', valor: 100, parcelas: 1 }], ctx);
     expect(l.taxa_perc).toBe(0.06);
     expect(l).not.toHaveProperty('created_at');
+  });
+});
+
+describe('montarPagamentos — maquininha', () => {
+  const cfg: ConfigCartoes = {
+    legado: false,
+    bandeiras: [{ id: 'b1', chave: 'visa', nome: 'Visa', ativa: true, ordem: 1 }],
+    maquininhas: [
+      { id: 'm1', nome: 'A', maxParcelas: 2, ativa: true, padrao: true, ordem: 1, taxas: [
+        { bandeiraId: null, modalidade: 'debito', parcelas: 1, taxa: 0.02 },
+        { bandeiraId: null, modalidade: 'credito', parcelas: 1, taxa: 0.04 },
+        { bandeiraId: null, modalidade: 'credito', parcelas: 2, taxa: 0.05 } ] },
+      { id: 'm2', nome: 'B', maxParcelas: 1, ativa: true, padrao: false, ordem: 2, taxas: [
+        { bandeiraId: null, modalidade: 'debito', parcelas: 1, taxa: 0.01 },
+        { bandeiraId: null, modalidade: 'credito', parcelas: 1, taxa: 0.03 } ] },
+    ],
+  };
+  const ctx = { empresaId: 'e', comandaId: 'c', config: cfg, total: 100 };
+  it('grava a maquininha e a taxa dela; sem maquininha usa a padrão', () => {
+    expect(montarPagamentos([{ metodo: 'credito', valor: 100, bandeira: 'visa', parcelas: 1, maquininhaId: 'm2' }], ctx)[0])
+      .toMatchObject({ maquininha_id: 'm2', taxa_perc: 0.03, valor_liquido: 97 });
+    expect(montarPagamentos([{ metodo: 'debito', valor: 100, bandeira: 'visa' }], ctx)[0])
+      .toMatchObject({ maquininha_id: 'm1', taxa_perc: 0.02 });
+  });
+  it('pix sem maquininha; taxa não cadastrada grava sem taxa', () => {
+    expect(montarPagamentos([{ metodo: 'pix', valor: 100, maquininhaId: 'm2' }], ctx)[0]).toMatchObject({ maquininha_id: null, taxa_perc: null });
+    expect(montarPagamentos([{ metodo: 'credito', valor: 100, parcelas: 5, maquininhaId: 'm1' }], ctx)[0])
+      .toMatchObject({ maquininha_id: 'm1', taxa_perc: null, valor_liquido: null });
+  });
+  it('reaberto mantém a taxa só se maquininha e bandeira também não mudaram', () => {
+    const base = { metodo: 'credito', valor: 100, parcelas: 1, bandeira: 'visa', taxaGravada: 0.09, metodoGravado: 'credito', parcelasGravadas: 1, maquininhaGravada: 'm1', bandeiraGravada: 'visa' };
+    expect(montarPagamentos([{ ...base, maquininhaId: 'm1' }], ctx)[0].taxa_perc).toBe(0.09);
+    expect(montarPagamentos([{ ...base, maquininhaId: 'm2' }], ctx)[0].taxa_perc).toBe(0.03);
+    expect(montarPagamentos([{ ...base, maquininhaId: 'm1', bandeira: 'amex' }], ctx)[0].taxa_perc).toBe(0.04);
+  });
+  it('reaberto antigo (gravado antes da 086, sem maquininha) mantém a taxa da época até trocarem a maquininha', () => {
+    const antigo = { metodo: 'credito', valor: 100, parcelas: 1, bandeira: 'visa', taxaGravada: 0.09, metodoGravado: 'credito', parcelasGravadas: 1, maquininhaGravada: null, bandeiraGravada: 'visa' };
+    expect(montarPagamentos([antigo], ctx)[0]).toMatchObject({ taxa_perc: 0.09, maquininha_id: null });
+    expect(montarPagamentos([{ ...antigo, parcelas: 2 }], ctx)[0]).toMatchObject({ taxa_perc: 0.05, maquininha_id: 'm1' });
+    expect(montarPagamentos([{ ...antigo, maquininhaId: null }], ctx)[0].taxa_perc).toBe(0.09);
+    expect(montarPagamentos([{ ...antigo, maquininhaId: 'm2' }], ctx)[0].taxa_perc).toBe(0.03);
+  });
+  it('venda grava venda_id e não comanda_id; legado grava maquininha null', () => {
+    const l = montarPagamentos([{ metodo: 'pix', valor: 10 }], { empresaId: 'e', vendaId: 'v', config: cfg, total: 10 })[0];
+    expect(l).toMatchObject({ venda_id: 'v' });
+    expect(l).not.toHaveProperty('comanda_id');
+    expect(montarPagamentos([{ metodo: 'debito', valor: 10 }], { empresaId: 'e', comandaId: 'c', config: configLegada({}), total: 10 })[0]).not.toHaveProperty('maquininha_id');
+    expect(montarPagamentos([], { empresaId: 'e', comandaId: 'c', config: configLegada({}), total: 0 })[0]).not.toHaveProperty('maquininha_id');
+    expect(montarPagamentos([], { empresaId: 'e', comandaId: 'c', config: cfg, total: 0 })[0]).toMatchObject({ metodo: 'cortesia', maquininha_id: null });
+  });
+  it('configuração indisponível (M1): cartão sem taxa, maquininha null omitida, gravada preservada', () => {
+    const ind = configIndisponivel();
+    const c = { empresaId: 'e', comandaId: 'c', config: ind, total: 100 };
+    // Nunca as taxas antigas da 084 nem o padrão: taxa null → aviso e gravação sem taxa.
+    expect(taxaDoSplit({ metodo: 'credito', parcelas: 1, bandeira: 'visa' }, ind)).toBeNull();
+    expect(taxaDoSplit({ metodo: 'debito' }, ind)).toBeNull();
+    const nova = montarPagamentos([{ metodo: 'credito', valor: 100, bandeira: 'visa', parcelas: 1 }], c)[0];
+    expect(nova).toMatchObject({ taxa_perc: null, valor_liquido: null, bandeira: 'visa' });
+    // Sem saber se a 086 existe: null não é enviado (default da coluna).
+    expect(nova).not.toHaveProperty('maquininha_id');
+    expect(montarPagamentos([], { ...c, total: 0 })[0]).not.toHaveProperty('maquininha_id');
+    // Edição de comanda fechada: o reaberto inalterado mantém taxa e maquininha gravadas.
+    const reaberto = { metodo: 'credito', valor: 100, parcelas: 1, bandeira: 'visa', taxaGravada: 0.05, metodoGravado: 'credito', parcelasGravadas: 1, maquininhaId: 'm9', maquininhaGravada: 'm9', bandeiraGravada: 'visa' };
+    expect(montarPagamentos([reaberto], c)[0]).toMatchObject({ maquininha_id: 'm9', taxa_perc: 0.05, valor_liquido: 95 });
+    // Reaberto alterado: sem taxa e sem maquininha (não atribui nenhuma).
+    expect(montarPagamentos([{ ...reaberto, parcelas: 2 }], c)[0]).toMatchObject({ taxa_perc: null });
+    expect(ind.bandeiras.map(b => b.chave)).toEqual(['visa', 'mastercard', 'elo', 'amex', 'hipercard']);
+    expect(ind.legado).toBe(false);
+  });
+  it('maquininha fora da configuração grava a padrão', () => {
+    expect(montarPagamentos([{ metodo: 'debito', valor: 10, maquininhaId: 'legado' }], ctx)[0]).toMatchObject({ maquininha_id: 'm1', taxa_perc: 0.02 });
+  });
+  it('cartão reaberto gravado sem taxa continua "taxa não cadastrada" (null), não 0%', () => {
+    const sem = { metodo: 'credito', parcelas: 1, bandeira: 'visa', taxaGravada: null, metodoGravado: 'credito', parcelasGravadas: 1, maquininhaId: 'm1', maquininhaGravada: 'm1', bandeiraGravada: 'visa' };
+    expect(taxaDoSplit(sem, cfg)).toBeNull();
+    expect(montarPagamentos([{ ...sem, valor: 100 }], ctx)[0]).toMatchObject({ taxa_perc: null, valor_liquido: null });
+    expect(taxaDoSplit({ metodo: 'pix', taxaGravada: null, metodoGravado: 'pix', parcelasGravadas: 1 }, cfg)).toBe(0);
+  });
+  it('taxaDoSplit: null quando a combinação não tem taxa; 0 fora do cartão', () => {
+    expect(taxaDoSplit({ metodo: 'credito', parcelas: 5, maquininhaId: 'm1' }, cfg)).toBeNull();
+    expect(taxaDoSplit({ metodo: 'pix' }, cfg)).toBe(0);
   });
 });

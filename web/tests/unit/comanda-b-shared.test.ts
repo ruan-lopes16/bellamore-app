@@ -82,6 +82,29 @@ describe('gerarTextoRecibo', () => {
       '💰 *Total: R$ 90,00*', '', '*Pagamento:*', '• Crédito Visa 2x — R$ 50,00', '• PIX — R$ 40,00',
     ]);
   });
+  it('bandeira pelo nome cadastrado (nomeBandeira); sem função, nomes das 5 iniciais', () => {
+    const base = {
+      nome: 'Ana', valor: 10, dataIso: '2026-10-08T17:30:00Z', itens: [], desconto: 0, descontoReserva: 0,
+      splits: [{ metodo: 'debito', valor: 10, bandeira: 'mastercard' }, { metodo: 'credito', valor: 0, bandeira: 'sorocred' }],
+    };
+    expect(gerarTextoRecibo(base).split('\n').slice(-2)).toEqual(['• Débito Master — R$ 10,00', '• Crédito sorocred — R$ 0,00']);
+    const t = gerarTextoRecibo({ ...base, nomeBandeira: c => (c === 'sorocred' ? 'Sorocred' : `X-${c}`) });
+    expect(t.split('\n').slice(-2)).toEqual(['• Débito X-mastercard — R$ 10,00', '• Crédito Sorocred — R$ 0,00']);
+  });
+  it('tipo "compra" (venda avulsa): "Recibo de Compra" e "Itens:"; padrão continua o da comanda', () => {
+    const base = {
+      nome: 'Ana', valor: 20, dataIso: '2026-10-08T17:30:00Z', desconto: 0, descontoReserva: 0,
+      itens: [{ descricao: 'Creme', quantidade: 2, valor: 10 }], splits: [{ metodo: 'pix', valor: 20 }],
+    };
+    const compra = gerarTextoRecibo({ ...base, tipo: 'compra' }).split('\n');
+    expect(compra[0]).toBe('🌸 *Recibo de Compra*');
+    expect(compra[5]).toBe('*Itens:*');
+    expect(compra).not.toContain('*Serviços:*');
+    const padrao = gerarTextoRecibo(base);
+    expect(gerarTextoRecibo({ ...base, tipo: 'atendimento' })).toBe(padrao);
+    expect(padrao.split('\n')[0]).toBe('🌸 *Recibo de Atendimento*');
+    expect(padrao.split('\n')[5]).toBe('*Serviços:*');
+  });
   it('link do WhatsApp com DDI e texto codificado', () => {
     expect(linkWhatsAppRecibo('(34) 99178-0000', 'a b')).toBe('https://wa.me/5534991780000?text=a%20b');
   });

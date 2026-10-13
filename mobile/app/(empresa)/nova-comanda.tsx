@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  ChevronLeft, ChevronRight, Check, X, Trash2, User,
+  ChevronLeft, ChevronRight, Check, Trash2, User,
   Banknote, Zap, CreditCard, Gift, Tag, Receipt, AlertCircle, Send,
 } from 'lucide-react-native';
 import {
@@ -37,24 +37,28 @@ import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { useQueryClient } from '@tanstack/react-query';
 import SuccessCheck from '@/components/SuccessCheck';
+import PagamentosEditor, { METODOS_PAGAMENTO } from '@/components/comanda/PagamentosEditor';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import {
   marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, type ComandaSoExtras,
 } from '@shared/comanda';
 import {
-  calcularDesconto, resumoComanda, montarPagamentos, parseValorBR, taxaDoSplit, diffItensComanda,
-  BANDEIRAS_CARTAO, ROTULOS_BANDEIRA, type ItemComandaOriginal, type ModoDesconto,
+  calcularDesconto, resumoComanda, montarPagamentos, parseValorBR, diffItensComanda,
+  type ItemComandaOriginal, type ModoDesconto,
 } from '@shared/comanda-fechamento';
 import {
-  fmtTaxa, valorLiquido, OPCOES_PARCELAS, TAXAS_PADRAO, taxasDaEmpresa, type TaxasCartao,
+  configIndisponivel, AVISO_CARTOES_SEM_TAXA, nomeBandeira,
+  type ConfigCartoes,
 } from '@shared/taxas-cartao';
+import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import { formatarMoeda } from '@shared/moeda';
 import {
   carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens,
 } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido } from '@shared/periodos';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
+import { novoUuid } from '@shared/uuid';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -73,13 +77,8 @@ const STATUS_COR: Record<string, { bg: string; text: string }> = {
   faltou:     { bg: C.redSoft, text: C.red },
 };
 
-const METODOS = [
-  { key: 'dinheiro', label: 'Dinheiro', bg: '#F0FDF4', cor: '#16A34A' },
-  { key: 'pix',      label: 'PIX',      bg: '#EEF2FF', cor: '#4F46E5' },
-  { key: 'credito',  label: 'Crédito',  bg: '#FEF3C7', cor: '#D97706' },
-  { key: 'debito',   label: 'Débito',   bg: '#FDF2F8', cor: '#9D174D' },
-  { key: 'cortesia', label: 'Cortesia', bg: '#F9FAFB', cor: '#6B7280' },
-] as const;
+/** Métodos de pagamento (mesmos chips do bloco de pagamento compartilhado). */
+const METODOS = METODOS_PAGAMENTO;
 
 type AgDia = {
   id: string;
@@ -124,12 +123,16 @@ type ComandaItem = {
 
 /**
  * Split de pagamento na tela (valor como texto). Reaberto na edição de comanda fechada, carrega
- * como foi gravado (`taxaGravada`, `metodoGravado`, `parcelasGravadas`, `criadoEm`): a taxa da
- * época vale enquanto método e parcelas não mudarem (taxaDoSplit / montarPagamentos), igual ao web.
+ * como foi gravado (`taxaGravada`, `metodoGravado`, `parcelasGravadas`, `maquininhaGravada`,
+ * `bandeiraGravada`, `criadoEm`): a taxa da época vale enquanto método, parcelas, maquininha e
+ * bandeira não mudarem (taxaDoSplit / montarPagamentos), igual ao web.
+ * `maquininhaId` ausente = a padrão; cartão novo já nasce com a padrão (seletor em chips com 2+ ativas).
  */
 type Split = {
   metodo: string; valor: string; bandeira?: string; parcelas?: number;
+  maquininhaId?: string | null;
   taxaGravada?: number | null; metodoGravado?: string; parcelasGravadas?: number; criadoEm?: string | null;
+  maquininhaGravada?: string | null; bandeiraGravada?: string | null;
 };
 
 type ClienteComanda = {
@@ -221,8 +224,10 @@ export default function NovaComandaScreen() {
   const [descontoEntrada, setDescontoEntrada] = useState('');
   const [descontoModo, setDescontoModo] = useState<ModoDesconto>('percentual');
   const [splits, setSplits] = useState<Split[]>([]);
-  // Taxas da maquininha da empresa (migration 084); sem as colunas, vale o padrão.
-  const [taxas, setTaxas] = useState<TaxasCartao>(TAXAS_PADRAO);
+  // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084).
+  const [config, setConfig] = useState<ConfigCartoes>(() => configIndisponivel());
+  // Falha ao ler a configuração de cartões: avisa uma vez por sessão da tela, não a cada recarga do dia.
+  const avisoCartoesRef = useRef(false);
   const [fechando, setFechando] = useState(false);
   const [sucessoData, setSucessoData] = useState<{
     nome: string; valor: number; telefone?: string;
@@ -267,12 +272,19 @@ export default function NovaComandaScreen() {
       supabase.from('servicos').select('id, nome, preco').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       supabase.from('produtos').select('id, nome, preco_venda').eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
       supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
-      // select('*'): as colunas de taxa (migration 084) podem ainda não existir
-      supabase.from('empresas').select('*').eq('id', empresaId).single(),
+      // Configuração de cartões (sem a 086 → legada). Erro de leitura não derruba o dia: avisa e
+      // usa configIndisponivel (cartão sem taxa) — nunca as taxas antigas da 084 nem o padrão.
+      carregarConfigCartoes(supabase, empresaId).then(
+        c => ({ config: c, erro: null as string | null }),
+        (e: unknown) => ({
+          config: configIndisponivel(),
+          erro: `${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões')} ${AVISO_CARTOES_SEM_TAXA}` as string | null,
+        }),
+      ),
       supabase.from('empresa_membros')
         .select('user_id, users:users!empresa_membros_user_id_fkey(nome)')
         .eq('empresa_id', empresaId).eq('ativo', true),
-    ]).then(async ([rAgs, rServs, rProds, rPacotes, rEmpresa, rMembros]) => {
+    ]).then(async ([rAgs, rServs, rProds, rPacotes, rCartoes, rMembros]) => {
       if (req !== reqDiaRef.current) return;
       if (rAgs.error) {
         setErroDia(mensagemErroBanco(rAgs.error, 'carregar os atendimentos do dia'));
@@ -282,7 +294,11 @@ export default function NovaComandaScreen() {
         return;
       }
       setErroDia(null);
-      setTaxas(taxasDaEmpresa(rEmpresa.data as Record<string, unknown> | null));
+      setConfig(rCartoes.config);
+      if (rCartoes.erro && !avisoCartoesRef.current) {
+        avisoCartoesRef.current = true;
+        Alert.alert('Cartões', rCartoes.erro);
+      }
       const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
 
       // Taxas de reserva já pagas — buscadas só depois de sabermos os
@@ -589,9 +605,8 @@ export default function NovaComandaScreen() {
       supabase.from('comanda_itens')
         .select('id,tipo,descricao,servico_id,produto_id,pacote_id,profissional_id,quantidade,valor_unit')
         .eq('comanda_id', comandaId).order('created_at'),
-      // taxa_perc e created_at: o pagamento reaberto mantém a taxa e a data de quando foi lançado
-      supabase.from('pagamentos').select('metodo,valor,bandeira,parcelas,taxa_perc,created_at')
-        .eq('comanda_id', comandaId).order('created_at'),
+      // taxa_perc, maquininha_id e created_at: o pagamento reaberto mantém a taxa, a maquininha e a data
+      lerPagamentosDaComanda(comandaId),
     ]);
     if (abertura !== aberturaRef.current) return;
     // Sem os dados gravados não dá para editar com segurança (salvar zeraria desconto/itens/
@@ -647,12 +662,28 @@ export default function NovaComandaScreen() {
       valor:    Number(p.valor).toFixed(2).replace('.', ','),
       bandeira: p.bandeira ?? undefined,
       parcelas: p.parcelas ?? 1,
+      maquininhaId:     p.maquininha_id ?? null,
       taxaGravada:      p.taxa_perc == null ? null : Number(p.taxa_perc),
       metodoGravado:    p.metodo,
       parcelasGravadas: p.parcelas ?? 1,
+      maquininhaGravada: p.maquininha_id ?? null,
+      bandeiraGravada:  p.bandeira ?? null,
       criadoEm:         p.created_at ?? null,
     })));
     setCarregandoComanda(false);
+  }
+
+  /**
+   * Pagamentos gravados da comanda. Sem a migration 086 a coluna `maquininha_id` não existe:
+   * relê sem ela (todos ficam como "gravados antes da 086", maquininha null). Igual ao web.
+   */
+  async function lerPagamentosDaComanda(comandaId: string) {
+    const base = 'metodo,valor,bandeira,parcelas,taxa_perc,created_at';
+    const r = await supabase.from('pagamentos').select(`${base},maquininha_id`).eq('comanda_id', comandaId).order('created_at');
+    if (r.error && /maquininha_id/.test(r.error.message ?? '')) {
+      return supabase.from('pagamentos').select(base).eq('comanda_id', comandaId).order('created_at');
+    }
+    return r;
   }
 
   function adicionarServico(s: { id: string; nome: string; preco: number }) {
@@ -759,16 +790,6 @@ export default function NovaComandaScreen() {
     || !!bloqueioTaxaReserva
     || (emEdicao ? (cargaFalhou || carregandoComanda) : comandaParcialAberta);
 
-  function adicionarSplit(metodo: string) {
-    setSplits(prev => [...prev, { metodo, valor: falta > 0 ? falta.toFixed(2).replace('.', ',') : '' }]);
-  }
-  function removerSplit(idx: number) { setSplits(prev => prev.filter((_, i) => i !== idx)); }
-  function atualizarSplitBandeira(idx: number, bandeira: string) {
-    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
-  }
-  function atualizarSplitParcelas(idx: number, parcelas: number) {
-    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas } : s));
-  }
 
   /**
    * Falha no fechamento: avisa com a etapa, libera o botão e recarrega o dia (o que já foi
@@ -915,7 +936,7 @@ export default function NovaComandaScreen() {
       falhar('substituir pagamentos', 'Não foi possível substituir os pagamentos (permissão). Aplique a migration 075 no banco.');
       return;
     }
-    const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
+    const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, config, total: resumo.total });
     if (linhasPag.length > 0) {
       const rPag = await supabase.from('pagamentos').insert(linhasPag);
       if (rPag.error) {
@@ -1056,15 +1077,19 @@ export default function NovaComandaScreen() {
       );
       if (errEst) Alert.alert('Estoque', mensagemErroBanco(errEst, 'baixar o estoque dos produtos'));
       const totalProdutos = extrasProdutos.reduce((s, i) => s + i.valor * i.quantidade, 0);
-      const { data: venda, error: errVendaProd } = await supabase.from('vendas').insert({
+      // Id gerado aqui e INSERT sem .select(): o RETURNING exige o SELECT de vendas, que a
+      // profissional sem vendas.acessar não tem — falharia depois da comanda e do estoque gravados.
+      const vendaId = novoUuid();
+      const { error: errVendaProd } = await supabase.from('vendas').insert({
+        id: vendaId,
         empresa_id: empresaId,
         cliente_id: clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: totalProdutos, desconto: 0, observacao: 'Via comanda',
-      }).select('id').single();
-      if (errVendaProd || !venda) { falharAposCriar('venda dos produtos', errVendaProd); return; }
+      });
+      if (errVendaProd) { falharAposCriar('venda dos produtos', errVendaProd); return; }
       const rVendaItens = await supabase.from('venda_itens').insert(
         extrasProdutos.map(i => ({
-          empresa_id: empresaId, venda_id: venda.id,
+          empresa_id: empresaId, venda_id: vendaId,
           produto_id: i.produto_id!, quantidade: i.quantidade,
           preco_unitario: i.valor,
         })),
@@ -1117,7 +1142,7 @@ export default function NovaComandaScreen() {
     // fechou em R$ 0 (sessão de pacote cobrindo tudo, ou desconto de 100%),
     // grava um "Cortesia" de R$ 0 — fica claro no relatório de formas de
     // pagamento que esse fechamento não gerou cobrança nova, sem somar na receita.
-    const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, taxas, total: resumo.total });
+    const linhasPag = montarPagamentos(splitsNumericos, { empresaId, comandaId, config, total: resumo.total });
     if (linhasPag.length > 0) {
       const rPag = await supabase.from('pagamentos').insert(linhasPag);
       if (rPag.error) {
@@ -1229,7 +1254,7 @@ export default function NovaComandaScreen() {
                     <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: m.bg, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, gap: 8 }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>
                         {m.label}
-                        {s.bandeira ? ` ${ROTULOS_BANDEIRA[s.bandeira] ?? s.bandeira}` : ''}
+                        {s.bandeira ? ` ${nomeBandeira(config, s.bandeira)}` : ''}
                         {s.metodo === 'credito' && (s.parcelas ?? 1) > 1 ? ` ${s.parcelas}x` : ''}
                       </Text>
                       <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>
@@ -1263,6 +1288,7 @@ export default function NovaComandaScreen() {
                   itens: sucessoData.itens,
                   splits: sucessoData.splits.map(sp => ({ metodo: sp.metodo, valor: parseValorBR(sp.valor), bandeira: sp.bandeira, parcelas: sp.parcelas })),
                   desconto: sucessoData.desconto, descontoReserva: sucessoData.descontoReserva,
+                  nomeBandeira: chave => nomeBandeira(config, chave),
                 });
                 Linking.openURL(linkWhatsAppRecibo(sucessoData.telefone!, texto))
                   .catch(() => Alert.alert('WhatsApp', 'Não foi possível abrir o WhatsApp.'));
@@ -1833,126 +1859,12 @@ export default function NovaComandaScreen() {
             </View>
           </View>
 
-          {/* ── Pagamento ── */}
-          <View>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Pagamento</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
-              {METODOS.filter(m => podeDesconto || m.key !== 'cortesia').map(m => (
-                <TouchableOpacity key={m.key} onPress={() => adicionarSplit(m.key)}
-                  activeOpacity={0.7}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 14, backgroundColor: m.bg, borderWidth: 1, borderColor: C.border }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor }}>{m.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            {splits.length > 0 && (
-              <View style={{ marginTop: 10, gap: 8 }}>
-                {splits.map((s, i) => {
-                  const m = METODOS.find(x => x.key === s.metodo) ?? METODOS[0];
-                  const isCard = s.metodo === 'credito' || s.metodo === 'debito';
-                  const valorN = parseValorBR(s.valor);
-                  // Pagamento reaberto e não alterado mostra a taxa gravada (a mesma que será salva)
-                  const taxa = taxaDoSplit(s, taxas);
-                  return (
-                    <View key={i} style={{ backgroundColor: m.bg, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: C.border, gap: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', height: 32, gap: 8 }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>{m.label}</Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>R$</Text>
-                        <TextInput
-                          value={s.valor}
-                          onChangeText={v => setSplits(prev => prev.map((x, j) => j === i ? { ...x, valor: v } : x))}
-                          keyboardType="decimal-pad" placeholder="0,00"
-                          placeholderTextColor={C.text4}
-                          style={{ width: 80, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text, textAlign: 'right' }}
-                        />
-                        <TouchableOpacity onPress={() => removerSplit(i)}
-                          style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
-                          <X size={14} color={C.text4} />
-                        </TouchableOpacity>
-                      </View>
-                      {isCard && (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                          {BANDEIRAS_CARTAO.map(b => {
-                            const ativa = s.bandeira === b.key;
-                            return (
-                              <TouchableOpacity key={b.key} onPress={() => atualizarSplitBandeira(i, b.key)}
-                                accessibilityRole="button" accessibilityState={{ selected: ativa }}
-                                style={{
-                                  paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
-                                  borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? 'rgba(255,255,255,0.6)' : 'transparent',
-                                  opacity: ativa ? 1 : 0.6,
-                                }}>
-                                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{b.label}</Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                      )}
-                      {s.metodo === 'credito' && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>Parcelas:</Text>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                            {OPCOES_PARCELAS.map(n => {
-                              const ativa = (s.parcelas ?? 1) === n;
-                              return (
-                                <TouchableOpacity key={n} onPress={() => atualizarSplitParcelas(i, n)}
-                                  accessibilityRole="button" accessibilityState={{ selected: ativa }}
-                                  style={{
-                                    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, borderWidth: 1,
-                                    borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? C.surface : 'transparent',
-                                  }}>
-                                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>
-                                    {n}x{n === 1 ? ' (à vista)' : ''}
-                                  </Text>
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </ScrollView>
-                        </View>
-                      )}
-                      {isCard && valorN > 0 && (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', opacity: 0.75 }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>Taxa {fmtTaxa(taxa)}</Text>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>Líquido {formatarMoeda(valorLiquido(valorN, taxa))}</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-
-                {/* Status pagamento — falta/troco vêm de resumoComanda (regra única) */}
-                <View style={{
-                  borderRadius: 14, padding: 14, borderWidth: 1,
-                  backgroundColor: falta <= 0.01 && troco <= 0.01 ? C.greenSoft : falta > 0.01 ? C.amberSoft : C.primarySoft,
-                  borderColor: falta <= 0.01 && troco <= 0.01 ? '#0D7E5F33' : falta > 0.01 ? '#B4530933' : '#2C165433',
-                }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Recebido</Text>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatarMoeda(recebido)}</Text>
-                  </View>
-                  {falta > 0.01 && (
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.amber }}>Falta</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber }}>{formatarMoeda(falta)}</Text>
-                    </View>
-                  )}
-                  {troco > 0.01 && (
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primary }}>Troco</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>{formatarMoeda(troco)}</Text>
-                    </View>
-                  )}
-                  {falta <= 0.01 && troco <= 0.01 && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 6 }}>
-                      <Check size={14} color={C.green} strokeWidth={3} />
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green }}>Valor quitado</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            )}
-          </View>
+          {/* ── Pagamento ── (bloco compartilhado com Vendas do app) */}
+          <PagamentosEditor
+            splits={splits} setSplits={setSplits} config={config}
+            resumo={{ recebido, falta, troco }}
+            permitirCortesia={podeDesconto}
+          />
         </ScrollView>
 
         {/* Footer — Fechar comanda */}
