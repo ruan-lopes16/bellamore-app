@@ -126,7 +126,8 @@ export function taxaDoSplit(
 /**
  * Linhas de `pagamentos`: cartão com maquininha/bandeira/parcelas/taxa/líquido; total zero sem
  * splits = cortesia R$0. Taxa por `taxaDoSplit` (null ou 0 → grava sem taxa). `maquininha_id`: no
- * cartão a escolhida ou a padrão, fora do cartão null; no legado (sem a 086) a chave é omitida.
+ * cartão a escolhida ou a padrão, fora do cartão null; no legado (sem a 086) a chave é omitida;
+ * com a configuração indisponível, omitida quando null (ver colunaMaquininha).
  * Grava só `comanda_id` (comanda) ou só `venda_id` (venda avulsa), conforme o ctx.
  * `criadoEm` volta como `created_at`.
  */
@@ -136,9 +137,14 @@ export function montarPagamentos(
 ): LinhaPagamento[] {
   const vinculo = (): Pick<LinhaPagamento, 'comanda_id' | 'venda_id'> =>
     ctx.comandaId ? { comanda_id: ctx.comandaId } : ctx.vendaId ? { venda_id: ctx.vendaId } : {};
+  // Sem a 086 (legado) a chave nem vai: a coluna não existe. Configuração indisponível (a leitura
+  // falhou, não se sabe se a 086 existe): só vai quando há uma maquininha gravada a preservar — ela
+  // só existe com a 086; null é o default da coluna.
+  const colunaMaquininha = (id: string | null): Pick<LinhaPagamento, 'maquininha_id'> =>
+    ctx.config.legado || (ctx.config.indisponivel && id === null) ? {} : { maquininha_id: id };
   const validos = splits.filter(s => s.valor > 0);
   if (validos.length === 0 && ctx.total < 0.01) {
-    return [{ empresa_id: ctx.empresaId, ...vinculo(), valor: 0, metodo: 'cortesia', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null, ...(ctx.config.legado ? {} : { maquininha_id: null }), status: 'pago' }];
+    return [{ empresa_id: ctx.empresaId, ...vinculo(), valor: 0, metodo: 'cortesia', bandeira: null, parcelas: 1, taxa_perc: null, valor_liquido: null, ...colunaMaquininha(null), status: 'pago' }];
   }
   const padraoId = maquininhaPadrao(ctx.config)?.id ?? null;
   // Reaberto inalterado mantém a maquininha gravada (inclusive null de antes da 086, sem atribuir
@@ -157,8 +163,7 @@ export function montarPagamentos(
       empresa_id: ctx.empresaId, ...vinculo(), valor: centavos(s.valor), metodo: s.metodo,
       bandeira: cartao ? (s.bandeira ?? null) : null, parcelas,
       taxa_perc: comTaxa ? taxa : null, valor_liquido: comTaxa ? valorLiquido(s.valor, taxa) : null,
-      // Sem a 086 (legado) a chave nem vai: a coluna não existe.
-      ...(ctx.config.legado ? {} : { maquininha_id: cartao ? maquininhaDaLinha(s, parcelas) : null }),
+      ...colunaMaquininha(cartao ? maquininhaDaLinha(s, parcelas) : null),
       status: 'pago',
     };
     if (s.criadoEm) linha.created_at = s.criadoEm;

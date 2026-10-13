@@ -18,3 +18,21 @@ export function definicaoVendas(): DefinicaoExportacao<LinhaVenda> {
     ],
   };
 }
+
+/** Venda como o histórico (web e app) a carrega. */
+export type VendaHistoricoExportavel = {
+  created_at: string; cliente: { nome: string } | null; valor_final: number;
+  itens: { produto: { nome: string } | null; quantidade: number }[];
+  pagamentos_venda: { metodo: string; valor: number }[];
+};
+
+/** Linhas da exportação a partir das vendas carregadas (mesma montagem no web e no app). */
+export function linhasVendas(vendas: VendaHistoricoExportavel[], rotuloMetodo: (metodo: string) => string): LinhaVenda[] {
+  return vendas.map(v => ({
+    criadoEm: v.created_at,
+    cliente: v.cliente?.nome ?? null,
+    itens: v.itens.map(i => ({ produto: i.produto?.nome ?? '?', quantidade: i.quantidade })),
+    total: Number(v.valor_final),
+    pagamentos: v.pagamentos_venda.map(p => ({ metodo: rotuloMetodo(p.metodo), valor: Number(p.valor) })),
+  }));
+}

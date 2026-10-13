@@ -66,8 +66,11 @@ export type Maquininha = {
   id: string; nome: string; maxParcelas: number; ativa: boolean; padrao: boolean; ordem: number; taxas: TaxaLinha[];
 };
 
-/** Configuração completa de cartões da empresa. `legado` = migration 086 ainda não aplicada (somente leitura). */
-export type ConfigCartoes = { maquininhas: Maquininha[]; bandeiras: BandeiraCartao[]; legado: boolean };
+/**
+ * Configuração completa de cartões da empresa. `legado` = migration 086 ainda não aplicada (somente
+ * leitura). `indisponivel` = a leitura falhou (configIndisponivel): nenhuma taxa disponível.
+ */
+export type ConfigCartoes = { maquininhas: Maquininha[]; bandeiras: BandeiraCartao[]; legado: boolean; indisponivel?: boolean };
 
 /** Máximo de parcelas permitido em qualquer maquininha. */
 export const MAX_PARCELAS = 18;
@@ -97,6 +100,24 @@ export function configLegada(empresa: Record<string, unknown> | null | undefined
     bandeiras: BANDEIRAS_INICIAIS.map((b, i) => ({ id: `legado-${b.chave}`, chave: b.chave, nome: b.nome, ativa: true, ordem: i + 1 })),
   };
 }
+
+/**
+ * Configuração usada quando a leitura falhou por um erro que não é "tabela ausente" (rede, RLS…):
+ * nenhuma maquininha, as 5 bandeiras iniciais. Assim `taxaDoCartao` dá null em todo cartão (aviso
+ * "Taxa não cadastrada" e pagamento gravado sem taxa) — nunca as taxas antigas da 084 nem o padrão
+ * InfinitePay. Pagamento reaberto inalterado mantém a taxa e a maquininha gravadas.
+ */
+export function configIndisponivel(): ConfigCartoes {
+  return {
+    legado: false,
+    indisponivel: true,
+    maquininhas: [],
+    bandeiras: BANDEIRAS_INICIAIS.map((b, i) => ({ id: `indisponivel-${b.chave}`, chave: b.chave, nome: b.nome, ativa: true, ordem: i + 1 })),
+  };
+}
+
+/** Complemento do aviso de erro ao carregar a configuração (as telas usam configIndisponivel). */
+export const AVISO_CARTOES_SEM_TAXA = 'Pagamentos no cartão serão registrados sem taxa até recarregar a tela.';
 
 /** Maquininhas ativas, por ordem e depois por nome. */
 export function maquininhasAtivas(c: ConfigCartoes): Maquininha[] {

@@ -1,6 +1,7 @@
 /**
  * @file comanda-recibo.ts
- * Texto do recibo da comanda enviado por WhatsApp — o MESMO no web e no app.
+ * Texto do recibo enviado por WhatsApp — o MESMO no web e no app. Comanda (padrão) ou venda
+ * avulsa (`tipo: 'compra'`).
  */
 import { formatarMoeda } from './moeda';
 import { BANDEIRAS_INICIAIS } from './taxas-cartao';
@@ -19,17 +20,28 @@ export type DadosRecibo = {
   descontoReserva: number;
   /** Nome da bandeira pela chave (ex.: `c => nomeBandeira(config, c)`). Ausente → nomes das 5 bandeiras iniciais. */
   nomeBandeira?: (chave: string) => string;
+  /**
+   * 'atendimento' (padrão, comanda): "Recibo de Atendimento" / "Serviços:".
+   * 'compra' (venda avulsa): "Recibo de Compra" / "Itens:".
+   */
+  tipo?: 'atendimento' | 'compra';
+};
+
+const CABECALHO: Record<'atendimento' | 'compra', { titulo: string; itens: string }> = {
+  atendimento: { titulo: 'Recibo de Atendimento', itens: 'Serviços:' },
+  compra:      { titulo: 'Recibo de Compra',      itens: 'Itens:' },
 };
 
 const NOMES_INICIAIS: Record<string, string> = Object.fromEntries(BANDEIRAS_INICIAIS.map(b => [b.chave, b.nome]));
 
 /** Recibo em texto (negrito do WhatsApp com *). Data/hora em Brasília. */
 export function gerarTextoRecibo(d: DadosRecibo): string {
+  const cab = CABECALHO[d.tipo ?? 'atendimento'];
   return [
-    '🌸 *Recibo de Atendimento*', '',
+    `🌸 *${cab.titulo}*`, '',
     `👤 ${d.nome}`,
     `📅 ${rotuloDataBR(chaveDiaBRT(d.dataIso))} às ${horaBRT(d.dataIso)}`, '',
-    '*Serviços:*',
+    `*${cab.itens}*`,
     ...d.itens.map(i => `• ${i.descricao}${i.quantidade > 1 ? ` (${i.quantidade}x)` : ''} — ${formatarMoeda(i.valor * i.quantidade)}`),
     ...(d.descontoReserva > 0 ? [`• Taxa de reserva paga — −${formatarMoeda(d.descontoReserva)}`] : []),
     ...(d.desconto > 0 ? [`• Desconto — −${formatarMoeda(d.desconto)}`] : []),
