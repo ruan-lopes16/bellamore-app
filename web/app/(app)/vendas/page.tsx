@@ -44,6 +44,7 @@ import {
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import { calcularDesconto, resumoComanda, taxaDoSplit, parseValorBR, type ModoDesconto } from '@shared/comanda-fechamento';
 import { adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, type ItemVenda } from '@shared/venda';
+import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
@@ -184,12 +185,20 @@ export default function VendasPage() {
       supabase.from('produtos')
         .select('id, nome, categoria, preco_venda, estoque_atual, unidade')
         .eq('empresa_id', empId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
-      supabase.from('clientes')
+      // Paginada: acima de 1000 clientes o PostgREST cortaria a lista em silêncio.
+      buscarTodasOuLancar<Cliente>((de, ate) => supabase.from('clientes')
         .select('id, nome, telefone')
-        .eq('empresa_id', empId).eq('ativo', true).order('nome'),
+        .eq('empresa_id', empId).eq('ativo', true)
+        .order('nome').order('id')
+        .range(de, ate)).then(
+        data => ({ data, error: null as { message: string } | null }),
+        (e: unknown) => ({ data: null as Cliente[] | null, error: { message: e instanceof Error ? e.message : String(e) } }),
+      ),
     ]);
-    setProdutos((rProdutos.data ?? []) as Produto[]);
-    setClientes((rClientes.data ?? []) as Cliente[]);
+    if (rProdutos.error) setErro(mensagemErroBanco(rProdutos.error, 'carregar os produtos'));
+    else if (rClientes.error) setErro(mensagemErroBanco(rClientes.error, 'carregar as clientes'));
+    if (!rProdutos.error) setProdutos((rProdutos.data ?? []) as Produto[]);
+    if (!rClientes.error) setClientes((rClientes.data ?? []) as Cliente[]);
     setLoading(false);
   }, []);
 
