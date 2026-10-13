@@ -111,7 +111,7 @@ begin
     if not found then
       raise exception 'Produto indisponível para venda.';
     end if;
-    if not v_vendavel then
+    if not coalesce(v_vendavel, false) then  -- ativo/tipo nulos = indisponível
       raise exception 'Produto indisponível para venda: %.', v_nome;
     end if;
     if coalesce(v_saldo, 0) < r.qtd then
