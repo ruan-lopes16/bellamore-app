@@ -1128,7 +1128,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - Recibo de venda saía como "Recibo de Atendimento".
 
 **Pendências para produção:**
-- Aplicar `086_cartoes_maquininhas_bandeiras.sql` no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Ordem livre: sem a 086 vale a configuração legada (taxas da 084, área Cartões só leitura).
+- ~~Aplicar `086_cartoes_maquininhas_bandeiras.sql`~~ — **aplicada em produção em 2026-10-13** (conferência: 1 maquininha, 5 bandeiras, 13 taxas; débito 0.0239, crédito 1x 0.0499, 2x–12x 0.0559).
 - Depois: conferir em Configurações → Cartões a maquininha "Maquininha" com as taxas atuais, e cobrar uma comanda e uma venda no cartão.
 - 085 (Comanda B) segue pendente, se ainda não aplicada.
 
