@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const sql = readFileSync(join(process.cwd(), '..', 'supabase', 'migrations', '086_cartoes_maquininhas_bandeiras.sql'), 'utf8').toLowerCase();
+const sql = readFileSync(join(process.cwd(), '..', 'supabase', 'migrations', '086_cartoes_maquininhas_bandeiras.sql'), 'utf8').toLowerCase().replace(/\r\n/g, '\n');
 
 describe('Migration 086: cartões', () => {
   it('três tabelas com checks', () => {

@@ -15,12 +15,12 @@
  *   (estoque_atual decrementado pelo trigger trg_atualizar_estoque)
  * - venda gravada pela metade (ErroVenda com vendaId) trava um novo "Finalizar" deste carrinho.
  */
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert,
   StatusBar, KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import { useQueryClient } from '@tanstack/react-query';
@@ -50,6 +50,7 @@ import {
   type ItemVenda, type ProdutoVenda,
 } from '@shared/venda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
+import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { limitesDias, chaveDiaExibido, horaBRT, rotuloDiaExtenso } from '@shared/periodos';
@@ -107,7 +108,7 @@ const somarDiasData = (d: Date, n: number) => { const x = new Date(d); x.setDate
 export default function VendasScreen() {
   const insets = useSafeAreaInsets();
   const empresaId = useAuthStore(s => s.empresaAtiva?.id ?? null);
-  const { pode } = usePermissoes();
+  const { pode, permissoesCarregadas } = usePermissoes();
   const podeVendas = pode('vendas.acessar');
   // Desconto e Cortesia: mesma regra da comanda (comanda.desconto). Sem a permissão, nada de
   // campo de desconto nem chip Cortesia; a cortesia automática de total R$ 0 continua valendo.
@@ -125,6 +126,8 @@ export default function VendasScreen() {
   const [erroCarga, setErroCarga] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
   const avisoCartoesRef = useRef(false);
+  // Vira true no primeiro sucesso: uma falha passageira na recarga não troca a config boa por configIndisponivel().
+  const configCarregadaRef = useRef(false);
 
   // Venda
   const [cart, setCart] = useState<ItemVenda[]>([]);
@@ -161,9 +164,15 @@ export default function VendasScreen() {
       supabase.from('produtos')
         .select('id, nome, categoria, preco_venda, estoque_atual, unidade')
         .eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
-      supabase.from('clientes')
+      // Paginada: acima de 1000 clientes o PostgREST cortaria a lista em silêncio.
+      buscarTodasOuLancar<Cliente>((de, ate) => supabase.from('clientes')
         .select('id, nome, telefone')
-        .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
+        .eq('empresa_id', empresaId).eq('ativo', true)
+        .order('nome').order('id')
+        .range(de, ate)).then(
+        data => ({ data, error: null as { message: string } | null }),
+        (e: unknown) => ({ data: null as Cliente[] | null, error: { message: e instanceof Error ? e.message : String(e) } }),
+      ),
       // Erro de leitura não derruba a tela: avisa e usa configIndisponivel (cartão sem taxa) —
       // nunca as taxas antigas da 084 nem o padrão.
       carregarConfigCartoes(supabase, empresaId).then(
@@ -179,7 +188,8 @@ export default function VendasScreen() {
     else setErroCarga(null);
     if (!rProdutos.error) setProdutos((rProdutos.data ?? []) as Produto[]);
     if (!rClientes.error) setClientes((rClientes.data ?? []) as Cliente[]);
-    setConfig(rCartoes.config);
+    if (!rCartoes.erro) { configCarregadaRef.current = true; setConfig(rCartoes.config); }
+    else if (!configCarregadaRef.current) setConfig(rCartoes.config);
     if (rCartoes.erro && !avisoCartoesRef.current) {
       avisoCartoesRef.current = true;
       Alert.alert('Cartões', rCartoes.erro);
@@ -187,7 +197,8 @@ export default function VendasScreen() {
     setLoading(false);
   }, [empresaId]);
 
-  useEffect(() => { if (podeVendas) carregar(); }, [carregar, podeVendas]);
+  // Ao abrir e ao VOLTAR para a tela (ela fica montada na pilha): estoque dos cards sempre atual.
+  useFocusEffect(useCallback(() => { if (podeVendas) carregar(); }, [carregar, podeVendas]));
 
   // ── Vendas do dia escolhido (limites do dia em Brasília)
   const carregarVendas = useCallback(async () => {
@@ -213,7 +224,10 @@ export default function VendasScreen() {
     setLoadingVendas(false);
   }, [empresaId, dia]);
 
-  useEffect(() => { if (aba === 'historico' && podeVendas) carregarVendas(); }, [aba, carregarVendas, podeVendas]);
+  // Histórico do dia: ao abrir a aba, ao trocar o dia e ao voltar para a tela.
+  useFocusEffect(useCallback(() => {
+    if (aba === 'historico' && podeVendas) carregarVendas();
+  }, [aba, carregarVendas, podeVendas]));
 
   // ── Filtros locais
   const produtosFiltrados = useMemo(() => {
@@ -272,11 +286,13 @@ export default function VendasScreen() {
       carregar(); // atualiza o estoque nos cards
     } catch (e) {
       if (e instanceof ErroVenda) {
+        // Qualquer erro da gravação (estoque insuficiente, produto indisponível, sem resposta do
+        // servidor...) recarrega o catálogo: saldo dos cards e limite do carrinho voltam a ser reais.
         if (e.vendaId) {
           setVendaIncompleta(e.vendaId);
           invalidarFinanceiro(qc); // a venda existe e já conta no faturamento
-          carregar(); // o estoque pode já ter sido baixado
         }
+        carregar();
         setErro(e.message);
       } else {
         setErro(e instanceof Error ? e.message : 'Não foi possível finalizar a venda.');
@@ -288,6 +304,15 @@ export default function VendasScreen() {
   }
 
   if (!fontsLoaded) return null;
+
+  // Permissões ainda carregando: não mostrar "Sem permissão" por um instante.
+  if (!permissoesCarregadas) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.primary} />
+      </View>
+    );
+  }
 
   // ── Sem permissão (ex.: deep link)
   if (!podeVendas) {

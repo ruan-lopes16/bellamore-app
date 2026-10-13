@@ -13,10 +13,22 @@ export function fakeDb(opcoes: {
   /** Erro (mensagem) por tabela, em qualquer consulta (range, await ou single). */
   erroTabelas?: Record<string, string>;
   respostaUpdate?: (tabela: string, ids: string[], lote: number) => Resposta;
+  /**
+   * Resposta de `db.rpc(fn, args)`. Ausente → função inexistente (`PGRST202`), como no banco
+   * antes da migration que a cria; os testes antigos seguem pelo caminho sem a função.
+   */
+  rpc?: (fn: string, args: Record<string, unknown>) => { data: unknown; error: { code?: string; message: string } | null };
 } = {}) {
   const chamadas: Chamada[] = [];
+  const rpcs: { fn: string; args: Record<string, unknown> }[] = [];
   let lote = 0;
   const db = {
+    rpc(fn: string, args: Record<string, unknown> = {}) {
+      rpcs.push({ fn, args });
+      return Promise.resolve(opcoes.rpc
+        ? opcoes.rpc(fn, args)
+        : { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${fn}` } });
+    },
     from(tabela: string) {
       const chamada: Chamada = { tabela, ops: [] };
       chamadas.push(chamada);
@@ -62,7 +74,7 @@ export function fakeDb(opcoes: {
       return builder;
     },
   };
-  return { db, chamadas };
+  return { db, chamadas, rpcs };
 }
 export const opsDe = (chamadas: Chamada[], tabela: string) => chamadas.filter(c => c.tabela === tabela).map(c => c.ops);
 

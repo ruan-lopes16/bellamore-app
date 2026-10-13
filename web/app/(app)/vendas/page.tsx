@@ -44,6 +44,7 @@ import {
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import { calcularDesconto, resumoComanda, taxaDoSplit, parseValorBR, type ModoDesconto } from '@shared/comanda-fechamento';
 import { adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, type ItemVenda } from '@shared/venda';
+import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
@@ -139,6 +140,8 @@ export default function VendasPage() {
   const [splits,     setSplits]     = useState<Split[]>([]);
   const [finalizando,setFinalizando]= useState(false);
   const [erro,       setErro]       = useState('');
+  // Falha ao carregar produtos/clientes: separada de `erro` para não apagar (nem ser apagada por) a mensagem de finalização.
+  const [erroCarga,  setErroCarga]  = useState<string | null>(null);
   const [sucesso,    setSucesso]    = useState<Sucesso | null>(null);
   // Venda gravada pela metade (ex.: pagamentos falharam depois de a venda existir): bloqueia
   // um novo "Finalizar" deste carrinho para não registrar a mesma venda duas vezes.
@@ -184,12 +187,21 @@ export default function VendasPage() {
       supabase.from('produtos')
         .select('id, nome, categoria, preco_venda, estoque_atual, unidade')
         .eq('empresa_id', empId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
-      supabase.from('clientes')
+      // Paginada: acima de 1000 clientes o PostgREST cortaria a lista em silêncio.
+      buscarTodasOuLancar<Cliente>((de, ate) => supabase.from('clientes')
         .select('id, nome, telefone')
-        .eq('empresa_id', empId).eq('ativo', true).order('nome'),
+        .eq('empresa_id', empId).eq('ativo', true)
+        .order('nome').order('id')
+        .range(de, ate)).then(
+        data => ({ data, error: null as { message: string } | null }),
+        (e: unknown) => ({ data: null as Cliente[] | null, error: { message: e instanceof Error ? e.message : String(e) } }),
+      ),
     ]);
-    setProdutos((rProdutos.data ?? []) as Produto[]);
-    setClientes((rClientes.data ?? []) as Cliente[]);
+    if (rProdutos.error) setErroCarga(mensagemErroBanco(rProdutos.error, 'carregar os produtos'));
+    else if (rClientes.error) setErroCarga(mensagemErroBanco(rClientes.error, 'carregar as clientes'));
+    else setErroCarga(null);
+    if (!rProdutos.error) setProdutos((rProdutos.data ?? []) as Produto[]);
+    if (!rClientes.error) setClientes((rClientes.data ?? []) as Cliente[]);
     setLoading(false);
   }, []);
 
@@ -307,10 +319,12 @@ export default function VendasPage() {
       carregar(empresaId); // atualiza o estoque nos cards
     } catch (e) {
       if (e instanceof ErroVenda) {
+        // Qualquer erro da gravação (estoque insuficiente, produto indisponível, sem resposta do
+        // servidor...) recarrega o catálogo: saldo dos cards e limite do carrinho voltam a ser reais.
         if (e.vendaId) {
           setVendaIncompleta(e.vendaId);
-          carregar(empresaId); // o estoque pode já ter sido baixado
         }
+        carregar(empresaId);
         setErro(e.message);
       } else {
         setErro(e instanceof Error ? e.message : 'Não foi possível finalizar a venda.');
@@ -724,6 +738,13 @@ export default function VendasPage() {
                 )}
               </div>
             </div>
+
+            {erroCarga && (
+              <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
+                <AlertCircle size={14} className="text-red flex-shrink-0"/>
+                <p className="text-sm text-red flex-1">{erroCarga}</p>
+              </div>
+            )}
 
             {/* Erro */}
             {erro && (
