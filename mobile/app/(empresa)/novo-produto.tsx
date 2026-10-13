@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   View, Text, ScrollView, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform,
@@ -22,6 +23,14 @@ import {
 
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { useEstoque } from '@/hooks/useEstoque';
+import { mensagemErroBanco } from '@shared/erros';
+import { parseValorBR } from '@shared/comanda-fechamento';
+import {
+  CATEGORIAS_PRODUTO, rotuloCategoriaProduto, rotuloUnidade, unidadesParaSeletor,
+  unidadePedeQtdPorUnidade, montarProduto, margemVenda, formatarQuantidadeBR,
+  type TipoProduto, type OriginalProduto,
+} from '@shared/estoque';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -29,22 +38,9 @@ const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
   primary: '#2C1654', primarySoft: '#EEE8F8',
   accent: '#9B6FE8',
-  red: '#C0392B',
+  red: '#C0392B', green: '#2E7D5B',
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
-
-const CATEGORIAS = [
-  'Cabelo', 'Depilação', 'Higiene', 'Maquiagem',
-  'Massagem', 'Outros', 'Pele', 'Unhas',
-];
-
-const UNIDADES = ['un', 'ml', 'L', 'g', 'kg', 'cx', 'fr', 'par'];
-
-// ── Helpers ──────────────────────────────────────────────────
-
-function parseBRLFloat(str: string): number {
-  return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
-}
 
 // ── Componentes auxiliares ───────────────────────────────────
 
@@ -57,11 +53,11 @@ function Label({ children }: { children: string }) {
 }
 
 function Field({
-  label, value, onChange, placeholder, keyboardType = 'default', opcional = false,
+  label, value, onChange, placeholder, keyboardType = 'default', opcional = false, dica,
 }: {
   label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; keyboardType?: 'default' | 'decimal-pad' | 'numeric';
-  opcional?: boolean;
+  placeholder?: string; keyboardType?: 'default' | 'decimal-pad' | 'numeric' | 'numbers-and-punctuation';
+  opcional?: boolean; dica?: string;
 }) {
   return (
     <View style={{ marginBottom: 20 }}>
@@ -87,23 +83,32 @@ function Field({
           fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text,
         }}
       />
+      {!!dica && (
+        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4, marginTop: 6 }}>{dica}</Text>
+      )}
     </View>
   );
 }
 
+/**
+ * Teclado numérico que deixa digitar o sinal de menos (o saldo pode ser negativo).
+ * No iOS o "decimal-pad" não tem "-", então usa "numbers-and-punctuation"; no Android "numeric" é com sinal.
+ */
+const TECLADO_COM_SINAL = Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric';
+
 function ChipSelector({ label, options, value, onChange }: {
-  label: string; options: string[]; value: string; onChange: (v: string) => void;
+  label: string; options: { key: string; label: string }[]; value: string; onChange: (v: string) => void;
 }) {
   return (
     <View style={{ marginBottom: 20 }}>
       <Label>{label}</Label>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
         {options.map((opt) => {
-          const ativo = value === opt;
+          const ativo = value === opt.key;
           return (
             <TouchableOpacity
-              key={opt}
-              onPress={() => onChange(opt)}
+              key={opt.key}
+              onPress={() => onChange(opt.key)}
               style={{
                 paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20,
                 backgroundColor: ativo ? C.primary : C.surface,
@@ -114,7 +119,7 @@ function ChipSelector({ label, options, value, onChange }: {
                 fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13,
                 color: ativo ? '#fff' : C.text3,
               }}>
-                {opt}
+                {opt.label}
               </Text>
             </TouchableOpacity>
           );
@@ -124,19 +129,68 @@ function ChipSelector({ label, options, value, onChange }: {
   );
 }
 
+function TipoSelector({ value, onChange }: { value: TipoProduto; onChange: (v: TipoProduto) => void }) {
+  const opcoes: { key: TipoProduto; titulo: string; sub: string; cor: string }[] = [
+    { key: 'material', titulo: 'Material / Insumo', sub: 'Usado em atendimentos', cor: C.primary },
+    { key: 'venda', titulo: 'Para venda (PDV)', sub: 'Revenda para clientes', cor: C.green },
+  ];
+  return (
+    <View style={{ marginBottom: 20 }}>
+      <Label>Tipo de produto</Label>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        {opcoes.map((o) => {
+          const ativo = value === o.key;
+          return (
+            <TouchableOpacity
+              key={o.key}
+              onPress={() => onChange(o.key)}
+              style={{
+                flex: 1, paddingVertical: 14, paddingHorizontal: 10, borderRadius: 14, alignItems: 'center', gap: 4,
+                backgroundColor: ativo ? C.surface : C.bg,
+                borderWidth: 2, borderColor: ativo ? o.cor : C.border,
+              }}
+            >
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: ativo ? o.cor : C.text3, textAlign: 'center' }}>
+                {o.titulo}
+              </Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4, textAlign: 'center' }}>
+                {o.sub}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 // ── Tela ─────────────────────────────────────────────────────
 
 export default function NovoProdutoScreen() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
+  const qc = useQueryClient();
+  const { unidadesVisiveis } = useEstoque();
+
+  const opcoesUnidade = useMemo(
+    () => unidadesParaSeletor(unidadesVisiveis).map((u) => ({ key: u, label: rotuloUnidade(u) === u ? u : `${rotuloUnidade(u)} (${u})` })),
+    [unidadesVisiveis],
+  );
+  const opcoesCategoria = useMemo(() => CATEGORIAS_PRODUTO.map((c) => ({ key: c.key, label: c.label })), []);
 
   const [nome, setNome] = useState('');
-  const [categoria, setCategoria] = useState('');
-  const [unidade, setUnidade] = useState('un');
-  const [precoCusto, setPrecoCusto] = useState('');
-  const [estoqueMinimo, setEstoqueMinimo] = useState('');
-  const [estoqueInicial, setEstoqueInicial] = useState('');
+  const [tipo, setTipo] = useState<TipoProduto>('material');
+  const [categoria, setCategoria] = useState('outros');
+  // Vazia = a primeira do seletor (a empresa pode ter ocultado 'un').
+  const [unidadeEscolhida, setUnidade] = useState('');
+  const unidade = unidadeEscolhida || (opcoesUnidade[0]?.key ?? 'un');
+  const [qtdPorUn, setQtdPorUn] = useState('');
+  const [estAtual, setEstAtual] = useState('0');
+  const [estMin, setEstMin] = useState('0');
+  const [custo, setCusto] = useState('');
+  const [precoVenda, setPrecoVenda] = useState('');
   const [loading, setLoading] = useState(false);
+  const margem = margemVenda(parseValorBR(custo), parseValorBR(precoVenda));
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -150,33 +204,25 @@ export default function NovoProdutoScreen() {
   if (!fontsLoaded) return null;
 
   async function handleSalvar() {
-    if (!nome.trim()) {
-      Alert.alert('Campo obrigatório', 'Informe o nome do produto.');
-      return;
-    }
-    if (!categoria) {
-      Alert.alert('Campo obrigatório', 'Selecione uma categoria.');
+    if (!empresaAtiva) return;
+    const r = montarProduto(
+      { nome, tipo, categoria, unidade, qtdPorUnidade: qtdPorUn, estoqueAtual: estAtual, estoqueMinimo: estMin, precoCusto: custo, precoVenda },
+      { empresaId: empresaAtiva.id, editando: false },
+    );
+    if ('erro' in r) {
+      Alert.alert('Confira os dados', r.erro);
       return;
     }
 
     setLoading(true);
     try {
-      const { error } = await supabase.from('produtos').insert({
-        empresa_id:      empresaAtiva!.id,
-        nome:            nome.trim(),
-        categoria,
-        unidade,
-        preco_custo:     parseBRLFloat(precoCusto),
-        estoque_minimo:  parseBRLFloat(estoqueMinimo),
-        estoque_atual:   parseBRLFloat(estoqueInicial),
-        ativo:           true,
-      });
-
-      if (error) throw error;
-
+      const { error } = await supabase.from('produtos').insert(r.payload);
+      if (error) {
+        Alert.alert('Não foi possível cadastrar', mensagemErroBanco(error, 'cadastrar produto'));
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ['estoque', empresaAtiva.id] });
       router.back();
-    } catch (err: any) {
-      Alert.alert('Erro', err?.message ?? 'Não foi possível salvar o produto.');
     } finally {
       setLoading(false);
     }
@@ -213,59 +259,66 @@ export default function NovoProdutoScreen() {
       <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: insets.bottom + 100 }}>
         <MotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 350 }}>
 
-          {/* Nome */}
+          <TipoSelector value={tipo} onChange={setTipo} />
+
           <Field
             label="Nome do produto"
             value={nome}
             onChange={setNome}
-            placeholder="Ex: Shampoo Profissional 1L"
+            placeholder={tipo === 'venda' ? 'Ex: Água de Coco 350ml' : 'Ex: Cola para cílios 5ml'}
           />
 
-          {/* Categoria */}
-          <ChipSelector
-            label="Categoria"
-            options={CATEGORIAS}
-            value={categoria}
-            onChange={setCategoria}
-          />
+          <ChipSelector label="Categoria" options={opcoesCategoria} value={categoria} onChange={setCategoria} />
 
-          {/* Unidade */}
-          <ChipSelector
-            label="Unidade"
-            options={UNIDADES}
-            value={unidade}
-            onChange={setUnidade}
-          />
+          <ChipSelector label="Unidade de medida" options={opcoesUnidade} value={unidade} onChange={setUnidade} />
 
-          {/* Preço de custo */}
+          {unidadePedeQtdPorUnidade(unidade) && (
+            <Field
+              label={`Quantas unidades vêm dentro ${unidade === 'cx' ? 'da caixa' : 'do pacote'}?`}
+              value={qtdPorUn}
+              onChange={setQtdPorUn}
+              placeholder="Ex: 12"
+              keyboardType="decimal-pad"
+              opcional
+            />
+          )}
+
           <Field
-            label="Preço de custo"
-            value={precoCusto}
-            onChange={setPrecoCusto}
+            label="Quantidade atual"
+            value={estAtual}
+            onChange={setEstAtual}
+            placeholder={`Quantidade em ${unidade}`}
+            keyboardType={TECLADO_COM_SINAL}
+          />
+
+          <Field
+            label="Quantidade mínima"
+            value={estMin}
+            onChange={setEstMin}
+            placeholder="Qtd. mínima antes do alerta"
+            keyboardType="decimal-pad"
+            dica="Abaixo disso → alerta de reposição"
+          />
+
+          <Field
+            label="Custo unitário (R$)"
+            value={custo}
+            onChange={setCusto}
             placeholder="0,00"
             keyboardType="decimal-pad"
             opcional
           />
 
-          {/* Estoque inicial */}
-          <Field
-            label="Estoque inicial"
-            value={estoqueInicial}
-            onChange={setEstoqueInicial}
-            placeholder={`Quantidade em ${unidade}`}
-            keyboardType="decimal-pad"
-            opcional
-          />
-
-          {/* Estoque mínimo */}
-          <Field
-            label="Estoque mínimo (alerta)"
-            value={estoqueMinimo}
-            onChange={setEstoqueMinimo}
-            placeholder={`Qtd. mínima antes do alerta`}
-            keyboardType="decimal-pad"
-            opcional
-          />
+          {tipo === 'venda' && (
+            <Field
+              label="Preço de venda (R$)"
+              value={precoVenda}
+              onChange={setPrecoVenda}
+              placeholder="0,00"
+              keyboardType="decimal-pad"
+              dica={margem !== null ? `Margem: ${margem}%` : 'Aparece no PDV'}
+            />
+          )}
 
         </MotiView>
       </ScrollView>

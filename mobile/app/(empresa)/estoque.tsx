@@ -50,7 +50,7 @@ type Filtro = 'todos' | 'critico' | 'baixo' | 'ok';
 interface ModalMovProps {
   produto: Produto | null;
   onClose: () => void;
-  onConfirmar: (tipo: MovimentoTipo, quantidade: number, motivo: string) => Promise<void>;
+  onConfirmar: (tipo: MovimentoTipo, quantidade: number, motivo: string) => Promise<unknown>;
 }
 
 function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
@@ -74,9 +74,9 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
       setLoading(false);
       setSucesso({ tipo, qtd });
       setTimeout(onClose, 1300);
-    } catch {
+    } catch (e) {
       setLoading(false);
-      Alert.alert('Erro', 'Não foi possível registrar a movimentação.');
+      Alert.alert('Não foi possível registrar', e instanceof Error ? e.message : 'Tente novamente.');
     }
   }
 
@@ -328,7 +328,7 @@ export default function EstoqueScreen() {
   const [busca, setBusca] = useState('');
   const [produtoSelecionado, setProdutoSelecionado] = useState<Produto | null>(null);
 
-  const { produtos, criticos, baixos, normais, totalCriticos, totalAtencao, isLoading, refetch, registrarMovimento } = useEstoque();
+  const { produtos, criticos, baixos, normais, totalCriticos, totalAtencao, isLoading, refetch, movimentar } = useEstoque();
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -505,7 +505,7 @@ export default function EstoqueScreen() {
         produto={produtoSelecionado}
         onClose={() => setProdutoSelecionado(null)}
         onConfirmar={(tipo, quantidade, motivo) =>
-          registrarMovimento(produtoSelecionado!.id, tipo, quantidade, motivo)
+          movimentar(produtoSelecionado!, tipo === 'saida' ? 'saida' : 'entrada', quantidade, motivo)
         }
       />
     </View>
