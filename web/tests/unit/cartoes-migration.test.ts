@@ -39,7 +39,9 @@ describe('Migration 086: cartões', () => {
   it('vendas.acessar libera leitura de vendas/venda_itens/pagamentos da venda e o desfazer (I1)', () => {
     const s1 = sql.replace(/\s+/g, ' ');
     expect(s1).toContain(`drop policy if exists "vendas: vendas.acessar ve" on public.vendas; create policy "vendas: vendas.acessar ve" on public.vendas for select using (tem_permissao(empresa_id, 'vendas.acessar'));`);
-    expect(s1).toContain(`drop policy if exists "vendas: vendas.acessar deleta" on public.vendas; create policy "vendas: vendas.acessar deleta" on public.vendas for delete using (tem_permissao(empresa_id, 'vendas.acessar'));`);
+    expect(s1).toContain(`drop policy if exists "vendas: vendas.acessar deleta" on public.vendas; create policy "vendas: vendas.acessar deleta" on public.vendas for delete using (`);
+    // DELETE só da venda recém-criada e sem itens (desfazer falha), nunca de venda com histórico.
+    expect(s1).toContain("and created_at > now() - interval '10 minutes' and not exists (select 1 from public.venda_itens vi where vi.venda_id = vendas.id) );");
     expect(s1).toContain(`drop policy if exists "venda_itens: vendas.acessar ve" on public.venda_itens; create policy "venda_itens: vendas.acessar ve" on public.venda_itens for select using (tem_permissao(empresa_id, 'vendas.acessar'));`);
     // pagamentos: a policy da 083 inteira (sem alteração) + o ramo da venda
     const m083 = readFileSync(join(process.cwd(), '..', 'supabase', 'migrations', '083_permissoes_configuraveis.sql'), 'utf8').toLowerCase().replace(/\r\n/g, '\n');

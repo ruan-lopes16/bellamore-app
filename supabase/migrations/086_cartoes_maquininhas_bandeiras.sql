@@ -153,14 +153,20 @@ select public.semear_cartoes_empresa(id) from public.empresas;
 -- Vendas avulsas para quem tem vendas.acessar (exceção por pessoa no painel de Permissões).
 -- A tela Vendas lê o histórico (vendas, venda_itens e os pagamentos da venda), e antes só a 046
 -- (gestor/dona) liberava essa leitura — a permissão não tinha efeito. Policies novas somam
--- (são permissivas): nada muda para quem já via. O DELETE permite desfazer a venda quando os
--- itens falham (shared/venda.ts; venda_itens cai por cascata).
+-- (são permissivas): nada muda para quem já via. O DELETE só desfaz a venda recém-criada
+-- e ainda sem itens, quando o INSERT dos itens falha (shared/venda.ts).
 drop policy if exists "vendas: vendas.acessar ve" on public.vendas;
 create policy "vendas: vendas.acessar ve" on public.vendas for select
   using (tem_permissao(empresa_id, 'vendas.acessar'));
 drop policy if exists "vendas: vendas.acessar deleta" on public.vendas;
 create policy "vendas: vendas.acessar deleta" on public.vendas for delete
-  using (tem_permissao(empresa_id, 'vendas.acessar'));
+  using (
+    -- Só desfaz a venda que acabou de falhar: sem nenhum item e criada há no máximo 10 minutos.
+    -- Venda com itens (histórico/receita) nunca é apagada por esta policy.
+    tem_permissao(empresa_id, 'vendas.acessar')
+    and created_at > now() - interval '10 minutes'
+    and not exists (select 1 from public.venda_itens vi where vi.venda_id = vendas.id)
+  );
 drop policy if exists "venda_itens: vendas.acessar ve" on public.venda_itens;
 create policy "venda_itens: vendas.acessar ve" on public.venda_itens for select
   using (tem_permissao(empresa_id, 'vendas.acessar'));
