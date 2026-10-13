@@ -1,6 +1,6 @@
 /** Regras de estoque compartilhadas entre web e app (rótulos e status). */
 
-import { parseValorBR } from "./comanda-fechamento";
+import { parseValorBR } from './comanda-fechamento';
 
 /** Categorias de produto: chave -> rótulo (ordem alfabética pt-BR). */
 export const ROTULOS_CATEGORIA_PRODUTO: Record<string, string> = {
@@ -107,9 +107,37 @@ export function unidadesParaSeletor(visiveis: string[] | null, atual?: string | 
   return atual && !base.includes(atual) ? [...base, atual] : base;
 }
 
-/** Quantidade digitada → número ("0,5", "0.5", "1.234,56"); vazio, inválido ou negativo → 0. */
+const arredondar3 = (n: number) => Math.round(Number((n * 1000).toPrecision(12))) / 1000;
+
+/**
+ * Quantidade digitada → número, arredondado a 3 casas ("0,5", "0.5", "1.234,56").
+ * Mesma leitura do dinheiro (`parseValorBR`): "1.234" é milhar (1234), não 1,234 — para preencher
+ * o campo na edição use `formatarQuantidadeBR`, que nunca gera ponto. Vazio, inválido ou negativo → 0.
+ */
 export function parseQuantidadeBR(texto: string): number {
-  return parseValorBR(texto);
+  return arredondar3(parseValorBR(texto));
+}
+
+/**
+ * Saldo digitado → número, como `parseQuantidadeBR` mas aceitando "-" no início (saldo negativo
+ * pode ser corrigido). "-" sozinho ou vazio → 0.
+ */
+export function parseSaldoBR(texto: string): number {
+  const t = texto.trim();
+  if (!t.startsWith('-')) return parseQuantidadeBR(t);
+  const n = parseQuantidadeBR(t.slice(1));
+  return n === 0 ? 0 : -n;
+}
+
+/**
+ * Número → texto para preencher campos de quantidade: vírgula decimal, até 3 casas sem zeros à
+ * direita, sem separador de milhar, negativo com "-" (1.234 → "1,234"; 1500 → "1500").
+ * `parseSaldoBR(formatarQuantidadeBR(n)) === n` para até 3 casas.
+ */
+export function formatarQuantidadeBR(n: number): string {
+  const v = arredondar3(n);
+  if (v === 0) return '0';
+  return v.toFixed(3).replace(/\.?0+$/, '').replace('.', ',');
 }
 
 // ── Cadastro de produto ──────────────────────────────────────────
@@ -128,31 +156,71 @@ export type PayloadProduto = {
   estoque_atual: number; estoque_minimo: number; preco_custo: number; preco_venda: number; ativo?: boolean;
 };
 
-const centavosEstoque = (v: number) => Math.round(v * 100) / 100;
+/** Arredonda reais a centavos sem erro de float (1,005 → 1,01). */
+const arredondarReais = (v: number) => Math.round(Number((v * 100).toPrecision(12))) / 100;
+
+const MAX_QUANTIDADE = 9999999.999; // numeric(10,3)
+const MAX_DINHEIRO = 99999999.99; // numeric(10,2)
+
+/** Valores originais do produto editado (para nunca perder dado de quem só mudou outro campo). */
+export type OriginalProduto = {
+  estoque_atual: number; estoque_minimo: number; qtd_por_unidade: number; categoria: string; preco_venda: number;
+};
 
 /**
  * Valida o formulário e monta a linha de `produtos` (mesma regra no web e no app).
  * Nome, categoria do catálogo e unidade obrigatórios; preço de venda só (e obrigatório) para venda;
- * `qtd_por_unidade` só para pacote/caixa (inteiro ≥ 1); saldo editável no cadastro e na edição.
+ * `qtd_por_unidade` só para pacote/caixa (≥ 1, até 3 casas; demais unidades = 1); saldo aceita negativo.
+ *
+ * Na edição (`ctx.original`): campo de quantidade cujo texto é igual ao original formatado mantém o
+ * número original sem reler; categoria igual à original é aceita mesmo fora do catálogo; material
+ * mantém o `preco_venda` original. No cadastro a categoria precisa ser do catálogo e material grava 0.
+ * Quantidade > 9999999,999 e dinheiro > 99999999,99 → erro em português (não gravam).
  */
-export function montarProduto(form: FormProduto, ctx: { empresaId: string; editando: boolean }): { payload: PayloadProduto } | { erro: string } {
+export function montarProduto(
+  form: FormProduto,
+  ctx: { empresaId: string; editando: boolean; original?: OriginalProduto },
+): { payload: PayloadProduto } | { erro: string } {
   const nome = form.nome.trim();
   if (!nome) return { erro: 'Informe o nome do produto.' };
-  if (!Object.prototype.hasOwnProperty.call(ROTULOS_CATEGORIA_PRODUTO, form.categoria)) return { erro: 'Escolha uma categoria.' };
+  const orig = ctx.editando ? ctx.original : undefined;
+  const categoriaLegadaOk = !!orig && !!form.categoria && form.categoria === orig.categoria;
+  if (!categoriaLegadaOk && !Object.prototype.hasOwnProperty.call(ROTULOS_CATEGORIA_PRODUTO, form.categoria)) return { erro: 'Escolha uma categoria.' };
   if (!form.unidade) return { erro: 'Escolha a unidade de medida.' };
-  const precoVenda = form.tipo === 'venda' ? centavosEstoque(parseValorBR(form.precoVenda)) : 0;
-  if (form.tipo === 'venda' && precoVenda <= 0) return { erro: 'Informe o preço de venda.' };
-  const qtdDentro = unidadePedeQtdPorUnidade(form.unidade) ? Math.round(parseQuantidadeBR(form.qtdPorUnidade)) : 1;
+
+  const quantidade = (texto: string, original: number | undefined, ler: (t: string) => number) =>
+    original !== undefined && texto.trim() === formatarQuantidadeBR(original) ? original : ler(texto);
+
+  let precoVenda = 0;
+  if (form.tipo === 'venda') {
+    precoVenda = arredondarReais(parseValorBR(form.precoVenda));
+    if (precoVenda <= 0) return { erro: 'Informe o preço de venda.' };
+  } else if (orig) {
+    precoVenda = orig.preco_venda;
+  }
+
+  let qtdDentro = 1;
+  if (unidadePedeQtdPorUnidade(form.unidade)) {
+    qtdDentro = quantidade(form.qtdPorUnidade, orig?.qtd_por_unidade, parseQuantidadeBR);
+    if (qtdDentro < 1) qtdDentro = 1;
+  }
+  const estoqueAtual = quantidade(form.estoqueAtual, orig?.estoque_atual, parseSaldoBR);
+  const estoqueMinimo = quantidade(form.estoqueMinimo, orig?.estoque_minimo, parseQuantidadeBR);
+  const precoCusto = arredondarReais(parseValorBR(form.precoCusto));
+
+  if ([qtdDentro, estoqueAtual, estoqueMinimo].some(q => Math.abs(q) > MAX_QUANTIDADE)) return { erro: 'Quantidade grande demais.' };
+  if (precoCusto > MAX_DINHEIRO || precoVenda > MAX_DINHEIRO) return { erro: 'Valor grande demais.' };
+
   const payload: PayloadProduto = {
     empresa_id: ctx.empresaId,
     nome,
     tipo: form.tipo,
     categoria: form.categoria,
     unidade: form.unidade,
-    qtd_por_unidade: qtdDentro >= 1 ? qtdDentro : 1,
-    estoque_atual: parseQuantidadeBR(form.estoqueAtual),
-    estoque_minimo: parseQuantidadeBR(form.estoqueMinimo),
-    preco_custo: centavosEstoque(parseValorBR(form.precoCusto)),
+    qtd_por_unidade: qtdDentro,
+    estoque_atual: estoqueAtual,
+    estoque_minimo: estoqueMinimo,
+    preco_custo: precoCusto,
     preco_venda: precoVenda,
   };
   if (!ctx.editando) payload.ativo = true;
