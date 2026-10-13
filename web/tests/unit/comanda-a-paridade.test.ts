@@ -73,7 +73,8 @@ describe('ordem e conferência de erros no fechamento (revisão final)', () => {
       expect(inserts.length).toBeGreaterThan(0);
       expect(comErro.length).toBe(inserts.length);
     }
-    expect(src).toMatch(/if \(errVenda \|\| !venda\)/);
+    // Venda dos produtos com id gerado no cliente (INSERT sem .select()): confere só o error.
+    expect(src).toMatch(/if \(errVenda\) \{/);
     expect(src).toMatch(/if \(errVendaItens\)/);
   });
 });

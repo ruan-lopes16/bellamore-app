@@ -48,7 +48,7 @@ import {
   type ItemComandaOriginal, type ModoDesconto,
 } from '@shared/comanda-fechamento';
 import {
-  configLegada, nomeBandeira,
+  configIndisponivel, AVISO_CARTOES_SEM_TAXA, nomeBandeira,
   type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
@@ -58,6 +58,7 @@ import {
 } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido } from '@shared/periodos';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
+import { novoUuid } from '@shared/uuid';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -224,7 +225,7 @@ export default function NovaComandaScreen() {
   const [descontoModo, setDescontoModo] = useState<ModoDesconto>('percentual');
   const [splits, setSplits] = useState<Split[]>([]);
   // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084).
-  const [config, setConfig] = useState<ConfigCartoes>(() => configLegada(null));
+  const [config, setConfig] = useState<ConfigCartoes>(() => configIndisponivel());
   // Falha ao ler a configuração de cartões: avisa uma vez por sessão da tela, não a cada recarga do dia.
   const avisoCartoesRef = useRef(false);
   const [fechando, setFechando] = useState(false);
@@ -271,17 +272,14 @@ export default function NovaComandaScreen() {
       supabase.from('servicos').select('id, nome, preco').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
       supabase.from('produtos').select('id, nome, preco_venda').eq('empresa_id', empresaId).eq('ativo', true).eq('tipo', 'venda').order('nome'),
       supabase.from('pacotes').select('id, nome, preco, validade_dias').eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
-      // Configuração de cartões (sem a 086 → legada). Erro de leitura não derruba o dia:
-      // avisa e cai nas taxas da empresa (084), nunca numa taxa inventada.
+      // Configuração de cartões (sem a 086 → legada). Erro de leitura não derruba o dia: avisa e
+      // usa configIndisponivel (cartão sem taxa) — nunca as taxas antigas da 084 nem o padrão.
       carregarConfigCartoes(supabase, empresaId).then(
         c => ({ config: c, erro: null as string | null }),
-        async (e: unknown) => {
-          const { data: emp } = await supabase.from('empresas').select('*').eq('id', empresaId).single();
-          return {
-            config: configLegada(emp as Record<string, unknown> | null),
-            erro: mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões') as string | null,
-          };
-        },
+        (e: unknown) => ({
+          config: configIndisponivel(),
+          erro: `${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões')} ${AVISO_CARTOES_SEM_TAXA}` as string | null,
+        }),
       ),
       supabase.from('empresa_membros')
         .select('user_id, users:users!empresa_membros_user_id_fkey(nome)')
@@ -1079,15 +1077,19 @@ export default function NovaComandaScreen() {
       );
       if (errEst) Alert.alert('Estoque', mensagemErroBanco(errEst, 'baixar o estoque dos produtos'));
       const totalProdutos = extrasProdutos.reduce((s, i) => s + i.valor * i.quantidade, 0);
-      const { data: venda, error: errVendaProd } = await supabase.from('vendas').insert({
+      // Id gerado aqui e INSERT sem .select(): o RETURNING exige o SELECT de vendas, que a
+      // profissional sem vendas.acessar não tem — falharia depois da comanda e do estoque gravados.
+      const vendaId = novoUuid();
+      const { error: errVendaProd } = await supabase.from('vendas').insert({
+        id: vendaId,
         empresa_id: empresaId,
         cliente_id: clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: totalProdutos, desconto: 0, observacao: 'Via comanda',
-      }).select('id').single();
-      if (errVendaProd || !venda) { falharAposCriar('venda dos produtos', errVendaProd); return; }
+      });
+      if (errVendaProd) { falharAposCriar('venda dos produtos', errVendaProd); return; }
       const rVendaItens = await supabase.from('venda_itens').insert(
         extrasProdutos.map(i => ({
-          empresa_id: empresaId, venda_id: venda.id,
+          empresa_id: empresaId, venda_id: vendaId,
           produto_id: i.produto_id!, quantidade: i.quantidade,
           preco_unitario: i.valor,
         })),

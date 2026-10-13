@@ -56,7 +56,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
-  fmtTaxa, valorLiquido, configLegada, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
+  fmtTaxa, valorLiquido, configIndisponivel, AVISO_CARTOES_SEM_TAXA, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
   type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
@@ -65,6 +65,7 @@ import { mensagemErroBanco } from '@shared/erros';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { agruparValoresPorAgendamento, marcarAgendamentosFechados, cartoesComandaDoDia, type ComandaSoExtras } from '@shared/comanda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
+import { novoUuid } from '@shared/uuid';
 import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido } from '@shared/periodos';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
@@ -194,7 +195,10 @@ export default function ComandaPage() {
   const [meuUserId,         setMeuUserId]         = useState('');
   const [empresaId,         setEmpresaId]         = useState<string | null>(null);
   // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084)
-  const [config,            setConfig]            = useState<ConfigCartoes>(() => configLegada(null));
+  const [config,            setConfig]            = useState<ConfigCartoes>(() => configIndisponivel());
+  // Fechar fica desligado até a configuração terminar de carregar (senão a cobrança sairia sem a
+  // tabela da empresa). Igual ao app, que carrega a configuração junto com o dia.
+  const [configPronta,      setConfigPronta]      = useState(false);
   const [loading,           setLoading]           = useState(true);
   const [agDia,             setAgDia]             = useState<AgDia[]>([]);
   const [taxasReservaPagas, setTaxasReservaPagas] = useState<{ agendamento_id: string; valor: number }[]>([]);
@@ -277,10 +281,12 @@ export default function ComandaPage() {
         try {
           setConfig(await carregarConfigCartoes(supabase, data.empresa_id));
         } catch (e) {
-          // Sem a configuração as taxas sairiam erradas em silêncio: avisa e usa as taxas da empresa (084).
-          setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões'));
-          const { data: emp } = await supabase.from('empresas').select('*').eq('id', data.empresa_id).single();
-          setConfig(configLegada(emp as Record<string, unknown> | null));
+          // Taxa nunca inventada: nada das taxas antigas da 084 nem do padrão — sem configuração,
+          // todo cartão fica "Taxa não cadastrada" e é gravado sem taxa (configIndisponivel).
+          setErro(`${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões')} ${AVISO_CARTOES_SEM_TAXA}`);
+          setConfig(configIndisponivel());
+        } finally {
+          setConfigPronta(true);
         }
       }
     })();
@@ -1011,6 +1017,7 @@ export default function ComandaPage() {
     // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
     if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível fechar a comanda.'); return; }
     if (bloqueioTaxaReserva) { setErro(bloqueioTaxaReserva); return; }
+    if (!configPronta) { setErro('Aguarde: carregando as taxas dos cartões.'); return; }
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
     // Comanda desta cliente criada e não terminada nesta tela: nada de um segundo INSERT.
     if (comandasParciais[clienteSel.id]) { setErro(AVISO_COMANDA_PARCIAL); return; }
@@ -1164,19 +1171,23 @@ export default function ComandaPage() {
     // 3c. Registrar venda avulsa dos produtos (para histórico do cliente e módulo de vendas)
     if (extrasProdutos.length > 0) {
       const totalProdutos = extrasProdutos.reduce((s, i) => s + i.valor * i.quantidade, 0);
-      const { data: venda, error: errVenda } = await supabase.from('vendas').insert({
+      // Id gerado aqui e INSERT sem .select(): o RETURNING exige o SELECT de vendas, que a
+      // profissional sem vendas.acessar não tem — falharia depois da comanda e do estoque gravados.
+      const vendaId = novoUuid();
+      const { error: errVenda } = await supabase.from('vendas').insert({
+        id:          vendaId,
         empresa_id:  empresaId,
         cliente_id:  clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: totalProdutos,
         desconto:    0,
         observacao:  `Via comanda`,
-      }).select('id').single();
-      if (errVenda || !venda) { falharAposCriar(mensagemErroBanco(errVenda, 'registrar a venda dos produtos')); return; }
+      });
+      if (errVenda) { falharAposCriar(mensagemErroBanco(errVenda, 'registrar a venda dos produtos')); return; }
 
       const { error: errVendaItens } = await supabase.from('venda_itens').insert(
         extrasProdutos.map(i => ({
           empresa_id:     empresaId,
-          venda_id:       venda.id,
+          venda_id:       vendaId,
           produto_id:     i.produto_id!,
           quantidade:     i.quantidade,
           preco_unitario: i.valor,
@@ -2008,7 +2019,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || cargaFalhou || !!bloqueioTaxaReserva || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
+                  disabled={fechando || cargaFalhou || !!bloqueioTaxaReserva || !configPronta || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
                   title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -2033,6 +2044,9 @@ export default function ComandaPage() {
                       {recarregandoTaxas ? 'Carregando...' : 'Tentar de novo'}
                     </button>
                   </div>
+                )}
+                {!configPronta && itens.length > 0 && (
+                  <p className="text-xs text-center mt-2 font-semibold text-text-3">Carregando as taxas dos cartões…</p>
                 )}
                 {!comandaExistenteId && clienteSel && comandasParciais[clienteSel.id] && (
                   <p className="text-xs text-center mt-2 font-semibold text-red">{AVISO_COMANDA_PARCIAL}</p>
