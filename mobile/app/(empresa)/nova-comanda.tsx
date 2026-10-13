@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  ChevronLeft, ChevronRight, Check, X, Trash2, User,
+  ChevronLeft, ChevronRight, Check, Trash2, User,
   Banknote, Zap, CreditCard, Gift, Tag, Receipt, AlertCircle, Send,
 } from 'lucide-react-native';
 import {
@@ -37,17 +37,18 @@ import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { useQueryClient } from '@tanstack/react-query';
 import SuccessCheck from '@/components/SuccessCheck';
+import PagamentosEditor, { METODOS_PAGAMENTO } from '@/components/comanda/PagamentosEditor';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import {
   marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, type ComandaSoExtras,
 } from '@shared/comanda';
 import {
-  calcularDesconto, resumoComanda, montarPagamentos, parseValorBR, taxaDoSplit, diffItensComanda,
+  calcularDesconto, resumoComanda, montarPagamentos, parseValorBR, diffItensComanda,
   type ItemComandaOriginal, type ModoDesconto,
 } from '@shared/comanda-fechamento';
 import {
-  fmtTaxa, valorLiquido, configLegada, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
+  configLegada, nomeBandeira,
   type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
@@ -75,13 +76,8 @@ const STATUS_COR: Record<string, { bg: string; text: string }> = {
   faltou:     { bg: C.redSoft, text: C.red },
 };
 
-const METODOS = [
-  { key: 'dinheiro', label: 'Dinheiro', bg: '#F0FDF4', cor: '#16A34A' },
-  { key: 'pix',      label: 'PIX',      bg: '#EEF2FF', cor: '#4F46E5' },
-  { key: 'credito',  label: 'Crédito',  bg: '#FEF3C7', cor: '#D97706' },
-  { key: 'debito',   label: 'Débito',   bg: '#FDF2F8', cor: '#9D174D' },
-  { key: 'cortesia', label: 'Cortesia', bg: '#F9FAFB', cor: '#6B7280' },
-] as const;
+/** Métodos de pagamento (mesmos chips do bloco de pagamento compartilhado). */
+const METODOS = METODOS_PAGAMENTO;
 
 type AgDia = {
   id: string;
@@ -796,30 +792,6 @@ export default function NovaComandaScreen() {
     || !!bloqueioTaxaReserva
     || (emEdicao ? (cargaFalhou || carregandoComanda) : comandaParcialAberta);
 
-  function adicionarSplit(metodo: string) {
-    const cartao = metodo === 'credito' || metodo === 'debito';
-    setSplits(prev => [...prev, {
-      metodo,
-      valor: falta > 0 ? falta.toFixed(2).replace('.', ',') : '',
-      ...(cartao ? { maquininhaId: maquininhaPadrao(config)?.id ?? null } : {}),
-    }]);
-  }
-  function removerSplit(idx: number) { setSplits(prev => prev.filter((_, i) => i !== idx)); }
-  function atualizarSplitBandeira(idx: number, bandeira: string) {
-    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, bandeira } : s));
-  }
-  function atualizarSplitParcelas(idx: number, parcelas: number) {
-    setSplits(prev => prev.map((s, i) => i === idx ? { ...s, parcelas } : s));
-  }
-  /** Troca a maquininha; se ela aceita menos parcelas que as escolhidas, ajusta para o máximo dela. */
-  function atualizarSplitMaquininha(idx: number, maquininhaId: string) {
-    const maq = config.maquininhas.find(m => m.id === maquininhaId);
-    setSplits(prev => prev.map((s, i) => {
-      if (i !== idx) return s;
-      const parcelas = maq && (s.parcelas ?? 1) > maq.maxParcelas ? maq.maxParcelas : s.parcelas;
-      return { ...s, maquininhaId, parcelas };
-    }));
-  }
 
   /**
    * Falha no fechamento: avisa com a etapa, libera o botão e recarrega o dia (o que já foi
@@ -1885,163 +1857,12 @@ export default function NovaComandaScreen() {
             </View>
           </View>
 
-          {/* ── Pagamento ── */}
-          <View>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Pagamento</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
-              {METODOS.filter(m => podeDesconto || m.key !== 'cortesia').map(m => (
-                <TouchableOpacity key={m.key} onPress={() => adicionarSplit(m.key)}
-                  activeOpacity={0.7}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 14, backgroundColor: m.bg, borderWidth: 1, borderColor: C.border }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor }}>{m.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            {splits.length > 0 && (
-              <View style={{ marginTop: 10, gap: 8 }}>
-                {splits.map((s, i) => {
-                  const m = METODOS.find(x => x.key === s.metodo) ?? METODOS[0];
-                  const isCard = s.metodo === 'credito' || s.metodo === 'debito';
-                  const valorN = parseValorBR(s.valor);
-                  // Pagamento reaberto e não alterado mostra a taxa gravada (a mesma que será salva)
-                  const taxa = taxaDoSplit(s, config);
-                  // Maquininha efetiva: a escolhida (ou gravada no reaberto) ou a padrão
-                  const maq = config.maquininhas.find(x => x.id === s.maquininhaId) ?? maquininhaPadrao(config);
-                  const opcoesParcelas = maq ? parcelasDisponiveis(maq) : [1];
-                  if (!opcoesParcelas.includes(s.parcelas ?? 1)) opcoesParcelas.push(s.parcelas ?? 1);
-                  const ativasB = bandeirasAtivas(config);
-                  const bandeiras = s.bandeira && !ativasB.some(b => b.chave === s.bandeira)
-                    ? [...ativasB, { chave: s.bandeira, nome: nomeBandeira(config, s.bandeira) }] : ativasB;
-                  return (
-                    <View key={i} style={{ backgroundColor: m.bg, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: C.border, gap: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', height: 32, gap: 8 }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>{m.label}</Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>R$</Text>
-                        <TextInput
-                          value={s.valor}
-                          onChangeText={v => setSplits(prev => prev.map((x, j) => j === i ? { ...x, valor: v } : x))}
-                          keyboardType="decimal-pad" placeholder="0,00"
-                          placeholderTextColor={C.text4}
-                          style={{ width: 80, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text, textAlign: 'right' }}
-                        />
-                        <TouchableOpacity onPress={() => removerSplit(i)}
-                          style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
-                          <X size={14} color={C.text4} />
-                        </TouchableOpacity>
-                      </View>
-                      {isCard && maquininhasAtivas(config).length >= 2 && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>Maquininha:</Text>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                            {(() => {
-                              // Maquininha gravada que foi desativada continua visível no pagamento reaberto
-                              const ativas = maquininhasAtivas(config);
-                              const lista = maq && !ativas.some(x => x.id === maq.id) ? [...ativas, maq] : ativas;
-                              return lista.map(mq => {
-                                const ativa = maq?.id === mq.id;
-                                return (
-                                  <TouchableOpacity key={mq.id} onPress={() => atualizarSplitMaquininha(i, mq.id)}
-                                    accessibilityRole="button" accessibilityState={{ selected: ativa }}
-                                    style={{
-                                      paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
-                                      borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? C.surface : 'transparent',
-                                    }}>
-                                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{mq.nome}</Text>
-                                  </TouchableOpacity>
-                                );
-                              });
-                            })()}
-                          </ScrollView>
-                        </View>
-                      )}
-                      {isCard && (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                          {bandeiras.map(b => {
-                            const ativa = s.bandeira === b.chave;
-                            return (
-                              <TouchableOpacity key={b.chave} onPress={() => atualizarSplitBandeira(i, b.chave)}
-                                accessibilityRole="button" accessibilityState={{ selected: ativa }}
-                                style={{
-                                  paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
-                                  borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? 'rgba(255,255,255,0.6)' : 'transparent',
-                                  opacity: ativa ? 1 : 0.6,
-                                }}>
-                                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{b.nome}</Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
-                      )}
-                      {s.metodo === 'credito' && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>Parcelas:</Text>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                            {opcoesParcelas.map(n => {
-                              const ativa = (s.parcelas ?? 1) === n;
-                              return (
-                                <TouchableOpacity key={n} onPress={() => atualizarSplitParcelas(i, n)}
-                                  accessibilityRole="button" accessibilityState={{ selected: ativa }}
-                                  style={{
-                                    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, borderWidth: 1,
-                                    borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? C.surface : 'transparent',
-                                  }}>
-                                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>
-                                    {n}x{n === 1 ? ' (à vista)' : ''}
-                                  </Text>
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </ScrollView>
-                        </View>
-                      )}
-                      {isCard && taxa === null && (
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber }}>
-                          Taxa não cadastrada para esta combinação
-                        </Text>
-                      )}
-                      {isCard && taxa !== null && valorN > 0 && (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', opacity: 0.75 }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>Taxa {fmtTaxa(taxa)}</Text>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: m.cor }}>Líquido {formatarMoeda(valorLiquido(valorN, taxa))}</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-
-                {/* Status pagamento — falta/troco vêm de resumoComanda (regra única) */}
-                <View style={{
-                  borderRadius: 14, padding: 14, borderWidth: 1,
-                  backgroundColor: falta <= 0.01 && troco <= 0.01 ? C.greenSoft : falta > 0.01 ? C.amberSoft : C.primarySoft,
-                  borderColor: falta <= 0.01 && troco <= 0.01 ? '#0D7E5F33' : falta > 0.01 ? '#B4530933' : '#2C165433',
-                }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Recebido</Text>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{formatarMoeda(recebido)}</Text>
-                  </View>
-                  {falta > 0.01 && (
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.amber }}>Falta</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber }}>{formatarMoeda(falta)}</Text>
-                    </View>
-                  )}
-                  {troco > 0.01 && (
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primary }}>Troco</Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>{formatarMoeda(troco)}</Text>
-                    </View>
-                  )}
-                  {falta <= 0.01 && troco <= 0.01 && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 6 }}>
-                      <Check size={14} color={C.green} strokeWidth={3} />
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green }}>Valor quitado</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            )}
-          </View>
+          {/* ── Pagamento ── (bloco compartilhado com Vendas do app) */}
+          <PagamentosEditor
+            splits={splits} setSplits={setSplits} config={config}
+            resumo={{ recebido, falta, troco }}
+            permitirCortesia={podeDesconto}
+          />
         </ScrollView>
 
         {/* Footer — Fechar comanda */}

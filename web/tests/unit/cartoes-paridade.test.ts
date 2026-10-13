@@ -58,7 +58,9 @@ describe('cobrança pela configuração de cartões (maquininhas)', () => {
     expect(src).toContain('bandeiraGravada');
   });
   it('comanda app: maquininha em chips (2+ ativas), bandeiras e parcelas da configuração, aviso e reabertura', () => {
-    const src = ler('mobile/app/(empresa)/nova-comanda.tsx');
+    // O bloco de pagamentos foi extraído para PagamentosEditor (compartilhado com Vendas do app).
+    const src = ler('mobile/app/(empresa)/nova-comanda.tsx') + ler('mobile/components/comanda/PagamentosEditor.tsx');
+    expect(ler('mobile/app/(empresa)/nova-comanda.tsx')).toContain('<PagamentosEditor');
     for (const f of ['maquininhasAtivas(', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(', 'nomeBandeira(', 'atualizarSplitMaquininha(']) expect(src).toContain(f);
     expect(src).toContain('maquininhasAtivas(config).length >= 2');
     expect(src).toContain('Taxa não cadastrada para esta combinação');
@@ -89,6 +91,37 @@ describe('Vendas avulsas (PDV web) pela regra da comanda', () => {
     expect(src).not.toContain('taxaDoCartao(');
     expect(src).not.toContain('const BANDEIRAS');
     expect(src).not.toContain("parseFloat(");
+  });
+});
+
+describe('Vendas avulsas (app) pela regra da comanda', () => {
+  const tela = 'mobile/app/(empresa)/vendas.tsx';
+  it('tela usa carrinho, desconto, resumo, gravação e recibo de shared/', () => {
+    const src = ler(tela);
+    for (const f of ['adicionarAoCarrinho(', 'alterarQuantidade(', 'subtotalVenda(', 'gravarVenda(', 'ErroVenda', 'calcularDesconto(',
+      'resumoComanda(', 'parseValorBR(', 'carregarConfigCartoes(', "pode('vendas.acessar')", 'resumo.podeFechar', 'useRef(',
+      'gerarTextoRecibo(', 'linkWhatsAppRecibo(', 'invalidarFinanceiro(', 'limitesDias(', 'chaveDiaExibido(',
+      '<PagamentosEditor', 'será registrado como Cortesia', 'Nova venda', "eq('tipo', 'venda')", 'pagamentos!pagamentos_venda_id_fkey']) {
+      expect(src, f).toContain(f);
+    }
+    // Nada de gravação/regra própria na tela
+    expect(src).not.toMatch(/from\('vendas'\)\s*\.insert/);
+    expect(src).not.toMatch(/from\('pagamentos'\)\s*\.insert/);
+    expect(src).not.toContain('parseFloat(');
+    expect(src).not.toContain('taxaDoCartao(');
+  });
+  it('PagamentosEditor do app: maquininha/bandeira/parcelas da configuração e aviso de taxa ausente', () => {
+    const src = ler('mobile/components/comanda/PagamentosEditor.tsx');
+    for (const f of ['maquininhasAtivas(config).length >= 2', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(',
+      'taxaDoSplit(', 'Taxa não cadastrada para esta combinação', 'parseValorBR(']) {
+      expect(src, f).toContain(f);
+    }
+  });
+  it('menu Mais e rotas registram Vendas com a permissão vendas.acessar', () => {
+    const mais = ler('mobile/app/(empresa)/mais.tsx');
+    expect(mais).toContain('/(empresa)/vendas');
+    expect(mais).toContain("pode('vendas.acessar')");
+    expect(ler('mobile/app/(empresa)/_layout.tsx')).toContain("'vendas'");
   });
 });
 

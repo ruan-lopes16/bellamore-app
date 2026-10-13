@@ -35,8 +35,11 @@ describe('comanda app pela regra única', () => {
     expect(src).toContain('resumo.podeFechar');
   });
   it('bandeiras e parcelas vindas de shared', () => {
-    expect(src).toContain('bandeirasAtivas(');
-    expect(src).toContain('parcelasDisponiveis(');
+    // O bloco de pagamento fica em PagamentosEditor (compartilhado com Vendas do app).
+    expect(src).toContain('<PagamentosEditor');
+    const editor = ler('mobile/components/comanda/PagamentosEditor.tsx');
+    expect(editor).toContain('bandeirasAtivas(');
+    expect(editor).toContain('parcelasDisponiveis(');
   });
   it('confere erro de comanda_itens, vendas e pagamentos', () => {
     expect(src).toMatch(/from\('comanda_itens'\)\.insert\([\s\S]{0,400}?error/);
