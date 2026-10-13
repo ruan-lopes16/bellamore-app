@@ -126,6 +126,8 @@ export default function VendasScreen() {
   const [erroCarga, setErroCarga] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
   const avisoCartoesRef = useRef(false);
+  // Vira true no primeiro sucesso: uma falha passageira na recarga não troca a config boa por configIndisponivel().
+  const configCarregadaRef = useRef(false);
 
   // Venda
   const [cart, setCart] = useState<ItemVenda[]>([]);
@@ -186,7 +188,8 @@ export default function VendasScreen() {
     else setErroCarga(null);
     if (!rProdutos.error) setProdutos((rProdutos.data ?? []) as Produto[]);
     if (!rClientes.error) setClientes((rClientes.data ?? []) as Cliente[]);
-    setConfig(rCartoes.config);
+    if (!rCartoes.erro) { configCarregadaRef.current = true; setConfig(rCartoes.config); }
+    else if (!configCarregadaRef.current) setConfig(rCartoes.config);
     if (rCartoes.erro && !avisoCartoesRef.current) {
       avisoCartoesRef.current = true;
       Alert.alert('Cartões', rCartoes.erro);

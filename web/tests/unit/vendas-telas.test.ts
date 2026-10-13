@@ -33,7 +33,15 @@ describe('tela de Vendas do web', () => {
     expect(web).toMatch(/from\('clientes'\)[\s\S]{0,200}\.order\('id'\)[\s\S]{0,40}\.range\(de, ate\)/);
   });
   it('erro ao carregar produtos ou clientes aparece na tela (nunca lista vazia em silêncio)', () => {
-    expect(web).toContain("mensagemErroBanco(rProdutos.error, 'carregar os produtos')");
+    expect(web).toContain("setErroCarga(mensagemErroBanco(rProdutos.error, 'carregar os produtos'))");
     expect(web).toContain("'carregar as clientes'");
+  });
+  it('a falha de carga não usa o setErro da finalização', () => {
+    const i = web.indexOf('const carregar = useCallback');
+    const trecho = web.slice(i, web.indexOf('}, [', i));
+    expect(trecho).not.toContain('setErro(');
+  });
+  it('app não troca config boa de cartões por configIndisponivel numa recarga com erro', () => {
+    expect(app).toContain('configCarregadaRef');
   });
 });

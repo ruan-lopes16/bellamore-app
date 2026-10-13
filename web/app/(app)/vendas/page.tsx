@@ -140,6 +140,8 @@ export default function VendasPage() {
   const [splits,     setSplits]     = useState<Split[]>([]);
   const [finalizando,setFinalizando]= useState(false);
   const [erro,       setErro]       = useState('');
+  // Falha ao carregar produtos/clientes: separada de `erro` para não apagar (nem ser apagada por) a mensagem de finalização.
+  const [erroCarga,  setErroCarga]  = useState<string | null>(null);
   const [sucesso,    setSucesso]    = useState<Sucesso | null>(null);
   // Venda gravada pela metade (ex.: pagamentos falharam depois de a venda existir): bloqueia
   // um novo "Finalizar" deste carrinho para não registrar a mesma venda duas vezes.
@@ -195,8 +197,9 @@ export default function VendasPage() {
         (e: unknown) => ({ data: null as Cliente[] | null, error: { message: e instanceof Error ? e.message : String(e) } }),
       ),
     ]);
-    if (rProdutos.error) setErro(mensagemErroBanco(rProdutos.error, 'carregar os produtos'));
-    else if (rClientes.error) setErro(mensagemErroBanco(rClientes.error, 'carregar as clientes'));
+    if (rProdutos.error) setErroCarga(mensagemErroBanco(rProdutos.error, 'carregar os produtos'));
+    else if (rClientes.error) setErroCarga(mensagemErroBanco(rClientes.error, 'carregar as clientes'));
+    else setErroCarga(null);
     if (!rProdutos.error) setProdutos((rProdutos.data ?? []) as Produto[]);
     if (!rClientes.error) setClientes((rClientes.data ?? []) as Cliente[]);
     setLoading(false);
@@ -733,6 +736,13 @@ export default function VendasPage() {
                 )}
               </div>
             </div>
+
+            {erroCarga && (
+              <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
+                <AlertCircle size={14} className="text-red flex-shrink-0"/>
+                <p className="text-sm text-red flex-1">{erroCarga}</p>
+              </div>
+            )}
 
             {/* Erro */}
             {erro && (
