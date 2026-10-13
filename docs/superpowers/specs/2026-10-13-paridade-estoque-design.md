@@ -71,7 +71,7 @@
 - `montarProduto(form, ctx) → { payload } | { erro }`: `form` = textos da tela (`nome, tipo, categoria, unidade,
   qtdPorUnidade, estoqueAtual, estoqueMinimo, precoCusto, precoVenda`), `ctx = { empresaId, editando: boolean }`.
   Regras: nome obrigatório (trim); categoria obrigatória e do catálogo; unidade obrigatória; `qtd_por_unidade` só
-  para pct/cx (≥ 1, inteiro arredondado; senão 1); `preco_venda` só para `venda` (senão 0) e obrigatório > 0 para
+  para pct/cx (≥ 1, até 3 casas; senão 1); na edição, campo intocado mantém o número original (`ctx.original`), saldo aceita negativo (`parseSaldoBR`), categoria legada igual à original é aceita, material mantém o `preco_venda` original; telas preenchem quantidades com `formatarQuantidadeBR`; `preco_venda` só para `venda` (senão 0) e obrigatório > 0 para
   venda; números pela `parseQuantidadeBR`/`parseValorBR`; `estoque_atual` vai no cadastro e na edição (o web já
   permite corrigir o saldo editando o produto — mantido nas duas plataformas). Mensagens em português.
 - `resumoProdutos(produtos)` → `{ materiais, venda, alertas, valorTotal }` (valor = Σ saldo × custo, saldo
