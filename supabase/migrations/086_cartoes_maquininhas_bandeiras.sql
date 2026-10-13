@@ -150,4 +150,29 @@ create index if not exists idx_pagamentos_maquininha on public.pagamentos (maqui
 -- Empresas existentes.
 select public.semear_cartoes_empresa(id) from public.empresas;
 
+-- Vendas avulsas para quem tem vendas.acessar (exceção por pessoa no painel de Permissões).
+-- A tela Vendas lê o histórico (vendas, venda_itens e os pagamentos da venda), e antes só a 046
+-- (gestor/dona) liberava essa leitura — a permissão não tinha efeito. Policies novas somam
+-- (são permissivas): nada muda para quem já via. O DELETE permite desfazer a venda quando os
+-- itens falham (shared/venda.ts; venda_itens cai por cascata).
+drop policy if exists "vendas: vendas.acessar ve" on public.vendas;
+create policy "vendas: vendas.acessar ve" on public.vendas for select
+  using (tem_permissao(empresa_id, 'vendas.acessar'));
+drop policy if exists "vendas: vendas.acessar deleta" on public.vendas;
+create policy "vendas: vendas.acessar deleta" on public.vendas for delete
+  using (tem_permissao(empresa_id, 'vendas.acessar'));
+drop policy if exists "venda_itens: vendas.acessar ve" on public.venda_itens;
+create policy "venda_itens: vendas.acessar ve" on public.venda_itens for select
+  using (tem_permissao(empresa_id, 'vendas.acessar'));
+
+-- pagamentos: a policy da 083 sem nenhuma alteração + o ramo dos pagamentos de venda para
+-- quem tem vendas.acessar.
+drop policy if exists "pagamentos: profissional ou gestor ve" on public.pagamentos;
+create policy "pagamentos: profissional ou gestor ve" on public.pagamentos for select using (
+  tem_permissao(empresa_id, 'financeiro.ver')
+  or (comanda_id is not null and comanda_pertence_ao_profissional(comanda_id))
+  or (comanda_id is not null and tem_permissao(empresa_id, 'agenda.gerenciar_outras'))
+  or (venda_id is not null and tem_permissao(empresa_id, 'vendas.acessar'))
+);
+
 notify pgrst, 'reload schema';

@@ -36,6 +36,24 @@ describe('Migration 086: cartões', () => {
     expect(sql).toMatch(/drop trigger if exists trg_semear_cartoes_empresa/);
     expect(sql.trim().endsWith("notify pgrst, 'reload schema';")).toBe(true);
   });
+  it('vendas.acessar libera leitura de vendas/venda_itens/pagamentos da venda e o desfazer (I1)', () => {
+    const s1 = sql.replace(/\s+/g, ' ');
+    expect(s1).toContain(`drop policy if exists "vendas: vendas.acessar ve" on public.vendas; create policy "vendas: vendas.acessar ve" on public.vendas for select using (tem_permissao(empresa_id, 'vendas.acessar'));`);
+    expect(s1).toContain(`drop policy if exists "vendas: vendas.acessar deleta" on public.vendas; create policy "vendas: vendas.acessar deleta" on public.vendas for delete using (tem_permissao(empresa_id, 'vendas.acessar'));`);
+    expect(s1).toContain(`drop policy if exists "venda_itens: vendas.acessar ve" on public.venda_itens; create policy "venda_itens: vendas.acessar ve" on public.venda_itens for select using (tem_permissao(empresa_id, 'vendas.acessar'));`);
+    // pagamentos: a policy da 083 inteira (sem alteração) + o ramo da venda
+    const m083 = readFileSync(join(process.cwd(), '..', 'supabase', 'migrations', '083_permissoes_configuraveis.sql'), 'utf8').toLowerCase().replace(/\r\n/g, '\n');
+    const corpo = (s: string) => {
+      const i = s.lastIndexOf('create policy "pagamentos: profissional ou gestor ve"');
+      return s.slice(i, s.indexOf(');', i));
+    };
+    const de083 = corpo(m083);
+    const de086 = corpo(sql);
+    expect(de083.length).toBeGreaterThan(50);
+    expect(de086.startsWith(de083.trimEnd())).toBe(true);
+    expect(de086).toContain("or (venda_id is not null and tem_permissao(empresa_id, 'vendas.acessar'))");
+    expect(sql).toContain('drop policy if exists "pagamentos: profissional ou gestor ve" on public.pagamentos');
+  });
   it('funções de seed fora do alcance da API', () => {
     expect(sql).toContain('revoke execute on function public.semear_cartoes_empresa(uuid) from public, anon, authenticated');
     expect(sql).toContain('revoke execute on function public.trg_fn_semear_cartoes_empresa() from public, anon, authenticated');
