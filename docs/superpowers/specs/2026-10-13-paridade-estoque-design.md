@@ -72,8 +72,8 @@
   qtdPorUnidade, estoqueAtual, estoqueMinimo, precoCusto, precoVenda`), `ctx = { empresaId, editando: boolean }`.
   Regras: nome obrigatório (trim); categoria obrigatória e do catálogo; unidade obrigatória; `qtd_por_unidade` só
   para pct/cx (≥ 1, inteiro arredondado; senão 1); `preco_venda` só para `venda` (senão 0) e obrigatório > 0 para
-  venda; números pela `parseQuantidadeBR`/`parseValorBR`; `estoque_atual` só no cadastro (na edição não vai no
-  payload — saldo muda só por movimentação). Mensagens em português.
+  venda; números pela `parseQuantidadeBR`/`parseValorBR`; `estoque_atual` vai no cadastro e na edição (o web já
+  permite corrigir o saldo editando o produto — mantido nas duas plataformas). Mensagens em português.
 - `resumoProdutos(produtos)` → `{ materiais, venda, alertas, valorTotal }` (valor = Σ saldo × custo, saldo
   negativo conta 0, centavos).
 - `resumoMovimentos(movs)` → `{ entradas, saidas, total, qtdEntradas, qtdSaidas }`.
@@ -109,7 +109,7 @@
   aberta); `movimentar` pela `movimentarEstoque` (lança erro de verdade); invalida `['estoque']` e
   `['estoque-movimentos']`.
 - `novo-produto.tsx` e `editar-produto/[id].tsx`: mesmos campos do web (tipo Material/Venda, nome, categoria por
-  chave, unidade do seletor, qtd por unidade em pct/cx, estoque atual só no cadastro, mínimo, custo, preço de
+  chave, unidade do seletor, qtd por unidade em pct/cx, estoque atual (cadastro e edição, igual ao web), mínimo, custo, preço de
   venda e margem quando venda) pela `montarProduto`.
 - `estoque.tsx`:
   - 4 cartões (Materiais / Insumos, Para venda (PDV), Precisam de reposição, Valor total em estoque);
@@ -130,7 +130,7 @@
 - SQL da 088 lido como texto (assinatura, security invoker, `tem_permissao`, chave de trava igual à 087, checagem
   de saldo, sem RETURNING, RLS da tabela, grant/revoke, notify).
 - `shared/estoque.ts`: catálogo, padrão, `unidadesParaSeletor`, `parseQuantidadeBR`, `montarProduto` (todos os
-  erros, venda×material, pct/cx, edição sem `estoque_atual`), resumos e margem.
+  erros, venda×material, pct/cx), resumos e margem.
 - `shared/estoque-consultas.ts` com `fakeDb`: paginação e erro, limites do mês em Brasília, rpc ok/erro/`PGRST202`
   /sem `code`, unidades (sem linha, tabela inexistente, upsert com 0 linhas).
 - Varredura das telas (texto): web e app usam as funções de shared; sem `parseFloat`/`parseBRLFloat` no estoque;
