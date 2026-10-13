@@ -1074,7 +1074,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 - Serviço extra nunca entrava no faturamento (pré-existente).
 
 **Pendências para produção:**
-- Aplicar `085_comissao_servico_extra.sql` no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Ordem livre: sem a 085 o extra não gera comissão e as telas de comissão usam as colunas antigas. A receita do extra não depende da 085.
+- ~~Aplicar `085_comissao_servico_extra.sql`~~ — **aplicada em produção em 2026-10-13**.
 - Depois do deploy, abrir Financeiro, Dashboard e Relatórios uma vez (embeds novos conferidos via API, mas sem login).
 
 **Registrados, não corrigidos:**
@@ -1130,7 +1130,6 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 **Pendências para produção:**
 - ~~Aplicar `086_cartoes_maquininhas_bandeiras.sql`~~ — **aplicada em produção em 2026-10-13** (conferência: 1 maquininha, 5 bandeiras, 13 taxas; débito 0.0239, crédito 1x 0.0499, 2x–12x 0.0559).
 - Depois: conferir em Configurações → Cartões a maquininha "Maquininha" com as taxas atuais, e cobrar uma comanda e uma venda no cartão.
-- 085 (Comanda B) segue pendente, se ainda não aplicada.
 
 **Registrados, não corrigidos:**
 - Taxa de 0% configurada é gravada como null (reabre como "não cadastrada"; números certos).
