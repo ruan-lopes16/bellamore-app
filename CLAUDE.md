@@ -1141,6 +1141,43 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-13 — Vendas avulsas tudo ou nada (087) + ajustes da tela do app
+
+*Escopo: revisão da Comanda C (PR #147) a pedido do dono ("veja se pode melhorar"). (1) Migration 087:*
+*`registrar_venda_avulsa` (plpgsql, security invoker) grava venda, itens, saída de estoque e pagamentos numa transação,*
+*com trava consultiva por produto (estoque nunca negativo entre vendas avulsas), `valor_total` calculado no banco e*
+*`vendas.acessar`/`comanda.desconto` conferidos no banco. (2) `gravarVenda` chama a função; sem a 087 (`PGRST202`) usa o*
+*caminho antigo — ordem de deploy livre. (3) App: recarrega catálogo/histórico ao voltar à tela, espera as permissões,*
+*clientes paginados, config de cartões boa não é trocada por falha passageira. (4) Web: clientes paginados, erro de carga*
+*em estado próprio. 3 tasks + revisão final (opus) + 1 onda de correção. Spec e plano:*
+*`docs/superpowers/{specs,plans}/2026-10-13-vendas-tudo-ou-nada*`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 1347/1347; mobile com os mesmos erros pré-existentes (6 + 3 de pacotes da exportação não instalados neste worktree) |
+| UX / Padrões    | 9.0  | Erros da função em português ("Estoque insuficiente: Óleo (restam 1)", "Produto indisponível para venda: X."); catálogo recarrega após qualquer erro de venda |
+| Segurança       | 9.0  | Função sem `security definer` (RLS de sempre vale), sem RETURNING, `revoke`/`grant` só para `authenticated`; permissões de vendas e desconto conferidas também no banco |
+| Documentação    | 9.0  | Spec, plano, cabeçalho da 087 com rollback, limites da trava e regra de nunca mudar a assinatura |
+| Arquitetura     | 9.5  | Uma gravação atômica para web e app; caminho antigo só quando a função não existe (`PGRST202`, nunca `42883`) |
+| Performance     | 9.0  | 1 chamada em vez de 4; clientes paginados com desempate por id |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Venda pela metade e saldo negativo entre vendas avulsas eliminados; comanda segue em passos (fora do escopo) |
+| **Proatividade**| 9.5  | Revisões acharam: queda de rede após o commit convidava a registrar a venda 2x; falha passageira na recarga trocava a taxa dos cartões no meio da venda; erro de carga apagava o aviso de "venda pela metade" no web; deadlock possível com a comanda (ordem da baixa); produto com `ativo` nulo passaria; teste da 086 falhava em checkout Windows (CRLF) |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Pendências para produção:**
+- Rodar `087_registrar_venda_avulsa.sql` no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Ordem livre em relação ao deploy (sem a 087 o caminho antigo continua). Depois, uma venda de teste no PIX e conferir em Histórico e Estoque.
+
+**Registrados, não corrigidos:**
+- Sem chave de idempotência: queda de rede depois do commit mostra "Sem resposta do servidor… confira no Histórico" (não libera duplicar às cegas, mas não detecta sozinho).
+- A trava só protege venda avulsa contra venda avulsa; comanda vendendo o mesmo produto ao mesmo tempo ainda pode deixar o saldo negativo (comanda não bloqueia sem estoque, decisão de 29/09).
+- Função não confere se cliente/maquininha são da mesma empresa; taxa e líquido vêm da tela (igual ao fluxo anterior). Erro de permissão de desconto sai com a mensagem genérica.
+- App: spinner do histórico pisca a cada foco; `carregar` sem contador de requisição.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
