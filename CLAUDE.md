@@ -1179,6 +1179,47 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-13/14 — Paridade Estoque (088, unidades configuráveis)
+
+*Escopo: o Estoque do web e do app ficam iguais pelas mesmas funções de `shared/estoque.ts` (catálogo de categorias e de*
+*21 unidades em 6 grupos, `montarProduto`, `parseSaldoBR`/`formatarQuantidadeBR`, resumos) e `shared/estoque-consultas.ts`*
+*(produtos, movimentos do mês em Brasília, movimentação, unidades visíveis). Migration 088: `movimentar_estoque` (plpgsql,*
+*security invoker, mesma trava da 087, recusa saída maior que o saldo e devolve o saldo real) e `estoque_unidades_empresa`*
+*(unidades que cada empresa vê no seletor; escrita com `estoque.acessar`). App: produto de venda, pacote/caixa, cartões,*
+*filtros, aba Movimentações com exportação, ajuste de unidades; Comanda e Vendas atualizam o estoque. Web: mês em Brasília,*
+*filtro por id, erros conferidos. 6 tasks + revisão final (opus) + 1 onda de correção. Spec e plano:*
+*`docs/superpowers/{specs,plans}/2026-10-13-paridade-estoque*`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 1438/1438; mobile caiu de 9 para 8 erros neste worktree (sumiu o do `mutationFn` antigo do estoque), nenhum novo |
+| UX / Padrões    | 9.0  | Mesmos textos, cartões, filtros e mensagens nas duas plataformas; erro esconde cartões e listas (nunca zeros); paginação local "Mostrar mais" no app |
+| Segurança       | 9.0  | Função sem `security definer`, sem RETURNING, `revoke`/`grant` só `authenticated`; tabela nova com RLS (membro lê, `estoque.acessar` grava, sem DELETE) |
+| Documentação    | 9.0  | Spec, plano, cabeçalho da 088 com rollback e regra de nunca mudar a assinatura; JSDoc pt-BR nos módulos de shared |
+| Arquitetura     | 9.5  | Uma regra de cadastro e uma movimentação para web e app; caminho antigo só com `PGRST202`; unidades configuráveis sem mexer em `empresas` |
+| Performance     | 9.0  | Consultas paginadas com desempate por id; movimentos só com a aba aberta; contador de requisição no web |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Todos os itens do inventário de Estoque; ajuste de unidades pedido pelo dono |
+| **Proatividade**| 9.5  | Revisões acharam: editar só o nome regravava um saldo velho (comandas do dia sumiam do estoque); saldo negativo e "1,234" virariam 0 e 1234 na edição; "0.250" kg lido como 250; tabela inexistente detectada por texto engolia erro de coluna; aba Movimentações do web ficava velha depois de movimentar |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Decisões do dono (2026-10-13):** saída conferida no banco; catálogo de unidades completo e configurável por empresa; só pacote e caixa perguntam a quantidade de dentro (kit não); ajuste de unidades dentro do Estoque, para quem tem `estoque.acessar`; saldo continua editável no produto.
+
+**Regras novas:** edição com o campo intocado nunca regrava o número (saldo omitido do UPDATE, mínimo/qtd mantidos); categoria legada aceita só se igual à original; material mantém o preço de venda na edição; unidade do produto editado nunca some do seletor; "0.xxx" é decimal, "1.234" é milhar.
+
+**Pendências para produção:**
+- Rodar `088_estoque_movimentar_e_unidades.sql` no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Ordem livre: sem a 088 a movimentação usa o caminho antigo e o botão "Unidades" fica escondido.
+- App: build nativo novo (já exigido pela Fase 2C).
+
+**Registrados, não corrigidos:**
+- A trava protege venda avulsa e movimentação manual entre si; a baixa da comanda continua sem trava (decisão de 29/09).
+- "0.xxx" em campos de dinheiro (`parseValorBR`) e vírgula na mensagem da 087.
+- Testes das telas por varredura de texto.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
