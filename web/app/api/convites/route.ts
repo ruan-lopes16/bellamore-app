@@ -3,6 +3,7 @@ import { createClient as createAdmin } from '@supabase/supabase-js';
 import { podeAtribuirRole, pode } from '@/lib/permissions';
 import { quemChama } from '@/lib/auth/quem-chama';
 import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
+import { podeGerenciarMembro } from '@shared/permissoes';
 import { emailValido, vinculoParaGravar, type TipoContrato } from '@shared/equipe';
 
 function createAdminClient() {
@@ -107,6 +108,16 @@ export async function POST(req: NextRequest) {
     }
 
     const atual = membroAtual as { role: string; percentual_comissao: number; tipo_contrato: TipoContrato | null } | null;
+    if (atual) {
+      // Já é da equipe: mesma regra do PATCH (a gestora não mexe na dona, em outra gestora nem em si mesma,
+      // e não reativa quem não pode gerenciar).
+      const { data: emp, error: errEmp } = await adminClient.from('empresas').select('owner_id').eq('id', empresaId).maybeSingle();
+      if (errEmp) return NextResponse.json({ error: 'Erro interno. Tente de novo.' }, { status: 500 });
+      const roleAlvo = (emp as { owner_id?: string } | null)?.owner_id === userId ? 'owner' : atual.role;
+      if (!podeGerenciarMembro({ isOwner: permsReq.isOwner, userId: requesterId }, true, { role: roleAlvo, userId })) {
+        return NextResponse.json({ error: 'Você só pode editar profissionais da equipe (não a dona, outra gestora ou você mesma).' }, { status: 403 });
+      }
+    }
     const v = vinculoParaGravar(atual, { percentual_comissao, tipo_contrato });
     if ('erro' in v) return NextResponse.json({ error: v.erro }, { status: 400 });
 
