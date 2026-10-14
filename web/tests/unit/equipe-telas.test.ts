@@ -2,7 +2,7 @@
 // Trava a tela Equipe do web (Task 3 da paridade de equipe): usa as funções de shared, manda empresaId
 // e só os campos alterados no PATCH, e mostra os erros da API. A Task 4 acrescenta o bloco do app.
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 const root = join(__dirname, '..', '..', '..');
@@ -52,5 +52,71 @@ describe('web', () => {
     expect(edit).not.toContain('parseFloat');
     expect(edit).toMatch(/if \(\(v\.tipoContrato \|\| null\) !== prof\.tipo_contrato\)/);
     expect(edit).not.toMatch(/email:\s+email\.trim\(\) \|\| null/);
+  });
+});
+
+describe('app', () => {
+  const equipe = ler('mobile/app/(empresa)/equipe.tsx');
+  // Arquivo novo: lido com fallback para o teste falhar por asserção, não derrubar o arquivo inteiro.
+  const editar = (() => { try { return ler('mobile/app/(empresa)/editar-profissional/[id].tsx'); } catch { return ''; } })();
+  const convite = ler('mobile/app/(empresa)/convidar-profissional.tsx');
+  const layout = ler('mobile/app/(empresa)/_layout.tsx');
+
+  it('editar-profissional/[id] faz PATCH com Bearer e empresaId, só com o que mudou', () => {
+    expect(editar).toContain("method: 'PATCH'");
+    expect(editar).toContain('Authorization');
+    expect(editar).toContain('Bearer ${session.access_token}');
+    expect(editar).toContain('empresaId');
+    expect(editar).toContain('camposAlterados(');
+    expect(editar).toMatch(/if \(v\.emailNovo !== v\.emailAntigo\)/);
+    expect(editar).toMatch(/normalizarComissao\(v\.comissao\.trim\(\)\) !== membro\.percentual_comissao/);
+    expect(editar).toMatch(/\(v\.tipoContrato \|\| null\) !== membro\.tipo_contrato/);
+    expect(editar).not.toContain('parseFloat');
+    expect(editar).toContain('Trocar o e-mail troca também o login dela no app.');
+    expect(editar).toContain('res.status === 409');
+    expect(editar).toContain('maskPhone');
+    expect(editar).toContain("pode('equipe.gerenciar')");
+    expect(editar).toContain("queryKey: ['equipe']");
+    expect(editar).toContain("queryKey: ['profissionais']");
+    expect(editar).toMatch(/salvandoRef/);
+  });
+
+  it('a rota nova está registrada no layout', () => {
+    expect(layout).toContain("'editar-profissional/[id]'");
+  });
+
+  it('equipe.tsx usa as funções de shared, paga do mês e mostra meses anteriores', () => {
+    expect(equipe).toContain('carregarEquipe(');
+    expect(equipe).toContain("queryKey: ['equipe', empresaId, mes]");
+    expect(equipe).toContain('pagarComissoes(');
+    expect(equipe).toContain('MENSAGEM_PAGAMENTO_PARCIAL');
+    expect(equipe).toContain("pode('comissoes.pagar')");
+    expect(equipe).toContain('alterarAtivo(');
+    expect(equipe).toContain('alterarPapel(');
+    expect(equipe).toContain('meses anteriores');
+    expect(equipe).toContain('Tentar de novo');
+    expect(equipe).toContain('rotuloContrato');
+    expect(equipe).toContain('invalidarFinanceiro(qc)');
+    expect(equipe).toContain('podeAtribuirRole');
+    expect(equipe).toContain("pode('equipe.gerenciar')");
+    // sem gravação direta da comissão: o modal (se existir) vai pela API
+    expect(equipe).not.toContain('percentual_comissao: pct');
+    expect(equipe).not.toMatch(/toLocaleString|Intl\./);
+  });
+
+  it('convite manda comissão e contrato só quando preenchidos', () => {
+    expect(convite).toContain('tipo_contrato');
+    expect(convite).toContain('percentual_comissao');
+    expect(convite).toContain("comissao.trim() !== '' ? comissao.trim() : undefined");
+    expect(convite).toContain('tipoContrato || undefined');
+  });
+
+  it('nenhum update direto em empresa_membros no app', () => {
+    const arquivos = (readdirSync(join(root, 'mobile/app'), { recursive: true }) as string[])
+      .filter(f => /\.tsx?$/.test(f)).map(f => join('mobile/app', f));
+    expect(arquivos.length).toBeGreaterThan(20);
+    for (const f of arquivos) {
+      expect(ler(f).replace(/\s+/g, ''), f).not.toContain(".from('empresa_membros').update(");
+    }
   });
 });
