@@ -34,7 +34,35 @@ describe('migration 088 — movimentar_estoque', () => {
   it('grava o movimento sem returning e devolve o saldo relido', () => {
     expect(corpo).toContain('insert into public.estoque_movimentos');
     expect(corpo).not.toMatch(/returning/);
-    expect(corpo).toMatch(/return v_saldo/);
+    expect(corpo).toMatch(/return coalesce\(v_saldo, 0\)/);
+  });
+  it('ordem: permissão, trava, releitura do saldo, insert, releitura final', () => {
+    const iPerm = corpo.indexOf("tem_permissao(v_empresa, 'estoque.acessar')");
+    const iTrava = corpo.indexOf('pg_advisory_xact_lock');
+    const iRel = corpo.indexOf('pr.estoque_atual, pr.ativo into');
+    const iIns = corpo.indexOf('insert into public.estoque_movimentos');
+    const iFinal = corpo.indexOf('select pr.estoque_atual into v_saldo');
+    for (const i of [iPerm, iTrava, iRel, iIns, iFinal]) expect(i).toBeGreaterThan(-1);
+    expect(iPerm).toBeLessThan(iTrava);
+    expect(iTrava).toBeLessThan(iRel);
+    expect(iRel).toBeLessThan(iIns);
+    expect(iIns).toBeLessThan(iFinal);
+  });
+  it('arredonda a quantidade a 3 casas, com teto, e usa o valor arredondado', () => {
+    expect(corpo).toContain('v_qtd := round(p_quantidade, 3)');
+    expect(corpo).toContain('v_qtd > 9999999.999');
+    expect(corpo).toContain('quantidade grande demais.');
+    expect(corpo).toContain('< v_qtd');
+    expect(corpo).toMatch(/p_tipo::movimento_tipo, v_qtd,/);
+  });
+  it('saldo na mensagem com vírgula', () => {
+    expect(corpo).toContain("replace(trim_scale(coalesce(v_saldo, 0))::text, '.', ',')");
+  });
+  it('recusa produto inativo depois da trava', () => {
+    const iAtivo = corpo.indexOf('coalesce(v_ativo, true) = false');
+    expect(iAtivo).toBeGreaterThan(corpo.indexOf('pg_advisory_xact_lock'));
+    expect(iAtivo).toBeLessThan(corpo.indexOf('insert into public.estoque_movimentos'));
+    expect(corpo).toContain("'produto inativo: %.'");
   });
   it('execução só para authenticated', () => {
     expect(corpo).toMatch(/revoke all on function public\.movimentar_estoque\(uuid, text, numeric, text\) from public, anon/);
@@ -46,7 +74,7 @@ describe('migration 088 — estoque_unidades_empresa', () => {
   it('tabela com chave por empresa, lista não vazia e cascade', () => {
     expect(corpo).toContain('create table if not exists public.estoque_unidades_empresa');
     expect(corpo).toMatch(/empresa_id\s+uuid primary key references public\.empresas\(id\) on delete cascade/);
-    expect(corpo).toMatch(/check \(cardinality\(unidades\) between 1 and 50\)/);
+    expect(corpo).toMatch(/check \(cardinality\(unidades\) between 1 and 50 and array_position\(unidades, null\) is null\)/);
   });
   it('rls: leitura de membro, escrita com estoque.acessar, sem delete', () => {
     expect(corpo).toContain('alter table public.estoque_unidades_empresa enable row level security');

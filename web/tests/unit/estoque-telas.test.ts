@@ -23,6 +23,35 @@ describe('web', () => {
     expect(web).toContain('produto_id === filtroProdId');
     expect(web).not.toMatch(/produto\.nome === produtoFiltradoNome/);
   });
+  it('edição passa o original, preenche pelo formatarQuantidadeBR e a tela não regrava saldo velho', () => {
+    expect(web).toContain('original:');
+    expect(web).toContain('formatarQuantidadeBR(ed.estoque_atual)');
+    expect(web).toContain('formatarQuantidadeBR(ed.estoque_minimo)');
+  });
+  it('mês de movimentações: contador de requisição, Brasília e próximo mês travado no atual', () => {
+    expect(web).toContain('++reqMov.current');
+    expect(web).toContain('req !== reqMov.current');
+    expect(web).toContain('rotuloDataHoraBRT');
+    expect(web).toContain('disabled={mesMov >= chaveMesBRT(new Date())}');
+    expect(web).not.toContain("from 'date-fns'");
+  });
+  it('erros de carga escondem cartões, lista e tabela; modais não fecham gravando', () => {
+    expect(web).toContain('erroCarga ? null : loading');
+    expect(web).toContain('erroMov ? null : loadingMov');
+    expect(web).toContain('if (!salvando) onClose()');
+    expect(modal).toContain('if (!salvando) onClose()');
+  });
+  it('textos iguais ao app: "Via comanda" e quantidades pelo formatarQuantidadeBR', () => {
+    expect(web).toContain('Via comanda');
+    expect(web).toContain('formatarQuantidadeBR(resumoMov.qtdSaidas)');
+    expect(web).toContain('formatarQuantidadeBR(qtd)');
+  });
+  it('unidade do produto novo vem do seletor da empresa', () => {
+    expect(web).toContain('unidadesParaSeletor(visiveis)[0]');
+  });
+  it('modal de unidades: Salvar desabilitado com 0 unidades ligadas', () => {
+    expect(modal).toContain('disabled={ligadas.length === 0 || salvando}');
+  });
   it('ajuste de unidades com permissão e só com a 088', () => {
     expect(web).toContain("pode('estoque.acessar')");
     expect(web).toContain('UnidadesModal');
@@ -46,6 +75,8 @@ describe('app', () => {
       expect(hook).toContain(f);
     }
     expect(hook).toContain("'estoque-movimentos'");
+    expect(hook).toContain("'estoque-baixo'");
+    expect(hook).toMatch(/finally \{[^}]*invalidateQueries/);
   });
   it('cadastro e edição pela mesma regra do web, sem as listas antigas', () => {
     for (const src of [novo, editar]) {

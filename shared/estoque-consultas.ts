@@ -69,6 +69,7 @@ export async function movimentarEstoque(
   d: { empresaId: string; produto: { id: string; estoque_atual: number; nome: string; unidade: string }; tipo: 'entrada' | 'saida'; quantidade: number; motivo: string },
 ): Promise<{ novoSaldo: number }> {
   if (!(d.quantidade > 0)) throw new Error('Informe uma quantidade maior que zero.');
+  if (d.quantidade > 9999999.999) throw new Error('Quantidade grande demais.');
   const motivo = d.motivo.trim();
   const { data, error } = await db.rpc('movimentar_estoque', {
     p_produto: d.produto.id, p_tipo: d.tipo, p_quantidade: d.quantidade, p_motivo: motivo,

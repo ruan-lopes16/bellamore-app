@@ -67,6 +67,14 @@ describe('parseQuantidadeBR', () => {
   it('"1.234" num campo de quantidade segue a regra de milhar do dinheiro', () => {
     expect(parseQuantidadeBR('1.234')).toBe(1234);
   });
+  it('"0.xxx" é sempre decimal (zero antes do ponto nunca é milhar)', () => {
+    expect(parseQuantidadeBR('0.250')).toBe(0.25);
+    expect(parseQuantidadeBR('0.5')).toBe(0.5);
+    expect(parseQuantidadeBR('0.125')).toBe(0.125);
+    expect(parseQuantidadeBR('1.234')).toBe(1234);
+    expect(parseSaldoBR('-0.5')).toBe(-0.5);
+    expect(parseSaldoBR('-0.250')).toBe(-0.25);
+  });
 });
 
 describe('parseSaldoBR / formatarQuantidadeBR', () => {
@@ -134,15 +142,33 @@ describe('montarProduto na edição', () => {
     montarProduto(form(f), { empresaId: 'e1', editando: true, original: { ...orig, ...o } });
   const pay = (r: ReturnType<typeof montarProduto>) => ('payload' in r ? r.payload : (() => { throw new Error(r.erro); })());
 
-  it('saldo negativo intocado continua negativo', () => {
-    expect(pay(ed({ estoqueAtual: '-3' }, { estoque_atual: -3 })).estoque_atual).toBe(-3);
+  it('saldo intocado não vai no payload (não sobrescreve baixas feitas depois); alterado vai', () => {
+    expect(pay(ed({ estoqueAtual: '3' })).estoque_atual).toBeUndefined();
+    expect(pay(ed({ estoqueAtual: '3' }))).not.toHaveProperty('estoque_atual');
+    expect(pay(ed({ estoqueAtual: '4' })).estoque_atual).toBe(4);
+  });
+  it('cadastro sempre manda o saldo, mesmo com original (ignorado)', () => {
+    const r = montarProduto(form({ estoqueAtual: '3' }), { empresaId: 'e1', editando: false, original: orig });
+    expect(pay(r).estoque_atual).toBe(3);
+  });
+  it('saldo negativo intocado: omitido; atalho decide', () => {
+    expect(pay(ed({ estoqueAtual: '-3' }, { estoque_atual: -3 }))).not.toHaveProperty('estoque_atual');
+  });
+  it('original 1.234 com texto "1,234" mantém o saldo (omitido); com "1.234" o texto vale 1234', () => {
+    expect(pay(ed({ estoqueAtual: '1,234' }, { estoque_atual: 1.234 }))).not.toHaveProperty('estoque_atual');
+    expect(pay(ed({ estoqueAtual: '1.234' }, { estoque_atual: 1.234 })).estoque_atual).toBe(1234);
+  });
+  it('troca de tipo na edição: material → venda exige preço; venda → material mantém o preço original', () => {
+    expect(ed({ tipo: 'venda', precoVenda: '' }, { preco_venda: 0 })).toEqual({ erro: 'Informe o preço de venda.' });
+    expect(pay(ed({ tipo: 'venda', precoVenda: '25' }, { preco_venda: 0 })).preco_venda).toBe(25);
+    expect(pay(ed({ tipo: 'material', precoVenda: '' }, { preco_venda: 40 })).preco_venda).toBe(40);
   });
   it('digitar "-2" corrige o saldo para -2', () => {
     expect(pay(ed({ estoqueAtual: '-2' }, { estoque_atual: -3 })).estoque_atual).toBe(-2);
   });
   it('saldo e mínimo fracionados intocados mantêm o valor original', () => {
     const p = pay(ed({ estoqueAtual: '1,234', estoqueMinimo: '0,125' }, { estoque_atual: 1.234, estoque_minimo: 0.125 }));
-    expect(p.estoque_atual).toBe(1.234);
+    expect(p).not.toHaveProperty('estoque_atual');
     expect(p.estoque_minimo).toBe(0.125);
   });
   it('qtd_por_unidade 12.5 intocada continua 12.5', () => {

@@ -41,12 +41,19 @@ declare
   v_nome    text;
   v_unidade text;
   v_saldo   numeric;
+  v_ativo   boolean;
+  v_qtd     numeric;
 begin
   if p_tipo is null or p_tipo not in ('entrada', 'saida') then
     raise exception 'Tipo de movimentação inválido.';
   end if;
-  if p_quantidade is null or p_quantidade <= 0 then
+  -- Mesmas 3 casas da coluna (numeric(10,3)); arredonda antes de validar para nunca gravar "Saída 0".
+  v_qtd := round(p_quantidade, 3);
+  if v_qtd is null or v_qtd <= 0 then
     raise exception 'Informe uma quantidade maior que zero.';
+  end if;
+  if v_qtd > 9999999.999 then
+    raise exception 'Quantidade grande demais.';
   end if;
 
   select pr.empresa_id into v_empresa from public.produtos pr where pr.id = p_produto;
@@ -60,19 +67,25 @@ begin
   perform pg_advisory_xact_lock(hashtextextended('venda_estoque:' || p_produto::text, 0));
 
   -- Relido depois da trava: enxerga o saldo de quem gravou antes (READ COMMITTED).
-  select pr.nome, pr.unidade, pr.estoque_atual into v_nome, v_unidade, v_saldo
+  select pr.nome, pr.unidade, pr.estoque_atual, pr.ativo into v_nome, v_unidade, v_saldo, v_ativo
     from public.produtos pr where pr.id = p_produto;
 
-  if p_tipo = 'saida' and coalesce(v_saldo, 0) < p_quantidade then
+  -- Produto arquivado não recebe movimento. Checado aqui (depois da trava) e não na 1ª leitura: o
+  -- estado lido já é o confirmado por quem gravou antes, sem janela entre a checagem e o insert.
+  if coalesce(v_ativo, true) = false then
+    raise exception 'Produto inativo: %.', v_nome;
+  end if;
+
+  if p_tipo = 'saida' and coalesce(v_saldo, 0) < v_qtd then
     raise exception 'Estoque insuficiente: % (restam % %)',
-      v_nome, trim_scale(coalesce(v_saldo, 0)), coalesce(v_unidade, 'un');
+      v_nome, replace(trim_scale(coalesce(v_saldo, 0))::text, '.', ','), coalesce(v_unidade, 'un');
   end if;
 
   insert into public.estoque_movimentos (empresa_id, produto_id, tipo, quantidade, motivo)
-  values (v_empresa, p_produto, p_tipo::movimento_tipo, p_quantidade, nullif(btrim(coalesce(p_motivo, '')), ''));
+  values (v_empresa, p_produto, p_tipo::movimento_tipo, v_qtd, nullif(btrim(coalesce(p_motivo, '')), ''));
 
   select pr.estoque_atual into v_saldo from public.produtos pr where pr.id = p_produto;
-  return v_saldo;
+  return coalesce(v_saldo, 0);
 end;
 $$;
 
@@ -82,7 +95,7 @@ grant execute on function public.movimentar_estoque(uuid, text, numeric, text) t
 -- ── 2. estoque_unidades_empresa ───────────────────────────────
 create table if not exists public.estoque_unidades_empresa (
   empresa_id    uuid primary key references public.empresas(id) on delete cascade,
-  unidades      text[] not null check (cardinality(unidades) between 1 and 50),
+  unidades      text[] not null check (cardinality(unidades) between 1 and 50 and array_position(unidades, null) is null),
   atualizado_em timestamptz not null default now()
 );
 

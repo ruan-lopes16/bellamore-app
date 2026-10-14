@@ -49,12 +49,16 @@ export function useEstoque() {
   async function movimentar(
     produto: ProdutoEstoque, tipo: 'entrada' | 'saida', quantidade: number, motivo: string,
   ): Promise<{ novoSaldo: number }> {
-    const r = await movimentarEstoque(supabase, { empresaId: empresaId!, produto, tipo, quantidade, motivo });
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: ['estoque', empresaId] }),
-      qc.invalidateQueries({ queryKey: ['estoque-movimentos', empresaId] }),
-    ]);
-    return r;
+    try {
+      return await movimentarEstoque(supabase, { empresaId: empresaId!, produto, tipo, quantidade, motivo });
+    } finally {
+      // No finally: até o erro "Sem resposta" (que pode ter gravado) recarrega as telas.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['estoque', empresaId] }),
+        qc.invalidateQueries({ queryKey: ['estoque-movimentos'] }),
+        qc.invalidateQueries({ queryKey: ['estoque-baixo'] }),
+      ]);
+    }
   }
 
   /** Grava as unidades visíveis da empresa. */

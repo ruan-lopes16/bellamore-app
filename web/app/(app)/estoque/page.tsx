@@ -41,7 +41,6 @@ import { Secret, PrivacyToggle } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { mensagemErroBanco } from '@shared/erros';
-import { format, parseISO } from 'date-fns';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import {
   CATEGORIAS_PRODUTO, rotuloStatusEstoque, statusEstoque, rotuloCategoriaProduto,
@@ -53,7 +52,7 @@ import {
   type ProdutoEstoque, type MovimentoEstoque,
 } from '@shared/estoque-consultas';
 import { parseValorBR } from '@shared/comanda-fechamento';
-import { chaveMesBRT, somarMeses, rotuloMesAno } from '@shared/periodos';
+import { chaveMesBRT, somarMeses, rotuloMesAno, rotuloDataHoraBRT } from '@shared/periodos';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { UnidadesModal } from './UnidadesModal';
 
@@ -118,7 +117,7 @@ function ProdutoModal({ empresaId, state, visiveis, onClose, onSalvo, onExcluido
   const [nome,       setNome]       = useState(ed?.nome      ?? '');
   const [tipo,       setTipo]       = useState<'material' | 'venda'>(ed?.tipo ?? 'material');
   const [categoria,  setCategoria]  = useState<string>(ed?.categoria ?? 'outros');
-  const [unidade,    setUnidade]    = useState(ed?.unidade   ?? 'un');
+  const [unidade,    setUnidade]    = useState(ed?.unidade   ?? unidadesParaSeletor(visiveis)[0] ?? 'un');
   const [qtdPorUn,   setQtdPorUn]   = useState((ed?.qtd_por_unidade ?? 1) > 1 ? formatarQuantidadeBR(ed!.qtd_por_unidade) : '');
   const [estAtual,   setEstAtual]   = useState(ed ? formatarQuantidadeBR(ed.estoque_atual)  : '0');
   const [estMin,     setEstMin]     = useState(ed ? formatarQuantidadeBR(ed.estoque_minimo) : '0');
@@ -410,6 +409,9 @@ function MovModal({ produto, onClose, onSalvo }: {
     ? produto.estoque_atual + qtdNum
     : produto.estoque_atual - qtdNum;
 
+  /** Não fecha enquanto grava: o saldo da lista só atualiza pelo callback depois do sucesso. */
+  const fechar = () => { if (!salvando) onClose(); };
+
   async function salvar() {
     if (qtdNum <= 0) { setErro('Informe uma quantidade válida.'); return; }
     if (tipo === 'saida' && qtdNum > produto.estoque_atual) {
@@ -468,7 +470,7 @@ function MovModal({ produto, onClose, onSalvo }: {
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fechar}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
 
         {/* Header */}
@@ -477,7 +479,7 @@ function MovModal({ produto, onClose, onSalvo }: {
             <h2 className="font-serif text-xl text-text">Movimentar estoque</h2>
             <p className="text-xs text-text-3 mt-0.5 truncate max-w-[220px]">{produto.nome}</p>
           </div>
-          <button onClick={onClose}
+          <button onClick={fechar}
             className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
             <X size={16}/>
           </button>
@@ -551,7 +553,7 @@ function MovModal({ produto, onClose, onSalvo }: {
           {erro && <p className="text-red text-sm">{erro}</p>}
 
           <div className="flex gap-3 mt-1">
-            <button onClick={onClose}
+            <button onClick={fechar}
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
               Cancelar
             </button>
@@ -663,6 +665,7 @@ export default function EstoquePage() {
 
   function navMes(dir: number) {
     const novo = somarMeses(mesMov, dir > 0 ? 1 : -1);
+    if (novo > chaveMesBRT(new Date())) return;
     setMesMov(novo);
     setMovCarregado(false);
     if (empresaId) carregarMovimentos(empresaId, novo);
@@ -678,8 +681,11 @@ export default function EstoquePage() {
   const filtrados = useMemo(() => {
     let r = produtos;
     if (busca.trim()) {
-      const q = busca.toLowerCase();
-      r = r.filter(p => p.nome.toLowerCase().includes(q));
+      const q = busca.trim().toLowerCase();
+      r = r.filter(p =>
+        p.nome.toLowerCase().includes(q) ||
+        p.categoria.toLowerCase().includes(q) ||
+        rotuloCategoriaProduto(p.categoria).toLowerCase().includes(q));
     }
     if (filtroCat) r = r.filter(p => p.categoria === filtroCat);
     if (filtroSt === 'alertas') r = r.filter(p => getStatus(p) !== 'ok');
@@ -699,6 +705,7 @@ export default function EstoquePage() {
       );
     });
     setModalProd(null);
+    setMovCarregado(false); // nome do produto nas movimentações pode ter mudado
   }
 
   function onProdutoExcluido(id: string) {
@@ -712,16 +719,14 @@ export default function EstoquePage() {
     setProdutos(prev =>
       prev.map(p => p.id === produto.id ? { ...p, estoque_atual: novoEstoque } : p),
     );
-    // Recarrega movimentos se a aba estiver visível
-    if (aba === 'movimentacoes' && empresaId) {
-      setMovCarregado(false);
-      carregarMovimentos(empresaId, mesMov);
-    }
+    // Movimentações já carregadas ficam velhas: marca para recarregar (já, se a aba estiver visível)
+    setMovCarregado(false);
+    if (aba === 'movimentacoes' && empresaId) carregarMovimentos(empresaId, mesMov);
     setModalMov(null);
     showToast(
       tipo === 'entrada'
-        ? `+${qtd} ${produto.unidade} adicionados — ${produto.nome}`
-        : `-${qtd} ${produto.unidade} retirados — ${produto.nome}`
+        ? `+${formatarQuantidadeBR(qtd)} ${produto.unidade} adicionados — ${produto.nome}`
+        : `-${formatarQuantidadeBR(qtd)} ${produto.unidade} retirados — ${produto.nome}`
     );
   }
 
@@ -795,7 +800,7 @@ export default function EstoquePage() {
               <Ruler size={15} strokeWidth={2}/> Unidades
             </button>
           )}
-          {aba === 'produtos' && (
+          {aba === 'produtos' && !erroCarga && (
             <button onClick={() => setModalProd({ modo: 'criar' })} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
               style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
               <Plus size={15} strokeWidth={2.5}/> Novo produto
@@ -850,8 +855,8 @@ export default function EstoquePage() {
       )}
 
       {aba === 'produtos' && <>
-      {/* Stats */}
-      {loading ? (
+      {/* Stats (com erro de carga, só o banner) */}
+      {erroCarga ? null : loading ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {[1,2,3,4].map(i => (
             <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3 min-w-0">
@@ -962,7 +967,7 @@ export default function EstoquePage() {
       )}
 
       {/* Tabela */}
-      {loading ? (
+      {erroCarga ? null : loading ? (
         <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
           <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg">
             {['col-span-3','col-span-2','col-span-2','col-span-1','col-span-4'].map((c, i) => (
@@ -1118,8 +1123,8 @@ export default function EstoquePage() {
               <span className="text-sm font-semibold text-center" style={{ minWidth: 160, color: 'var(--color-ink)' }}>
                 {rotuloMesAno(mesMov)}
               </span>
-              <button onClick={() => navMes(1)}
-                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
+              <button onClick={() => navMes(1)} disabled={mesMov >= chaveMesBRT(new Date())} aria-label="Próximo mês"
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition disabled:opacity-30 disabled:cursor-not-allowed">
                 <ChevronRight size={16}/>
               </button>
             </div>
@@ -1149,8 +1154,8 @@ export default function EstoquePage() {
             </div>
           )}
 
-          {/* KPIs do mês */}
-          {loadingMov ? (
+          {/* KPIs do mês (com erro, só o banner: não afirmar "mês vazio") */}
+          {erroMov ? null : loadingMov ? (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
               {[1,2,3].map(i => (
                 <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3">
@@ -1162,8 +1167,8 @@ export default function EstoquePage() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
               {[
-                { label: 'Saídas no mês',   value: resumoMov.saidas,   sub: `${String(resumoMov.qtdSaidas).replace('.', ',')} unid. total`,  icon: ArrowDown, color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)'    },
-                { label: 'Entradas no mês', value: resumoMov.entradas, sub: `${String(resumoMov.qtdEntradas).replace('.', ',')} unid. total`, icon: ArrowUp,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
+                { label: 'Saídas no mês',   value: resumoMov.saidas,   sub: `${formatarQuantidadeBR(resumoMov.qtdSaidas)} unid. total`,  icon: ArrowDown, color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)'    },
+                { label: 'Entradas no mês', value: resumoMov.entradas, sub: `${formatarQuantidadeBR(resumoMov.qtdEntradas)} unid. total`, icon: ArrowUp,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
                 { label: 'Total registros', value: resumoMov.total,                                    sub: 'entradas + saídas',                       icon: List,      color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
               ].map(({ label, value, sub, icon: Icon, color, bg }, idx) => (
                 <div key={label} className="bm-stagger"
@@ -1218,7 +1223,7 @@ export default function EstoquePage() {
           </div>
 
           {/* Tabela de movimentações */}
-          {loadingMov ? (
+          {erroMov ? null : loadingMov ? (
             <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
               <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg">
                 {['col-span-2','col-span-3','col-span-2','col-span-2','col-span-2','col-span-1'].map((c, i) => (
@@ -1266,7 +1271,7 @@ export default function EstoquePage() {
               {movFiltrados.map((m, idx) => {
                 const isEntrada = m.tipo === 'entrada';
                 const isAjuste  = m.tipo === 'ajuste';
-                const data = parseISO(m.created_at);
+                const [diaMes, hora] = rotuloDataHoraBRT(m.created_at).split(' às ');
                 return (
                   <div key={m.id}
                     className={`grid grid-cols-12 items-center px-5 py-3.5 ${
@@ -1275,8 +1280,8 @@ export default function EstoquePage() {
 
                     {/* Data */}
                     <div className="col-span-2">
-                      <p className="text-sm font-semibold text-text">{format(data, 'dd/MM')}</p>
-                      <p className="text-xs text-text-4">{format(data, 'HH:mm')}</p>
+                      <p className="text-sm font-semibold text-text">{diaMes}</p>
+                      <p className="text-xs text-text-4">{hora}</p>
                     </div>
 
                     {/* Produto */}
@@ -1311,7 +1316,7 @@ export default function EstoquePage() {
                       {m.agendamento_id ? (
                         <span className="inline-flex items-center gap-1 text-xs text-primary bg-primary-soft px-2 py-0.5 rounded-lg font-semibold">
                           <CalendarDays size={10} strokeWidth={2}/>
-                          Agendamento
+                          Via comanda
                         </span>
                       ) : (
                         <span className="text-xs text-text-4 italic">

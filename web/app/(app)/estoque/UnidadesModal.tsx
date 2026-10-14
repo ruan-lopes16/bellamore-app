@@ -34,6 +34,9 @@ export function UnidadesModal({ empresaId, visiveis, onClose, onSalvo }: {
     setLigadas(prev => prev.includes(chave) ? prev.filter(c => c !== chave) : [...prev, chave]);
   }
 
+  /** Não fecha (fundo, X, Cancelar) enquanto grava. */
+  const fechar = () => { if (!salvando) onClose(); };
+
   async function salvar() {
     setErro(''); setSalvando(true);
     try {
@@ -48,7 +51,7 @@ export function UnidadesModal({ empresaId, visiveis, onClose, onSalvo }: {
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fechar}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] flex flex-col">
 
         {/* Header */}
@@ -57,7 +60,7 @@ export function UnidadesModal({ empresaId, visiveis, onClose, onSalvo }: {
             <h2 className="font-serif text-xl text-text">Unidades de medida</h2>
             <p className="text-xs text-text-3 mt-0.5">Escolha as que aparecem ao cadastrar um produto.</p>
           </div>
-          <button onClick={onClose} aria-label="Fechar"
+          <button onClick={fechar} aria-label="Fechar"
             className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
             <X size={16}/>
           </button>
@@ -95,7 +98,7 @@ export function UnidadesModal({ empresaId, visiveis, onClose, onSalvo }: {
             className="h-10 px-3 rounded-xl border border-border text-text-3 text-sm font-semibold hover:bg-bg transition flex-shrink-0">
             Restaurar padrão
           </button>
-          <button onClick={onClose}
+          <button onClick={fechar} disabled={salvando}
             className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
             Cancelar
           </button>

@@ -112,10 +112,14 @@ const arredondar3 = (n: number) => Math.round(Number((n * 1000).toPrecision(12))
 /**
  * Quantidade digitada → número, arredondado a 3 casas ("0,5", "0.5", "1.234,56").
  * Mesma leitura do dinheiro (`parseValorBR`): "1.234" é milhar (1234), não 1,234 — para preencher
- * o campo na edição use `formatarQuantidadeBR`, que nunca gera ponto. Vazio, inválido ou negativo → 0.
+ * o campo na edição use `formatarQuantidadeBR`, que nunca gera ponto. "0.250" (zero antes do ponto)
+ * é decimal: 0,25. Vazio, inválido ou negativo → 0.
  */
 export function parseQuantidadeBR(texto: string): number {
-  return arredondar3(parseValorBR(texto));
+  const t = texto.trim();
+  // "0.250" é decimal (um grupo inicial "0" nunca é milhar); "1.234" segue sendo 1234.
+  if (/^0\.\d+$/.test(t)) return arredondar3(Number(t));
+  return arredondar3(parseValorBR(t));
 }
 
 /**
@@ -153,7 +157,8 @@ export type FormProduto = {
 /** Linha de `produtos` para INSERT/UPDATE. `ativo` só no cadastro. */
 export type PayloadProduto = {
   empresa_id: string; nome: string; tipo: TipoProduto; categoria: string; unidade: string; qtd_por_unidade: number;
-  estoque_atual: number; estoque_minimo: number; preco_custo: number; preco_venda: number; ativo?: boolean;
+  /** Omitido na edição quando o saldo não foi mexido (não sobrescreve o que as comandas baixaram). */
+  estoque_atual?: number; estoque_minimo: number; preco_custo: number; preco_venda: number; ativo?: boolean;
 };
 
 /** Arredonda reais a centavos sem erro de float (1,005 → 1,01). */
@@ -175,6 +180,7 @@ export type OriginalProduto = {
  * Na edição (`ctx.original`): campo de quantidade cujo texto é igual ao original formatado mantém o
  * número original sem reler; categoria igual à original é aceita mesmo fora do catálogo; material
  * mantém o `preco_venda` original. No cadastro a categoria precisa ser do catálogo e material grava 0.
+ * Edição com o texto do saldo igual ao original formatado: `estoque_atual` NÃO vai no payload.
  * Quantidade > 9999999,999 e dinheiro > 99999999,99 → erro em português (não gravam).
  */
 export function montarProduto(
@@ -218,11 +224,13 @@ export function montarProduto(
     categoria: form.categoria,
     unidade: form.unidade,
     qtd_por_unidade: qtdDentro,
-    estoque_atual: estoqueAtual,
     estoque_minimo: estoqueMinimo,
     preco_custo: precoCusto,
     preco_venda: precoVenda,
   };
+  // Edição com o saldo intocado: não manda `estoque_atual` (o UPDATE não regrava um saldo velho).
+  const saldoIntocado = !!orig && form.estoqueAtual.trim() === formatarQuantidadeBR(orig.estoque_atual);
+  if (!saldoIntocado) payload.estoque_atual = estoqueAtual;
   if (!ctx.editando) payload.ativo = true;
   return { payload };
 }
