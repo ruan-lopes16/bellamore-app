@@ -1044,9 +1044,16 @@ export default function ComandaPage() {
       }
     }
 
-    // 1. Criar comanda no banco
-    const { data: comanda, error: errComanda } = await supabase
+    // 1. Criar comanda no banco. Id gerado aqui e SEM RETURNING (.select): a policy de SELECT de
+    //    comandas só mostra à profissional as comandas ligadas a atendimentos dela, e a comanda
+    //    recém-criada ainda não está ligada a nenhum — o RETURNING era recusado (42501, "Você não
+    //    tem permissão para fechar a comanda") mesmo com comanda.fechar. profissional_id = quem
+    //    fechou deixa a comanda visível para ela (inclusive a comanda só com extras, na edição).
+    const comandaId = novoUuid();
+    const { error: errComanda } = await supabase
       .from('comandas').insert({
+        id:          comandaId,
+        profissional_id: meuUserId || null,
         empresa_id:  empresaId,
         clientes_id: clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: subtotal,
@@ -1054,14 +1061,12 @@ export default function ComandaPage() {
         desconto_reserva: descontoReservaAplicado,
         status:      'fechada',
         fechada_at:  new Date().toISOString(),
-      }).select('id').single();
+      });
 
-    if (errComanda || !comanda) {
+    if (errComanda) {
       setErro(mensagemErroBanco(errComanda, 'fechar a comanda'));
       setFechando(false); return;
     }
-
-    const comandaId = comanda.id;
 
     // Ids dos atendimentos que ainda estão na comanda agora.
     const agIds = itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!);

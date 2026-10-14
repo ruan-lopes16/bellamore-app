@@ -1009,19 +1009,23 @@ export default function NovaComandaScreen() {
       }
     }
 
-    // 1. Comanda
-    const { data: comanda, error: errComanda } = await supabase
+    // 1. Comanda. Id gerado aqui e SEM RETURNING: a policy de SELECT de comandas só mostra à
+    //    profissional as comandas ligadas a atendimentos dela, e a recém-criada ainda não está
+    //    ligada — o RETURNING era recusado (42501) mesmo com comanda.fechar. profissional_id =
+    //    quem fechou deixa a comanda visível para ela (inclusive só com extras, na edição).
+    const comandaId = novoUuid();
+    const { error: errComanda } = await supabase
       .from('comandas').insert({
+        id: comandaId,
+        profissional_id: meuUserId || null,
         empresa_id: empresaId,
         clientes_id: clienteSel.id === '__sem__' ? null : clienteSel.id,
         valor_total: subtotal, desconto: descontoN + descontoReservaAplicado,
         desconto_reserva: descontoReservaAplicado,
         status: 'fechada', fechada_at: new Date().toISOString(),
-      }).select('id').single();
+      });
 
-    if (errComanda || !comanda) { falharFechamento('criar comanda', errComanda); return; }
-
-    const comandaId = comanda.id;
+    if (errComanda) { falharFechamento('criar comanda', errComanda); return; }
     // Ids dos atendimentos que ainda estão na comanda agora.
     const agIds = [...new Set(itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!))];
     const pacoteLinksFinal: Record<string, string | null> = { ...pacoteLinks };
