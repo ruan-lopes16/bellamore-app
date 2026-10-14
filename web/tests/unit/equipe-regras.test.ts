@@ -10,6 +10,11 @@ describe('normalizações', () => {
     expect(normalizarComissao(45)).toBe(45);
     expect(normalizarComissao('45,5')).toBe(45.5);
     expect(normalizarComissao('')).toBe(0);
+    expect(normalizarComissao(null)).toBeUndefined();
+    expect(normalizarComissao('  ')).toBe(0);
+    expect(normalizarComissao('45.5')).toBe(45.5);
+    expect(normalizarComissao('1e1')).toBeNull();
+    expect(normalizarComissao(NaN)).toBeNull();
     expect(normalizarComissao(101)).toBeNull();
     expect(normalizarComissao(-1)).toBeNull();
     expect(normalizarComissao('abc')).toBeNull();
@@ -61,6 +66,10 @@ describe('vinculoParaGravar', () => {
 });
 
 describe('estatisticasDoMes (decisão 1)', () => {
+  it('valor não numérico conta 0, nunca NaN', () => {
+    expect(estatisticasDoMes([{ profissional_id: 'a', valor: 'x', pacote_cliente_id: null }, { profissional_id: 'a', valor: 5, pacote_cliente_id: null }], {}))
+      .toEqual({ a: { total: 5, atendimentos: 2 } });
+  });
   it('faturado sem sessões de pacote + extras; atendimentos contam todos', () => {
     const r = estatisticasDoMes([
       { profissional_id: 'a', valor: 100, pacote_cliente_id: null },

@@ -7,13 +7,22 @@ export function rotuloContrato(t: TipoContrato | null): string {
   return t === 'pj' ? 'PJ / Comissionada' : t === 'clt' ? 'CLT' : '';
 }
 
-/** Comissão do corpo: `undefined` = não veio; número 0–100 (aceita "45,5"); fora disso `null` (inválida). */
+/**
+ * Comissão do corpo: `undefined` ou `null` = não veio (nunca zera); texto vazio = 0; número ou texto
+ * (aceita "45,5") de 0 a 100; qualquer outra coisa = `null` (inválida).
+ */
 export function normalizarComissao(v: unknown): number | null | undefined {
-  if (v === undefined) return undefined;
-  if (v === null || v === '') return 0;
-  const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
+  if (v === undefined || v === null) return undefined;
+  let n: number;
+  if (typeof v === 'number') n = v;
+  else if (typeof v === 'string') {
+    const t = v.trim();
+    if (t === '') return 0;
+    if (!/^\d+([.,]\d+)?$/.test(t)) return null;
+    n = Number(t.replace(',', '.'));
+  } else return null;
   if (!Number.isFinite(n) || n < 0 || n > 100) return null;
-  return Math.round(n * 100) / 100;
+  return Math.round(n * 100) / 100 + 0;
 }
 
 /** Tipo de contrato do corpo: `undefined` = não veio; `null` = sem contrato; `'invalido'` = valor desconhecido. */
@@ -74,7 +83,10 @@ export function estatisticasDoMes(
     if (!a.profissional_id) continue;
     atend[a.profissional_id] = (atend[a.profissional_id] ?? 0) + 1;
     centavos[a.profissional_id] ??= 0;
-    if (!a.pacote_cliente_id) centavos[a.profissional_id] += Math.round(Number(a.valor ?? 0) * 100);
+    if (!a.pacote_cliente_id) {
+      const v = Number(a.valor ?? 0);
+      centavos[a.profissional_id] += Number.isFinite(v) ? Math.round(v * 100) : 0;
+    }
   }
   for (const [id, v] of Object.entries(extrasPorProf)) {
     centavos[id] = (centavos[id] ?? 0) + Math.round(v * 100);

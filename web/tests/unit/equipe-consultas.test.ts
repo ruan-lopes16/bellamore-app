@@ -33,6 +33,29 @@ describe('carregarEquipe', () => {
     expect(opsAg).toContainEqual(['eq', ['status', 'concluido']]);
     expect(opsAg).toContainEqual(['order', ['id']]);
   });
+  it('empresa em todas as consultas, extra soma no faturado', async () => {
+    const { db, chamadas } = fakeDb({ awaitavel: true, linhas: {
+      empresa_membros: membros,
+      agendamentos: [{ id: 'a1', profissional_id: 'u2', valor: 100, pacote_cliente_id: null }],
+      comanda_itens: [{ id: 'i1', valor_unit: 40, quantidade: 2, profissional_id: 'u2', servico_id: null, descricao: 'x', comanda: { fechada_at: '2026-10-05T12:00:00Z', status: 'fechada', clientes_id: null } }],
+      comissoes: [],
+    } });
+    const r = await carregarEquipe(db, 'e1', '2026-10');
+    expect(r.find(m => m.user_id === 'u2')!.total_mes).toBe(180);
+    for (const tab of ['empresa_membros', 'agendamentos', 'comissoes']) {
+      expect(opsDe(chamadas, tab)[0]).toContainEqual(['eq', ['empresa_id', 'e1']]);
+    }
+  });
+  it('erro de membros ou de comissões lança', async () => {
+    for (const tab of ['empresa_membros', 'comissoes']) {
+      const { db } = fakeDb({ awaitavel: true, linhas: { empresa_membros: membros }, erroTabelas: { [tab]: 'boom' } });
+      await expect(carregarEquipe(db, 'e1', '2026-10')).rejects.toThrow('boom');
+    }
+  });
+  it('erro de permissão sai em português', async () => {
+    const { db } = fakeDb({ awaitavel: true, linhas: { empresa_membros: membros }, erroTabelasCodigo: { comissoes: { code: '42501', message: 'row-level security' } } });
+    await expect(carregarEquipe(db, 'e1', '2026-10')).rejects.toThrow('Você não tem permissão para carregar a equipe');
+  });
   it('erro em qualquer consulta lança (nunca lista vazia)', async () => {
     const { db } = fakeDb({ awaitavel: true, linhas: { empresa_membros: membros }, erroTabelas: { agendamentos: 'boom' } });
     await expect(carregarEquipe(db, 'e1', '2026-10')).rejects.toThrow('boom');

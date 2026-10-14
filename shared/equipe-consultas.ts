@@ -22,18 +22,24 @@ const COLUNAS_MEMBRO = 'id, user_id, role, percentual_comissao, tipo_contrato, a
  */
 export async function carregarEquipe(db: ClienteDb, empresaId: string, mesChave: string): Promise<MembroEquipe[]> {
   const mes = limitesMes(mesChave);
-  const [rMembros, ags, extras, pendentes] = await Promise.all([
-    db.from('empresa_membros').select(COLUNAS_MEMBRO)
-      .eq('empresa_id', empresaId).in('role', ['owner', 'gestor', 'profissional'])
-      .order('ativo', { ascending: false }).order('created_at').order('id'),
-    buscarTodasOuLancar<{ profissional_id: string | null; valor: number | string | null; pacote_cliente_id: string | null }>((de, ate) =>
-      db.from('agendamentos').select('id, profissional_id, valor, pacote_cliente_id')
-        .eq('empresa_id', empresaId).eq('status', 'concluido')
-        .gte('data_hora_inicio', mes.startIso).lte('data_hora_inicio', mes.endIso)
-        .order('id').range(de, ate)),
-    carregarServicosExtras(db, empresaId, mes),
-    carregarComissoesPendentes(db, empresaId),
-  ]);
+  let resultado;
+  try {
+    resultado = await Promise.all([
+      db.from('empresa_membros').select(COLUNAS_MEMBRO)
+        .eq('empresa_id', empresaId).in('role', ['owner', 'gestor', 'profissional'])
+        .order('ativo', { ascending: false }).order('created_at').order('id'),
+      buscarTodasOuLancar<{ profissional_id: string | null; valor: number | string | null; pacote_cliente_id: string | null }>((de, ate) =>
+        db.from('agendamentos').select('id, profissional_id, valor, pacote_cliente_id')
+          .eq('empresa_id', empresaId).eq('status', 'concluido')
+          .gte('data_hora_inicio', mes.startIso).lte('data_hora_inicio', mes.endIso)
+          .order('id').range(de, ate)),
+      carregarServicosExtras(db, empresaId, mes),
+      carregarComissoesPendentes(db, empresaId),
+    ]);
+  } catch (e) {
+    throw new Error(mensagemErroBanco({ message: e instanceof Error ? e.message : String(e) }, 'carregar a equipe'));
+  }
+  const [rMembros, ags, extras, pendentes] = resultado;
   if (rMembros.error) throw new Error(mensagemErroBanco(rMembros.error, 'carregar a equipe'));
   const stats = estatisticasDoMes(ags, receitaExtrasPorProfissional(extras));
   const pend = pendentesPorProfissional(pendentes, mes);
