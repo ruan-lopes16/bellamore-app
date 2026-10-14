@@ -1,6 +1,6 @@
 export type Op = [string, unknown[]];
 export type Chamada = { tabela: string; ops: Op[] };
-type Resposta = { data: unknown[] | null; error: { message: string } | null };
+type Resposta = { data: unknown[] | null; error: { code?: string; message: string } | null };
 
 /** Client falso: grava a cadeia; `range` devolve `linhas[tabela]`; `update(...).select()` devolve `respostaUpdate`. */
 export function fakeDb(opcoes: {
@@ -12,6 +12,8 @@ export function fakeDb(opcoes: {
   awaitavel?: boolean;
   /** Erro (mensagem) por tabela, em qualquer consulta (range, await ou single). */
   erroTabelas?: Record<string, string>;
+  /** Erro com código (PostgREST/Postgres) por tabela; tem prioridade sobre `erroTabelas`. */
+  erroTabelasCodigo?: Record<string, { code: string; message: string }>;
   respostaUpdate?: (tabela: string, ids: string[], lote: number) => Resposta;
   /**
    * Resposta de `db.rpc(fn, args)`. Ausente → função inexistente (`PGRST202`), como no banco
@@ -22,6 +24,8 @@ export function fakeDb(opcoes: {
   const chamadas: Chamada[] = [];
   const rpcs: { fn: string; args: Record<string, unknown> }[] = [];
   let lote = 0;
+  const erroDe = (tabela: string) => opcoes.erroTabelasCodigo?.[tabela]
+    ?? (opcoes.erroTabelas?.[tabela] ? { message: opcoes.erroTabelas[tabela] } : null);
   const db = {
     rpc(fn: string, args: Record<string, unknown> = {}) {
       rpcs.push({ fn, args });
@@ -36,8 +40,8 @@ export function fakeDb(opcoes: {
         get(_a, prop) {
           if (prop === 'then') {
             if (!opcoes.awaitavel || chamada.ops.some(([m]) => m === 'range')) return undefined;
-            return (ok: (v: Resposta) => unknown) => ok(opcoes.erroTabelas?.[tabela]
-              ? { data: null, error: { message: opcoes.erroTabelas[tabela] } }
+            return (ok: (v: Resposta) => unknown) => ok(erroDe(tabela)
+              ? { data: null, error: erroDe(tabela) }
               : tabela === opcoes.erroEm
               ? { data: null, error: { message: `falha em ${tabela}` } }
               : { data: opcoes.linhas?.[tabela] ?? [], error: null });
@@ -45,11 +49,11 @@ export function fakeDb(opcoes: {
           return (...args: unknown[]) => {
             chamada.ops.push([String(prop), args]);
             if (prop === 'single') {
-              if (opcoes.erroTabelas?.[tabela]) return Promise.resolve({ data: null, error: { message: opcoes.erroTabelas[tabela] } });
+              if (erroDe(tabela)) return Promise.resolve({ data: null, error: erroDe(tabela) });
               return Promise.resolve({ data: opcoes.linhas?.[tabela]?.[0] ?? null, error: null });
             }
             if (prop === 'range') {
-              if (opcoes.erroTabelas?.[tabela]) return Promise.resolve({ data: null, error: { message: opcoes.erroTabelas[tabela] } });
+              if (erroDe(tabela)) return Promise.resolve({ data: null, error: erroDe(tabela) });
               const trecho = opcoes.erroQuandoSelectContem?.[tabela];
               const sel = chamada.ops.find(([m]) => m === 'select')?.[1][0];
               if (trecho && typeof sel === 'string' && sel.includes(trecho)) {

@@ -177,6 +177,12 @@ export default function NovaComandaScreen() {
   const podeEditarFechada = pode('comanda.editar_fechada');
   const empresaId = empresaAtiva?.id ?? null;
   const qc = useQueryClient();
+  /** Estoque mudou (produtos vendidos, insumos dos atendimentos): atualiza a tela de Estoque e os alertas. */
+  const invalidarEstoque = () => {
+    qc.invalidateQueries({ queryKey: ['estoque'] });
+    qc.invalidateQueries({ queryKey: ['estoque-movimentos'] });
+    qc.invalidateQueries({ queryKey: ['estoque-baixo'] });
+  };
 
   const [loading, setLoading] = useState(true);
   // Dia da comanda (como no web): semana de 7 dias a partir do domingo, ou visão do mês.
@@ -948,6 +954,7 @@ export default function NovaComandaScreen() {
     setFechando(false);
     // Receita, comissão, taxas de cartão e alerta de comandas abertas mudaram: atualiza tudo.
     invalidarFinanceiro(qc);
+    invalidarEstoque();
     qc.invalidateQueries({ queryKey: ['agenda-dia'] });
     carregarBacklog();
     carregarDia();
@@ -1025,6 +1032,7 @@ export default function NovaComandaScreen() {
     const clienteId = clienteSel.id;
     const falharAposCriar = (etapaFalha: string, erro: Parameters<typeof falharFechamento>[1]) => {
       if (agIds.length === 0) setComandasParciais(prev => ({ ...prev, [clienteId]: comandaId }));
+      invalidarEstoque(); // parte do fechamento (insumos, produtos) pode já ter baixado o estoque
       falharFechamento(etapaFalha, erro);
     };
 
@@ -1154,6 +1162,7 @@ export default function NovaComandaScreen() {
     setFechando(false);
     // Receita, comissão e alerta de comandas abertas mudaram: atualiza todas as telas.
     invalidarFinanceiro(qc);
+    invalidarEstoque();
     qc.invalidateQueries({ queryKey: ['agenda-dia'] });
     carregarBacklog();
     // Valor cobrado, vínculo de pacote, status E comanda_id — senão o atendimento

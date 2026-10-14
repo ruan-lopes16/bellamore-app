@@ -1,80 +1,72 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import { statusEstoque } from '@shared/estoque';
+import { statusEstoque, resumoProdutos, type StatusEstoque } from '@shared/estoque';
+import {
+  carregarProdutosEstoque, carregarMovimentosMes, carregarUnidadesVisiveis,
+  movimentarEstoque, salvarUnidadesVisiveis, type ProdutoEstoque,
+} from '@shared/estoque-consultas';
 
 // ── Tipos ────────────────────────────────────────────────────
 
 export type MovimentoTipo = 'entrada' | 'saida' | 'ajuste';
 
-export interface Produto {
-  id: string;
-  nome: string;
-  categoria: string;
-  unidade: string;
-  preco_custo: number;
-  estoque_atual: number;
-  estoque_minimo: number;
-  ativo: boolean;
-  status: 'critico' | 'baixo' | 'ok';
-}
+export type Produto = ProdutoEstoque & { status: StatusEstoque };
 
-// ── Hook ─────────────────────────────────────────────────────
+// ── Hooks ────────────────────────────────────────────────────
 
+/**
+ * Estoque da empresa ativa: produtos com status, resumo, unidades visíveis e as ações de
+ * movimentar e ajustar unidades. Toda consulta lança erro (nada de lista vazia silenciosa).
+ */
 export function useEstoque() {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
   const qc = useQueryClient();
 
-  const query = useQuery<Produto[]>({
+  const query = useQuery<ProdutoEstoque[]>({
     queryKey: ['estoque', empresaId],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 2,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('produtos')
-        .select('*')
-        .eq('empresa_id', empresaId!)
-        .eq('ativo', true)
-        .order('categoria', { ascending: true })
-        .order('nome', { ascending: true });
-
-      if (error) throw error;
-
-      return (data ?? []).map((p) => {
-        const atual = Number(p.estoque_atual);
-        const min   = Number(p.estoque_minimo);
-        const status: Produto['status'] = statusEstoque(atual, min);
-        return { ...p, estoque_atual: atual, estoque_minimo: min, status };
-      });
-    },
+    queryFn: () => carregarProdutosEstoque(supabase, empresaId!),
   });
 
-  // Registrar entrada/saída
-  const registrarMovimento = useMutation({
-    mutationFn: async ({
-      produtoId, tipo, quantidade, motivo,
-    }: {
-      produtoId: string;
-      tipo: MovimentoTipo;
-      quantidade: number;
-      motivo?: string;
-    }) => {
-      return supabase.from('estoque_movimentos').insert({
-        produto_id:  produtoId,
-        empresa_id:  empresaId!,
-        tipo,
-        quantidade,
-        motivo: motivo ?? null,
-      });
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['estoque', empresaId] }),
+  const unidadesQuery = useQuery({
+    queryKey: ['estoque-unidades', empresaId],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: () => carregarUnidadesVisiveis(supabase, empresaId!),
   });
 
-  const produtos   = query.data ?? [];
-  const criticos   = produtos.filter((p) => p.status === 'critico');
-  const baixos     = produtos.filter((p) => p.status === 'baixo');
-  const normais    = produtos.filter((p) => p.status === 'ok');
+  const produtos: Produto[] = (query.data ?? []).map((p) => ({
+    ...p, status: statusEstoque(p.estoque_atual, p.estoque_minimo),
+  }));
+  const criticos = produtos.filter((p) => p.status === 'critico');
+  const baixos   = produtos.filter((p) => p.status === 'baixo');
+  const normais  = produtos.filter((p) => p.status === 'ok');
+
+  /** Entrada/saída manual. Lança `Error` com mensagem em português. */
+  async function movimentar(
+    produto: ProdutoEstoque, tipo: 'entrada' | 'saida', quantidade: number, motivo: string,
+  ): Promise<{ novoSaldo: number }> {
+    try {
+      return await movimentarEstoque(supabase, { empresaId: empresaId!, produto, tipo, quantidade, motivo });
+    } finally {
+      // No finally: até o erro "Sem resposta" (que pode ter gravado) recarrega as telas.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['estoque', empresaId] }),
+        qc.invalidateQueries({ queryKey: ['estoque-movimentos'] }),
+        qc.invalidateQueries({ queryKey: ['estoque-baixo'] }),
+      ]);
+    }
+  }
+
+  /** Grava as unidades visíveis da empresa. */
+  async function salvarUnidades(lista: string[]): Promise<string[]> {
+    const r = await salvarUnidadesVisiveis(supabase, empresaId!, lista);
+    await qc.invalidateQueries({ queryKey: ['estoque-unidades', empresaId] });
+    return r;
+  }
 
   return {
     produtos,
@@ -84,10 +76,27 @@ export function useEstoque() {
     totalProdutos: produtos.length,
     totalCriticos: criticos.length,
     totalAtencao:  baixos.length,
+    resumo: resumoProdutos(produtos),
     isLoading: query.isLoading,
+    isError: query.isError,
+    erro: query.error ? (query.error instanceof Error ? query.error.message : 'Não foi possível carregar o estoque.') : null,
     refetch: query.refetch,
-    registrarMovimento: (
-      produtoId: string, tipo: MovimentoTipo, quantidade: number, motivo?: string
-    ) => registrarMovimento.mutateAsync({ produtoId, tipo, quantidade, motivo }),
+    unidadesVisiveis: unidadesQuery.data?.unidades ?? null,
+    unidadesDisponivel: unidadesQuery.data?.disponivel ?? false,
+    erroUnidades: unidadesQuery.error ? (unidadesQuery.error instanceof Error ? unidadesQuery.error.message : 'Não foi possível carregar as unidades.') : null,
+    movimentar,
+    salvarUnidades,
   };
+}
+
+/** Movimentações do mês (`mesChave` = 'AAAA-MM'); só consulta quando `ativo`. */
+export function useMovimentosMes(mesChave: string, ativo: boolean) {
+  const { empresaAtiva } = useAuthStore();
+  const empresaId = empresaAtiva?.id;
+  return useQuery({
+    queryKey: ['estoque-movimentos', empresaId, mesChave],
+    enabled: !!empresaId && ativo,
+    queryFn: () => carregarMovimentosMes(supabase, empresaId!, mesChave),
+    placeholderData: keepPreviousData,
+  });
 }

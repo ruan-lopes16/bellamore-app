@@ -112,6 +112,9 @@ Legenda de arquivos: W = `web/app/(app)/…`; M = `mobile/app/(empresa)/…`; MP
 - DECISÃO: definição de "clientes que retornaram".
 
 ### Estoque
+
+> **Status (2026-10-14): entregue** pela fase Estoque (`docs/superpowers/plans/2026-10-13-paridade-estoque.md`, migration 088).
+
 - Mobile não cadastra produto de **venda** (o tipo fica sempre `material`) nem `qtd_por_unidade`.
 - As categorias de produto são gravadas em formatos incompatíveis:
   - Web: chaves minúsculas.

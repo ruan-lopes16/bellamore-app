@@ -25,11 +25,11 @@
  * A tabela exibe "3 pct (36 un)" quando qtd_por_unidade > 1.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus, Package2, AlertTriangle, DollarSign, Wallet,
   Search, Edit3, X, ArrowUp, ArrowDown, RefreshCw,
-  ChevronLeft, ChevronRight, List, CalendarDays, Check, Trash2,
+  ChevronLeft, ChevronRight, List, CalendarDays, Check, Trash2, Ruler,
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { definicaoEstoqueProdutos, definicaoEstoqueMovimentacoes } from '@shared/exportacao/estoque';
@@ -41,63 +41,44 @@ import { Secret, PrivacyToggle } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { mensagemErroBanco } from '@shared/erros';
-import {
-  format, addMonths, subMonths, startOfMonth, endOfMonth, parseISO,
-} from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
-import { rotuloCategoriaProduto, rotuloStatusEstoque, statusEstoque } from '@shared/estoque';
+import {
+  CATEGORIAS_PRODUTO, rotuloStatusEstoque, statusEstoque, rotuloCategoriaProduto,
+  unidadesParaSeletor, unidadePedeQtdPorUnidade, rotuloUnidade, montarProduto,
+  parseQuantidadeBR, parseSaldoBR, formatarQuantidadeBR, resumoProdutos, resumoMovimentos, margemVenda,
+} from '@shared/estoque';
+import {
+  carregarProdutosEstoque, carregarMovimentosMes, movimentarEstoque, carregarUnidadesVisiveis,
+  type ProdutoEstoque, type MovimentoEstoque,
+} from '@shared/estoque-consultas';
+import { parseValorBR } from '@shared/comanda-fechamento';
+import { chaveMesBRT, somarMeses, rotuloMesAno, rotuloDataHoraBRT } from '@shared/periodos';
+import { usePermissoes } from '@/components/PermissoesProvider';
+import { UnidadesModal } from './UnidadesModal';
 
 const supabase = createClient();
 
 // ── Types ─────────────────────────────────────────────────────
 
-type Produto = {
-  id: string;
-  empresa_id: string;
-  nome: string;
-  categoria: string;
-  unidade: string;
-  qtd_por_unidade: number;   // unidades dentro de 1 pct (ex: 12 un/pct)
-  estoque_atual: number;
-  estoque_minimo: number;
-  preco_custo: number;
-  /** preco de revenda — relevante apenas para tipo = 'venda' */
-  preco_venda: number;
-  /** 'material' = insumo de atendimento | 'venda' = produto para revenda no PDV */
-  tipo: 'material' | 'venda';
-  ativo: boolean;
-};
-
-type MovItem = {
-  id: string;
-  tipo: 'entrada' | 'saida' | 'ajuste';
-  quantidade: number;
-  motivo: string | null;
-  created_at: string;
-  agendamento_id: string | null;
-  produto: { nome: string; unidade: string };
-};
+type Produto = ProdutoEstoque;
+type MovItem = MovimentoEstoque;
 
 // ── Constantes ────────────────────────────────────────────────
 
-// Ordem alfabética por label (pt-BR) — mantém filtros e seletor de categoria consistentes
-const CATS = [
-  { key: 'cilios',       label: rotuloCategoriaProduto('cilios'),       cor: '#4F46E5', bg: '#EEF2FF' },
-  { key: 'depilacao',    label: rotuloCategoriaProduto('depilacao'),     cor: '#D4608A', bg: '#FDF0F5' },
-  { key: 'ferramentas',  label: rotuloCategoriaProduto('ferramentas'),   cor: '#0891B2', bg: '#ECFEFF' },
-  { key: 'higiene',      label: rotuloCategoriaProduto('higiene'),       cor: '#059669', bg: '#ECFDF5' },
-  { key: 'materiais',    label: rotuloCategoriaProduto('materiais'),     cor: '#92400E', bg: '#FEF3E2' },
-  { key: 'outros',       label: rotuloCategoriaProduto('outros'),        cor: '#6B7280', bg: '#F3F4F6' },
-  { key: 'pele',         label: rotuloCategoriaProduto('pele'),          cor: '#0D7E5F', bg: '#EAFAF5' },
-  { key: 'sobrancelhas', label: rotuloCategoriaProduto('sobrancelhas'),  cor: '#7C3AED', bg: '#F3EFFE' },
-  { key: 'unhas',        label: rotuloCategoriaProduto('unhas'),         cor: '#B45309', bg: '#FEF3E2' },
-] as const;
-
-type CatKey = typeof CATS[number]['key'];
+// Ordem alfabética por label (pt-BR) vem de CATEGORIAS_PRODUTO (shared); aqui só as cores
+const CORES_CAT: Record<string, { cor: string; bg: string }> = {
+  cilios:       { cor: '#4F46E5', bg: '#EEF2FF' },
+  depilacao:    { cor: '#D4608A', bg: '#FDF0F5' },
+  ferramentas:  { cor: '#0891B2', bg: '#ECFEFF' },
+  higiene:      { cor: '#059669', bg: '#ECFDF5' },
+  materiais:    { cor: '#92400E', bg: '#FEF3E2' },
+  outros:       { cor: '#6B7280', bg: '#F3F4F6' },
+  pele:         { cor: '#0D7E5F', bg: '#EAFAF5' },
+  sobrancelhas: { cor: '#7C3AED', bg: '#F3EFFE' },
+  unhas:        { cor: '#B45309', bg: '#FEF3E2' },
+};
+const CATS = CATEGORIAS_PRODUTO.map(c => ({ ...c, ...(CORES_CAT[c.key] ?? CORES_CAT.outros) }));
 const CAT_MAP = Object.fromEntries(CATS.map(c => [c.key, c])) as Record<string, typeof CATS[0]>;
-
-const UNIDADES = ['un', 'pct', 'ml', 'g', 'kg', 'L', 'cx', 'pç', 'par'];
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -120,9 +101,11 @@ const labelClass  = "block text-xs font-semibold text-text-2 uppercase tracking-
 
 type ProdutoModalState = { modo: 'criar' } | { modo: 'editar'; produto: Produto };
 
-function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
+function ProdutoModal({ empresaId, state, visiveis, onClose, onSalvo, onExcluido }: {
   empresaId: string;
   state: ProdutoModalState;
+  /** Unidades visíveis da empresa (null = padrão). */
+  visiveis: string[] | null;
   onClose: () => void;
   onSalvo: (p: Produto) => void;
   onExcluido: (id: string) => void;
@@ -133,11 +116,11 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
 
   const [nome,       setNome]       = useState(ed?.nome      ?? '');
   const [tipo,       setTipo]       = useState<'material' | 'venda'>(ed?.tipo ?? 'material');
-  const [categoria,  setCategoria]  = useState<CatKey>((ed?.categoria as CatKey) ?? 'outros');
-  const [unidade,    setUnidade]    = useState(ed?.unidade   ?? 'un');
-  const [qtdPorUn,   setQtdPorUn]   = useState((ed?.qtd_por_unidade ?? 1) > 1 ? String(ed!.qtd_por_unidade) : '');
-  const [estAtual,   setEstAtual]   = useState(ed ? String(ed.estoque_atual)  : '0');
-  const [estMin,     setEstMin]     = useState(ed ? String(ed.estoque_minimo) : '0');
+  const [categoria,  setCategoria]  = useState<string>(ed?.categoria ?? 'outros');
+  const [unidade,    setUnidade]    = useState(ed?.unidade   ?? unidadesParaSeletor(visiveis)[0] ?? 'un');
+  const [qtdPorUn,   setQtdPorUn]   = useState((ed?.qtd_por_unidade ?? 1) > 1 ? formatarQuantidadeBR(ed!.qtd_por_unidade) : '');
+  const [estAtual,   setEstAtual]   = useState(ed ? formatarQuantidadeBR(ed.estoque_atual)  : '0');
+  const [estMin,     setEstMin]     = useState(ed ? formatarQuantidadeBR(ed.estoque_minimo) : '0');
   const [custo,      setCusto]      = useState(ed && ed.preco_custo > 0 ? String(ed.preco_custo) : '');
   const [precoVenda, setPrecoVenda] = useState(ed && ed.preco_venda > 0 ? String(ed.preco_venda) : '');
   const [salvando,   setSalvando]   = useState(false);
@@ -149,19 +132,19 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
     if (!nome.trim()) return;
     setErro(''); setSalvando(true);
 
-    const payload = {
-      empresa_id:      empresaId,
-      nome:            nome.trim(),
-      tipo,
-      categoria,
-      unidade,
-      qtd_por_unidade: (unidade === 'pct' || unidade === 'cx') ? (parseFloat(qtdPorUn.replace(',', '.')) || 1) : 1,
-      estoque_atual:   parseFloat(estAtual.replace(',', '.'))  || 0,
-      estoque_minimo:  parseFloat(estMin.replace(',', '.'))   || 0,
-      preco_custo:     parseFloat(custo.replace(',', '.'))    || 0,
-      preco_venda:     parseFloat(precoVenda.replace(',', '.')) || 0,
-      ativo:           ed?.ativo ?? true,
-    };
+    const r = montarProduto(
+      { nome, tipo, categoria, unidade, qtdPorUnidade: qtdPorUn, estoqueAtual: estAtual, estoqueMinimo: estMin, precoCusto: custo, precoVenda },
+      {
+        empresaId,
+        editando: !!ed,
+        original: ed ? {
+          estoque_atual: ed.estoque_atual, estoque_minimo: ed.estoque_minimo, qtd_por_unidade: ed.qtd_por_unidade,
+          categoria: ed.categoria, preco_venda: ed.preco_venda,
+        } : undefined,
+      },
+    );
+    if ('erro' in r) { setErro(r.erro); setSalvando(false); return; }
+    const payload = r.payload;
 
     if (ed) {
       const { data, error } = await supabase.from('produtos')
@@ -280,21 +263,21 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
           <div>
             <label className={labelClass}>Unidade de medida</label>
             <div className="flex flex-wrap gap-2">
-              {UNIDADES.map(u => (
+              {unidadesParaSeletor(visiveis, ed?.unidade).map(u => (
                 <button key={u} type="button" onClick={() => setUnidade(u)}
                   className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${
                     unidade === u
                       ? 'bg-primary-soft border-primary/30 text-primary'
                       : 'bg-bg border-border text-text-3 hover:border-accent'
                   }`}>
-                  {u}
+                  {rotuloUnidade(u) === u ? u : `${rotuloUnidade(u)} (${u})`}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Unidades por pacote/caixa — aparece quando unidade = pct ou cx */}
-          {(unidade === 'pct' || unidade === 'cx') && (
+          {/* Unidades por pacote/caixa — aparece quando a unidade é pacote ou caixa */}
+          {unidadePedeQtdPorUnidade(unidade) && (
             <div className="bg-primary-soft/40 border border-primary/20 rounded-xl p-3.5 flex items-center gap-3">
               <div className="flex-1">
                 <label className={labelClass}>Unidades por {unidade === 'cx' ? 'caixa' : 'pacote'}</label>
@@ -311,11 +294,11 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
                   </span>
                 </div>
               </div>
-              {qtdPorUn && parseFloat(qtdPorUn) > 0 && estAtual && parseFloat(estAtual) > 0 && (
+              {parseQuantidadeBR(qtdPorUn) > 0 && parseSaldoBR(estAtual) > 0 && (
                 <div className="text-right flex-shrink-0">
                   <p className="text-xs text-text-4">Total</p>
                   <p className="text-sm font-bold text-primary">
-                    {(parseFloat(estAtual.replace(',', '.')) * parseFloat(qtdPorUn.replace(',', '.'))).toFixed(0)} un
+                    {Math.round(parseSaldoBR(estAtual) * parseQuantidadeBR(qtdPorUn))} un
                   </p>
                 </div>
               )}
@@ -361,9 +344,9 @@ function ProdutoModal({ empresaId, state, onClose, onSalvo, onExcluido }: {
                 <input value={precoVenda} onChange={e => setPrecoVenda(e.target.value)}
                   inputMode="decimal" placeholder="0,00" className={`${inputClass} pl-9`}/>
               </div>
-              {custo && precoVenda && parseFloat(custo.replace(',', '.')) > 0 && parseFloat(precoVenda.replace(',', '.')) > 0 && (
+              {margemVenda(parseValorBR(custo), parseValorBR(precoVenda)) !== null && (
                 <p className="text-xs text-text-4 mt-1">
-                  Margem: {((parseFloat(precoVenda.replace(',', '.')) / parseFloat(custo.replace(',', '.')) - 1) * 100).toFixed(0)}%
+                  Margem: {margemVenda(parseValorBR(custo), parseValorBR(precoVenda))}%
                 </p>
               )}
             </div>
@@ -421,32 +404,34 @@ function MovModal({ produto, onClose, onSalvo }: {
   const [erro,     setErro]     = useState('');
   const [sucesso,  setSucesso]  = useState<{ tipo: 'entrada' | 'saida'; qtd: number; novoEstoque: number } | null>(null);
 
-  const qtdNum = parseFloat(qtd.replace(',', '.')) || 0;
+  const qtdNum = parseQuantidadeBR(qtd);
   const novoEstoque = tipo === 'entrada'
     ? produto.estoque_atual + qtdNum
     : produto.estoque_atual - qtdNum;
 
+  /** Não fecha enquanto grava: o saldo da lista só atualiza pelo callback depois do sucesso. */
+  const fechar = () => { if (!salvando) onClose(); };
+
   async function salvar() {
     if (qtdNum <= 0) { setErro('Informe uma quantidade válida.'); return; }
     if (tipo === 'saida' && qtdNum > produto.estoque_atual) {
-      setErro(`Estoque insuficiente. Disponível: ${produto.estoque_atual} ${produto.unidade}`);
+      setErro(`Estoque insuficiente. Disponível: ${formatarQuantidadeBR(produto.estoque_atual)} ${produto.unidade}`);
       return;
     }
     setErro(''); setSalvando(true);
 
-    // Insere movimento — trigger `trg_atualizar_estoque` atualiza estoque_atual automaticamente
-    const { error: errMov } = await supabase.from('estoque_movimentos').insert({
-      produto_id: produto.id,
-      empresa_id: produto.empresa_id,
-      tipo,
-      quantidade: qtdNum,
-      motivo: obs.trim() || null,
-    });
-    setSalvando(false);
-    if (errMov) { setErro(mensagemErroBanco(errMov, 'movimentar o estoque')); return; }
-
-    // Mostra confirmação de sucesso antes de fechar o modal
-    setSucesso({ tipo, qtd: qtdNum, novoEstoque });
+    // A função confere o saldo no banco e devolve o saldo real; o trigger atualiza produtos.estoque_atual
+    try {
+      const r = await movimentarEstoque(supabase, {
+        empresaId: produto.empresa_id, produto, tipo, quantidade: qtdNum, motivo: obs,
+      });
+      // Mostra confirmação de sucesso antes de fechar o modal
+      setSucesso({ tipo, qtd: qtdNum, novoEstoque: r.novoSaldo });
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível movimentar o estoque.');
+    } finally {
+      setSalvando(false);
+    }
   }
 
   useEffect(() => {
@@ -476,7 +461,7 @@ function MovModal({ produto, onClose, onSalvo }: {
           </p>
           <p className="text-sm text-text-2 truncate max-w-full">{produto.nome}</p>
           <p className="text-xs text-text-4">
-            {sucesso.tipo === 'entrada' ? '+' : '−'}{sucesso.qtd} {produto.unidade} · Novo estoque: {sucesso.novoEstoque % 1 === 0 ? sucesso.novoEstoque : sucesso.novoEstoque.toFixed(2)} {produto.unidade}
+            {sucesso.tipo === 'entrada' ? '+' : '−'}{formatarQuantidadeBR(sucesso.qtd)} {produto.unidade} · Novo estoque: {formatarQuantidadeBR(sucesso.novoEstoque)} {produto.unidade}
           </p>
         </div>
       </div>
@@ -485,7 +470,7 @@ function MovModal({ produto, onClose, onSalvo }: {
 
   return (
     <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={fechar}/>
       <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[90dvh] overflow-y-auto">
 
         {/* Header */}
@@ -494,7 +479,7 @@ function MovModal({ produto, onClose, onSalvo }: {
             <h2 className="font-serif text-xl text-text">Movimentar estoque</h2>
             <p className="text-xs text-text-3 mt-0.5 truncate max-w-[220px]">{produto.nome}</p>
           </div>
-          <button onClick={onClose}
+          <button onClick={fechar}
             className="w-8 h-8 rounded-xl hover:bg-bg flex items-center justify-center text-text-3 transition">
             <X size={16}/>
           </button>
@@ -527,7 +512,7 @@ function MovModal({ produto, onClose, onSalvo }: {
           {/* Estoque atual */}
           <div className="bg-bg rounded-xl px-4 py-3 flex items-center justify-between">
             <span className="text-sm text-text-3">Estoque atual</span>
-            <span className="font-bold text-text"><Secret>{produto.estoque_atual}</Secret> {produto.unidade}</span>
+            <span className="font-bold text-text"><Secret>{formatarQuantidadeBR(produto.estoque_atual)}</Secret> {produto.unidade}</span>
           </div>
 
           {/* Quantidade */}
@@ -551,7 +536,7 @@ function MovModal({ produto, onClose, onSalvo }: {
               <span className={`font-bold text-base ${
                 novoEstoque < 0 ? 'text-red' : tipo === 'entrada' ? 'text-green' : 'text-text'
               }`}>
-                {novoEstoque % 1 === 0 ? novoEstoque : novoEstoque.toFixed(2)} {produto.unidade}
+                {formatarQuantidadeBR(novoEstoque)} {produto.unidade}
               </span>
             </div>
           )}
@@ -568,7 +553,7 @@ function MovModal({ produto, onClose, onSalvo }: {
           {erro && <p className="text-red text-sm">{erro}</p>}
 
           <div className="flex gap-3 mt-1">
-            <button onClick={onClose}
+            <button onClick={fechar}
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
               Cancelar
             </button>
@@ -588,7 +573,7 @@ function MovModal({ produto, onClose, onSalvo }: {
 // ── Tela principal ────────────────────────────────────────────
 
 export default function EstoquePage() {
-
+  const { pode } = usePermissoes();
 
   // ── Estado: aba ───────────────────────────────────────────────
   const [aba, setAba] = useState<'produtos' | 'movimentacoes'>('produtos');
@@ -596,6 +581,7 @@ export default function EstoquePage() {
   // ── Estado: produtos ──────────────────────────────────────────
   const [produtos,  setProdutos]  = useState<Produto[]>([]);
   const [loading,   setLoading]   = useState(true);
+  const [erroCarga, setErroCarga] = useState('');
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [busca,        setBusca]        = useState('');
   const [filtroCat,    setFiltroCat]    = useState<string | null>(null);
@@ -604,11 +590,18 @@ export default function EstoquePage() {
   const [modalProd, setModalProd] = useState<ProdutoModalState | null>(null);
   const [modalMov,  setModalMov]  = useState<Produto | null>(null);
 
+  // ── Estado: unidades de medida (ajuste exige a migration 088) ──
+  const [visiveis,           setVisiveis]           = useState<string[] | null>(null);
+  const [unidadesDisponivel, setUnidadesDisponivel] = useState(false);
+  const [modalUnidades,      setModalUnidades]      = useState(false);
+
   // ── Estado: movimentações ─────────────────────────────────────
   const [movimentos,   setMovimentos]   = useState<MovItem[]>([]);
   const [loadingMov,   setLoadingMov]   = useState(false);
   const [movCarregado, setMovCarregado] = useState(false);
-  const [mesMov,       setMesMov]       = useState(new Date());
+  const [erroMov,      setErroMov]      = useState('');
+  const [mesMov,       setMesMov]       = useState(() => chaveMesBRT(new Date()));
+  const reqMov = useRef(0);
   const [filtroTipo,   setFiltroTipo]   = useState<'todos' | 'entrada' | 'saida'>('todos');
   const [filtroProdId, setFiltroProdId] = useState('');
   const [toast,        setToast]        = useState('');
@@ -616,34 +609,47 @@ export default function EstoquePage() {
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000); }
 
   // ── Carga inicial ─────────────────────────────────────────────
-  useEffect(() => {
-    (async () => {
+  async function carregarInicial() {
+    setLoading(true); setErroCarga('');
+    try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
       setEmpresaId(membro.empresa_id);
-      const { data: prods } = await supabase.from('produtos').select('*')
-        .eq('empresa_id', membro.empresa_id).eq('ativo', true).order('categoria').order('nome');
-      setProdutos((prods ?? []) as Produto[]);
+      const [prods, un] = await Promise.all([
+        carregarProdutosEstoque(supabase, membro.empresa_id),
+        carregarUnidadesVisiveis(supabase, membro.empresa_id),
+      ]);
+      setProdutos(prods);
+      setVisiveis(un.unidades);
+      setUnidadesDisponivel(un.disponivel);
+    } catch (e) {
+      setErroCarga(e instanceof Error ? e.message : 'Não foi possível carregar o estoque.');
+    } finally {
       setLoading(false);
-    })();
-  }, []);
+    }
+  }
+
+  useEffect(() => { carregarInicial(); }, []);
 
   // ── Busca movimentações (lazy — só ao abrir a aba) ────────────
-  async function carregarMovimentos(empId: string, mes: Date) {
-    setLoadingMov(true);
-    const { data } = await supabase
-      .from('estoque_movimentos')
-      .select('id, tipo, quantidade, motivo, created_at, agendamento_id, produto:produtos(nome, unidade)')
-      .eq('empresa_id', empId)
-      .gte('created_at', startOfMonth(mes).toISOString())
-      .lte('created_at', endOfMonth(mes).toISOString())
-      .order('created_at', { ascending: false });
-    setMovimentos((data ?? []) as unknown as MovItem[]);
-    setLoadingMov(false);
-    setMovCarregado(true);
+  async function carregarMovimentos(empId: string, mes: string) {
+    const req = ++reqMov.current;
+    setLoadingMov(true); setErroMov('');
+    try {
+      const lista = await carregarMovimentosMes(supabase, empId, mes);
+      if (req !== reqMov.current) return;
+      setMovimentos(lista);
+      setMovCarregado(true);
+    } catch (e) {
+      if (req !== reqMov.current) return;
+      setMovimentos([]);
+      setErroMov(e instanceof Error ? e.message : 'Não foi possível carregar as movimentações.');
+    } finally {
+      if (req === reqMov.current) setLoadingMov(false);
+    }
   }
 
   function abrirAbaMovimentacoes() {
@@ -658,7 +664,8 @@ export default function EstoquePage() {
   }
 
   function navMes(dir: number) {
-    const novo = dir > 0 ? addMonths(mesMov, 1) : subMonths(mesMov, 1);
+    const novo = somarMeses(mesMov, dir > 0 ? 1 : -1);
+    if (novo > chaveMesBRT(new Date())) return;
     setMesMov(novo);
     setMovCarregado(false);
     if (empresaId) carregarMovimentos(empresaId, novo);
@@ -669,16 +676,16 @@ export default function EstoquePage() {
     [produtos],
   );
 
-  const valorTotal = useMemo(
-    () => produtos.reduce((s, p) => s + Number(p.estoque_atual) * Number(p.preco_custo), 0),
-    [produtos],
-  );
+  const resumo = useMemo(() => resumoProdutos(produtos), [produtos]);
 
   const filtrados = useMemo(() => {
     let r = produtos;
     if (busca.trim()) {
-      const q = busca.toLowerCase();
-      r = r.filter(p => p.nome.toLowerCase().includes(q));
+      const q = busca.trim().toLowerCase();
+      r = r.filter(p =>
+        p.nome.toLowerCase().includes(q) ||
+        p.categoria.toLowerCase().includes(q) ||
+        rotuloCategoriaProduto(p.categoria).toLowerCase().includes(q));
     }
     if (filtroCat) r = r.filter(p => p.categoria === filtroCat);
     if (filtroSt === 'alertas') r = r.filter(p => getStatus(p) !== 'ok');
@@ -698,6 +705,7 @@ export default function EstoquePage() {
       );
     });
     setModalProd(null);
+    setMovCarregado(false); // nome do produto nas movimentações pode ter mudado
   }
 
   function onProdutoExcluido(id: string) {
@@ -711,16 +719,14 @@ export default function EstoquePage() {
     setProdutos(prev =>
       prev.map(p => p.id === produto.id ? { ...p, estoque_atual: novoEstoque } : p),
     );
-    // Recarrega movimentos se a aba estiver visível
-    if (aba === 'movimentacoes' && empresaId) {
-      setMovCarregado(false);
-      carregarMovimentos(empresaId, mesMov);
-    }
+    // Movimentações já carregadas ficam velhas: marca para recarregar (já, se a aba estiver visível)
+    setMovCarregado(false);
+    if (aba === 'movimentacoes' && empresaId) carregarMovimentos(empresaId, mesMov);
     setModalMov(null);
     showToast(
       tipo === 'entrada'
-        ? `+${qtd} ${produto.unidade} adicionados — ${produto.nome}`
-        : `-${qtd} ${produto.unidade} retirados — ${produto.nome}`
+        ? `+${formatarQuantidadeBR(qtd)} ${produto.unidade} adicionados — ${produto.nome}`
+        : `-${formatarQuantidadeBR(qtd)} ${produto.unidade} retirados — ${produto.nome}`
     );
   }
 
@@ -728,15 +734,11 @@ export default function EstoquePage() {
   const movFiltrados = useMemo(() => {
     let r = movimentos;
     if (filtroTipo !== 'todos') r = r.filter(m => m.tipo === filtroTipo);
-    if (filtroProdId) r = r.filter(m => {
-      // Compara pelo nome (produto é objeto aninhado)
-      const prodNome = produtos.find(p => p.id === filtroProdId)?.nome ?? '';
-      return m.produto.nome === prodNome;
-    });
+    if (filtroProdId) r = r.filter(m => m.produto_id === filtroProdId);
     return r;
-  }, [movimentos, filtroTipo, filtroProdId, produtos]);
+  }, [movimentos, filtroTipo, filtroProdId]);
 
-  // Nome do produto selecionado no filtro — usado para recortar os KPIs do mês
+  // Nome do produto selecionado no filtro (aviso "Mostrando: ...")
   const produtoFiltradoNome = useMemo(
     () => produtos.find(p => p.id === filtroProdId)?.nome ?? '',
     [produtos, filtroProdId],
@@ -745,12 +747,11 @@ export default function EstoquePage() {
   // Movimentos do mês recortados só por produto (independe do filtro de tipo),
   // para os KPIs mostrarem o total real de entradas/saídas do produto selecionado
   const movDoProduto = useMemo(
-    () => filtroProdId ? movimentos.filter(m => m.produto.nome === produtoFiltradoNome) : movimentos,
-    [movimentos, filtroProdId, produtoFiltradoNome],
+    () => filtroProdId ? movimentos.filter(m => m.produto_id === filtroProdId) : movimentos,
+    [movimentos, filtroProdId],
   );
 
-  const totalSaidas  = useMemo(() => movDoProduto.filter(m => m.tipo === 'saida').reduce((s, m) => s + Number(m.quantidade), 0), [movDoProduto]);
-  const totalEntradas = useMemo(() => movDoProduto.filter(m => m.tipo === 'entrada').reduce((s, m) => s + Number(m.quantidade), 0), [movDoProduto]);
+  const resumoMov = useMemo(() => resumoMovimentos(movDoProduto), [movDoProduto]);
 
   return (
     <div className="bm-page">
@@ -781,8 +782,8 @@ export default function EstoquePage() {
             <ExportButton
               variant="mobileHeader"
               className="bm-mobile-header-export"
-              definicao={definicaoEstoqueMovimentacoes(format(mesMov, 'yyyy-MM'))}
-              getLinhas={() => movFiltrados.map(m => ({ criadoEm: m.created_at, produto: m.produto.nome, tipo: m.tipo, quantidade: m.quantidade, unidade: m.produto.unidade, motivo: m.motivo }))}
+              definicao={definicaoEstoqueMovimentacoes(mesMov)}
+              getLinhas={() => movFiltrados.map(m => ({ criadoEm: m.created_at, produto: m.produto?.nome ?? '—', tipo: m.tipo, quantidade: m.quantidade, unidade: m.produto?.unidade ?? '', motivo: m.motivo }))}
             />
           )}
           {aba === 'produtos' && (
@@ -792,7 +793,14 @@ export default function EstoquePage() {
               <CalendarDays size={15} strokeWidth={2}/> Histórico geral
             </button>
           )}
-          {aba === 'produtos' && (
+          {aba === 'produtos' && pode('estoque.acessar') && unidadesDisponivel && (
+            <button onClick={() => setModalUnidades(true)}
+              className="press flex items-center gap-2 px-4 h-10 rounded-2xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition"
+              style={{ fontFamily: 'var(--font-sans)' }}>
+              <Ruler size={15} strokeWidth={2}/> Unidades
+            </button>
+          )}
+          {aba === 'produtos' && !erroCarga && (
             <button onClick={() => setModalProd({ modo: 'criar' })} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
               style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
               <Plus size={15} strokeWidth={2.5}/> Novo produto
@@ -800,6 +808,18 @@ export default function EstoquePage() {
           )}
         </div>
       </div>
+
+      {/* Erro ao carregar o estoque */}
+      {erroCarga && (
+        <div className="flex items-center gap-3 bg-red-soft border border-red/20 rounded-2xl px-4 py-3 mb-5">
+          <AlertTriangle size={18} className="text-red flex-shrink-0" strokeWidth={2}/>
+          <p className="flex-1 min-w-0 text-sm font-semibold text-red">{erroCarga}</p>
+          <button onClick={carregarInicial}
+            className="text-xs font-semibold text-red hover:underline whitespace-nowrap flex-shrink-0">
+            Tentar de novo
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <SmoothTabs
@@ -835,8 +855,8 @@ export default function EstoquePage() {
       )}
 
       {aba === 'produtos' && <>
-      {/* Stats */}
-      {loading ? (
+      {/* Stats (com erro de carga, só o banner) */}
+      {erroCarga ? null : loading ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {[1,2,3,4].map(i => (
             <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3 min-w-0">
@@ -852,10 +872,10 @@ export default function EstoquePage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
           {[
-            { label: 'Materiais / Insumos',   value: String(produtos.filter(p => p.tipo === 'material').length), sub: 'para atendimentos', icon: Package2,     color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
-            { label: 'Para venda (PDV)',       value: String(produtos.filter(p => p.tipo === 'venda').length),    sub: 'para revenda',    icon: DollarSign,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
-            { label: 'Precisam de reposição',  value: String(alertas.length), sub: alertas.length > 0 ? 'estoque baixo' : 'tudo OK', icon: AlertTriangle, color: alertas.length > 0 ? 'var(--color-amber)' : 'var(--color-green)', bg: alertas.length > 0 ? 'var(--color-amber-soft)' : 'var(--color-green-soft)' },
-            { label: 'Valor total em estoque', value: fmtBRL(valorTotal),     sub: 'custo de aquisição',  icon: Wallet,       color: 'var(--color-accent)',  bg: 'var(--color-accent-soft)'  },
+            { label: 'Materiais / Insumos',   value: String(resumo.materiais), sub: 'para atendimentos', icon: Package2,     color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
+            { label: 'Para venda (PDV)',       value: String(resumo.venda),    sub: 'para revenda',    icon: DollarSign,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
+            { label: 'Precisam de reposição',  value: String(resumo.alertas), sub: resumo.alertas > 0 ? 'estoque baixo' : 'tudo OK', icon: AlertTriangle, color: resumo.alertas > 0 ? 'var(--color-amber)' : 'var(--color-green)', bg: resumo.alertas > 0 ? 'var(--color-amber-soft)' : 'var(--color-green-soft)' },
+            { label: 'Valor total em estoque', value: fmtBRL(resumo.valorTotal),     sub: 'custo de aquisição',  icon: Wallet,       color: 'var(--color-accent)',  bg: 'var(--color-accent-soft)'  },
           ].map(({ label, value, sub, icon: Icon, color, bg }, idx) => (
             <div key={label} className="bm-stagger"
               style={{ '--bm-i': idx, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties}>
@@ -947,7 +967,7 @@ export default function EstoquePage() {
       )}
 
       {/* Tabela */}
-      {loading ? (
+      {erroCarga ? null : loading ? (
         <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
           <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg">
             {['col-span-3','col-span-2','col-span-2','col-span-1','col-span-4'].map((c, i) => (
@@ -1049,12 +1069,10 @@ export default function EstoquePage() {
                   <span className={`text-sm font-bold ${
                     status === 'critico' ? 'text-red' : status === 'baixo' ? 'text-amber-600' : 'text-text'
                   }`}>
-                    {Number(p.estoque_atual) % 1 === 0
-                      ? Number(p.estoque_atual)
-                      : Number(p.estoque_atual).toFixed(2)}
+                    {formatarQuantidadeBR(Number(p.estoque_atual))}
                   </span>
                   <span className="text-xs text-text-4 ml-1">{p.unidade}</span>
-                  {(p.unidade === 'pct' || p.unidade === 'cx') && p.qtd_por_unidade > 1 && (
+                  {unidadePedeQtdPorUnidade(p.unidade) && p.qtd_por_unidade > 1 && (
                     <span className="text-xs text-text-4 ml-1">
                       ({Math.round(Number(p.estoque_atual) * p.qtd_por_unidade)} un)
                     </span>
@@ -1064,7 +1082,7 @@ export default function EstoquePage() {
                 {/* Mínimo */}
                 <div className="col-span-1">
                   <span className="text-sm text-text-3">
-                    {p.estoque_minimo > 0 ? `${p.estoque_minimo} ${p.unidade}` : '—'}
+                    {p.estoque_minimo > 0 ? `${formatarQuantidadeBR(p.estoque_minimo)} ${p.unidade}` : '—'}
                   </span>
                 </div>
 
@@ -1102,11 +1120,11 @@ export default function EstoquePage() {
                 className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
                 <ChevronLeft size={16}/>
               </button>
-              <span className="text-sm font-semibold capitalize text-center" style={{ minWidth: 160, color: 'var(--color-ink)' }}>
-                {format(mesMov, 'MMMM yyyy', { locale: ptBR })}
+              <span className="text-sm font-semibold text-center" style={{ minWidth: 160, color: 'var(--color-ink)' }}>
+                {rotuloMesAno(mesMov)}
               </span>
-              <button onClick={() => navMes(1)}
-                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition">
+              <button onClick={() => navMes(1)} disabled={mesMov >= chaveMesBRT(new Date())} aria-label="Próximo mês"
+                className="w-8 h-8 rounded-[10px] flex items-center justify-center text-text-3 hover:bg-bg transition disabled:opacity-30 disabled:cursor-not-allowed">
                 <ChevronRight size={16}/>
               </button>
             </div>
@@ -1125,8 +1143,19 @@ export default function EstoquePage() {
             </div>
           )}
 
-          {/* KPIs do mês */}
-          {loadingMov ? (
+          {erroMov && (
+            <div className="flex items-center gap-3 bg-red-soft border border-red/20 rounded-2xl px-4 py-3 mb-5">
+              <AlertTriangle size={18} className="text-red flex-shrink-0" strokeWidth={2}/>
+              <p className="flex-1 min-w-0 text-sm font-semibold text-red">{erroMov}</p>
+              <button onClick={() => empresaId && carregarMovimentos(empresaId, mesMov)}
+                className="text-xs font-semibold text-red hover:underline whitespace-nowrap flex-shrink-0">
+                Tentar de novo
+              </button>
+            </div>
+          )}
+
+          {/* KPIs do mês (com erro, só o banner: não afirmar "mês vazio") */}
+          {erroMov ? null : loadingMov ? (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
               {[1,2,3].map(i => (
                 <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-sm flex items-center gap-3">
@@ -1138,9 +1167,9 @@ export default function EstoquePage() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
               {[
-                { label: 'Saídas no mês',   value: movDoProduto.filter(m => m.tipo === 'saida').length,   sub: `${totalSaidas.toFixed(1)} unid. total`,  icon: ArrowDown, color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)'    },
-                { label: 'Entradas no mês', value: movDoProduto.filter(m => m.tipo === 'entrada').length, sub: `${totalEntradas.toFixed(1)} unid. total`, icon: ArrowUp,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
-                { label: 'Total registros', value: movDoProduto.length,                                    sub: 'entradas + saídas',                       icon: List,      color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
+                { label: 'Saídas no mês',   value: resumoMov.saidas,   sub: `${formatarQuantidadeBR(resumoMov.qtdSaidas)} unid. total`,  icon: ArrowDown, color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)'    },
+                { label: 'Entradas no mês', value: resumoMov.entradas, sub: `${formatarQuantidadeBR(resumoMov.qtdEntradas)} unid. total`, icon: ArrowUp,   color: 'var(--color-green)',   bg: 'var(--color-green-soft)'   },
+                { label: 'Total registros', value: resumoMov.total,                                    sub: 'entradas + saídas',                       icon: List,      color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
               ].map(({ label, value, sub, icon: Icon, color, bg }, idx) => (
                 <div key={label} className="bm-stagger"
                   style={{ '--bm-i': idx, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties}>
@@ -1194,7 +1223,7 @@ export default function EstoquePage() {
           </div>
 
           {/* Tabela de movimentações */}
-          {loadingMov ? (
+          {erroMov ? null : loadingMov ? (
             <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
               <div className="grid grid-cols-12 px-5 py-2.5 border-b border-border bg-bg">
                 {['col-span-2','col-span-3','col-span-2','col-span-2','col-span-2','col-span-1'].map((c, i) => (
@@ -1242,7 +1271,7 @@ export default function EstoquePage() {
               {movFiltrados.map((m, idx) => {
                 const isEntrada = m.tipo === 'entrada';
                 const isAjuste  = m.tipo === 'ajuste';
-                const data = parseISO(m.created_at);
+                const [diaMes, hora] = rotuloDataHoraBRT(m.created_at).split(' às ');
                 return (
                   <div key={m.id}
                     className={`grid grid-cols-12 items-center px-5 py-3.5 ${
@@ -1251,13 +1280,13 @@ export default function EstoquePage() {
 
                     {/* Data */}
                     <div className="col-span-2">
-                      <p className="text-sm font-semibold text-text">{format(data, 'dd/MM')}</p>
-                      <p className="text-xs text-text-4">{format(data, 'HH:mm')}</p>
+                      <p className="text-sm font-semibold text-text">{diaMes}</p>
+                      <p className="text-xs text-text-4">{hora}</p>
                     </div>
 
                     {/* Produto */}
                     <div className="col-span-3 min-w-0">
-                      <p className="text-sm text-text font-medium truncate">{m.produto.nome}</p>
+                      <p className="text-sm text-text font-medium truncate">{m.produto?.nome ?? '—'}</p>
                     </div>
 
                     {/* Tipo badge */}
@@ -1277,9 +1306,9 @@ export default function EstoquePage() {
                       <span className={`text-sm font-bold ${
                         isEntrada ? 'text-green' : isAjuste ? 'text-primary' : 'text-red'
                       }`}>
-                        {isEntrada ? '+' : isAjuste ? '=' : '−'}{Number(m.quantidade) % 1 === 0 ? Number(m.quantidade) : Number(m.quantidade).toFixed(2)}
+                        {isEntrada ? '+' : isAjuste ? '=' : '−'}{formatarQuantidadeBR(Number(m.quantidade))}
                       </span>
-                      <span className="text-xs text-text-4 ml-1">{m.produto.unidade}</span>
+                      <span className="text-xs text-text-4 ml-1">{m.produto?.unidade ?? ''}</span>
                     </div>
 
                     {/* Motivo / Origem */}
@@ -1287,7 +1316,7 @@ export default function EstoquePage() {
                       {m.agendamento_id ? (
                         <span className="inline-flex items-center gap-1 text-xs text-primary bg-primary-soft px-2 py-0.5 rounded-lg font-semibold">
                           <CalendarDays size={10} strokeWidth={2}/>
-                          Agendamento
+                          Via comanda
                         </span>
                       ) : (
                         <span className="text-xs text-text-4 italic">
@@ -1308,9 +1337,17 @@ export default function EstoquePage() {
         <ProdutoModal
           empresaId={empresaId}
           state={modalProd}
+          visiveis={visiveis}
           onClose={() => setModalProd(null)}
           onSalvo={onProdutoSalvo}
           onExcluido={onProdutoExcluido}/>
+      )}
+      {modalUnidades && empresaId && (
+        <UnidadesModal
+          empresaId={empresaId}
+          visiveis={visiveis}
+          onClose={() => setModalUnidades(false)}
+          onSalvo={lista => { setVisiveis(lista); setModalUnidades(false); showToast('Unidades atualizadas'); }}/>
       )}
       {modalMov && (
         <MovModal
