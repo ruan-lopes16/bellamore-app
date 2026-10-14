@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createAdmin } from '@supabase/supabase-js';
-import { createClient } from '@/lib/supabase/server';
 import { podeAtribuirRole, pode } from '@/lib/permissions';
+import { quemChama } from '@/lib/auth/quem-chama';
 import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
+import { emailValido, vinculoParaGravar, type TipoContrato } from '@shared/equipe';
 
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,32 +18,28 @@ function createAdminClient() {
   });
 }
 
-function errorMessage(error: unknown, fallback = 'Erro interno.') {
-  return error instanceof Error ? error.message : fallback;
-}
-
+/**
+ * Convida alguém para a equipe (web e app). Conta nova recebe o e-mail de convite; conta existente só é
+ * vinculada. Vínculo existente nunca tem comissão/contrato zerados: só troca o que veio no corpo
+ * (`vinculoParaGravar`).
+ */
 export async function POST(req: NextRequest) {
   try {
-    const { empresaId, nome, telefone, email, role, percentual_comissao } = await req.json();
+    const { empresaId, nome, telefone, email, role, percentual_comissao, tipo_contrato } = await req.json();
 
     if (!empresaId || !nome?.trim() || !email?.trim()) {
       return NextResponse.json({ error: 'Nome, e-mail e empresa são obrigatórios.' }, { status: 400 });
     }
-
-    // Verifica quem está chamando: cookie de sessão (web) ou Bearer token (mobile)
-    const adminClient = createAdminClient();
-    const bearerToken = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-
-    let requesterId: string | undefined;
-    if (bearerToken) {
-      const { data: { user: bearerUser } } = await adminClient.auth.getUser(bearerToken);
-      requesterId = bearerUser?.id;
-    } else {
-      const supabase = await createClient();
-      const { data: { user: cookieUser } } = await supabase.auth.getUser();
-      requesterId = cookieUser?.id;
+    if (!emailValido(String(email))) {
+      return NextResponse.json({ error: 'E-mail inválido.' }, { status: 400 });
     }
-    if (!requesterId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Valida comissão/contrato antes de enviar qualquer convite.
+    const validacao = vinculoParaGravar(null, { percentual_comissao, tipo_contrato });
+    if ('erro' in validacao) return NextResponse.json({ error: validacao.erro }, { status: 400 });
+
+    const adminClient = createAdminClient();
+    const requesterId = await quemChama(req, adminClient);
+    if (!requesterId) return NextResponse.json({ error: 'Sessão expirada. Entre de novo.' }, { status: 401 });
 
     const { data: membroReq } = await adminClient
       .from('empresa_membros')
@@ -50,8 +47,8 @@ export async function POST(req: NextRequest) {
       .eq('user_id', requesterId)
       .eq('empresa_id', empresaId)
       .eq('ativo', true)
-      .single();
-    if (!membroReq) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      .maybeSingle();
+    if (!membroReq) return NextResponse.json({ error: 'Você não faz parte desta empresa.' }, { status: 403 });
 
     const permsReq = await carregarPermissoesDoMembro(adminClient, empresaId, requesterId);
     if (!permsReq || !pode(permsReq, 'equipe.gerenciar')) {
@@ -71,7 +68,7 @@ export async function POST(req: NextRequest) {
       .from('users')
       .select('id')
       .eq('email', emailFinal)
-      .single();
+      .maybeSingle();
 
     let userId: string;
     let status: 'adicionado' | 'convite_enviado';
@@ -87,7 +84,7 @@ export async function POST(req: NextRequest) {
       });
 
       if (inviteError) {
-        return NextResponse.json({ error: inviteError.message }, { status: 400 });
+        return NextResponse.json({ error: 'Não foi possível enviar o convite. Confira o e-mail e tente de novo.' }, { status: 400 });
       }
 
       userId = inviteData.user.id;
@@ -98,32 +95,40 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. Garante o vínculo com a empresa (preserva role existente se já era membro)
-    const { data: membroAtual } = await adminClient
+    // 3. Garante o vínculo com a empresa: preserva papel, comissão e contrato de quem já era da equipe.
+    const { data: membroAtual, error: errAtual } = await adminClient
       .from('empresa_membros')
-      .select('id, role')
+      .select('id, role, percentual_comissao, tipo_contrato')
       .eq('empresa_id', empresaId)
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
+    if (errAtual) {
+      return NextResponse.json({ error: 'Não foi possível ler o vínculo atual. Tente de novo.' }, { status: 500 });
+    }
+
+    const atual = membroAtual as { role: string; percentual_comissao: number; tipo_contrato: TipoContrato | null } | null;
+    const v = vinculoParaGravar(atual, { percentual_comissao, tipo_contrato });
+    if ('erro' in v) return NextResponse.json({ error: v.erro }, { status: 400 });
 
     const { data: membro, error: membroError } = await adminClient
       .from('empresa_membros')
       .upsert({
         empresa_id:          empresaId,
         user_id:             userId,
-        role:                membroAtual?.role ?? roleSolicitado,
-        percentual_comissao: percentual_comissao ?? 0,
+        role:                atual?.role ?? roleSolicitado,
+        percentual_comissao: v.valores.percentual_comissao,
+        tipo_contrato:       v.valores.tipo_contrato,
         ativo:               true,
       }, { onConflict: 'empresa_id,user_id' })
-      .select('id, user_id, role, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
+      .select('id, user_id, role, percentual_comissao, tipo_contrato, ativo, created_at, user:users(id, nome, telefone, email)')
       .single();
 
     if (membroError) {
-      return NextResponse.json({ error: membroError.message }, { status: 400 });
+      return NextResponse.json({ error: 'Não foi possível vincular a pessoa à empresa.' }, { status: 400 });
     }
 
     return NextResponse.json({ status, membro });
-  } catch (err: unknown) {
-    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: 'Erro interno. Tente de novo.' }, { status: 500 });
   }
 }

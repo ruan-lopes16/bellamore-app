@@ -13,8 +13,8 @@ describe('equipe: tipo de contrato', () => {
   it('select da listagem traz tipo_contrato', () => {
     expect(equipe).toMatch(/tipo_contrato/);
   });
-  it('API PATCH valida e grava tipo_contrato', () => {
-    expect(api).toMatch(/tipo_contrato === 'pj' \|\| tipo_contrato === 'clt'/);
-    expect(api).toContain('tipo_contrato: tc');
+  it('API PATCH valida e grava tipo_contrato (montarPatchVinculo de shared)', () => {
+    expect(api).toContain('montarPatchVinculo(');
+    expect(api).toContain('.update(vinculo.patch)');
   });
 });

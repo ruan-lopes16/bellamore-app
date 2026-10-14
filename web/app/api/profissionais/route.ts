@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createAdmin } from '@supabase/supabase-js';
-import { createClient } from '@/lib/supabase/server';
 import { podeAtribuirRole, pode } from '@/lib/permissions';
+import { quemChama, traduzirErroEmailAuth } from '@/lib/auth/quem-chama';
 import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
 import { podeGerenciarMembro } from '@shared/permissoes';
+import { emailValido, montarPatchVinculo, vinculoParaGravar, type TipoContrato } from '@shared/equipe';
 
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -18,13 +19,19 @@ function createAdminClient() {
   });
 }
 
-function errorMessage(error: unknown, fallback = 'Erro interno.') {
-  return error instanceof Error ? error.message : fallback;
-}
+const ERRO_INTERNO = 'Erro interno. Tente de novo.';
+const ERRO_SESSAO = 'Sessão expirada. Entre de novo.';
+const ERRO_EMPRESA = 'Você não faz parte desta empresa.';
+const ERRO_SEM_PERMISSAO = 'Você não tem permissão para gerenciar a equipe.';
 
+/**
+ * Adiciona uma profissional com senha definida pela dona/gestora (web e app). Se o e-mail já tem conta,
+ * só vincula à empresa (sem mexer na senha). Vínculo existente nunca tem comissão/contrato zerados:
+ * só troca o que veio no corpo (`vinculoParaGravar`).
+ */
 export async function POST(req: NextRequest) {
   try {
-    const { empresaId, nome, telefone, email, senha, percentual_comissao, role } = await req.json();
+    const { empresaId, nome, telefone, email, senha, percentual_comissao, tipo_contrato, role } = await req.json();
 
     if (!empresaId || !nome?.trim() || !email?.trim() || !senha) {
       return NextResponse.json({ error: 'Nome, e-mail, senha e empresa são obrigatórios.' }, { status: 400 });
@@ -32,21 +39,16 @@ export async function POST(req: NextRequest) {
     if (String(senha).length < 6) {
       return NextResponse.json({ error: 'A senha deve ter pelo menos 6 caracteres.' }, { status: 400 });
     }
-
-    // Verifica quem está chamando: cookie de sessão (web) ou Bearer token (mobile)
-    const adminClient = createAdminClient();
-    const bearerToken = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-
-    let requesterId: string | undefined;
-    if (bearerToken) {
-      const { data: { user: bearerUser } } = await adminClient.auth.getUser(bearerToken);
-      requesterId = bearerUser?.id;
-    } else {
-      const supabase = await createClient();
-      const { data: { user: cookieUser } } = await supabase.auth.getUser();
-      requesterId = cookieUser?.id;
+    if (!emailValido(String(email))) {
+      return NextResponse.json({ error: 'E-mail inválido.' }, { status: 400 });
     }
-    if (!requesterId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Valida comissão/contrato antes de criar qualquer conta.
+    const validacao = vinculoParaGravar(null, { percentual_comissao, tipo_contrato });
+    if ('erro' in validacao) return NextResponse.json({ error: validacao.erro }, { status: 400 });
+
+    const adminClient = createAdminClient();
+    const requesterId = await quemChama(req, adminClient);
+    if (!requesterId) return NextResponse.json({ error: ERRO_SESSAO }, { status: 401 });
 
     const { data: membroReq } = await adminClient
       .from('empresa_membros')
@@ -54,12 +56,12 @@ export async function POST(req: NextRequest) {
       .eq('user_id', requesterId)
       .eq('empresa_id', empresaId)
       .eq('ativo', true)
-      .single();
-    if (!membroReq) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      .maybeSingle();
+    if (!membroReq) return NextResponse.json({ error: ERRO_EMPRESA }, { status: 403 });
 
     const permsReq = await carregarPermissoesDoMembro(adminClient, empresaId, requesterId);
     if (!permsReq || !pode(permsReq, 'equipe.gerenciar')) {
-      return NextResponse.json({ error: 'Você não tem permissão para gerenciar a equipe.' }, { status: 403 });
+      return NextResponse.json({ error: ERRO_SEM_PERMISSAO }, { status: 403 });
     }
 
     const roleSolicitado: 'gestor' | 'profissional' = role === 'gestor' ? 'gestor' : 'profissional';
@@ -87,14 +89,14 @@ export async function POST(req: NextRequest) {
           .from('users')
           .select('id')
           .eq('email', emailFinal)
-          .single();
+          .maybeSingle();
         if (!existing) {
           return NextResponse.json({ error: 'Usuário já existe, mas não foi possível localizá-lo.' }, { status: 400 });
         }
         userId = existing.id;
         status = 'adicionado';
       } else {
-        return NextResponse.json({ error: authError.message }, { status: 400 });
+        return NextResponse.json({ error: 'Não foi possível criar a conta de acesso. Confira o e-mail e a senha.' }, { status: 400 });
       }
     } else {
       userId = authData.user.id;
@@ -109,121 +111,187 @@ export async function POST(req: NextRequest) {
       email:    emailFinal,
     }, { onConflict: 'id' });
 
-    // 3. Adiciona à empresa como profissional (preserva role existente via insert+ignore, atualiza só dados)
-    const { data: existing } = await adminClient
+    // 3. Vínculo com a empresa: preserva papel, comissão e contrato de quem já era da equipe.
+    const { data: existente, error: errExistente } = await adminClient
       .from('empresa_membros')
-      .select('id, role')
+      .select('id, role, percentual_comissao, tipo_contrato')
       .eq('empresa_id', empresaId)
       .eq('user_id', userId!)
-      .single();
+      .maybeSingle();
+    if (errExistente) {
+      return NextResponse.json({ error: 'Não foi possível ler o vínculo atual. Tente de novo.' }, { status: 500 });
+    }
 
-    const roleToUse = existing?.role ?? roleSolicitado;
+    const atual = existente as { role: string; percentual_comissao: number; tipo_contrato: TipoContrato | null } | null;
+    const v = vinculoParaGravar(atual, { percentual_comissao, tipo_contrato });
+    if ('erro' in v) return NextResponse.json({ error: v.erro }, { status: 400 });
 
     const { data: membro, error: membroError } = await adminClient
       .from('empresa_membros')
       .upsert({
         empresa_id:          empresaId,
         user_id:             userId,
-        role:                roleToUse,
-        percentual_comissao: percentual_comissao ?? 0,
+        role:                atual?.role ?? roleSolicitado,
+        percentual_comissao: v.valores.percentual_comissao,
+        tipo_contrato:       v.valores.tipo_contrato,
         ativo:               true,
       }, { onConflict: 'empresa_id,user_id' })
-      .select('id, user_id, role, percentual_comissao, ativo, created_at, user:users(id, nome, telefone, email)')
+      .select('id, user_id, role, percentual_comissao, tipo_contrato, ativo, created_at, user:users(id, nome, telefone, email)')
       .single();
 
     if (membroError) {
-      return NextResponse.json({ error: membroError.message }, { status: 400 });
+      return NextResponse.json({ error: 'Não foi possível vincular a profissional à empresa.' }, { status: 400 });
     }
 
     return NextResponse.json({ status, membro });
-  } catch (err: unknown) {
-    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: ERRO_INTERNO }, { status: 500 });
   }
 }
 
+/**
+ * Edita uma pessoa da equipe (web e app via Bearer). Corpo:
+ * `{ empresaId, userId, membroId, nome?, telefone?, email?, percentual_comissao?, tipo_contrato? }`.
+ * Só mexe em vínculo e usuário da empresa informada. Trocar o e-mail troca também o login (Auth), e o
+ * Auth é trocado antes de `users` — se `users` falhar depois, o e-mail antigo volta no Auth.
+ */
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, nome, telefone, email, membroId, percentual_comissao, tipo_contrato } = await req.json();
-    const tc = tipo_contrato === 'pj' || tipo_contrato === 'clt' ? tipo_contrato : null;
+    const corpo = await req.json();
+    const { empresaId, userId, membroId, nome, telefone, email } = corpo as Record<string, unknown>;
 
-    if (!userId || !nome?.trim()) {
-      return NextResponse.json({ error: 'userId e nome são obrigatórios.' }, { status: 400 });
+    if (!empresaId || typeof empresaId !== 'string' || !userId || typeof userId !== 'string'
+      || !membroId || typeof membroId !== 'string') {
+      return NextResponse.json({ error: 'Empresa, pessoa e vínculo são obrigatórios.' }, { status: 400 });
     }
-
-    // Verifica que o usuário logado pertence à mesma empresa que o alvo
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const { data: requesterMembros } = await supabase
-      .from('empresa_membros')
-      .select('empresa_id')
-      .eq('user_id', user.id)
-      .eq('ativo', true);
-
-    const empresaIds = (requesterMembros ?? []).map(
-      (m: { empresa_id: string }) => m.empresa_id,
-    );
-    if (empresaIds.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
-    const { data: alvoMembro } = await supabase
-      .from('empresa_membros')
-      .select('empresa_id')
-      .eq('user_id', userId)
-      .in('empresa_id', empresaIds)
-      .limit(1)
-      .single();
-
-    if (!alvoMembro) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (nome !== undefined && (typeof nome !== 'string' || !nome.trim())) {
+      return NextResponse.json({ error: 'O nome não pode ficar vazio.' }, { status: 400 });
+    }
+    if (telefone !== undefined && telefone !== null && typeof telefone !== 'string') {
+      return NextResponse.json({ error: 'Telefone inválido.' }, { status: 400 });
+    }
+    // E-mail vazio/nulo = não troca (o login nunca fica sem e-mail).
+    let emailNovo: string | null = null;
+    if (email !== undefined && email !== null && email !== '') {
+      if (typeof email !== 'string' || !emailValido(email)) {
+        return NextResponse.json({ error: 'E-mail inválido.' }, { status: 400 });
+      }
+      emailNovo = email.trim().toLowerCase();
+    }
+    const vinculo = montarPatchVinculo(corpo);
+    if ('erro' in vinculo) return NextResponse.json({ error: vinculo.erro }, { status: 400 });
 
     const adminClient = createAdminClient();
-    const permsReq = await carregarPermissoesDoMembro(adminClient, alvoMembro.empresa_id, user.id);
+    const requesterId = await quemChama(req, adminClient);
+    if (!requesterId) return NextResponse.json({ error: ERRO_SESSAO }, { status: 401 });
+
+    // Quem chama: membro ativo da empresa informada ou a dona.
+    const [rDona, rReq, rAlvo] = await Promise.all([
+      adminClient.from('empresas').select('owner_id').eq('id', empresaId).maybeSingle(),
+      adminClient.from('empresa_membros').select('id')
+        .eq('empresa_id', empresaId).eq('user_id', requesterId).eq('ativo', true).maybeSingle(),
+      adminClient.from('empresa_membros').select('id, role')
+        .eq('empresa_id', empresaId).eq('user_id', userId).maybeSingle(),
+    ]);
+    if (rDona.error || rReq.error || rAlvo.error) {
+      return NextResponse.json({ error: ERRO_INTERNO }, { status: 500 });
+    }
+    const ownerId = (rDona.data as { owner_id?: string } | null)?.owner_id;
+    if (!ownerId) return NextResponse.json({ error: ERRO_EMPRESA }, { status: 403 });
+    if (!rReq.data && ownerId !== requesterId) {
+      return NextResponse.json({ error: ERRO_EMPRESA }, { status: 403 });
+    }
+
+    const permsReq = await carregarPermissoesDoMembro(adminClient, empresaId, requesterId);
     if (!permsReq || !pode(permsReq, 'equipe.gerenciar')) {
-      return NextResponse.json({ error: 'Você não tem permissão para gerenciar a equipe.' }, { status: 403 });
+      return NextResponse.json({ error: ERRO_SEM_PERMISSAO }, { status: 403 });
+    }
+
+    // O alvo precisa ter vínculo nesta empresa, e membroId precisa ser exatamente esse vínculo.
+    const alvo = rAlvo.data as { id: string; role: string } | null;
+    if (!alvo || alvo.id !== membroId) {
+      return NextResponse.json({ error: 'Esta pessoa não faz parte desta empresa.' }, { status: 403 });
     }
 
     // Mesma regra da policy de UPDATE de empresa_membros (083): quem não é a dona só mexe em
     // profissionais que não sejam ela mesma (nunca na dona, em outra gestora ou no próprio vínculo).
-    const [rDona, rAlvo] = await Promise.all([
-      adminClient.from('empresas').select('owner_id').eq('id', alvoMembro.empresa_id).maybeSingle(),
-      adminClient.from('empresa_membros').select('role')
-        .eq('empresa_id', alvoMembro.empresa_id).eq('user_id', userId).limit(1).maybeSingle(),
-    ]);
-    const alvoEhDona = (rDona.data as { owner_id?: string } | null)?.owner_id === userId;
-    const roleAlvo = alvoEhDona ? 'owner' : ((rAlvo.data as { role?: string } | null)?.role ?? '');
-    if (!podeGerenciarMembro({ isOwner: permsReq.isOwner, userId: user.id }, true, { role: roleAlvo, userId })) {
+    const roleAlvo = ownerId === userId ? 'owner' : alvo.role;
+    if (!podeGerenciarMembro({ isOwner: permsReq.isOwner, userId: requesterId }, true, { role: roleAlvo, userId })) {
       return NextResponse.json({ error: 'Você só pode editar profissionais da equipe (não a dona, outra gestora ou você mesma).' }, { status: 403 });
     }
 
-    const { error } = await adminClient.from('users').update({
-      nome:     nome.trim(),
-      telefone: telefone?.trim() || null,
-      email:    email?.trim().toLowerCase() || null,
-    }).eq('id', userId);
+    // 1. Auth (e-mail de login), só se mudou.
+    let emailAntigoAuth: string | null = null;
+    let trocouEmail = false;
+    if (emailNovo) {
+      const { data: perfil, error: errPerfil } = await adminClient
+        .from('users').select('email').eq('id', userId).maybeSingle();
+      if (errPerfil) return NextResponse.json({ error: ERRO_INTERNO }, { status: 500 });
+      const atual = ((perfil as { email?: string | null } | null)?.email ?? '').trim().toLowerCase();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      if (emailNovo !== atual) {
+        const { data: outro, error: errOutro } = await adminClient
+          .from('users').select('id').eq('email', emailNovo).neq('id', userId).limit(1);
+        if (errOutro) return NextResponse.json({ error: ERRO_INTERNO }, { status: 500 });
+        if ((outro ?? []).length > 0) {
+          return NextResponse.json({ error: 'Este e-mail já é usado por outra conta.' }, { status: 409 });
+        }
 
-    await adminClient.auth.admin.updateUserById(userId, {
-      user_metadata: { nome: nome.trim() },
-    });
+        const { data: authAtual } = await adminClient.auth.admin.getUserById(userId);
+        emailAntigoAuth = authAtual?.user?.email ?? null;
 
-    // Atualiza dados do vínculo (tipo de contrato sempre; comissão só se fornecida)
-    if (membroId != null) {
-      const patch: Record<string, unknown> = { tipo_contrato: tc };
-      if (percentual_comissao != null) patch.percentual_comissao = percentual_comissao;
+        const { error: errAuth } = await adminClient.auth.admin.updateUserById(userId, { email: emailNovo, email_confirm: true });
+        if (errAuth) {
+          const t = traduzirErroEmailAuth(errAuth.message);
+          return NextResponse.json({ error: t.error }, { status: t.status });
+        }
+        trocouEmail = true;
+      }
+    }
+
+    // 2. Perfil em public.users (só o que veio).
+    const dadosUsuario: Record<string, string | null> = {};
+    if (typeof nome === 'string') dadosUsuario.nome = nome.trim();
+    if (telefone !== undefined) dadosUsuario.telefone = typeof telefone === 'string' ? telefone.trim() || null : null;
+    if (trocouEmail) dadosUsuario.email = emailNovo;
+
+    if (Object.keys(dadosUsuario).length > 0) {
+      const { error } = await adminClient.from('users').update(dadosUsuario).eq('id', userId);
+      if (error) {
+        let desfeito = !trocouEmail;
+        if (trocouEmail && emailAntigoAuth) {
+          // Desfaz a troca do login para Auth e users não ficarem divergentes.
+          const { error: errVolta } = await adminClient.auth.admin.updateUserById(userId, { email: emailAntigoAuth, email_confirm: true });
+          desfeito = !errVolta;
+        }
+        return NextResponse.json({
+          error: desfeito
+            ? 'Não foi possível salvar os dados da pessoa. Nada foi alterado.'
+            : 'Não foi possível salvar os dados da pessoa, e o e-mail de login já tinha sido trocado. Confira o e-mail e tente de novo.',
+        }, { status: 400 });
+      }
+    }
+
+    if (typeof nome === 'string') {
+      await adminClient.auth.admin.updateUserById(userId, { user_metadata: { nome: nome.trim() } });
+    }
+
+    // 3. Vínculo (comissão/contrato), só os campos que vieram.
+    if (Object.keys(vinculo.patch).length > 0) {
       const { error: errMembro } = await adminClient
         .from('empresa_membros')
-        .update(patch)
+        .update(vinculo.patch)
         .eq('id', membroId)
         .eq('user_id', userId)
-        // Só o vínculo da pessoa conferida acima, na empresa onde a permissão foi conferida
-        // (membroId vem do corpo e não pode apontar para o vínculo de outra pessoa).
-        .eq('empresa_id', alvoMembro.empresa_id);
-      if (errMembro) return NextResponse.json({ error: errMembro.message }, { status: 400 });
+        // Só o vínculo da pessoa conferida acima, na empresa onde a permissão foi conferida.
+        .eq('empresa_id', empresaId);
+      if (errMembro) {
+        return NextResponse.json({ error: 'Os dados da pessoa foram salvos, mas não foi possível salvar a comissão e o contrato.' }, { status: 400 });
+      }
     }
 
     return NextResponse.json({ ok: true });
-  } catch (err: unknown) {
-    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: ERRO_INTERNO }, { status: 500 });
   }
 }
