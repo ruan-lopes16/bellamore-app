@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StatusBar, Alert, RefreshControl, Linking,
@@ -22,9 +22,7 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import { chaveMesBRT } from '@shared/periodos';
+import { chaveMesBRT, rotuloMesAno } from '@shared/periodos';
 import { carregarEquipe, alterarAtivo, alterarPapel, type MembroEquipe } from '@shared/equipe-consultas';
 import { rotuloContrato } from '@shared/equipe';
 import { pagarComissoes } from '@shared/comissoes-consultas';
@@ -85,7 +83,8 @@ function useEquipe(habilitado: boolean) {
   return useQuery({
     queryKey: ['equipe', empresaId, mes],
     enabled: !!empresaId && habilitado,
-    staleTime: 1000 * 60 * 5,
+    // Sempre refaz ao voltar à tela: pagamentos, comandas e status mudam os números em outras telas.
+    staleTime: 0,
     queryFn: () => carregarEquipe(supabase, empresaId!, mes),
   });
 }
@@ -377,6 +376,7 @@ export default function Equipe() {
 
   const { data: membros = [], isLoading, isFetching, isError, error, refetch } = useEquipe(podeGerenciarEquipe);
   const [pagandoId, setPagandoId] = useState<string | null>(null);
+  const pagandoRef = useRef(false);
 
   const { data: cfgPermissoes } = useQuery({
     queryKey: ['equipe-permissoes', empresaAtiva?.id],
@@ -414,7 +414,10 @@ export default function Equipe() {
   const meuRole = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
   const ativos   = membros.filter((m) => m.ativo).length;
   const inativos = membros.length - ativos;
-  const mesNome  = format(new Date(), 'MMMM', { locale: ptBR });
+  const mesChave = chaveMesBRT(new Date());
+  const mesNome  = rotuloMesAno(mesChave);
+  // Sem permissões ou empresa ainda: só carregamento — nunca zeros, "Nenhuma profissional" nem o botão de adicionar.
+  const carregando = !permissoesCarregadas || !empresaAtiva || isLoading;
   // Em erro sem dados: só o banner — nunca "nenhuma profissional" com zeros.
   const semDados = isError && membros.length === 0;
   const erroCarga = isError ? (error instanceof Error ? error.message : 'Não foi possível carregar a equipe.') : '';
@@ -463,7 +466,8 @@ export default function Equipe() {
 
   /** Pagar = só as pendentes do MÊS ATUAL (decisão do dono); as anteriores ficam para a tela Comissões. Sem otimismo. */
   async function pagarDoMes(m: MembroEquipe) {
-    if (!empresaId || pagandoId || m.ids_pendentes_mes.length === 0) return;
+    if (!empresaId || pagandoRef.current || m.ids_pendentes_mes.length === 0) return;
+    pagandoRef.current = true;
     setPagandoId(m.id);
     try {
       const r = await pagarComissoes(supabase, empresaId, m.ids_pendentes_mes);
@@ -472,6 +476,7 @@ export default function Equipe() {
       }
       await invalidarTudo();
     } finally {
+      pagandoRef.current = false;
       setPagandoId(null);
     }
   }
@@ -502,10 +507,11 @@ export default function Equipe() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <PrivacyToggle />
             <BotaoExportar
-              definicao={definicaoEquipe(format(new Date(), 'yyyy-MM'))}
+              definicao={definicaoEquipe(mesChave)}
               getLinhas={() => membros.map((m) => ({ nome: m.user.nome, telefone: m.user.telefone ?? null, percentual: m.percentual_comissao, atendimentosMes: m.atendimentos_mes, totalMes: m.total_mes, ativo: m.ativo }))}
               cor="#fff"
             />
+            {!carregando && (
             <TouchableOpacity
               onPress={() => router.push('/(empresa)/convidar-profissional' as any)}
               style={{
@@ -517,6 +523,7 @@ export default function Equipe() {
             >
               <Plus size={18} color="#fff" strokeWidth={2.5} />
             </TouchableOpacity>
+            )}
             </View>
           </View>
         </LinearGradient>
@@ -536,7 +543,7 @@ export default function Equipe() {
         ) : null}
 
         {/* ── Stats ── */}
-        {!semDados && !isLoading && (
+        {!semDados && !carregando && (
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -565,14 +572,14 @@ export default function Equipe() {
           </MotiView>
         )}
 
-        {isLoading && (
+        {carregando && (
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text3, textAlign: 'center', marginTop: 32 }}>
             Carregando a equipe...
           </Text>
         )}
 
         {/* ── Lista ── */}
-        {!semDados && !isLoading && (
+        {!semDados && !carregando && (
           <>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginHorizontal: 24, marginBottom: 12 }}>
               {mesNome} · {ativos} {ativos === 1 ? 'profissional ativa' : 'profissionais ativas'}

@@ -145,6 +145,14 @@ export default function EditarProfissional() {
   const [erro,         setErro]         = useState('');
   const [erroEmail,    setErroEmail]    = useState(false);
   const salvandoRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+
+  /** Mostra o erro (banner ou junto ao e-mail) e rola até o topo para ele ficar visível. */
+  function mostrarErro(msg: string, doEmail = false) {
+    setErro(msg);
+    setErroEmail(doEmail);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }
   const preenchidoRef = useRef<string | null>(null);
 
   // Preenche o formulário uma vez por pessoa carregada (recarregas depois do parcial não apagam a digitação).
@@ -178,10 +186,8 @@ export default function EditarProfissional() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const apiUrl = process.env.EXPO_PUBLIC_API_URL;
-      if (!session || !apiUrl) {
-        setErro('Não foi possível salvar. Tente novamente mais tarde.');
-        return;
-      }
+      if (!session) { mostrarErro('Sessão expirada. Entre de novo.'); return; }
+      if (!apiUrl) { mostrarErro('App sem URL da API configurada.'); return; }
       const emailNovo = email.trim();
       const emailAntigo = (membro.user.email ?? '').trim();
       let res: Response;
@@ -197,18 +203,18 @@ export default function EditarProfissional() {
           })),
         });
       } catch {
-        setErro('Falha de conexão. Verifique sua internet.');
+        mostrarErro('Falha de conexão. Verifique sua internet.');
         return;
       }
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg: string = json.error ?? 'Não foi possível salvar.';
-        setErro(msg);
-        setErroEmail(res.status === 409);
+        mostrarErro(msg, res.status === 409);
         // Salvamento parcial (400): nome e contato já foram gravados; a lista recarrega.
         if (res.status === 400 && /salvos?, mas/.test(msg)) {
           qc.invalidateQueries({ queryKey: ['equipe'] });
           qc.invalidateQueries({ queryKey: ['profissionais'] });
+          qc.invalidateQueries({ queryKey: ['equipe-membro'] });
         }
         return;
       }
@@ -259,7 +265,7 @@ export default function EditarProfissional() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: C.bg }}>
       <StatusBar barStyle="light-content" />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
 
         {/* Hero */}
         <LinearGradient colors={['#2C1654', '#3D1F72']} style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 24 }}>
@@ -350,6 +356,10 @@ export default function EditarProfissional() {
               })}
             </View>
           </View>
+
+          {erro ? (
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.rose, lineHeight: 18, marginBottom: 12, textAlign: 'center' }}>{erro}</Text>
+          ) : null}
 
           <TouchableOpacity
             onPress={salvar} disabled={!podeSalvar}

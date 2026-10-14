@@ -10,9 +10,8 @@ import { definicaoEquipe } from '@shared/exportacao/equipe';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
-import { format } from 'date-fns';
 import Link from 'next/link';
-import { chaveMesBRT } from '@shared/periodos';
+import { chaveMesBRT, rotuloMesAno } from '@shared/periodos';
 import { MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
 import { carregarEquipe, alterarAtivo, alterarPapel, type MembroEquipe } from '@shared/equipe-consultas';
 import { rotuloContrato, normalizarComissao, type TipoContrato } from '@shared/equipe';
@@ -25,7 +24,6 @@ import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
 import { podeAtribuirRole } from '@/lib/permissions';
 import { avancarComEnter } from '@/lib/formNav';
-import { ptBR } from 'date-fns/locale';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
@@ -776,7 +774,8 @@ export default function EquipePage() {
 
   const ativos   = profs.filter(p => p.ativo).length;
   const inativos = profs.length - ativos;
-  const mes      = format(new Date(), 'MMMM', { locale: ptBR });
+  const mesChave = chaveMesBRT(new Date());
+  const mes      = rotuloMesAno(mesChave);
 
   return (
     <div className="bm-page">
@@ -811,7 +810,7 @@ export default function EquipePage() {
           <ExportButton
             variant="mobileHeader"
             className="bm-mobile-header-export"
-            definicao={definicaoEquipe(format(new Date(), 'yyyy-MM'))}
+            definicao={definicaoEquipe(mesChave)}
             getLinhas={() => profs.map(p => ({ nome: p.user.nome, telefone: p.user.telefone ?? null, percentual: p.percentual_comissao, atendimentosMes: p.atendimentos_mes, totalMes: p.total_mes, ativo: p.ativo }))}
           />
           <button onClick={() => setModal(true)} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"

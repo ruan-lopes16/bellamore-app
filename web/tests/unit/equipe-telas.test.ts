@@ -111,6 +111,22 @@ describe('app', () => {
     expect(convite).toContain('tipoContrato || undefined');
   });
 
+  it('revisão: Equipe atualiza com o financeiro, espera permissões e a edição mostra o erro no topo', () => {
+    expect(ler('shared/invalidacao-financeira.ts')).toContain("'equipe',");
+    expect(equipe).toContain('staleTime: 0');
+    expect(equipe).toContain('!permissoesCarregadas || !empresaAtiva || isLoading');
+    expect(equipe).toMatch(/pagandoRef/);
+    expect(equipe).toContain('rotuloMesAno(mesChave)');
+    expect(equipe).not.toContain("format(new Date(), 'yyyy-MM')");
+    expect(editar).toContain('scrollRef.current?.scrollTo({ y: 0');
+    expect(editar).toContain('Sessão expirada. Entre de novo.');
+    expect(editar).toContain('App sem URL da API configurada.');
+    expect(editar).toContain("queryKey: ['equipe-membro']");
+    const web = ler('web/app/(app)/equipe/page.tsx');
+    expect(web).toContain('definicaoEquipe(mesChave)');
+    expect(web).toContain('rotuloMesAno(mesChave)');
+  });
+
   it('nenhum update direto em empresa_membros no app', () => {
     const arquivos = (readdirSync(join(root, 'mobile/app'), { recursive: true }) as string[])
       .filter(f => /\.tsx?$/.test(f)).map(f => join('mobile/app', f));
