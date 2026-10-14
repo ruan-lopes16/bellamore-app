@@ -114,6 +114,12 @@ export default function VendasScreen() {
   // campo de desconto nem chip Cortesia; a cortesia automática de total R$ 0 continua valendo.
   const podeDesconto = pode('comanda.desconto');
   const qc = useQueryClient();
+  /** Estoque mudou (produtos vendidos): atualiza a tela de Estoque e os alertas. */
+  const invalidarEstoque = () => {
+    qc.invalidateQueries({ queryKey: ['estoque'] });
+    qc.invalidateQueries({ queryKey: ['estoque-movimentos'] });
+    qc.invalidateQueries({ queryKey: ['estoque-baixo'] });
+  };
 
   const [aba, setAba] = useState<'nova' | 'historico'>('nova');
   // Maquininhas, bandeiras e taxas por parcela (migration 086; sem ela, a configuração legada da 084).
@@ -283,6 +289,7 @@ export default function VendasScreen() {
       });
       limparVenda();
       invalidarFinanceiro(qc);
+      invalidarEstoque();
       carregar(); // atualiza o estoque nos cards
     } catch (e) {
       if (e instanceof ErroVenda) {
@@ -291,6 +298,7 @@ export default function VendasScreen() {
         if (e.vendaId) {
           setVendaIncompleta(e.vendaId);
           invalidarFinanceiro(qc); // a venda existe e já conta no faturamento
+          invalidarEstoque();
         }
         carregar();
         setErro(e.message);
