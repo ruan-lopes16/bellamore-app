@@ -197,11 +197,13 @@ export default function Servicos() {
   const ativos = servicos.filter((s) => s.ativo).length;
 
   async function toggleServico(s: Servico) {
-    const { error } = await supabase
+    const { data: alterados, error } = await supabase
       .from('servicos')
       .update({ ativo: !s.ativo })
-      .eq('id', s.id);
+      .eq('id', s.id)
+      .select('id');
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!alterados || alterados.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar serviços.'); return; }
     qc.invalidateQueries({ queryKey: ['servicos-gestao'] });
     qc.invalidateQueries({ queryKey: ['servicos-empresa'] });
   }

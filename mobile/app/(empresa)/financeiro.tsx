@@ -493,12 +493,15 @@ function ModalMarcarPago({
       return;
     }
     setSalvando(true);
-    const { error } = await supabase
+    // .select('id'): RLS recusando o UPDATE devolve 0 linhas sem erro (sucesso falso).
+    const { data: pagas, error } = await supabase
       .from('despesas')
       .update(payload)
-      .eq('id', item.id);
+      .eq('id', item.id)
+      .select('id');
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!pagas || pagas.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para lançar ou editar despesas.'); return; }
     onSalvo();
     onClose();
   }
@@ -817,6 +820,9 @@ function ModalEditarDespesa({
   onClose: () => void;
   onSalvo: () => void;
 }) {
+  // Excluir despesa é só da dona (policy 'despesas: owner pode deletar'), igual ao web.
+  const { pode } = usePermissoes();
+  const podeExcluir = pode('dona');
   const [descricao,     setDescricao]     = useState('');
   const [valor,         setValor]         = useState('');
   const [categoria,     setCategoria]     = useState('');
@@ -924,7 +930,7 @@ function ModalEditarDespesa({
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimentoBanco!, totalParcelasNum, parcelaAtualNum)
       : dataParaBanco(recorrenciaAte);
-    const { error } = await supabase.from('despesas').update({
+    const { data: salvas, error } = await supabase.from('despesas').update({
       descricao:       descricao.trim(),
       categoria:       categoria || null,
       valor:           valorFinal,
@@ -935,9 +941,10 @@ function ModalEditarDespesa({
       parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
       total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
       valor_total_compra: usaValorDividido ? valorTotalCompraNum : null,
-    }).eq('id', item.id);
+    }).eq('id', item.id).select('id');
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!salvas || salvas.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para lançar ou editar despesas.'); return; }
     onSalvo();
     onClose();
   }
@@ -948,7 +955,7 @@ function ModalEditarDespesa({
     const { data, error } = await supabase.from('despesas').delete().eq('id', item.id).select('id');
     setExcluindo(false);
     if (error) { Alert.alert('Erro', error.message); return; }
-    if (!data || data.length === 0) { Alert.alert('Sem permissão', 'Só gestores podem excluir despesas.'); return; }
+    if (!data || data.length === 0) { Alert.alert('Sem permissão', 'Só a dona pode excluir despesas.'); return; }
     onSalvo();
     onClose();
   }
@@ -1267,8 +1274,8 @@ function ModalEditarDespesa({
               </View>
             )}
 
-            {/* Excluir */}
-            <View style={{ borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16, marginTop: 4, marginBottom: 20 }}>
+            {/* Excluir (só a dona) */}
+            {podeExcluir && <View style={{ borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16, marginTop: 4, marginBottom: 20 }}>
               {confirmDelete ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red, flex: 1 }}>
@@ -1298,7 +1305,7 @@ function ModalEditarDespesa({
                   </Text>
                 </TouchableOpacity>
               )}
-            </View>
+            </View>}
 
             {/* Botões */}
             <View style={{ flexDirection: 'row', gap: 12 }}>

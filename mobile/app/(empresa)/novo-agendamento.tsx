@@ -40,6 +40,7 @@ import { maskPhone } from '@shared/mascaras';
 import { nomeClienteValido } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
+import { novoUuid } from '@shared/uuid';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -364,17 +365,23 @@ export default function NovoAgendamento() {
         pacoteClienteIdFinal = novaVenda.id;
 
         // Registra a venda do pacote como faturamento (uma vez, no ato).
-        await supabase.from('vendas').insert({
+        const { error: errVendaPac } = await supabase.from('vendas').insert({
           empresa_id:  empresaAtiva.id,
           cliente_id:  clienteSelecionado!.id,
           valor_total: pacote.preco,
           desconto:    0,
           observacao:  `Venda de pacote: ${pacote.nome}`,
         });
+        // O pacote já foi vendido: só avisa (abortar deixaria o pacote sem agendamento).
+        if (errVendaPac) Alert.alert('Venda do pacote', `O pacote foi vendido, mas a receita não foi registrada: ${mensagemErroBanco(errVendaPac, 'registrar a venda do pacote')}`);
       }
     }
 
-    const { data: novoAg, error } = await supabase.from('agendamentos').insert({
+    // Id gerado aqui e SEM RETURNING: com "agenda.gerenciar_outras" e sem "agenda.ver_equipe" a
+    // pessoa cria na agenda de outra profissional, mas não lê a linha nova — o RETURNING recusava.
+    const novoAg = { id: novoUuid() };
+    const { error } = await supabase.from('agendamentos').insert({
+      id:                novoAg.id,
       empresa_id:        empresaAtiva.id,
       profissional_id:   profSelecionado!.id,
       cliente_id:        clienteSelecionado!.id,
@@ -385,7 +392,7 @@ export default function NovoAgendamento() {
       observacao:        obs || null,
       status:            'agendado',
       pacote_cliente_id: pacoteClienteIdFinal,
-    }).select('id').single();
+    });
 
     setSalvando(false);
 

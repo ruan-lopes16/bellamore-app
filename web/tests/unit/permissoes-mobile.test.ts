@@ -5,6 +5,9 @@ import { join } from 'path';
 const mob = join(__dirname, '..', '..', '..', 'mobile');
 const ler = (p: string) => readFileSync(join(mob, p), 'utf8');
 
+// Chaves conferidas em conjunto pelo banco passam pelas funções de shared/permissoes (matriz 2026-10-14).
+const CHAMADA: Record<string, string> = { 'clientes.arquivar': 'podeArquivarCliente(pode)', 'anamnese.editar': 'podeEditarAnamnese(pode)' };
+
 describe('app: permissões na sessão', () => {
   it('authStore carrega e recarrega as permissões efetivas', () => {
     const s = ler('stores/authStore.ts');
@@ -46,7 +49,7 @@ describe('app: botões consultam a chave certa', () => {
     ['hooks/useAgenda.ts', ['agenda.aprovar_bloqueios']],
   ];
   for (const [arq, chaves] of esperado) {
-    for (const c of chaves) it(`${arq} usa ${c}`, () => expect(ler(arq)).toContain(`pode('${c}')`));
+    for (const c of chaves) it(`${arq} usa ${c}`, () => expect(ler(arq)).toContain(CHAMADA[c] ?? `pode('${c}')`));
   }
   it('área da profissional não ganhou telas novas', () => {
     expect(readdirSync(join(mob, 'app', '(profissional)')).sort()).toEqual(

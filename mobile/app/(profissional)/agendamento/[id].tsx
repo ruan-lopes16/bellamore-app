@@ -131,12 +131,18 @@ export default function AgendamentoProfissional() {
 
   async function atualizarStatus(novoStatus: AgendamentoStatus) {
     setAtualizando(true);
-    const { error } = await supabase
+    // .select('id'): RLS recusando o UPDATE devolve 0 linhas sem erro (sucesso falso).
+    const { data: atualizados, error } = await supabase
       .from('agendamentos')
       .update({ status: novoStatus })
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
     setAtualizando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!atualizados || atualizados.length === 0) {
+      Alert.alert('Sem permissão', 'Você não tem permissão para alterar este atendimento.');
+      return;
+    }
     qc.invalidateQueries({ queryKey: ['prof-agendamento', id] });
     qc.invalidateQueries({ queryKey: ['prof-agenda'] });
     qc.invalidateQueries({ queryKey: ['prof-kpis-dia'] });

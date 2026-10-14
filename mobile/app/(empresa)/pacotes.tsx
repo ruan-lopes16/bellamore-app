@@ -411,16 +411,25 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
     const ag = candidatos.find((a) => a.id === vincAg);
     if (!ag) return;
     setBusy(true); setErro('');
+    // 1º o vínculo no atendimento, com .select: a policy de UPDATE de agendamentos só deixa a
+    // própria agenda (ou a de outra com "agenda.gerenciar_outras"). Antes o UPDATE vinha depois
+    // e sem conferência: a sessão era lançada e o atendimento seguia contando como faturamento.
+    const { data: vinculados, error: e0 } = await supabase.from('agendamentos')
+      .update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId).select('id');
+    if (e0) { setBusy(false); setErro(e0.message); return; }
+    if (!vinculados || vinculados.length === 0) { setBusy(false); setErro('Você não tem permissão para alterar este atendimento.'); return; }
     const { error: e1 } = await supabase.from('pacote_uso').insert({
-      empresa_id: empresaId,
+      empresa_id:        empresaId,
       pacote_cliente_id: pc.id,
-      servico_id: ag.servico_id,
-      agendamento_id: ag.id,
-      created_at: ag.data_hora_inicio,
+      servico_id:        ag.servico_id,
+      agendamento_id:    ag.id,
+      created_at:        ag.data_hora_inicio,
     });
-    if (e1) { setBusy(false); setErro(e1.message); return; }
-    // Vincula o agendamento ao pacote (para de contar como faturamento, igual às automáticas)
-    await supabase.from('agendamentos').update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId);
+    if (e1) {
+      // Desfaz o vínculo para não deixar o atendimento fora do faturamento sem sessão lançada.
+      await supabase.from('agendamentos').update({ pacote_cliente_id: null }).eq('id', ag.id).eq('empresa_id', empresaId).select('id');
+      setBusy(false); setErro(e1.message); return;
+    }
     setBusy(false); setVincOpen(false); setVincAg('');
     refresh();
   }
@@ -701,11 +710,13 @@ export default function Pacotes() {
   const vendidosFiltrados = filtro === 'todos' ? vendidos : vendidos.filter((v) => v.status === filtro);
 
   async function togglePacote(p: PacoteComServicos) {
-    const { error } = await supabase
+    const { data: alterados, error } = await supabase
       .from('pacotes')
       .update({ ativo: !p.ativo })
-      .eq('id', p.id);
+      .eq('id', p.id)
+      .select('id');
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!alterados || alterados.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar pacotes.'); return; }
     qc.invalidateQueries({ queryKey: ['pacotes'] });
   }
 

@@ -24,6 +24,7 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
+import { podeEditarAnamnese } from '@shared/permissoes';
 import { supabase } from '@/lib/supabase';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
@@ -174,7 +175,7 @@ export default function NovoCliente() {
     qc.invalidateQueries({ queryKey: ['clientes'] });
     qc.invalidateQueries({ queryKey: ['clientes-stats'] });
     // Sem permissão de anamnese, vai direto para o perfil da cliente recém-cadastrada.
-    router.replace((pode('anamnese.editar') ? `/(empresa)/cliente/${data.id}/anamnese` : `/(empresa)/cliente/${data.id}`) as any);
+    router.replace((podeEditarAnamnese(pode) ? `/(empresa)/cliente/${data.id}/anamnese` : `/(empresa)/cliente/${data.id}`) as any);
   }
 
   const podeSalvar = nomeClienteValido(nome);
