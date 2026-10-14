@@ -7,7 +7,7 @@ const api    = readFileSync(join(process.cwd(), 'app', 'api', 'profissionais', '
 
 describe('equipe: tipo de contrato', () => {
   it('modal tem o select com pj e clt', () => {
-    expect(equipe).toContain('PJ / Comissionada');
+    expect(equipe).toContain("rotuloContrato('pj')");
     expect(equipe).toMatch(/value="clt"/);
   });
   it('select da listagem traz tipo_contrato', () => {

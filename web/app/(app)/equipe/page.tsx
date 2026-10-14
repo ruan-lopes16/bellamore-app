@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog, ChevronDown, CheckCircle2,
   Eye, EyeOff, Copy, Check, Sparkles, Shield,
@@ -12,21 +12,19 @@ import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { format } from 'date-fns';
 import Link from 'next/link';
-import { hojeBRT, limitesMes } from '@shared/periodos';
-import { pendentesPorProfissional, MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
-import { carregarComissoesPendentes, carregarServicosExtras } from '@shared/kpis-financeiros-consultas';
-import { receitaExtrasPorProfissional } from '@shared/kpis-financeiros';
+import { chaveMesBRT } from '@shared/periodos';
+import { MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
+import { carregarEquipe, alterarAtivo, alterarPapel, type MembroEquipe } from '@shared/equipe-consultas';
+import { rotuloContrato, type TipoContrato } from '@shared/equipe';
 import { pagarComissoes } from '@shared/comissoes-consultas';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { configVazia, contarExcecoes, podeGerenciarMembro, type ConfigPermissoes } from '@shared/permissoes';
-import { mensagemErroBanco } from '@shared/erros';
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
 import { podeAtribuirRole } from '@/lib/permissions';
 import { avancarComEnter } from '@/lib/formNav';
-// createClient usado apenas nas funções da tela principal (carregarEquipe, toggleAtivo, salvarComissao)
 import { ptBR } from 'date-fns/locale';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
@@ -34,22 +32,7 @@ const supabase = createClient();
 
 // ── Tipos ─────────────────────────────────────────────────────
 
-type Profissional = {
-  id: string;           // empresa_membros.id
-  user_id: string;
-  role: 'owner' | 'gestor' | 'profissional';
-  percentual_comissao: number;
-  tipo_contrato: 'pj' | 'clt' | null;
-  ativo: boolean;
-  created_at: string;
-  user: { id: string; nome: string; telefone?: string; email?: string };
-  total_mes: number;
-  atendimentos_mes: number;
-  /** Pendentes do MÊS ATUAL (Brasília): é o que "Pagar" marca. */
-  comissao_pendente: number;
-  comissao_pendente_anterior: number;
-  ids_pendentes_mes: string[];
-};
+type Profissional = MembroEquipe;
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -97,6 +80,7 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   const [verSenha,      setVerSenha]      = useState(false);
   const [comissao,      setComissao]      = useState('0');
   const [role,          setRole]          = useState<'gestor' | 'profissional'>('profissional');
+  const [tipoContrato,  setTipoContrato]  = useState<TipoContrato | ''>('');
   const [salvando,      setSalvando]      = useState(false);
   const [erro,          setErro]          = useState('');
   const [credenciais,   setCredenciais]   = useState<{ email: string; senha: string } | null>(null);
@@ -123,17 +107,22 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
         telefone:             telefone.trim() || null,
         email:                email.trim(),
         senha:                usarConvite ? undefined : senha,
-        percentual_comissao:  parseFloat(comissao) || 0,
+        percentual_comissao:  parseFloat(comissao.replace(',', '.')) || 0,
+        tipo_contrato:        tipoContrato || null,
         role,
       }),
     });
 
-    const json = await res.json();
+    const json = await res.json().catch(() => ({}));
     setSalvando(false);
 
     if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
 
-    const membro = { ...json.membro, total_mes: 0, atendimentos_mes: 0 };
+    const membro: Profissional = {
+      ...json.membro,
+      total_mes: 0, atendimentos_mes: 0,
+      comissao_pendente: 0, comissao_pendente_anterior: 0, ids_pendentes_mes: [],
+    };
 
     if (!usarConvite && json.status === 'criado') {
       // Senha definida agora numa conta nova — mostra pra copiar antes de fechar.
@@ -307,6 +296,15 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">%</span>
             </div>
           </div>
+          <div>
+            <label className={labelClass}>Tipo de contrato</label>
+            <select value={tipoContrato} onChange={e => setTipoContrato(e.target.value as TipoContrato | '')}
+              className={inputClass}>
+              <option value="">Sem informar</option>
+              <option value="pj">{rotuloContrato('pj')}</option>
+              <option value="clt">{rotuloContrato('clt')}</option>
+            </select>
+          </div>
           {erro && <p className="text-red text-sm">{erro}</p>}
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose}
@@ -328,17 +326,35 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
 
 // ── Modal editar informações ──────────────────────────────────
 
-function EditInfoModal({ prof, onClose, onSalvo }: {
+/**
+ * Corpo do PATCH: empresaId/userId/membroId/nome/telefone sempre; e-mail, comissão e tipo de contrato
+ * só quando mudaram em relação ao que foi carregado (conta antiga com e-mail divergente responderia
+ * 409 a qualquer edição se o e-mail fosse sempre enviado).
+ */
+function camposAlterados(prof: Profissional, empresaId: string, v: {
+  nome: string; telefone: string | null; emailNovo: string; emailAntigo: string; pct: number; tipoContrato: TipoContrato | '';
+}) {
+  const corpo: Record<string, unknown> = {
+    empresaId, userId: prof.user_id, membroId: prof.id, nome: v.nome, telefone: v.telefone,
+  };
+  if (v.emailNovo !== v.emailAntigo) corpo.email = v.emailNovo || null;
+  if (v.pct !== prof.percentual_comissao) corpo.percentual_comissao = v.pct;
+  if ((v.tipoContrato || null) !== prof.tipo_contrato) corpo.tipo_contrato = v.tipoContrato || null;
+  return corpo;
+}
+
+function EditInfoModal({ prof, empresaId, onClose, onSalvo }: {
   prof: Profissional;
+  empresaId: string;
   onClose: () => void;
-  onSalvo: (dados: { nome: string; telefone: string; email: string; comissao: number; tipoContrato: 'pj' | 'clt' | null }) => void;
+  onSalvo: (dados: { nome: string; telefone: string; email: string; comissao: number; tipoContrato: TipoContrato | null }) => void;
 }) {
   useScrollLock();
   const [nome,     setNome]     = useState(prof.user.nome);
   const [telefone, setTelefone] = useState(prof.user.telefone ?? '');
   const [email,    setEmail]    = useState(prof.user.email ?? '');
   const [comissao, setComissao] = useState(String(prof.percentual_comissao));
-  const [tipoContrato, setTipoContrato] = useState<'pj' | 'clt' | ''>(prof.tipo_contrato ?? '');
+  const [tipoContrato, setTipoContrato] = useState<TipoContrato | ''>(prof.tipo_contrato ?? '');
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
 
@@ -347,25 +363,21 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
     if (!nome.trim()) return;
     setErro(''); setSalvando(true);
 
-    const pct = parseFloat(comissao) || 0;
+    const pct = parseFloat(comissao.replace(',', '.')) || 0;
+    const emailNovo = email.trim();
+    const emailAntigo = (prof.user.email ?? '').trim();
     const res = await fetch('/api/profissionais', {
       method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId:               prof.user_id,
-        nome:                 nome.trim(),
-        telefone:             telefone.trim() || null,
-        email:                email.trim() || null,
-        membroId:             prof.id,
-        percentual_comissao:  pct,
-        tipo_contrato:        tipoContrato || null,
-      }),
+      body: JSON.stringify(camposAlterados(prof, empresaId, {
+        nome: nome.trim(), telefone: telefone.trim() || null, emailNovo, emailAntigo, pct, tipoContrato,
+      })),
     });
-    const json = await res.json();
+    const json = await res.json().catch(() => ({}));
     setSalvando(false);
     if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
 
-    onSalvo({ nome: nome.trim(), telefone: telefone.trim(), email: email.trim(), comissao: pct, tipoContrato: tipoContrato || null });
+    onSalvo({ nome: nome.trim(), telefone: telefone.trim(), email: emailNovo || emailAntigo, comissao: pct, tipoContrato: tipoContrato || null });
   }
 
   return (
@@ -393,6 +405,8 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
             <label className={labelClass}>E-mail</label>
             <input value={email} onChange={e => setEmail(e.target.value)}
               placeholder="email@exemplo.com" type="email" className={inputClass}/>
+            <p className="text-xs text-text-3 mt-1.5 leading-snug">Trocar o e-mail troca também o login dela no app.</p>
+            {erro && /e-mail/i.test(erro) && <p className="text-red text-xs mt-1.5">{erro}</p>}
           </div>
           <div>
             <label className={labelClass}>Comissão por atendimento (%)</label>
@@ -407,12 +421,12 @@ function EditInfoModal({ prof, onClose, onSalvo }: {
             <label className={labelClass}>Tipo de contrato</label>
             <select value={tipoContrato} onChange={e => setTipoContrato(e.target.value as 'pj' | 'clt' | '')}
               className={inputClass}>
-              <option value="">—</option>
-              <option value="pj">PJ / Comissionada</option>
-              <option value="clt">CLT</option>
+              <option value="">Sem informar</option>
+              <option value="pj">{rotuloContrato('pj')}</option>
+              <option value="clt">{rotuloContrato('clt')}</option>
             </select>
           </div>
-          {erro && <p className="text-red text-sm">{erro}</p>}
+          {erro && !/e-mail/i.test(erro) && <p className="text-red text-sm">{erro}</p>}
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose}
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
@@ -529,7 +543,7 @@ function ProfCard({ prof, excecoes, podeAlterarRole, podeGerenciar, onEditInfo, 
               </div>
               <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
                 <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}><Secret>{fmtBRL(prof.total_mes)}</Secret></p>
-                <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Faturado · mês</p>
+                <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Faturado no mês</p>
               </div>
             </div>
           )}
@@ -547,7 +561,7 @@ function ProfCard({ prof, excecoes, podeAlterarRole, podeGerenciar, onEditInfo, 
           {prof.tipo_contrato && (
             <div style={{ marginBottom: 12 }}>
               <span className="text-[11px] text-text-4 font-medium">
-                {prof.tipo_contrato === 'pj' ? 'PJ / Comissionada' : 'CLT'}
+                {rotuloContrato(prof.tipo_contrato)}
               </span>
             </div>
           )}
@@ -613,6 +627,9 @@ export default function EquipePage() {
   const [meuUserId, setMeuUserId] = useState<string | null>(null);
   const [meuRole,   setMeuRole]   = useState<'owner' | 'gestor' | 'profissional'>('profissional');
   const [toast,     setToast]     = useState('');
+  const [erroCarga, setErroCarga] = useState('');
+  const [erroAcao,  setErroAcao]  = useState('');
+  const reqRef = useRef(0);
   const [cfgPerms,  setCfgPerms]  = useState<ConfigPermissoes>(configVazia());
   const { isOwner, papel, pode } = usePermissoes();
   // O selo leva à aba Permissões, que só dona/gestora enxergam (igual ao app).
@@ -624,81 +641,49 @@ export default function EquipePage() {
   useEffect(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) { setLoading(false); return; }
       const { data: membro } = await supabase.from('empresa_membros').select('empresa_id, role')
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (!membro) return;
+      if (!membro) { setLoading(false); return; }
       setEmpresaId(membro.empresa_id);
       setMeuUserId(user.id);
       setMeuRole(membro.role as 'owner' | 'gestor' | 'profissional');
-      await carregarEquipe(membro.empresa_id);
+      await recarregar(membro.empresa_id);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function carregarEquipe(empId: string) {
+  /** Carrega a equipe do mês atual (Brasília); só a última requisição aplica o resultado. */
+  async function recarregar(empId: string) {
+    const minha = ++reqRef.current;
     setLoading(true);
-
-    const { data: membros, error: erroMembros } = await supabase
-      .from('empresa_membros')
-      .select('id, user_id, role, percentual_comissao, tipo_contrato, ativo, created_at, user:users(id, nome, telefone, email)')
-      .eq('empresa_id', empId)
-      .in('role', ['owner', 'gestor', 'profissional'])
-      .order('ativo', { ascending: false })
-      .order('created_at');
-
-    if (erroMembros) {
-      alert(`Erro ao carregar a equipe: ${erroMembros.message}`);
-      setLoading(false);
-      return;
-    }
-
-    // Mês atual em Brasília: é o "período exibido" da Equipe (Pagar = pendentes dele).
-    const mesAtual = limitesMes(hojeBRT().slice(0, 7));
+    setErroCarga('');
     try {
-      const [rAgs, pendentes, cfg, extras] = await Promise.all([
-        supabase.from('agendamentos').select('profissional_id, valor')
-          .eq('empresa_id', empId).eq('status', 'concluido')
-          .gte('data_hora_inicio', mesAtual.startIso).lte('data_hora_inicio', mesAtual.endIso),
-        carregarComissoesPendentes(supabase, empId),
+      const [lista, cfg] = await Promise.all([
+        carregarEquipe(supabase, empId, chaveMesBRT(new Date())),
         // Se a migration 083 ainda não rodou, a Equipe segue funcionando sem o selo.
         carregarConfigPermissoes(supabase, empId).catch(() => configVazia()),
-        carregarServicosExtras(supabase, empId, mesAtual),
       ]);
+      if (minha !== reqRef.current) return;
+      setProfs(lista);
       setCfgPerms(cfg);
-      if (rAgs.error) throw new Error(rAgs.error.message);
-      const stats: Record<string, { total: number; count: number }> = {};
-      ((rAgs.data ?? []) as { profissional_id: string; valor: number }[]).forEach(a => {
-        if (!stats[a.profissional_id]) stats[a.profissional_id] = { total: 0, count: 0 };
-        stats[a.profissional_id].total += Number(a.valor);
-        stats[a.profissional_id].count += 1;
-      });
-      // Serviços extras da comanda somam no faturado da profissional (não contam como atendimento).
-      for (const [profId, valor] of Object.entries(receitaExtrasPorProfissional(extras))) {
-        if (!stats[profId]) stats[profId] = { total: 0, count: 0 };
-        stats[profId].total += valor;
-      }
-      const pend = pendentesPorProfissional(pendentes, mesAtual);
-      setProfs(((membros ?? []) as any[]).map(m => ({
-        ...m,
-        total_mes:                  stats[m.user_id]?.total ?? 0,
-        atendimentos_mes:           stats[m.user_id]?.count ?? 0,
-        comissao_pendente:          pend[m.user_id]?.valorDoPeriodo ?? 0,
-        comissao_pendente_anterior: pend[m.user_id]?.valorAnterior ?? 0,
-        ids_pendentes_mes:          pend[m.user_id]?.idsDoPeriodo ?? [],
-      })));
     } catch (e) {
-      alert(`Erro ao carregar a equipe: ${(e as Error).message}`);
+      if (minha !== reqRef.current) return;
+      setErroCarga(e instanceof Error ? e.message : 'Não foi possível carregar a equipe.');
     }
-    setLoading(false);
+    if (minha === reqRef.current) setLoading(false);
   }
 
-  /** Grava ativo/inativo conferindo as linhas afetadas (RLS recusando UPDATE volta sem erro e sem linha). */
+  /** Grava ativo/inativo; a lista local só muda depois do sucesso. */
   async function gravarAtivo(prof: Profissional, ativo: boolean): Promise<boolean> {
-    const { data, error } = await supabase.from('empresa_membros').update({ ativo }).eq('id', prof.id).select('id');
-    if (error || !data || data.length === 0) {
-      alert(mensagemErroBanco(error ?? { code: '42501' }, ativo ? 'reativar esta pessoa' : 'desativar esta pessoa'));
+    if (!empresaId) return false;
+    try {
+      await alterarAtivo(supabase, empresaId, prof.id, ativo);
+    } catch (e) {
+      setErroAcao(e instanceof Error ? e.message : 'Não foi possível salvar.');
       return false;
     }
+    setErroAcao('');
     setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, ativo } : p));
     return true;
   }
@@ -718,21 +703,25 @@ export default function EquipePage() {
   }
 
   async function alterarRole(prof: Profissional) {
+    if (!empresaId || prof.role === 'owner') return;
     const novoRole = prof.role === 'gestor' ? 'profissional' : 'gestor';
-    const { error } = await supabase.from('empresa_membros')
-      .update({ role: novoRole })
-      .eq('id', prof.id);
-    if (error) { alert(error.message); return; }
+    try {
+      await alterarPapel(supabase, empresaId, prof.id, novoRole);
+    } catch (e) {
+      setErroAcao(e instanceof Error ? e.message : 'Não foi possível trocar o papel.');
+      return;
+    }
+    setErroAcao('');
     setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, role: novoRole } : p));
   }
 
-function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number; tipoContrato: 'pj' | 'clt' | null }) {
+  function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number; tipoContrato: TipoContrato | null }) {
     setProfs(prev => prev.map(p =>
       p.id === prof.id ? {
         ...p,
         percentual_comissao: dados.comissao,
         tipo_contrato: dados.tipoContrato,
-        user: { ...p.user, nome: dados.nome, telefone: dados.telefone || undefined, email: dados.email || undefined },
+        user: { ...p.user, nome: dados.nome, telefone: dados.telefone || null, email: dados.email || null },
       } : p
     ));
     setEditandoInfo(null);
@@ -743,9 +732,9 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
     if (!empresaId || prof.ids_pendentes_mes.length === 0) return;
     const r = await pagarComissoes(supabase, empresaId, prof.ids_pendentes_mes);
     if (r.naoConfirmados.length > 0) {
-      alert(r.erro ? `Erro ao registrar o pagamento: ${r.erro}` : MENSAGEM_PAGAMENTO_PARCIAL);
+      setErroAcao(r.erro ? `Erro ao registrar o pagamento: ${r.erro}` : MENSAGEM_PAGAMENTO_PARCIAL);
     }
-    await carregarEquipe(empresaId);
+    await recarregar(empresaId);
   }
 
   function onProfSalva(nova: Profissional, mensagem?: string) {
@@ -767,6 +756,19 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-green text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none">
           <CheckCircle2 size={16} strokeWidth={2.5}/> {toast}
+        </div>
+      )}
+
+      {erroCarga && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm" style={{ background: 'var(--color-rose-soft)', color: 'var(--color-rose)' }}>
+          <span>{erroCarga}</span>
+          <button onClick={() => empresaId && recarregar(empresaId)} className="font-bold underline shrink-0">Tentar de novo</button>
+        </div>
+      )}
+      {erroAcao && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm" style={{ background: 'var(--color-rose-soft)', color: 'var(--color-rose)' }}>
+          <span>{erroAcao}</span>
+          <button onClick={() => setErroAcao('')} aria-label="Fechar aviso" className="shrink-0"><X size={14}/></button>
         </div>
       )}
 
@@ -870,9 +872,10 @@ function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string;
         <NovoProfModal empresaId={empresaId} meuRole={meuRole} onClose={() => setModal(false)} onSalvo={onProfSalva}/>
       )}
 
-      {editandoInfo && (
+      {editandoInfo && empresaId && (
         <EditInfoModal
           prof={editandoInfo}
+          empresaId={empresaId}
           onClose={() => setEditandoInfo(null)}
           onSalvo={dados => salvarInfo(editandoInfo, dados)}/>
       )}

@@ -148,7 +148,7 @@ describe('serviços extras da comanda no faturamento (decisão do dono, 2026-10-
       'mobile/hooks/useRelatorios.ts': ['doPeriodo.servicosExtras', 'linhasAtendimentosRelatorio('],
       'web/app/(app)/financeiro/page.tsx': ['doMes.servicosExtras', 'receitaServicosExtras'],
       'mobile/hooks/useFinanceiro.ts': ['doMes.servicosExtras', 'receitaServicosExtras'],
-      'web/app/(app)/equipe/page.tsx': ['carregarServicosExtras(', 'receitaExtrasPorProfissional('],
+      'web/app/(app)/equipe/page.tsx': ['carregarEquipe('],
       'mobile/app/(empresa)/equipe.tsx': ['carregarServicosExtras(', 'receitaExtrasPorProfissional('],
     };
     for (const [arquivo, exigidos] of Object.entries(TELAS)) {

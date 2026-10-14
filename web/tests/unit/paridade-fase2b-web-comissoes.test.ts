@@ -23,7 +23,7 @@ describe('web Comissões usa as regras únicas', () => {
     expect(prof).not.toContain("from('comissoes')");
   });
   it('Equipe: Pagar = pendentes do mês (Brasília), aviso das anteriores', () => {
-    for (const t of ['pendentesPorProfissional(', 'pagarComissoes(', 'limitesMes(', 'hojeBRT()', 'de meses anteriores', 'ids_pendentes_mes'])
+    for (const t of ['carregarEquipe(', 'pagarComissoes(', 'chaveMesBRT(', 'de meses anteriores', 'ids_pendentes_mes'])
       expect(equipe).toContain(t);
     expect(equipe).not.toContain(".update({ status: 'pago' })");
     expect(equipe).not.toContain('startOfMonth(new Date())');
