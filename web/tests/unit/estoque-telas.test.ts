@@ -72,5 +72,15 @@ describe('app', () => {
   it('comanda e vendas atualizam o estoque depois de gravar', () => {
     expect(comanda).toContain("queryKey: ['estoque']");
     expect(vendas).toContain("queryKey: ['estoque']");
+    for (const src of [comanda, vendas]) {
+      expect(src).toContain("queryKey: ['estoque-movimentos']");
+      expect(src).toContain("queryKey: ['estoque-baixo']");
+    }
+  });
+  it('próximo mês travado, trava de duplo toque e paginação local', () => {
+    expect(tela).toContain('disabled={!podeAvancar}');
+    expect(tela).toContain('gravandoRef');
+    expect(modal).toContain('salvandoRef');
+    expect(tela).toContain('Mostrar mais');
   });
 });

@@ -4,7 +4,7 @@
  * de shared (erro real e saldo novo), movimentações do mês em Brasília com filtros, cartões e
  * exportação, e o ajuste de unidades de medida (`UnidadesEstoqueModal`, só com a migration 088).
  */
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   RefreshControl, StatusBar, Modal,
@@ -61,6 +61,9 @@ const C = {
 };
 
 type Aba = 'produtos' | 'movimentacoes';
+
+/** Itens por "página" das listas (sem virtualização dentro do ScrollView). */
+const PAGINA = 100;
 type FiltroTipoProduto = 'todos' | 'material' | 'venda';
 type FiltroSituacao = 'todos' | 'alertas';
 type FiltroTipoMov = 'todos' | 'entrada' | 'saida';
@@ -146,10 +149,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
 
   async function handleConfirmar() {
     if (gravandoRef.current) return;
-    if (qtdNum <= 0) {
-      Alert.alert('Quantidade inválida', 'Informe uma quantidade válida.');
-      return;
-    }
+    if (qtdNum <= 0) return; // o botão já fica desabilitado
     if (tipo === 'saida' && qtdNum > produto!.estoque_atual) {
       Alert.alert('Não foi possível movimentar',
         `Estoque insuficiente. Disponível: ${formatarQuantidadeBR(produto!.estoque_atual)} ${produto!.unidade}`);
@@ -520,6 +520,18 @@ const estiloAcao = {
 };
 const textoAcao = { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 };
 
+// ── Mostrar mais (paginação local) ───────────────────────────
+
+function BotaoMostrarMais({ restantes, onPress }: { restantes: number; onPress: () => void }) {
+  return (
+    <TouchableOpacity onPress={onPress} style={{ paddingVertical: 14, alignItems: 'center' }}>
+      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.accent }}>
+        Mostrar mais ({restantes} restantes)
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 // ── Linha de movimentação ────────────────────────────────────
 
 function MovimentoRow({ m }: { m: MovimentoEstoque }) {
@@ -658,6 +670,12 @@ export default function EstoqueScreen() {
   );
   const resumoMov = useMemo(() => resumoMovimentos(movDoProduto), [movDoProduto]);
 
+  // Paginação local (lista dentro de ScrollView, sem virtualização): volta a PAGINA ao trocar mês/filtro.
+  const [limiteMov, setLimiteMov] = useState(PAGINA);
+  const [limiteProd, setLimiteProd] = useState(PAGINA);
+  useEffect(() => { setLimiteMov(PAGINA); }, [mes, filtroTipo, filtroProdId]);
+  useEffect(() => { setLimiteProd(PAGINA); }, [busca, filtroCat, filtroSt, filtroPorTipo]);
+
   if (!fontsLoaded) return null;
 
   function abrirHistoricoProduto(p: Produto) {
@@ -751,16 +769,6 @@ export default function EstoqueScreen() {
           </View>
         </View>
 
-        {/* Cartões do estoque */}
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 350 }}
-          style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8, marginHorizontal: 24, marginBottom: 16 }}
-        >
-          {cartoesProdutos.map(k => <Cartao key={k.label} {...k} />)}
-        </MotiView>
-
         {/* Abas */}
         <View style={{ marginHorizontal: 24, marginBottom: 16 }}>
           <SmoothTabs
@@ -780,6 +788,16 @@ export default function EstoqueScreen() {
             <BannerErro mensagem={erro ?? 'Não foi possível carregar o estoque.'} onTentar={() => { refetch(); }} />
           ) : (
             <>
+              {/* Cartões do estoque */}
+              <MotiView
+                from={{ opacity: 0, translateY: 8 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                transition={{ type: 'timing', duration: 350 }}
+                style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8, marginHorizontal: 24, marginBottom: 16 }}
+              >
+                {cartoesProdutos.map(k => <Cartao key={k.label} {...k} />)}
+              </MotiView>
+
               {/* Banner de reposição */}
               {!isLoading && alertas.length > 0 && (
                 <View style={{
@@ -898,7 +916,7 @@ export default function EstoqueScreen() {
                 </MotiView>
               ) : (
                 <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.border }}>
-                  {listaFiltrada.map((produto, i) => (
+                  {listaFiltrada.slice(0, limiteProd).map((produto, i) => (
                     <MotiView
                       key={produto.id}
                       from={{ opacity: 0, translateX: -8 }}
@@ -913,6 +931,9 @@ export default function EstoqueScreen() {
                       />
                     </MotiView>
                   ))}
+                  {listaFiltrada.length > limiteProd && (
+                    <BotaoMostrarMais restantes={listaFiltrada.length - limiteProd} onPress={() => setLimiteProd(l => l + PAGINA)} />
+                  )}
                 </View>
               )}
             </>
@@ -922,6 +943,11 @@ export default function EstoqueScreen() {
         {/* ══ MOVIMENTAÇÕES ══ */}
         {aba === 'movimentacoes' && (
           <>
+            {/* Erro dos produtos: o filtro de produto e os nomes dependem deles */}
+            {isError && (
+              <BannerErro mensagem={erro ?? 'Não foi possível carregar o estoque.'} onTentar={() => { refetch(); }} />
+            )}
+
             {/* Navegação de mês */}
             <View style={{ alignItems: 'center', marginBottom: 14 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface, borderRadius: 18, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, paddingVertical: 6 }}>
@@ -1019,7 +1045,10 @@ export default function EstoqueScreen() {
                   </View>
                 ) : (
                   <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.border }}>
-                    {movFiltrados.map(m => <MovimentoRow key={m.id} m={m} />)}
+                    {movFiltrados.slice(0, limiteMov).map(m => <MovimentoRow key={m.id} m={m} />)}
+                    {movFiltrados.length > limiteMov && (
+                      <BotaoMostrarMais restantes={movFiltrados.length - limiteMov} onPress={() => setLimiteMov(l => l + PAGINA)} />
+                    )}
                   </View>
                 )}
               </>
