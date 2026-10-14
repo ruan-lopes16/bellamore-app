@@ -48,7 +48,8 @@ describe('web', () => {
     expect(edit).toContain('Trocar o e-mail troca também o login dela no app.');
     // e-mail, comissão e contrato só entram no corpo se mudaram
     expect(edit).toMatch(/if \(v\.emailNovo !== v\.emailAntigo\)/);
-    expect(edit).toMatch(/if \(v\.pct !== prof\.percentual_comissao\)/);
+    expect(edit).toMatch(/if \(normalizarComissao\(v\.comissao\.trim\(\)\) !== prof\.percentual_comissao\)/);
+    expect(edit).not.toContain('parseFloat');
     expect(edit).toMatch(/if \(\(v\.tipoContrato \|\| null\) !== prof\.tipo_contrato\)/);
     expect(edit).not.toMatch(/email:\s+email\.trim\(\) \|\| null/);
   });

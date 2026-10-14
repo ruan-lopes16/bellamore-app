@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { chaveMesBRT } from '@shared/periodos';
 import { MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
 import { carregarEquipe, alterarAtivo, alterarPapel, type MembroEquipe } from '@shared/equipe-consultas';
-import { rotuloContrato, type TipoContrato } from '@shared/equipe';
+import { rotuloContrato, normalizarComissao, type TipoContrato } from '@shared/equipe';
 import { pagarComissoes } from '@shared/comissoes-consultas';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
@@ -78,7 +78,7 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
   const [modoAcesso,    setModoAcesso]    = useState<'convite' | 'senha'>('convite');
   const [senha,         setSenha]         = useState('');
   const [verSenha,      setVerSenha]      = useState(false);
-  const [comissao,      setComissao]      = useState('0');
+  const [comissao,      setComissao]      = useState('');
   const [role,          setRole]          = useState<'gestor' | 'profissional'>('profissional');
   const [tipoContrato,  setTipoContrato]  = useState<TipoContrato | ''>('');
   const [salvando,      setSalvando]      = useState(false);
@@ -107,8 +107,9 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
         telefone:             telefone.trim() || null,
         email:                email.trim(),
         senha:                usarConvite ? undefined : senha,
-        percentual_comissao:  parseFloat(comissao.replace(',', '.')) || 0,
-        tipo_contrato:        tipoContrato || null,
+        // Só vai o que foi preenchido: readicionar alguém da equipe nunca zera comissão/contrato.
+        percentual_comissao:  comissao.trim() !== '' ? comissao.trim() : undefined,
+        tipo_contrato:        tipoContrato || undefined,
         role,
       }),
     });
@@ -332,22 +333,25 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
  * 409 a qualquer edição se o e-mail fosse sempre enviado).
  */
 function camposAlterados(prof: Profissional, empresaId: string, v: {
-  nome: string; telefone: string | null; emailNovo: string; emailAntigo: string; pct: number; tipoContrato: TipoContrato | '';
+  nome: string; telefone: string | null; emailNovo: string; emailAntigo: string; comissao: string; tipoContrato: TipoContrato | '';
 }) {
   const corpo: Record<string, unknown> = {
     empresaId, userId: prof.user_id, membroId: prof.id, nome: v.nome, telefone: v.telefone,
   };
   if (v.emailNovo !== v.emailAntigo) corpo.email = v.emailNovo || null;
-  if (v.pct !== prof.percentual_comissao) corpo.percentual_comissao = v.pct;
+  // Texto cru: a API valida (0 a 100) e devolve a mensagem de erro; inválido nunca vira 0 em silêncio.
+  if (normalizarComissao(v.comissao.trim()) !== prof.percentual_comissao) corpo.percentual_comissao = v.comissao.trim();
   if ((v.tipoContrato || null) !== prof.tipo_contrato) corpo.tipo_contrato = v.tipoContrato || null;
   return corpo;
 }
 
-function EditInfoModal({ prof, empresaId, onClose, onSalvo }: {
+function EditInfoModal({ prof, empresaId, onClose, onSalvo, onParcial }: {
   prof: Profissional;
   empresaId: string;
   onClose: () => void;
   onSalvo: (dados: { nome: string; telefone: string; email: string; comissao: number; tipoContrato: TipoContrato | null }) => void;
+  /** Salvamento parcial: nome/contato gravados, comissão/contrato não. */
+  onParcial: (dados: { nome: string; telefone: string; email: string | null }) => void;
 }) {
   useScrollLock();
   const [nome,     setNome]     = useState(prof.user.nome);
@@ -357,27 +361,42 @@ function EditInfoModal({ prof, empresaId, onClose, onSalvo }: {
   const [tipoContrato, setTipoContrato] = useState<TipoContrato | ''>(prof.tipo_contrato ?? '');
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
+  const [erroEmail, setErroEmail] = useState(false);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     if (!nome.trim()) return;
-    setErro(''); setSalvando(true);
+    setErro(''); setErroEmail(false); setSalvando(true);
 
-    const pct = parseFloat(comissao.replace(',', '.')) || 0;
     const emailNovo = email.trim();
     const emailAntigo = (prof.user.email ?? '').trim();
     const res = await fetch('/api/profissionais', {
       method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(camposAlterados(prof, empresaId, {
-        nome: nome.trim(), telefone: telefone.trim() || null, emailNovo, emailAntigo, pct, tipoContrato,
+        nome: nome.trim(), telefone: telefone.trim() || null, emailNovo, emailAntigo, comissao, tipoContrato,
       })),
     });
     const json = await res.json().catch(() => ({}));
     setSalvando(false);
-    if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
+    if (!res.ok) {
+      const msg: string = json.error ?? 'Erro ao salvar.';
+      setErro(msg);
+      setErroEmail(res.status === 409);
+      // Salvamento parcial (400): nome e contato já foram gravados; a lista local acompanha.
+      if (res.status === 400 && /salvos?, mas/.test(msg)) {
+        const trocouEmail = /e-mail de login/.test(msg);
+        onParcial({ nome: nome.trim(), telefone: telefone.trim(), email: trocouEmail ? emailNovo.toLowerCase() : null });
+      }
+      return;
+    }
 
-    onSalvo({ nome: nome.trim(), telefone: telefone.trim(), email: emailNovo || emailAntigo, comissao: pct, tipoContrato: tipoContrato || null });
+    onSalvo({
+      nome: nome.trim(), telefone: telefone.trim(),
+      email: (emailNovo || emailAntigo).toLowerCase(),
+      comissao: normalizarComissao(comissao.trim()) ?? prof.percentual_comissao,
+      tipoContrato: tipoContrato || null,
+    });
   }
 
   return (
@@ -406,7 +425,7 @@ function EditInfoModal({ prof, empresaId, onClose, onSalvo }: {
             <input value={email} onChange={e => setEmail(e.target.value)}
               placeholder="email@exemplo.com" type="email" className={inputClass}/>
             <p className="text-xs text-text-3 mt-1.5 leading-snug">Trocar o e-mail troca também o login dela no app.</p>
-            {erro && /e-mail/i.test(erro) && <p className="text-red text-xs mt-1.5">{erro}</p>}
+            {erro && erroEmail && <p className="text-red text-xs mt-1.5">{erro}</p>}
           </div>
           <div>
             <label className={labelClass}>Comissão por atendimento (%)</label>
@@ -426,7 +445,7 @@ function EditInfoModal({ prof, empresaId, onClose, onSalvo }: {
               <option value="clt">{rotuloContrato('clt')}</option>
             </select>
           </div>
-          {erro && !/e-mail/i.test(erro) && <p className="text-red text-sm">{erro}</p>}
+          {erro && !erroEmail && <p className="text-red text-sm">{erro}</p>}
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose}
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
@@ -715,6 +734,15 @@ export default function EquipePage() {
     setProfs(prev => prev.map(p => p.id === prof.id ? { ...p, role: novoRole } : p));
   }
 
+  /** Salvamento parcial: atualiza só nome/contato (e e-mail, se o login trocou) na lista e no modal aberto. */
+  function salvarParcial(prof: Profissional, d: { nome: string; telefone: string; email: string | null }) {
+    const atualiza = (p: Profissional): Profissional => ({
+      ...p, user: { ...p.user, nome: d.nome, telefone: d.telefone || null, email: d.email ?? p.user.email },
+    });
+    setProfs(prev => prev.map(p => p.id === prof.id ? atualiza(p) : p));
+    setEditandoInfo(p => p && p.id === prof.id ? atualiza(p) : p);
+  }
+
   function salvarInfo(prof: Profissional, dados: { nome: string; telefone: string; email: string; comissao: number; tipoContrato: TipoContrato | null }) {
     setProfs(prev => prev.map(p =>
       p.id === prof.id ? {
@@ -803,7 +831,7 @@ export default function EquipePage() {
             </div>
           ))}
         </div>
-      ) : (
+      ) : erroCarga && profs.length === 0 ? null : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Total',    value: profs.length, color: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
@@ -835,7 +863,7 @@ export default function EquipePage() {
             </div>
           ))}
         </div>
-      ) : profs.length === 0 ? (
+      ) : erroCarga && profs.length === 0 ? null : profs.length === 0 ? (
         <div className="text-center py-16 rounded-2xl" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
           <UserCog size={32} style={{ margin: '0 auto 12px', color: 'var(--color-ink4)' }} strokeWidth={1.5}/>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--color-ink3)', marginBottom: 12 }}>Nenhuma profissional na equipe ainda.</p>
@@ -877,7 +905,8 @@ export default function EquipePage() {
           prof={editandoInfo}
           empresaId={empresaId}
           onClose={() => setEditandoInfo(null)}
-          onSalvo={dados => salvarInfo(editandoInfo, dados)}/>
+          onSalvo={dados => salvarInfo(editandoInfo, dados)}
+          onParcial={dados => salvarParcial(editandoInfo, dados)}/>
       )}
 
       <ConfirmDialog
