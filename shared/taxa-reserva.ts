@@ -20,6 +20,9 @@ export type TaxaReservaInsertPayload = {
  * opcional (o dado so existe "quando houver", conforme pedido), entao um
  * `metodo` informado com `jaCobrada: false` e descartado em vez de gerar
  * uma taxa 'pendente' com forma de pagamento, que nao faz sentido.
+ *
+ * `cobrar` (padrao true) e o switch "Cobrar taxa de reserva neste atendimento":
+ * falso → null, nenhuma linha, mesmo com valor preenchido.
  */
 export function buildTaxaReservaInsert(
   params: {
@@ -29,9 +32,11 @@ export function buildTaxaReservaInsert(
     valor: number;
     jaCobrada: boolean;
     metodo?: MetodoPagamentoTaxa | null;
+    cobrar?: boolean;
   },
   agoraIso: string,
 ): TaxaReservaInsertPayload | null {
+  if (params.cobrar === false) return null;
   if (params.valor <= 0) return null;
   return {
     empresa_id: params.empresaId,
