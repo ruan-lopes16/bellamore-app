@@ -43,12 +43,12 @@ caminho antigo em passos. **Nunca mudar estas assinaturas**: mudança futura = f
 
 | Campo | Tipo | Obrigatório | Regra |
 |---|---|---|---|
-| `comanda_id` | uuid | **sim** | Gerado na tela **uma vez por tentativa de fechar** e reaproveitado em toda nova tentativa (chave de idempotência). Já existe nesta empresa → devolve o id **sem gravar nada** (antes de qualquer outra conferência). Já existe em outra empresa → erro. |
+| `comanda_id` | uuid | **sim** | Gerado na tela **uma vez por tentativa de fechar** e reaproveitado em toda nova tentativa (chave de idempotência). Já existe nesta empresa → devolve o id **sem gravar nada**. Ordem real: primeiro confere `comanda.fechar` (sem ela, 42501 mesmo na repetição); depois a idempotência, antes de qualquer outra conferência (atendimentos, valores, estoque). Já existe em outra empresa → erro. |
 | `empresa_id` | uuid | **sim** | Empresa ativa. Toda gravação usa este valor. |
 | `cliente_id` | uuid \| null | não (default `null`) | `clientes.id`. `null` = cliente avulso (`__sem__`). Vai para `comandas.clientes_id`, `vendas.cliente_id` e `pacote_clientes.cliente_id`. Obrigatório quando há item `pacote`. Não é conferido contra a empresa (igual à 087). |
 | `desconto` | number ≥ 0 | não (default 0) | Desconto **manual** em R$ (a tela converte o % antes). `≤ subtotal`. `> 0` exige `comanda.desconto`. |
 | `atendimentos` | array | não (default `[]`) | Atendimentos da comanda. `atendimentos` e `itens` não podem ser ambos vazios. |
-| `atendimentos[].agendamento_id` | uuid | **sim** | Sem repetição no array. Precisa estar com `comanda_id IS NULL` (senão "já teve a comanda fechada"). |
+| `atendimentos[].agendamento_id` | uuid | **sim** | Sem repetição no array. Precisa estar com `comanda_id IS NULL` (senão "já teve a comanda fechada") e com status diferente de `cancelado`/`faltou`. Os UPDATEs vão em ordem de id (atendimentos e linhas), não na ordem do payload. |
 | `atendimentos[].valor` | number ≥ 0 | sim **quando não há `linhas`** | Valor cobrado do atendimento sem multi-serviço (o que a tela mostra, pode ter sido editado). Ignorado quando há `linhas`. |
 | `atendimentos[].linhas` | array | não | Multi-serviço: uma entrada por linha de `agendamento_servicos` **presente** na comanda. Array vazio ou ausente = atendimento sem linhas. `agendamentos.valor` = soma das linhas. Linha tirada da comanda não vem e não é tocada. |
 | `atendimentos[].linhas[].ag_servico_id` | uuid | **sim** | `agendamento_servicos.id` do próprio atendimento. Sem repetição em toda a comanda. |
@@ -68,7 +68,7 @@ caminho antigo em passos. **Nunca mudar estas assinaturas**: mudança futura = f
 | `pagamentos[].metodo` | `'dinheiro' \| 'pix' \| 'credito' \| 'debito' \| 'cortesia'` | **sim** | Cortesia com valor > 0 exige `comanda.desconto`. |
 | `pagamentos[].parcelas` | integer ≥ 1 | não (default 1) | Gravado só em `credito`; nos outros métodos é sempre 1. |
 | `pagamentos[].bandeira` | string \| null | não | Só cartão (`credito`/`debito`); fora do cartão vira `null`. |
-| `pagamentos[].maquininha_id` | uuid \| null | não | Só cartão; fora do cartão vira `null`. |
+| `pagamentos[].maquininha_id` | uuid \| null | não | Só cartão; fora do cartão vira `null`. `""` vale `null`. |
 | `pagamentos[].taxa_perc` | number \| null | não | Decimal (0,0499 = 4,99%), `0 ≤ taxa < 1`. Vem da tela (`taxaDoSplit`). Só cartão; `0`/`null` → gravado `null`. `valor_liquido` é calculado no banco: `round(valor × (1 − taxa), 2)` quando há taxa, senão `null`. |
 
 ### 1.2 O que o banco calcula
@@ -240,6 +240,7 @@ datada por `fechada_at`)
 | `Você não tem permissão para dar desconto ou cortesia.` | 42501 | desconto > 0 ou cortesia com valor sem `comanda.desconto` |
 | `Este código de comanda já foi usado. Recarregue a tela e tente de novo.` | P0001 | `comanda_id` em uso por comanda que quem chama não enxerga |
 | `Não foi possível salvar o valor dos serviços do atendimento.` | P0001 | linha não pertence ao atendimento/empresa ou RLS recusou (0 linhas) |
+| `Atendimento cancelado ou com falta não entra na comanda.` | P0001 | atendimento com status `cancelado`/`faltou` |
 | `Este atendimento já teve a comanda fechada.` | P0001 | **duplicidade**: o atendimento já tem `comanda_id` (outra aba/aparelho). Tudo é desfeito |
 | `Você não tem permissão para fechar a comanda deste atendimento.` | 42501 | UPDATE do atendimento acertou 0 linhas sem ele estar fechado (colega sem `agenda.gerenciar_outras`, outra empresa ou inexistente) |
 | `Comissão deste serviço já foi paga` | P0001 | (trigger 085; não ocorre no fechamento, só na edição) |
@@ -265,7 +266,7 @@ O payload é o **estado completo** da comanda depois da edição (não um diff):
 | `atendimentos` | array | não | **Exatamente** os atendimentos visíveis com `comanda_id` = esta comanda (nem a mais, nem a menos: tirar atendimento é proibido). |
 | `atendimentos[].agendamento_id` | uuid | **sim** | |
 | `atendimentos[].valor` / `.linhas[]` | | | Iguais ao fechamento. Grava só `valor` e `desconto_rateado` (o 075 acerta as comissões, inclusive pagas). |
-| `atendimentos[].pacote_cliente_id` | — | — | **Ignorado** (vínculo não muda na edição). O vínculo gravado não nulo exige valor 0. |
+| `atendimentos[].pacote_cliente_id` | — | — | **Ignorado** (vínculo não muda na edição). Com vínculo gravado, o valor só pode mudar para 0; atendimento antigo já gravado com pacote e valor > 0 continua editável enquanto o valor dele não muda. |
 | `cliente_id` | — | — | Ignorado (cliente não muda na edição). |
 | `itens` | array | não | Todos os extras da comanda. |
 | `itens[].item_id` | uuid | **sim** | Item já gravado → altera; id novo (gerado na tela, reaproveitado em nova tentativa) → inclui; item gravado que não vem → remove. Sem repetição. |
@@ -278,8 +279,19 @@ O payload é o **estado completo** da comanda depois da edição (não um diff):
 
 ### 2.2 O que o banco calcula
 
+- **Comanda inteira visível**: antes de qualquer escrita, a quantidade de atendimentos, itens e pagamentos que
+  quem chama enxerga é comparada com a real (helpers `security definer` `comanda_qtd_atendimentos`,
+  `comanda_qtd_itens`, `comanda_qtd_pagamentos`, que devolvem só a contagem e só para comandas das empresas de
+  quem chama). Faltou algo (ex.: atendimento de colega sem `agenda.ver_equipe`) → recusa 42501.
+- **Re-rateio só quando o dinheiro muda**: há mudança quando o desconto manual difere do gravado, quando muda o
+  valor de algum atendimento ou linha, o valor/quantidade de algum extra, ou quando um extra é incluído/removido.
+  Trocar só pagamentos ou a profissional de um extra **não** é mudança. Sem mudança: os `desconto_rateado`
+  gravados ficam como estão e os limites do congelado (abaixo) não se aplicam — a comanda anterior à 090
+  (desconto > 0 com rateio 0) continua sem rateio. Com mudança: rateia como descrito abaixo (na comanda anterior
+  à 090, com congelado = 0).
+
 - `subtotal`, `reserva`, `total` como no fechamento (a reserva é relida de `taxas_reserva`).
-- `congelado` = Σ `desconto_rateado` gravado dos produtos e pacotes. O desconto novo precisa ficar entre
+- `congelado` = Σ `desconto_rateado` gravado dos produtos e pacotes. Havendo mudança de dinheiro, o desconto novo precisa ficar entre
   `congelado` e `congelado + (subtotal − Σ valor dos produtos e pacotes)`. A diferença (`desconto − congelado`) é
   rateada entre atendimentos, linhas e serviços extras.
 - `comandas`: `valor_total`, `desconto = desconto + reserva aplicada`, `desconto_reserva`. `fechada_at` não muda.
@@ -313,10 +325,13 @@ serviço e um pagamento em dinheiro, mantém o cartão)
 | `Comanda não encontrada.` | P0001 | id inexistente ou invisível para quem chama |
 | `Esta comanda pertence a outra empresa.` | P0001 | `empresa_id` diferente do da comanda |
 | `A comanda não está fechada.` | P0001 | `status <> 'fechada'` |
+| `Esta comanda tem atendimento de outra profissional que você não pode ver. Peça à dona ou à gestora para editar.` | 42501 | quem edita enxerga menos atendimentos do que a comanda tem |
+| `Esta comanda tem item que você não pode ver. Peça à dona ou à gestora para editar.` | 42501 | idem para os itens extras |
+| `Esta comanda tem pagamento que você não pode ver. Peça à dona ou à gestora para editar.` | 42501 | idem para os pagamentos (ex.: gestora sem `financeiro.ver`) |
 | `Atendimento inválido.` / `Atendimento repetido na comanda.` | P0001 | igual ao fechamento |
 | `Atendimento não pertence a esta comanda.` | P0001 | atendimento do payload sem `comanda_id` = esta comanda |
 | `Serviço do atendimento inválido.` / `Serviço do atendimento repetido na comanda.` / `Valor do atendimento inválido.` | P0001 | igual ao fechamento |
-| `Atendimento coberto por pacote deve ficar com valor R$ 0,00.` | P0001 | vínculo gravado e valor > 0 |
+| `Atendimento coberto por pacote deve ficar com valor R$ 0,00.` | P0001 | vínculo gravado e o valor do atendimento mudou para um valor > 0 |
 | `Não é possível tirar um atendimento de uma comanda fechada.` | P0001 | atendimento da comanda ausente do payload |
 | `Item da comanda inválido.` | P0001 | campos inválidos, sem `item_id`, tipo diferente do gravado, ou `item_id` novo que já é de outra comanda |
 | `Item repetido na comanda.` | P0001 | `item_id` repetido |
@@ -326,8 +341,8 @@ serviço e um pagamento em dinheiro, mantém o cartão)
 | `Serviço não encontrado: <descricao>.` | P0001 | `servico_id` de serviço novo não é desta empresa |
 | `Comanda vazia.` | P0001 | sem atendimentos e sem itens |
 | `Desconto inválido.` / `O desconto não pode ser maior que o subtotal.` | P0001 | igual ao fechamento |
-| `O desconto não pode ficar abaixo de R$ <x>: essa parte já foi lançada nos produtos e pacotes desta comanda.` | P0001 | desconto < parte congelada (`<x>` = `1.234,56`) |
-| `O desconto não pode passar de R$ <x>: produtos e pacotes não ganham mais desconto na edição.` | P0001 | desconto maior do que cabe nas partes editáveis |
+| `O desconto não pode ficar abaixo de R$ <x>: essa parte já foi lançada nos produtos e pacotes desta comanda.` | P0001 | houve mudança de dinheiro e desconto < parte congelada (`<x>` = `1.234,56`) |
+| `O desconto não pode passar de R$ <x>: produtos e pacotes não ganham mais desconto na edição.` | P0001 | houve mudança de dinheiro e o desconto é maior do que cabe nas partes editáveis |
 | `Pagamento inválido.` / `Taxa do cartão inválida.` / `O pagamento não cobre o total da comanda.` | P0001 | igual ao fechamento |
 | `Pagamento repetido na comanda.` | P0001 | `pagamento_id` repetido |
 | `Você não tem permissão para dar desconto ou cortesia.` | 42501 | mudou o desconto ou aumentou a cortesia sem `comanda.desconto` |
@@ -348,7 +363,9 @@ na 1ª tentativa já existem e não duplicam; pagamentos mantidos guardaram o id
 ## 3. `registrar_venda_avulsa_v2(p_venda_id uuid, p_empresa uuid, p_cliente uuid, p_desconto numeric, p_itens jsonb, p_pagamentos jsonb) returns uuid`
 
 Igual à `registrar_venda_avulsa` (087) — mesmos parâmetros, regras, trava e conferência de saldo, mesmas
-mensagens — mais a chave:
+mensagens — mais a chave. A idempotência é conferida duas vezes: logo depois de `vendas.acessar` e de novo
+depois de pegar as travas de estoque (antes de conferir o saldo). Assim, numa repetição simultânea, a segunda
+chamada devolve o id em vez de "Estoque insuficiente".
 
 | Parâmetro | Tipo | Obrigatório | Regra |
 |---|---|---|---|
@@ -390,11 +407,11 @@ mensagens — mais a chave:
 
 - Vínculo explícito de pacote não confere sessões restantes (igual a hoje: só a tela confere).
 - `cliente_id`/`maquininha_id`/`profissional_id` não são conferidos contra a empresa (igual à 087).
-- Edição por quem não enxerga todos os atendimentos da comanda (comanda com atendimento de colega, sem
-  `agenda.ver_equipe`): o rateio só considera os visíveis. A tela já não abre esse cartão.
 - Nova tentativa de `editar_comanda` depois do commit: pagamentos **novos** da 1ª tentativa não têm
   `pagamento_id` no payload repetido, então são regravados como novos (mesmos valores, mesma data `fechada_at`).
-- Editar comanda antiga (antes da 090) que tinha desconto passa a ratear esse desconto e reduz as comissões dela
-  (inclusive pagas, regra da 075) já na 1ª edição.
+- Editar comanda antiga (antes da 090) que tinha desconto **e mexer no dinheiro** passa a ratear esse desconto e
+  reduz as comissões dela (inclusive pagas, regra da 075). Editar sem mexer no dinheiro não rateia nada.
+- Pelas tabelas (caminho antigo em passos), as chaves `comanda.desconto`/`comanda.editar_fechada` continuam sem
+  conferência no banco: só as funções conferem.
 - Subtotal no banco usa `round(valor_unit × quantidade, 2)` por item; a tela soma sem arredondar por item.
   Com quantidade fracionada pode haver 1 centavo de diferença na prévia.

@@ -231,6 +231,68 @@ describe('migration 090 — editar_comanda', () => {
   });
 });
 
+describe('migration 090 — correções da revisão (C1, I1, M1–M4, M7)', () => {
+  it.each(['comanda_qtd_atendimentos', 'comanda_qtd_itens', 'comanda_qtd_pagamentos'])(
+    'C1: helper %s é definer, devolve só a contagem, filtra pela empresa e só para authenticated', f => {
+      const c = funcao(f);
+      expect(c).toMatch(new RegExp(String.raw`public\.${f}\(p_comanda uuid\)\s+returns int`));
+      expect(c).toContain('security definer');
+      expect(c).toContain('set search_path = public');
+      expect(c).toContain('select count(*)::int');
+      expect(c).toContain('c.empresa_id in (select minha_empresas())');
+      expect(corpo).toContain(`revoke all on function public.${f}(uuid) from public, anon`);
+      expect(corpo).toContain(`grant execute on function public.${f}(uuid) to authenticated`);
+    });
+  it('C1: editar_comanda compara o visível com a contagem real ANTES de qualquer escrita e recusa com 42501', () => {
+    const c = funcao('editar_comanda');
+    const i = pos(c, 'public.comanda_qtd_atendimentos(v_comanda) <>');
+    expect(c).toContain("'esta comanda tem atendimento de outra profissional que você não pode ver. peça à dona ou à gestora para editar.'");
+    expect(c).toContain('public.comanda_qtd_itens(v_comanda) <>');
+    expect(c).toContain('public.comanda_qtd_pagamentos(v_comanda) <>');
+    for (const w of ['delete from public.comanda_itens', 'update public.comanda_itens', 'insert into public.comanda_itens',
+      'update public.comandas', 'update public.agendamentos', 'delete from public.pagamentos']) {
+      expect(i).toBeLessThan(pos(c, w));
+    }
+  });
+  it('I1: sem mudança de dinheiro mantém o rateio gravado e não aplica os limites do congelado', () => {
+    const c = funcao('editar_comanda');
+    expect(c).toContain('v_mudou := v_mudou or v_desconto <> v_desc_antigo');
+    expect(c).toContain('if v_mudou and v_desconto < v_congelado');
+    expect(c).toContain('if v_mudou and v_desconto - v_congelado > v_subtotal - v_peso_congelado');
+    const semMudanca = c.slice(pos(c, 'if not v_mudou then'), pos(c, 'public.ratear_desconto_centavos('));
+    expect(semMudanca).toContain('a_cota[k] := (ad_desc[k] * 100)::bigint');
+    expect(semMudanca).toContain('i_cota[k] := (coalesce(ie_desc[k], 0) * 100)::bigint');
+  });
+  it('M7: pacote com valor > 0 só é recusado na edição quando o valor muda', () => {
+    const c = funcao('editar_comanda');
+    expect(c).toMatch(/if v_db_valor is distinct from a_valor\[v_n\] then\s+v_mudou := true;[\s\S]{0,300}if v_pc is not null and a_valor\[v_n\] > 0 then/);
+  });
+  it('M1: venda v2 relê a venda depois das travas e antes de conferir o saldo', () => {
+    const c = funcao('registrar_venda_avulsa_v2');
+    const ultimaTrava = c.lastIndexOf('pg_advisory_xact_lock');
+    const releitura = c.indexOf('from public.vendas where id = p_venda_id', ultimaTrava);
+    expect(releitura).toBeGreaterThan(ultimaTrava);
+    expect(releitura).toBeLessThan(pos(c, 'estoque insuficiente'));
+  });
+  it('M2: maquininha_id do fechamento com nullif (string vazia = null)', () => {
+    const c = funcao('fechar_comanda');
+    expect(c).toContain("nullif(x.j->>'maquininha_id', '')::uuid");
+    expect(c).not.toMatch(/maquininha_id uuid\s*\)/);
+  });
+  it('M3: atendimentos e linhas atualizados em ordem de id (fechar e editar)', () => {
+    for (const f of ['fechar_comanda', 'editar_comanda']) {
+      const c = funcao(f);
+      expect(c).toContain('for k in select g.ix from generate_subscripts(a_id, 1) as g(ix) order by a_id[g.ix] loop');
+      expect(c).toContain('for k in select g.ix from generate_subscripts(l_id, 1) as g(ix) order by l_id[g.ix] loop');
+    }
+  });
+  it('M4: atendimento cancelado/faltou é recusado no fechamento', () => {
+    const c = funcao('fechar_comanda');
+    expect(c).toContain("'atendimento cancelado ou com falta não entra na comanda.'");
+    expect(c).toContain("and a.status not in ('cancelado', 'faltou')");
+  });
+});
+
 describe('migration 090 — registrar_venda_avulsa_v2', () => {
   const v = () => funcao('registrar_venda_avulsa_v2');
   it('mesmas permissões da 087', () => {

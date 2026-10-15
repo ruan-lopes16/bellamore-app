@@ -45,6 +45,16 @@
 --      corrigida). Pagamentos apagados e reinseridos na mesma transação; o reaberto sem mudança
 --      (`pagamento_id` + mesmo método/parcelas/bandeira/maquininha) mantém taxa_perc,
 --      maquininha_id e created_at gravados; os novos nascem com created_at = fechada_at.
+--    - Edição só re-rateia quando algo de dinheiro muda (desconto manual, valor/quantidade de
+--      atendimento, linha ou extra, inclusão/remoção de extra). Sem mudança (ex.: só trocar a forma
+--      de pagamento ou a profissional do extra), o desconto_rateado gravado fica como está e os
+--      limites do congelado não se aplicam — a comanda anterior à 090 (desconto > 0, rateio 0)
+--      continua sem rateio. Assim centavos não mudam de profissional e comissão paga não muda à toa.
+--    - Edição exige ver a comanda inteira: helpers definer comanda_qtd_atendimentos / _itens /
+--      _pagamentos devolvem só a contagem real; se quem edita enxerga menos (atendimento de colega
+--      sem agenda.ver_equipe), recusa com 42501 em vez de gravar subtotal/rateio parciais.
+--    - Atendimento cancelado/faltou é recusado no fechamento; atendimentos e linhas são
+--      atualizados em ordem de id (sem deadlock entre duas comandas).
 --
 -- 3) registrar_venda_avulsa_v2: a 087 com chave contra repetição (`p_venda_id`). Função NOVA:
 --    mudar a assinatura da 087 faria clientes antigos receberem PGRST202 (regra da 087).
@@ -70,15 +80,18 @@
 --      que não dependem de policy; nenhuma tela insere em comissoes. "gestor pode gerenciar
 --      comissoes" (dona, manual de produção) fica como está.
 --
--- ATENÇÃO: alterar o desconto de uma comanda com comissão PAGA muda o valor_servico dela
--- (mesma regra da 075 para mudança de valor). Editar uma comanda antiga (antes da 090) que tinha
--- desconto passa a ratear esse desconto e reduz as comissões dela na 1ª edição.
+-- ATENÇÃO: alterar o desconto (ou um valor) de uma comanda com comissão PAGA muda o valor_servico
+-- dela (mesma regra da 075 para mudança de valor). Numa comanda antiga (antes da 090) com desconto,
+-- isso só acontece se a edição mexer no dinheiro: aí o desconto passa a ser rateado e reduz as
+-- comissões dela (inclusive pagas). Editar sem mexer no dinheiro não rateia nada.
 --
 -- Rollback (volta ao estado da 089; colunas ficam, com 0, para não perder dado):
 --   drop function if exists public.fechar_comanda(jsonb);
 --   drop function if exists public.editar_comanda(jsonb);
 --   drop function if exists public.registrar_venda_avulsa_v2(uuid, uuid, uuid, numeric, jsonb, jsonb);
 --   drop function if exists public.ratear_desconto_centavos(bigint, bigint[]);
+--   drop function if exists public.comanda_qtd_atendimentos(uuid), public.comanda_qtd_itens(uuid),
+--     public.comanda_qtd_pagamentos(uuid);
 --   recriar gerar_comissao como na 065, sincronizar_comissao_valor + trigger
 --     (`after update of valor`) como na 075, gerar_comissao_item e sincronizar_comissao_item
 --     como na 085;
@@ -167,6 +180,63 @@ $$;
 revoke all on function public.ratear_desconto_centavos(bigint, bigint[]) from public, anon;
 grant execute on function public.ratear_desconto_centavos(bigint, bigint[]) to authenticated;
 
+-- ── 2b. Contagens reais da comanda (para a edição) ────────────
+-- editar_comanda é invoker: quem não tem agenda.ver_equipe não enxerga o atendimento da colega
+-- que está na mesma comanda, e o subtotal/rateio sairiam só com os visíveis (gravação errada sem
+-- aviso). Estes helpers definer devolvem SÓ a quantidade real (nenhum dado da linha), restritos a
+-- comandas de empresas de quem chama; a edição compara com o que a pessoa enxerga e recusa se faltar.
+create or replace function public.comanda_qtd_atendimentos(p_comanda uuid)
+returns int
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)::int
+    from public.agendamentos a
+    join public.comandas c on c.id = a.comanda_id
+   where a.comanda_id = p_comanda
+     and a.empresa_id = c.empresa_id
+     and c.empresa_id in (select minha_empresas());
+$$;
+
+create or replace function public.comanda_qtd_itens(p_comanda uuid)
+returns int
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)::int
+    from public.comanda_itens ci
+    join public.comandas c on c.id = ci.comanda_id
+   where ci.comanda_id = p_comanda
+     and ci.empresa_id = c.empresa_id
+     and c.empresa_id in (select minha_empresas());
+$$;
+
+create or replace function public.comanda_qtd_pagamentos(p_comanda uuid)
+returns int
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)::int
+    from public.pagamentos pg
+    join public.comandas c on c.id = pg.comanda_id
+   where pg.comanda_id = p_comanda
+     and pg.empresa_id = c.empresa_id
+     and c.empresa_id in (select minha_empresas());
+$$;
+
+revoke all on function public.comanda_qtd_atendimentos(uuid) from public, anon;
+grant execute on function public.comanda_qtd_atendimentos(uuid) to authenticated;
+revoke all on function public.comanda_qtd_itens(uuid) from public, anon;
+grant execute on function public.comanda_qtd_itens(uuid) to authenticated;
+revoke all on function public.comanda_qtd_pagamentos(uuid) from public, anon;
+grant execute on function public.comanda_qtd_pagamentos(uuid) to authenticated;
+
 -- ── 3. fechar_comanda ─────────────────────────────────────────
 create or replace function public.fechar_comanda(p jsonb)
 returns uuid
@@ -213,6 +283,7 @@ declare
   v_hoje         date;
   v_venda        uuid;
   v_cotas        bigint[];
+  v_st           text;
   -- atendimentos
   a_id      uuid[]    := '{}';
   a_valor   numeric[] := '{}';
@@ -340,6 +411,12 @@ begin
     end if;
     if a_pacote[v_n] is not null and a_valor[v_n] > 0 then
       raise exception 'Atendimento coberto por pacote deve ficar com valor R$ 0,00.';
+    end if;
+    v_st := null;
+    select ag.status::text into v_st
+      from public.agendamentos ag where ag.id = v_ag and ag.empresa_id = v_empresa;
+    if v_st in ('cancelado', 'faltou') then
+      raise exception 'Atendimento cancelado ou com falta não entra na comanda.';
     end if;
 
     v_subtotal := v_subtotal + a_valor[v_n];
@@ -512,8 +589,9 @@ begin
     raise exception 'Este código de comanda já foi usado. Recarregue a tela e tente de novo.';
   end;
 
-  -- (2) Linhas de multi-serviço (nenhum trigger lê esta tabela).
-  for k in 1..coalesce(array_length(l_id, 1), 0) loop
+  -- (2) Linhas de multi-serviço (nenhum trigger lê esta tabela). Em ordem de id: duas comandas com
+  --     as mesmas linhas/atendimentos em ordens diferentes não travam uma à outra (deadlock).
+  for k in select g.ix from generate_subscripts(l_id, 1) as g(ix) order by l_id[g.ix] loop
     update public.agendamento_servicos s
        set valor = l_valor[k],
            desconto_rateado = l_cota[k]::numeric / 100
@@ -524,8 +602,8 @@ begin
     end if;
   end loop;
 
-  -- (3) Atendimentos: tudo no MESMO UPDATE da transição para 'concluido' (065, 078, 061).
-  for k in 1..coalesce(array_length(a_id, 1), 0) loop
+  -- (3) Atendimentos: tudo no MESMO UPDATE da transição para 'concluido' (065, 078, 061), em ordem de id.
+  for k in select g.ix from generate_subscripts(a_id, 1) as g(ix) order by a_id[g.ix] loop
     update public.agendamentos a
        set valor = a_valor[k],
            desconto_rateado = a_cota[k]::numeric / 100,
@@ -534,11 +612,15 @@ begin
            status = 'concluido'
      where a.id = a_id[k]
        and a.empresa_id = v_empresa
-       and a.comanda_id is null;
+       and a.comanda_id is null
+       and a.status not in ('cancelado', 'faltou');
     get diagnostics v_rows = row_count;
     if v_rows <> 1 then
       if exists (select 1 from public.agendamentos x where x.id = a_id[k] and x.comanda_id is not null) then
         raise exception 'Este atendimento já teve a comanda fechada.';
+      end if;
+      if exists (select 1 from public.agendamentos x where x.id = a_id[k] and x.status in ('cancelado', 'faltou')) then
+        raise exception 'Atendimento cancelado ou com falta não entra na comanda.';
       end if;
       raise exception 'Você não tem permissão para fechar a comanda deste atendimento.' using errcode = '42501';
     end if;
@@ -610,18 +692,21 @@ begin
   else
     insert into public.pagamentos
       (empresa_id, comanda_id, valor, metodo, bandeira, parcelas, taxa_perc, valor_liquido, maquininha_id, status)
-    select v_empresa, v_comanda, round(x.valor, 2), x.metodo::pagamento_metodo,
-           case when x.metodo in ('credito', 'debito') then nullif(btrim(x.bandeira), '') end,
-           case when x.metodo = 'credito' then coalesce(x.parcelas, 1) else 1 end,
-           case when x.metodo in ('credito', 'debito') then nullif(x.taxa_perc, 0) end,
-           case when x.metodo in ('credito', 'debito') and nullif(x.taxa_perc, 0) is not null
-                then round(round(x.valor, 2) * (1 - x.taxa_perc), 2) end,
-           case when x.metodo in ('credito', 'debito') then x.maquininha_id end,
-           'pago'
-      from jsonb_to_recordset(v_pags) as x(
-        valor numeric, metodo text, bandeira text, parcelas integer, taxa_perc numeric, maquininha_id uuid
-      )
-     where round(x.valor, 2) > 0;
+    select v_empresa, v_comanda, n.valor, n.metodo::pagamento_metodo, n.bandeira, n.parcelas, n.taxa_perc,
+           case when n.taxa_perc is not null then round(n.valor * (1 - n.taxa_perc), 2) end,
+           n.maquininha_id, 'pago'
+      from (
+        select round((x.j->>'valor')::numeric, 2) as valor,
+               x.j->>'metodo' as metodo,
+               case when x.j->>'metodo' in ('credito', 'debito') then nullif(btrim(x.j->>'bandeira'), '') end as bandeira,
+               case when x.j->>'metodo' = 'credito' then coalesce((x.j->>'parcelas')::int, 1) else 1 end as parcelas,
+               case when x.j->>'metodo' in ('credito', 'debito') then nullif((x.j->>'taxa_perc')::numeric, 0) end as taxa_perc,
+               case when x.j->>'metodo' in ('credito', 'debito') then nullif(x.j->>'maquininha_id', '')::uuid end as maquininha_id,
+               x.ord
+          from jsonb_array_elements(v_pags) with ordinality as x(j, ord)
+         where round((x.j->>'valor')::numeric, 2) > 0
+      ) as n
+     order by n.ord;
   end if;
 
   return v_comanda;
@@ -687,6 +772,12 @@ declare
   e_qtd           numeric;
   e_prof          uuid;
   e_desc          numeric;
+  v_mudou         boolean := false;
+  v_db_valor      numeric;
+  v_db_desc       numeric;
+  v_qtd_vis       int;
+  ad_desc  numeric[] := '{}';
+  ld_desc  numeric[] := '{}';
   a_id     uuid[]    := '{}';
   a_valor  numeric[] := '{}';
   a_linhas boolean[] := '{}';
@@ -753,6 +844,26 @@ begin
   select coalesce(array_agg(a.id), '{}') into v_ag_comanda
     from public.agendamentos a where a.comanda_id = v_comanda and a.empresa_id = v_empresa;
 
+  -- Quem edita precisa enxergar a comanda INTEIRA (atendimentos, itens e pagamentos): com parte
+  -- invisível pela RLS, subtotal, rateio e pagamentos sairiam errados sem aviso. Os helpers definer
+  -- devolvem só a quantidade real.
+  if public.comanda_qtd_atendimentos(v_comanda) <> coalesce(array_length(v_ag_comanda, 1), 0) then
+    raise exception 'Esta comanda tem atendimento de outra profissional que você não pode ver. Peça à dona ou à gestora para editar.'
+      using errcode = '42501';
+  end if;
+  select count(*) into v_qtd_vis
+    from public.comanda_itens ci where ci.comanda_id = v_comanda and ci.empresa_id = v_empresa;
+  if public.comanda_qtd_itens(v_comanda) <> v_qtd_vis then
+    raise exception 'Esta comanda tem item que você não pode ver. Peça à dona ou à gestora para editar.'
+      using errcode = '42501';
+  end if;
+  select count(*) into v_qtd_vis
+    from public.pagamentos pg where pg.comanda_id = v_comanda and pg.empresa_id = v_empresa;
+  if public.comanda_qtd_pagamentos(v_comanda) <> v_qtd_vis then
+    raise exception 'Esta comanda tem pagamento que você não pode ver. Peça à dona ou à gestora para editar.'
+      using errcode = '42501';
+  end if;
+
   -- Atendimentos: os mesmos da comanda (tirar atendimento é proibido; vínculo de pacote não muda).
   for r in select e.value as j from jsonb_array_elements(v_ats) e loop
     if jsonb_typeof(r.j) <> 'object' then
@@ -788,6 +899,14 @@ begin
         l_at[v_m] := v_n;
         l_valor[v_m] := v_val;
         l_cota[v_m] := 0;
+        v_db_valor := null;
+        v_db_desc := null;
+        select s.valor, s.desconto_rateado into v_db_valor, v_db_desc
+          from public.agendamento_servicos s where s.id = v_ln and s.agendamento_id = v_ag;
+        ld_desc[v_m] := coalesce(v_db_desc, 0);
+        if v_db_valor is distinct from v_val then
+          v_mudou := true;
+        end if;
         v_tot := v_tot + v_val;
       end loop;
       a_linhas[v_n] := true;
@@ -802,9 +921,18 @@ begin
     end if;
 
     v_pc := null;
-    select ag.pacote_cliente_id into v_pc from public.agendamentos ag where ag.id = v_ag;
-    if v_pc is not null and a_valor[v_n] > 0 then
-      raise exception 'Atendimento coberto por pacote deve ficar com valor R$ 0,00.';
+    v_db_valor := null;
+    v_db_desc := null;
+    select ag.pacote_cliente_id, ag.valor, ag.desconto_rateado into v_pc, v_db_valor, v_db_desc
+      from public.agendamentos ag where ag.id = v_ag;
+    ad_desc[v_n] := coalesce(v_db_desc, 0);
+    if v_db_valor is distinct from a_valor[v_n] then
+      v_mudou := true;
+      -- Só recusa quando a mudança vem agora: comanda antiga já gravada com pacote e valor > 0
+      -- continua editável enquanto o valor dela não muda.
+      if v_pc is not null and a_valor[v_n] > 0 then
+        raise exception 'Atendimento coberto por pacote deve ficar com valor R$ 0,00.';
+      end if;
     end if;
     v_subtotal := v_subtotal + a_valor[v_n];
   end loop;
@@ -848,6 +976,9 @@ begin
         raise exception 'Item da comanda inválido.';
       end if;
       i_existe[v_m] := true;
+      if e_valor <> v_val or e_qtd <> v_qtd then
+        v_mudou := true;
+      end if;
       ie_valor[v_m] := e_valor;
       ie_qtd[v_m] := e_qtd;
       ie_prof[v_m] := e_prof;
@@ -873,6 +1004,7 @@ begin
         raise exception 'Serviço não encontrado: %.', v_txt;
       end if;
       i_existe[v_m] := false;
+      v_mudou := true;
     end if;
     v_subtotal := v_subtotal + round(v_val * v_qtd, 2);
   end loop;
@@ -881,6 +1013,9 @@ begin
      where ci.comanda_id = v_comanda and ci.tipo in ('produto', 'pacote') and not (ci.id = any(i_id))
   ) then
     raise exception 'Produtos e pacotes não podem ser removidos na edição.';
+  end if;
+  if exists (select 1 from public.comanda_itens ci where ci.comanda_id = v_comanda and not (ci.id = any(i_id))) then
+    v_mudou := true;  -- serviço extra removido
   end if;
   if coalesce(array_length(a_id, 1), 0) = 0 and coalesce(array_length(i_id, 1), 0) = 0 then
     raise exception 'Comanda vazia.';
@@ -894,11 +1029,15 @@ begin
   if v_desconto > v_subtotal then
     raise exception 'O desconto não pode ser maior que o subtotal.';
   end if;
-  if v_desconto < v_congelado then
+  -- Nada de dinheiro mudou (desconto manual igual e nenhum valor/quantidade/inclusão/remoção):
+  -- mantém o desconto_rateado gravado e não aplica os limites do congelado. Inclui a comanda anterior
+  -- à 090 (desconto > 0 e rateio 0): continua sem rateio enquanto ninguém mexer no dinheiro.
+  v_mudou := v_mudou or v_desconto <> v_desc_antigo;
+  if v_mudou and v_desconto < v_congelado then
     raise exception 'O desconto não pode ficar abaixo de R$ %: essa parte já foi lançada nos produtos e pacotes desta comanda.',
       translate(to_char(v_congelado, 'FM999,999,990.00'), ',.', '.,');
   end if;
-  if v_desconto - v_congelado > v_subtotal - v_peso_congelado then
+  if v_mudou and v_desconto - v_congelado > v_subtotal - v_peso_congelado then
     raise exception 'O desconto não pode passar de R$ %: produtos e pacotes não ganham mais desconto na edição.',
       translate(to_char(v_congelado + v_subtotal - v_peso_congelado, 'FM999,999,990.00'), ',.', '.,');
   end if;
@@ -955,7 +1094,19 @@ begin
     raise exception 'Você não tem permissão para dar desconto ou cortesia.' using errcode = '42501';
   end if;
 
-  -- Rateio: atendimentos/linhas e serviços extras dividem o desconto menos a parte congelada.
+  -- Rateio: atendimentos/linhas e serviços extras dividem o desconto menos a parte congelada —
+  -- só quando algo de dinheiro mudou. Senão, as cotas gravadas ficam como estão.
+  if not v_mudou then
+    for k in 1..coalesce(array_length(a_id, 1), 0) loop
+      a_cota[k] := (ad_desc[k] * 100)::bigint;
+    end loop;
+    for k in 1..coalesce(array_length(l_id, 1), 0) loop
+      l_cota[k] := (ld_desc[k] * 100)::bigint;
+    end loop;
+    for k in 1..coalesce(array_length(i_id, 1), 0) loop
+      i_cota[k] := (coalesce(ie_desc[k], 0) * 100)::bigint;
+    end loop;
+  else
   for k in 1..coalesce(array_length(a_id, 1), 0) loop
     if not a_linhas[k] then
       v_np := v_np + 1;
@@ -989,6 +1140,7 @@ begin
       i_cota[r_idx[k]] := v_cotas[k];
     end if;
   end loop;
+  end if;
 
   -- ── Gravação ───────────────────────────────────────────────
 
@@ -1046,8 +1198,8 @@ begin
     raise exception 'Você não tem permissão para editar esta comanda.' using errcode = '42501';
   end if;
 
-  -- (E5) Linhas e atendimentos: só valor e parte do desconto (075 acerta as comissões).
-  for k in 1..coalesce(array_length(l_id, 1), 0) loop
+  -- (E5) Linhas e atendimentos: só valor e parte do desconto (075 acerta as comissões), em ordem de id.
+  for k in select g.ix from generate_subscripts(l_id, 1) as g(ix) order by l_id[g.ix] loop
     update public.agendamento_servicos s
        set valor = l_valor[k],
            desconto_rateado = l_cota[k]::numeric / 100
@@ -1057,7 +1209,7 @@ begin
       raise exception 'Não foi possível salvar o valor dos serviços do atendimento.';
     end if;
   end loop;
-  for k in 1..coalesce(array_length(a_id, 1), 0) loop
+  for k in select g.ix from generate_subscripts(a_id, 1) as g(ix) order by a_id[g.ix] loop
     update public.agendamentos a
        set valor = a_valor[k],
            desconto_rateado = a_cota[k]::numeric / 100
@@ -1207,14 +1359,33 @@ begin
     raise exception 'Você não tem permissão para dar desconto ou cortesia.' using errcode = '42501';
   end if;
 
-  -- Estoque: trava por produto e confere o saldo
+  -- Estoque: trava todos os produtos (em ordem de id) antes de conferir qualquer saldo.
+  for r in
+    select i.produto_id
+      from jsonb_to_recordset(p_itens) as i(produto_id uuid)
+     group by i.produto_id
+     order by i.produto_id
+  loop
+    perform pg_advisory_xact_lock(hashtextextended('venda_estoque:' || r.produto_id::text, 0));
+  end loop;
+
+  -- Releitura depois das travas: numa repetição simultânea, a 1ª tentativa gravou enquanto esta
+  -- esperava. Devolve o id em vez de conferir o saldo que ela mesma já baixou.
+  select empresa_id into v_existente from public.vendas where id = p_venda_id;
+  if found then
+    if v_existente = p_empresa then
+      return p_venda_id;
+    end if;
+    raise exception 'Esta venda pertence a outra empresa.';
+  end if;
+
+  -- Saldo (mesma regra da 087)
   for r in
     select i.produto_id, sum(i.quantidade) as qtd
       from jsonb_to_recordset(p_itens) as i(produto_id uuid, quantidade numeric)
      group by i.produto_id
      order by i.produto_id
   loop
-    perform pg_advisory_xact_lock(hashtextextended('venda_estoque:' || r.produto_id::text, 0));
     select pr.nome, pr.estoque_atual, (pr.tipo = 'venda' and pr.ativo) into v_nome, v_saldo, v_vendavel
       from public.produtos pr
      where pr.id = r.produto_id and pr.empresa_id = p_empresa;
