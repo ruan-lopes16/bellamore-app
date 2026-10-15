@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { chaveMesBRT, rotuloMesAno } from '@shared/periodos';
 import { MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
 import { carregarEquipe, alterarAtivo, alterarPapel, type MembroEquipe } from '@shared/equipe-consultas';
-import { rotuloContrato, normalizarComissao, type TipoContrato } from '@shared/equipe';
+import { rotuloContrato, normalizarComissao, numerosVisiveis, type TipoContrato } from '@shared/equipe';
 import { pagarComissoes } from '@shared/comissoes-consultas';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
@@ -22,7 +22,6 @@ import { configVazia, contarExcecoes, podeGerenciarMembro, type ConfigPermissoes
 import { Sk } from '@/components/Skeleton';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
-import { podeAtribuirRole } from '@/lib/permissions';
 import { avancarComEnter } from '@/lib/formNav';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
@@ -63,9 +62,10 @@ function gerarSenha() {
 
 // ── Modal adicionar profissional ──────────────────────────────
 
-function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
+function NovoProfModal({ empresaId, isOwner, onClose, onSalvo }: {
   empresaId: string;
-  meuRole: 'owner' | 'gestor' | 'profissional';
+  /** Só a dona cria gestora (mesma regra das APIs de convite e de cadastro). */
+  isOwner: boolean;
   onClose: () => void;
   onSalvo: (p: Profissional, mensagem?: string) => void;
 }) {
@@ -261,7 +261,7 @@ function NovoProfModal({ empresaId, meuRole, onClose, onSalvo }: {
               </div>
             </div>
           )}
-          {podeAtribuirRole(meuRole, 'gestor') && (
+          {isOwner && (
             <div>
               <label className={labelClass}>Papel</label>
               <div className="flex gap-2">
@@ -462,8 +462,10 @@ function EditInfoModal({ prof, empresaId, onClose, onSalvo, onParcial }: {
 
 // ── Card profissional ─────────────────────────────────────────
 
-function ProfCard({ prof, excecoes, podeAlterarRole, podeGerenciar, onEditInfo, onToggle, onPagar, onAlterarRole }: {
+function ProfCard({ prof, excecoes, visiveis, podeAlterarRole, podeGerenciar, onEditInfo, onToggle, onPagar, onAlterarRole }: {
   prof: Profissional;
+  /** Números que a pessoa logada pode ver (`numerosVisiveis`): sem a chave, "—" em vez de zeros falsos. */
+  visiveis: { producao: boolean; comissao: boolean };
   /** Quantidade de exceções individuais de permissão desta pessoa. */
   excecoes: number;
   podeAlterarRole: boolean;
@@ -482,12 +484,15 @@ function ProfCard({ prof, excecoes, podeAlterarRole, podeGerenciar, onEditInfo, 
   let hue = 0;
   for (let i = 0; i < prof.user.nome.length; i++) hue = (hue * 31 + prof.user.nome.charCodeAt(i)) % 360;
 
-  const temPendente = prof.comissao_pendente > 0;
+  const temPendente = visiveis.comissao && prof.comissao_pendente > 0;
+  const pagandoRef = useRef(false);
 
   async function handlePagar() {
+    // Ref (não só estado): dois cliques no mesmo frame nunca disparam dois pagamentos.
+    if (pagandoRef.current) return;
+    pagandoRef.current = true;
     setPagando(true);
-    await onPagar();
-    setPagando(false);
+    try { await onPagar(); } finally { pagandoRef.current = false; setPagando(false); }
   }
 
   return (
@@ -555,11 +560,11 @@ function ProfCard({ prof, excecoes, podeAlterarRole, podeGerenciar, onEditInfo, 
           {prof.ativo && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14, marginTop: 16 }}>
               <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
-                <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}><Secret>{prof.atendimentos_mes}</Secret></p>
+                <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-primary)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{visiveis.producao ? <Secret>{prof.atendimentos_mes}</Secret> : '—'}</p>
                 <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Atendimentos</p>
               </div>
               <div style={{ background: 'var(--color-bg)', borderRadius: 14, padding: '10px 12px', textAlign: 'center' }}>
-                <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}><Secret>{fmtBRL(prof.total_mes)}</Secret></p>
+                <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-green)', lineHeight: 1, fontFamily: 'var(--font-sans)' }}>{visiveis.producao ? <Secret>{fmtBRL(prof.total_mes)}</Secret> : '—'}</p>
                 <p style={{ fontSize: 9.5, color: 'var(--color-ink4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>Faturado no mês</p>
               </div>
             </div>
@@ -592,14 +597,21 @@ function ProfCard({ prof, excecoes, podeAlterarRole, podeGerenciar, onEditInfo, 
             </button>
           )}
 
-          {prof.ativo && prof.comissao_pendente_anterior > 0 && (
+          {prof.ativo && visiveis.comissao && prof.comissao_pendente_anterior > 0 && (
             <Link href="/comissoes" style={{ display: 'block', fontSize: 11, color: '#B45309', marginBottom: 10, fontFamily: 'var(--font-sans)' }}>
               + <Secret>{fmtBRL(prof.comissao_pendente_anterior)}</Secret> de meses anteriores — pague em Comissões
             </Link>
           )}
 
           {/* Comissão em dia */}
-          {prof.ativo && !temPendente && prof.comissao_pendente_anterior === 0 && (
+          {/* Sem comissoes.ver_todas a RLS esconde as comissões da colega: nunca "Comissão em dia" falso. */}
+          {prof.ativo && !visiveis.comissao && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 14, background: 'var(--color-bg)', marginBottom: 12, fontSize: 11.5, color: 'var(--color-ink3)', fontWeight: 600 }}>
+              Comissão pendente: —
+            </div>
+          )}
+
+          {prof.ativo && visiveis.comissao && !temPendente && prof.comissao_pendente_anterior === 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderRadius: 14, background: 'var(--color-green-soft)', marginBottom: 12, fontSize: 11.5, color: 'var(--color-green)', fontWeight: 600 }}>
               <CheckCircle2 size={13} strokeWidth={2.5}/>
               Comissão em dia
@@ -763,10 +775,17 @@ export default function EquipePage() {
     await recarregar(empresaId);
   }
 
+  /** Readicionar quem já estava na lista mantém os números dela (faturado, pendentes) em vez de zerar. */
   function onProfSalva(nova: Profissional, mensagem?: string) {
     setProfs(prev => {
       const existe = prev.find(p => p.id === nova.id);
-      return existe ? prev.map(p => p.id === nova.id ? nova : p) : [...prev, nova];
+      if (!existe) return [...prev, nova];
+      return prev.map(p => p.id === nova.id ? {
+        ...nova,
+        total_mes: existe.total_mes, atendimentos_mes: existe.atendimentos_mes,
+        comissao_pendente: existe.comissao_pendente, comissao_pendente_anterior: existe.comissao_pendente_anterior,
+        ids_pendentes_mes: existe.ids_pendentes_mes,
+      } : p);
     });
     setModal(false);
     if (mensagem) showToast(mensagem);
@@ -811,7 +830,11 @@ export default function EquipePage() {
             variant="mobileHeader"
             className="bm-mobile-header-export"
             definicao={definicaoEquipe(mesChave)}
-            getLinhas={() => profs.map(p => ({ nome: p.user.nome, telefone: p.user.telefone ?? null, percentual: p.percentual_comissao, atendimentosMes: p.atendimentos_mes, totalMes: p.total_mes, ativo: p.ativo }))}
+            getLinhas={() => profs.map(p => {
+              const v = numerosVisiveis(meuUserId, p.user_id, pode);
+              return { nome: p.user.nome, telefone: p.user.telefone ?? null, percentual: p.percentual_comissao,
+                atendimentosMes: v.producao ? p.atendimentos_mes : null, totalMes: v.producao ? p.total_mes : null, ativo: p.ativo };
+            })}
           />
           <button onClick={() => setModal(true)} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-white text-sm font-bold"
             style={{ background: 'var(--color-primary)', boxShadow: '0 6px 20px rgba(44,23,80,0.18)', fontFamily: 'var(--font-sans)' }}>
@@ -882,6 +905,7 @@ export default function EquipePage() {
                 <ProfCard
                   prof={p}
                   excecoes={veSeloExcecoes ? contarExcecoes(cfgPerms, p.user_id) : 0}
+                  visiveis={numerosVisiveis(meuUserId, p.user_id, pode)}
                   podeAlterarRole={meuRole === 'owner' && p.user_id !== meuUserId}
                   podeGerenciar={podeGerenciarMembro({ isOwner, userId: meuUserId ?? '' }, podeEquipe, { role: p.role, userId: p.user_id })}
                   onEditInfo={() => setEditandoInfo(p)}
@@ -896,7 +920,7 @@ export default function EquipePage() {
       )}
 
       {modal && empresaId && (
-        <NovoProfModal empresaId={empresaId} meuRole={meuRole} onClose={() => setModal(false)} onSalvo={onProfSalva}/>
+        <NovoProfModal empresaId={empresaId} isOwner={isOwner} onClose={() => setModal(false)} onSalvo={onProfSalva}/>
       )}
 
       {editandoInfo && empresaId && (

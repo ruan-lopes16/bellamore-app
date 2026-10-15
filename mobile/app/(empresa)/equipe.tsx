@@ -24,7 +24,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { chaveMesBRT, rotuloMesAno } from '@shared/periodos';
 import { carregarEquipe, alterarAtivo, alterarPapel, type MembroEquipe } from '@shared/equipe-consultas';
-import { rotuloContrato } from '@shared/equipe';
+import { rotuloContrato, numerosVisiveis } from '@shared/equipe';
 import { pagarComissoes } from '@shared/comissoes-consultas';
 import { MENSAGEM_PAGAMENTO_PARCIAL } from '@shared/comissoes';
 
@@ -91,8 +91,10 @@ function useEquipe(habilitado: boolean) {
 
 // ── Card de profissional ──────────────────────────────────────
 
-function ProfCard({ membro, podeAlterarRole, podeGerenciar, podePagar, pagando, excecoes, onVerExcecoes, onEditar, onToggle, onPagar, onAlterarRole }: {
+function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar, pagando, excecoes, onVerExcecoes, onEditar, onToggle, onPagar, onAlterarRole }: {
   membro: MembroEquipe;
+  /** Números que a pessoa logada pode ver (`numerosVisiveis`): sem a chave, "—" em vez de zeros falsos. */
+  visiveis: { producao: boolean; comissao: boolean };
   /** Quantidade de exceções individuais de permissão (0 = sem selo). */
   excecoes: number;
   onVerExcecoes: () => void;
@@ -109,7 +111,7 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, podePagar, pagando, 
 }) {
   const [c1, c2] = membro.ativo ? avatarColors(membro.user.nome) : ['#9CA3AF', '#6B7280'];
   const badge = roleBadge(membro.role);
-  const temPendente = membro.comissao_pendente > 0;
+  const temPendente = visiveis.comissao && membro.comissao_pendente > 0;
 
   function ligar() {
     if (membro.user.telefone) Linking.openURL(`tel:${membro.user.telefone}`);
@@ -182,8 +184,8 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, podePagar, pagando, 
       {membro.ativo && (
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
           {[
-            { value: String(membro.atendimentos_mes), label: 'Atendimentos', color: C.primary },
-            { value: formatarMoeda(membro.total_mes),  label: 'Faturado no mês', color: C.green },
+            { value: visiveis.producao ? String(membro.atendimentos_mes) : '—', label: 'Atendimentos', color: C.primary },
+            { value: visiveis.producao ? formatarMoeda(membro.total_mes) : '—',  label: 'Faturado no mês', color: C.green },
           ].map((s) => (
             <View key={s.label} style={{
               flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10, alignItems: 'center',
@@ -266,7 +268,7 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, podePagar, pagando, 
         </View>
       )}
 
-      {membro.ativo && membro.comissao_pendente_anterior > 0 && (
+      {membro.ativo && visiveis.comissao && membro.comissao_pendente_anterior > 0 && (
         <TouchableOpacity onPress={() => router.push('/(empresa)/comissoes' as any)} style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10 }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber }}>+ </Text>
           <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.amber }}>
@@ -276,7 +278,14 @@ function ProfCard({ membro, podeAlterarRole, podeGerenciar, podePagar, pagando, 
         </TouchableOpacity>
       )}
 
-      {membro.ativo && !temPendente && membro.comissao_pendente_anterior === 0 && (
+      {/* Sem comissoes.ver_todas a RLS esconde as comissões da colega: nunca "Comissão em dia" falso. */}
+      {membro.ativo && !visiveis.comissao && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 12, padding: 10, marginBottom: 12 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 }}>Comissão pendente: —</Text>
+        </View>
+      )}
+
+      {membro.ativo && visiveis.comissao && !temPendente && membro.comissao_pendente_anterior === 0 && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.greenSoft, borderRadius: 12, padding: 10, marginBottom: 12 }}>
           <CheckCircle2 size={13} color={C.green} strokeWidth={2.5} />
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.green }}>Comissão em dia</Text>
@@ -508,7 +517,11 @@ export default function Equipe() {
             <PrivacyToggle />
             <BotaoExportar
               definicao={definicaoEquipe(mesChave)}
-              getLinhas={() => membros.map((m) => ({ nome: m.user.nome, telefone: m.user.telefone ?? null, percentual: m.percentual_comissao, atendimentosMes: m.atendimentos_mes, totalMes: m.total_mes, ativo: m.ativo }))}
+              getLinhas={() => membros.map((m) => {
+                const v = numerosVisiveis(user?.id, m.user_id, pode);
+                return { nome: m.user.nome, telefone: m.user.telefone ?? null, percentual: m.percentual_comissao,
+                  atendimentosMes: v.producao ? m.atendimentos_mes : null, totalMes: v.producao ? m.total_mes : null, ativo: m.ativo };
+              })}
               cor="#fff"
             />
             {!carregando && (
@@ -590,6 +603,7 @@ export default function Equipe() {
                 <ProfCard
                   key={m.id}
                   membro={m}
+                  visiveis={numerosVisiveis(user?.id, m.user_id, pode)}
                   podeAlterarRole={podeAtribuirRole(meuRole, 'gestor') && m.role !== 'owner' && m.user_id !== user?.id}
                   podeGerenciar={podeGerenciarMembro({ isOwner, userId: user?.id ?? '' }, podeGerenciarEquipe, { role: m.role, userId: m.user_id })}
                   podePagar={podePagar}

@@ -92,11 +92,37 @@ seguintes da mesma tela.
 | F7 | `pacote_clientes` UPDATE/DELETE e `pacote_uso` liberados para qualquer membro ("Excluir venda", sessões) | Tela e banco concordam (os dois liberam). É uma decisão da 083 e não há chave no catálogo. |
 | F8 | Gestora sem `agenda.gerenciar_outras`: o banco ainda deixa mexer na comanda da colega (`is_gestor_ou_owner`), e a tela esconde | Mantido para não mudar o comportamento da gestora. A tela é a mais restrita. |
 | F9 | UPDATEs sem `.select` em linhas da própria pessoa (`users`, `notificacoes`), em rotas de API com service role, `pacote_uso`, `pacote_clientes` e `pagamentos` DELETE da comanda web (conferido por contagem) | A RLS é a da própria linha ou a escrita é por service role. A lista exata, com o motivo de cada uma, está no teste. |
+| F10 | Quem fechou a comanda continua com acesso a ela (ler e editar itens e pagamentos) mesmo depois de perder `agenda.gerenciar_outras`; e os ramos `comandas.profissional_id = auth.uid()` e `comanda_pertence_ao_profissional` não conferem se a pessoa ainda é membro **ativa** (uma profissional desativada continua lendo e editando as comandas que fechou) | Mesmo padrão de `agendamentos: ver`. Correção futura: gravar `profissional_id` como a profissional do atendimento quando houver um só (quem fechou só na comanda com apenas extras) e conferir `empresa_membros.ativo` nos ramos. |
 
 ## Para produção
 
-- Aplicar `089_permissoes_alinhamento.sql` no SQL Editor. A ordem é livre em relação ao deploy: o código novo funciona antes e depois da 089. Antes dela, D1, D2, D4 e D5 continuam como estavam.
-- Conferências somente leitura:
+**Ordem obrigatória (não é livre):**
+
+1. Antes da 089, conferir as policies que existem hoje (somente leitura):
+   ```sql
+   select policyname, cmd from pg_policies where tablename in ('agendamento_servicos','servico_produtos');
+   ```
+   Esperado antes da 089: `agendamento_servicos: membro gerencia` (ALL) e, se existir, `agendamento_servicos: membro ve`
+   (SELECT); `servico_produtos: gestor gerencia` e a de leitura de membro. Qualquer outra policy **permissiva** nessas
+   duas tabelas (criada à mão, por exemplo) deve ser derrubada com o nome exato, senão ela continua liberando a escrita
+   por cima das novas (policies permissivas se somam com OR):
+   ```sql
+   drop policy "<nome exato>" on public.<tabela>;
+   ```
+2. Rodar `089_permissoes_alinhamento.sql` no SQL Editor **ANTES** do deploy desta branch e antes do merge do PR #150
+   (hotfix da comanda). Avisar isso também no PR #150.
+3. Só depois, merge e deploy (Vercel **Ready**).
+
+Por quê: o hotfix (#150, e esta branch) deixa a profissional fechar uma comanda só com extras, que nasce com
+`comandas.profissional_id` igual ao dela. Sem a 089, ela vê o cartão dessa comanda (policy de SELECT de `comandas`),
+mas não os itens nem os pagamentos (`comanda_pertence_ao_profissional` ainda olha só `agendamentos.comanda_id`). Ao usar
+"Editar comanda fechada" (`comanda.editar_fechada`, ligada por padrão), a tela abre vazia, o DELETE dos pagamentos
+acerta 0 linhas, a conferência por contagem também vê 0, e os pagamentos são **gravados em dobro** (D1). Aplicar a
+089 antes é seguro: a policy nova de `agendamento_servicos` usa o mesmo predicado de `agendamentos` (083), que o código
+antigo já precisa passar antes; as outras mudanças só ampliam permissões; e nada no código antigo grava
+`comandas.profissional_id`.
+
+- Conferências somente leitura (depois da 089):
   ```sql
   select pg_get_functiondef('public.comanda_pertence_ao_profissional(uuid)'::regprocedure); -- contém comandas c
   select policyname, cmd from pg_policies where tablename in ('agendamento_servicos','servico_produtos') order by 1; -- 4 + 2

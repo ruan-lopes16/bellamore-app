@@ -97,3 +97,24 @@ export function estatisticasDoMes(
   }
   return out;
 }
+
+/**
+ * Quais números de um membro a pessoa logada pode ver na Equipe (web e app). A tela pede só
+ * `equipe.gerenciar`, mas a RLS só entrega os atendimentos das colegas com `agenda.ver_equipe` e as
+ * comissões delas com `comissoes.ver_todas` — sem a chave, os números viriam zerados e seriam falsos.
+ * Os números da própria pessoa sempre aparecem (a RLS mostra o que é dela). A dona tem todas as chaves.
+ *
+ * - `producao`: faturado e atendimentos do mês;
+ * - `comissao`: comissão pendente, "Pagar" e "Comissão em dia".
+ */
+export function numerosVisiveis(
+  meuUserId: string | null | undefined,
+  alvoUserId: string,
+  pode: (chave: 'agenda.ver_equipe' | 'comissoes.ver_todas') => boolean,
+): { producao: boolean; comissao: boolean } {
+  const euMesma = !!meuUserId && meuUserId === alvoUserId;
+  return {
+    producao: euMesma || pode('agenda.ver_equipe'),
+    comissao: euMesma || pode('comissoes.ver_todas'),
+  };
+}

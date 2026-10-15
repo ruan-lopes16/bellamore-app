@@ -57,7 +57,9 @@ export async function POST(req: NextRequest) {
     }
 
     const roleSolicitado: 'gestor' | 'profissional' = role === 'gestor' ? 'gestor' : 'profissional';
-    if (!podeAtribuirRole(membroReq.role as 'owner' | 'gestor' | 'profissional', roleSolicitado)) {
+    // Só a dona cria gestora; papel Profissional basta `equipe.gerenciar` (conferido acima), inclusive para a
+    // profissional que recebeu essa exceção.
+    if (!podeAtribuirRole(permsReq.isOwner ? 'owner' : (membroReq.role as 'gestor' | 'profissional'), roleSolicitado)) {
       return NextResponse.json({ error: 'Você não pode convidar alguém com esse papel.' }, { status: 403 });
     }
     const emailFinal = email.trim().toLowerCase();

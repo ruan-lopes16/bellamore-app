@@ -11,11 +11,16 @@ export function rotaInicial(role: PerfilRole | 'owner'): string {
   }
 }
 
-/** Mudar/atribuir papel é fixo (fora do catálogo): gestora só convida profissional. */
+/**
+ * Papel que quem convida/cadastra pode dar (fixo, fora do catálogo): só a dona cria gestora. Papel
+ * Profissional fica liberado para qualquer um que já passou por `equipe.gerenciar` — inclusive a
+ * profissional que recebeu essa exceção. Passe `'owner'` quando `isOwner` (dono da empresa), mesmo que o
+ * vínculo dela diga outro papel.
+ */
 export function podeAtribuirRole(
   quemConvida: 'owner' | PerfilRole,
   roleAlvo: 'gestor' | 'profissional',
 ): boolean {
   if (roleAlvo === 'gestor') return quemConvida === 'owner';
-  return quemConvida === 'owner' || quemConvida === 'gestor';
+  return true;
 }

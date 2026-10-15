@@ -30,6 +30,7 @@ export function podeAtribuirRole(
   quemConvida: 'owner' | PerfilRole,
   roleAlvo: 'gestor' | 'profissional'
 ): boolean {
+  // Igual ao web: só a dona cria gestora; papel Profissional basta `equipe.gerenciar`.
   if (roleAlvo === 'gestor') return quemConvida === 'owner';
-  return quemConvida === 'owner' || quemConvida === 'gestor';
+  return true;
 }

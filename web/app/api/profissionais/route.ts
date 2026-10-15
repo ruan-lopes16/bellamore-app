@@ -26,9 +26,12 @@ const ERRO_SEM_PERMISSAO = 'Você não tem permissão para gerenciar a equipe.';
 const ERRO_GERENCIAR_MEMBRO = 'Você só pode editar profissionais da equipe (não a dona, outra gestora ou você mesma).';
 const ERRO_TROCA_EMAIL_LOGIN = 'O e-mail de login desta pessoa só pode ser trocado pela dona, e só quando a conta dela não é usada em outra empresa.';
 
-/** Escapa curingas do ILIKE (`\`, `%`, `_`) para comparar o e-mail sem diferenciar maiúsculas. */
+/**
+ * Escapa curingas do ILIKE (`\`, `%`, `_` e `*`, que o PostgREST trata como `%`) para comparar o
+ * e-mail sem diferenciar maiúsculas.
+ */
 function escaparLike(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+  return s.replace(/[\\%_*]/g, (c) => `\\${c}`);
 }
 
 /**
@@ -72,7 +75,9 @@ export async function POST(req: NextRequest) {
     }
 
     const roleSolicitado: 'gestor' | 'profissional' = role === 'gestor' ? 'gestor' : 'profissional';
-    if (!podeAtribuirRole(membroReq.role as 'owner' | 'gestor' | 'profissional', roleSolicitado)) {
+    // Só a dona cria gestora; papel Profissional basta `equipe.gerenciar` (conferido acima), inclusive para a
+    // profissional que recebeu essa exceção.
+    if (!podeAtribuirRole(permsReq.isOwner ? 'owner' : (membroReq.role as 'gestor' | 'profissional'), roleSolicitado)) {
       return NextResponse.json({ error: 'Você não pode atribuir esse papel.' }, { status: 403 });
     }
 
@@ -247,7 +252,8 @@ export async function PATCH(req: NextRequest) {
     if (emailNovo) {
       const { data: authAtual, error: errAuthAtual } = await adminClient.auth.admin.getUserById(userId);
       if (errAuthAtual || !authAtual?.user) {
-        return NextResponse.json({ error: 'Não foi possível conferir a conta desta pessoa.' }, { status: 400 });
+        // Falha do Auth, não do pedido: 500.
+        return NextResponse.json({ error: 'Não foi possível conferir a conta desta pessoa.' }, { status: 500 });
       }
       emailAntigoAuth = authAtual.user.email ?? null;
       emailMudou = emailNovo !== (emailAntigoAuth ?? '').trim().toLowerCase();

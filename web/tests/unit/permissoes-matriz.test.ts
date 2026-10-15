@@ -246,9 +246,29 @@ describe('matriz de permissões — migration 089', () => {
     expect(est.slice(0, est.indexOf(');\n'))).toContain("tem_permissao(empresa_id, 'agenda.gerenciar_outras')");
     expect(sql089).toMatch(/"servico_produtos: gestor gerencia"[\s\S]*?tem_permissao\(s\.empresa_id, 'servicos\.gerenciar'\)/);
     expect(sql089).toContain('drop policy if exists "agendamento_servicos: membro gerencia"');
-    for (const nome of ['equipe insere', 'equipe atualiza', 'equipe exclui']) {
-      expect(sql089).toContain(`create policy "agendamento_servicos: ${nome}"`);
+    // D14: a CONDIÇÃO de cada escrita segue a de agendamentos (atendimento próprio ou a chave),
+    // não só o nome da policy; e a leitura continua para membro.
+    const policyAs = (nome: string) => {
+      const i = sql089.indexOf(`create policy "agendamento_servicos: ${nome}" on public.agendamento_servicos`);
+      expect(i, nome).toBeGreaterThan(-1);
+      const fim = sql089.indexOf('drop policy', i);
+      return sql089.slice(i, fim === -1 ? sql089.indexOf('notify pgrst', i) : fim);
+    };
+    for (const [nome, cmd] of [['equipe insere', 'insert'], ['equipe atualiza', 'update'], ['equipe exclui', 'delete']]) {
+      const pol = policyAs(nome);
+      expect(pol, nome).toContain(`for ${cmd}`);
+      expect(pol, nome).toContain('empresa_id in (select minha_empresas())');
+      expect(pol, nome).toContain("tem_permissao(empresa_id, 'agenda.gerenciar_outras')");
+      expect(pol, nome).toMatch(/a\.id = agendamento_servicos\.agendamento_id and a\.profissional_id = auth\.uid\(\)/);
+      expect(pol, nome).not.toMatch(/\busing \(true\)|with check \(true\)/);
     }
+    // UPDATE confere nos dois lados (using e with check).
+    const upd = policyAs('equipe atualiza');
+    expect(upd.match(/tem_permissao\(empresa_id, 'agenda\.gerenciar_outras'\)/g)?.length).toBe(2);
+    expect(upd.match(/a\.profissional_id = auth\.uid\(\)/g)?.length).toBe(2);
+    const ver = policyAs('membro ve');
+    expect(ver).toContain('for select');
+    expect(ver).toContain('empresa_id in (select minha_empresas())');
   });
 
   it('sem security definer novo, idempotente e recarrega o schema', () => {
