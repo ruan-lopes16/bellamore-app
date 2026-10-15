@@ -1210,13 +1210,51 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 **Regras novas:** edição com o campo intocado nunca regrava o número (saldo omitido do UPDATE, mínimo/qtd mantidos); categoria legada aceita só se igual à original; material mantém o preço de venda na edição; unidade do produto editado nunca some do seletor; "0.xxx" é decimal, "1.234" é milhar.
 
 **Pendências para produção:**
-- Rodar `088_estoque_movimentar_e_unidades.sql` no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Ordem livre: sem a 088 a movimentação usa o caminho antigo e o botão "Unidades" fica escondido.
+- ~~Rodar `088_estoque_movimentar_e_unidades.sql`~~ — **aplicada em produção em 2026-10-14**.
 - App: build nativo novo (já exigido pela Fase 2C).
 
 **Registrados, não corrigidos:**
 - A trava protege venda avulsa e movimentação manual entre si; a baixa da comanda continua sem trava (decisão de 29/09).
 - "0.xxx" em campos de dinheiro (`parseValorBR`) e vírgula na mensagem da 087.
 - Testes das telas por varredura de texto.
+
+---
+
+### Sessão 2026-10-14/15 — Comanda da profissional ("sem permissão") + Paridade Equipe + revisão das 27 permissões (089)
+
+*Escopo: (1) Bug de produção: a Thalia (profissional, comanda.fechar ligado) via "Você não tem permissão para fechar a*
+*comanda" no PWA — o INSERT em `comandas` tinha RETURNING e a policy de SELECT só mostra à profissional comandas ligadas a*
+*atendimentos dela; id gerado no cliente e `profissional_id` = quem fechou (web e app; PR #150, também nesta branch).*
+*(2) Equipe igual no web e no app por `shared/equipe*.ts`: dona na lista, faturado sem sessões de pacote, Pagar no app,*
+*tela nova `editar-profissional/[id]`, comissão e contrato no convite. (3) API: convite não zera a comissão, PATCH pelo app*
+*(Bearer + `empresaId`), troca de e-mail troca o login. (4) Revisão das 27 permissões (matriz em*
+*`docs/superpowers/notes/2026-10-14-matriz-permissoes.md`): 15 divergências tela × banco corrigidas no código e na migration 089.*
+*5 tasks + revisão final (opus) + ondas de correção. Spec e plano: `docs/superpowers/{specs,plans}/2026-10-14-paridade-equipe*`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 1523/1523; mobile com os mesmos 8 erros pré-existentes neste worktree |
+| UX / Padrões    | 9.0  | Mesmos textos e regras nas duas Equipes; números que a pessoa não pode ver aparecem "—", nunca zeros; erro do e-mail junto ao campo |
+| Segurança       | 9.5  | Revisão achou e corrigiu sequestro de login (a troca de e-mail só vale para a dona e conta exclusiva da empresa); gestora não altera a si mesma, a dona ou outra gestora nem pelo POST; 089 sem `security definer` novo |
+| Documentação    | 9.0  | Spec, plano, matriz de permissões (D1–D15, F1–F10), cabeçalho da 089 com rollback |
+| Arquitetura     | 9.5  | Regras e consultas da Equipe em shared; autenticação comum da API (`quemChama`); teste de matriz trava tela × banco |
+| Performance     | 8.5  | Consultas paginadas; `tem_permissao` por linha em comanda_itens/comandas para não gestoras (medir com EXPLAIN) |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Itens de Equipe do inventário + revisão das 27 chaves |
+| **Proatividade**| 9.5  | Achados: comanda da profissional recusada pelo RETURNING (produção); sequestro de conta pela troca de e-mail; INSERT de agendamento com RETURNING recusado para quem gerencia outras sem ver a equipe; "desfazer" de pacote tirando o atendimento do combo; gestora mudando a própria comissão pelo convite |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Decisões do dono (2026-10-14):** faturado do mês sem sessões de pacote (pacote é cobrado uma vez; as sessões seguintes são cortesia); trocar o e-mail troca o login — **restrito por segurança** à dona e a contas usadas só nesta empresa (fora disso, 409 explicando).
+
+**Pendências para produção (ordem obrigatória):**
+1. Conferir no SQL Editor: `select policyname, cmd from pg_policies where tablename in ('agendamento_servicos','servico_produtos');` (derrubar, com o nome exato, policy permissiva fora do esperado).
+2. Rodar `089_permissoes_alinhamento.sql` (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new) **antes** do deploy desta branch ou do PR #150 — sem ela, editar comanda só com extras fechada pela profissional grava pagamentos em dobro.
+3. Merge e deploy; pedir à Thalia para fechar uma comanda.
+- ~~088 (Estoque)~~ — **aplicada em produção em 2026-10-14** (conferido no schema da API).
+
+**Registrados, não corrigidos:** baixa de estoque da comanda só com extras recusada para a profissional sem estoque/vendas (F3, precisa de função na 090); quem fechou a comanda mantém acesso após perder a chave (F10); POST vincula conta existente sem aceite (pré-existente); PWA com JS antigo recebe 400 no PATCH sem `empresaId` até recarregar; troca de login sem aviso ao e-mail antigo.
 
 ---
 
