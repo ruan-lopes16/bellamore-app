@@ -35,6 +35,45 @@ export function calcularDesconto(subtotal: number, entrada: number, modo: ModoDe
 }
 
 /**
+ * Espelho de `public.ratear_desconto_centavos` (migration 090) — o rateio de verdade é feito só no
+ * banco (fonte única); esta cópia serve para testes e prévia. Tudo em CENTAVOS inteiros.
+ * Cota de cada parte = piso(desconto × peso ÷ soma). O resto de centavos vai para a MAIOR parte
+ * (peso maior; empate → a que veio primeiro), sem nunca passar do peso dela; o que não cabe passa
+ * para a próxima maior. Peso 0 (sessão de pacote) recebe 0. Mesmos erros do banco.
+ * @param partes pesos em centavos, na ordem do payload (atendimentos, linhas, itens)
+ * @param desconto desconto manual em centavos
+ */
+export function ratearDescontoCentavos(partes: number[], desconto: number): number[] {
+  if (!Number.isSafeInteger(desconto) || desconto < 0) throw new Error('Desconto inválido.');
+  if (partes.length === 0) {
+    if (desconto > 0) throw new Error(ERRO_DESCONTO + '.');
+    return [];
+  }
+  let soma = 0;
+  for (const p of partes) {
+    if (!Number.isSafeInteger(p) || p < 0) throw new Error('Valor inválido no rateio do desconto.');
+    soma += p;
+  }
+  if (desconto > soma) throw new Error(ERRO_DESCONTO + '.');
+  // Piso exato em inteiros (desconto × peso cabe em 2^53 até ~R$ 900 mil por comanda): o resto da
+  // divisão é tirado antes de dividir, sem depender do arredondamento do ponto flutuante.
+  const piso = (a: number, b: number) => (a - (a % b)) / b;
+  const cotas = partes.map(p => (soma === 0 ? 0 : piso(desconto * p, soma)));
+  let resto = desconto - cotas.reduce((s, c) => s + c, 0);
+  const ordem = partes.map((p, i) => i).sort((a, b) => partes[b] - partes[a] || a - b);
+  for (const i of ordem) {
+    if (resto <= 0) break;
+    const folga = partes[i] - cotas[i];
+    if (folga > 0) {
+      const extra = Math.min(folga, resto);
+      cotas[i] += extra;
+      resto -= extra;
+    }
+  }
+  return cotas;
+}
+
+/**
  * Um pagamento da comanda. `taxaGravada`/`metodoGravado`/`parcelasGravadas`/`criadoEm` só existem
  * num split reaberto na edição de comanda fechada: guardam como ele estava no banco, para que a
  * taxa da maquininha da época continue valendo (spec: "pagamentos já gravados mantêm o taxa_perc").
@@ -53,6 +92,11 @@ export type SplitPagamento = {
   maquininhaGravada?: string | null;
   /** `bandeira` gravada no split reaberto. */
   bandeiraGravada?: string | null;
+  /**
+   * `pagamentos.id` do split reaberto na edição. Vai como `pagamento_id` para `editar_comanda`
+   * (090), que mantém id, taxa, maquininha e data quando método/parcelas/bandeira/maquininha não mudaram.
+   */
+  pagamentoId?: string | null;
 };
 
 export type ResumoComanda = {

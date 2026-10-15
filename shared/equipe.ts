@@ -72,9 +72,11 @@ export function vinculoParaGravar(
 /**
  * Faturado e atendimentos do mês por profissional (decisão do dono 2026-10-14): faturado = atendimentos
  * concluídos SEM pacote + serviços extras (`extrasPorProf`); atendimentos = todos os concluídos.
+ * Atendimento entra com `valor − desconto_rateado` (parte do desconto da comanda, migration 090;
+ * ausente = 0), igual à receita de shared/kpis-financeiros.ts.
  */
 export function estatisticasDoMes(
-  ags: { profissional_id: string | null; valor: number | string | null; pacote_cliente_id: string | null }[],
+  ags: { profissional_id: string | null; valor: number | string | null; desconto_rateado?: number | string | null; pacote_cliente_id: string | null }[],
   extrasPorProf: Record<string, number>,
 ): Record<string, { total: number; atendimentos: number }> {
   const centavos: Record<string, number> = {};
@@ -85,7 +87,9 @@ export function estatisticasDoMes(
     centavos[a.profissional_id] ??= 0;
     if (!a.pacote_cliente_id) {
       const v = Number(a.valor ?? 0);
-      centavos[a.profissional_id] += Number.isFinite(v) ? Math.round(v * 100) : 0;
+      const d = Number(a.desconto_rateado ?? 0);
+      const cent = (Number.isFinite(v) ? Math.round(v * 100) : 0) - (Number.isFinite(d) ? Math.round(d * 100) : 0);
+      centavos[a.profissional_id] += Math.max(cent, 0);
     }
   }
   for (const [id, v] of Object.entries(extrasPorProf)) {

@@ -8,6 +8,7 @@ import { montarPagamentos, resumoComanda, type SplitPagamento } from './comanda-
 import { mensagemErroBanco } from './erros';
 import type { ClienteDb } from './kpis-financeiros-consultas';
 import type { ConfigCartoes } from './taxas-cartao';
+import { novoUuid } from './uuid';
 
 /** Cliente do banco para a venda: tabelas (caminho antigo) e `rpc` (função da 087). Estrutural. */
 export type ClienteDbVenda = ClienteDb & {
@@ -67,6 +68,12 @@ export function subtotalVenda(itens: ItemVenda[]): number {
 export type DadosVenda = {
   empresaId: string; clienteId: string | null; itens: ItemVenda[]; desconto: number;
   splits: SplitPagamento[]; config: ConfigCartoes;
+  /**
+   * Chave da venda (`p_venda_id` da v2, migration 090): a tela gera UMA vez por carrinho (novoUuid)
+   * e reaproveita na nova tentativa — se a 1ª chegou a gravar, o banco devolve a mesma venda em vez
+   * de registrar outra. Ausente = um id novo por chamada (sem essa proteção).
+   */
+  vendaId?: string;
 };
 
 /** Venda gravada. `avisoEstoque` preenchido = venda e pagamentos ok, mas a baixa do estoque falhou. */
@@ -88,9 +95,11 @@ export class ErroVenda extends Error {
 }
 
 /**
- * Grava a venda. Caminho principal: a função `registrar_venda_avulsa` (migration 087) grava venda,
+ * Grava a venda. Caminho principal: a função `registrar_venda_avulsa_v2` (migration 090) grava venda,
  * itens, saída de estoque e pagamentos numa transação só, travando o estoque — qualquer erro desfaz
- * tudo (`ErroVenda` com `vendaId` null: pode tentar de novo). Sem a 087 (`PGRST202`), usa o caminho
+ * tudo (`ErroVenda` com `vendaId` null: pode tentar de novo) — e usa `d.vendaId` como chave contra
+ * repetição. Sem a 090 (`PGRST202`) chama a `registrar_venda_avulsa` (087, mesma regra sem a
+ * chave). Só `PGRST202` desce para a próxima. Sem a 087 também, usa o caminho
  * antigo: `vendas` → `venda_itens` → `estoque_movimentos` (saída; o trigger trg_atualizar_estoque
  * baixa o saldo) → `pagamentos` (`venda_id`, via montarPagamentos), com cada etapa conferida — falha
  * nos itens tenta desfazer a venda, falha no estoque vira `avisoEstoque`, falha nos pagamentos lança
@@ -104,17 +113,25 @@ export async function gravarVenda(db: ClienteDbVenda, d: DadosVenda): Promise<Re
   const resumo = resumoComanda({ subtotal, desconto, descontoReserva: 0, splits: d.splits });
   if (!resumo.podeFechar) throw new ErroVenda('venda', resumo.motivo ?? 'Pagamento não cobre o total.', null);
 
-  // 0. Tudo ou nada pela função do banco (087). O total é o recalculado aqui (e de novo na função).
+  // 0. Tudo ou nada pela função do banco. O total é o recalculado aqui (e de novo na função).
   const pagamentosRpc = montarPagamentos(d.splits, { empresaId: d.empresaId, config: d.config, total: resumo.total })
     .map(({ empresa_id: _e, comanda_id: _c, venda_id: _v, ...resto }) => resto);
-  const { data: idRpc, error: eRpc } = await db.rpc('registrar_venda_avulsa', {
+  const argsRpc = {
     p_empresa: d.empresaId,
     p_cliente: d.clienteId || null,
     p_desconto: desconto,
     p_itens: d.itens.map(i => ({ produto_id: i.produtoId, quantidade: i.quantidade, preco_unitario: i.precoUnitario })),
     p_pagamentos: pagamentosRpc,
-  });
-  if (!funcaoInexistente(eRpc)) {
+  };
+  // 0a. v2 (090): mesma função da 087 com a chave `p_venda_id` — a nova tentativa com o MESMO id
+  //     devolve a venda já gravada em vez de registrar outra. 0b. sem a 090: v1 (087).
+  const tentativas: [string, Record<string, unknown>][] = [
+    ['registrar_venda_avulsa_v2', { p_venda_id: d.vendaId || novoUuid(), ...argsRpc }],
+    ['registrar_venda_avulsa', argsRpc],
+  ];
+  for (const [fn, args] of tentativas) {
+    const { data: idRpc, error: eRpc } = await db.rpc(fn, args);
+    if (funcaoInexistente(eRpc)) continue;
     // Erro SEM código = a chamada nem chegou a uma resposta do Postgres/PostgREST (rede caiu): o
     // servidor pode ter gravado a venda. Não libera "tentar de novo" às cegas: manda conferir no Histórico.
     if (eRpc && !eRpc.code) {
@@ -126,7 +143,7 @@ export async function gravarVenda(db: ClienteDbVenda, d: DadosVenda): Promise<Re
     return { vendaId: idRpc, avisoEstoque: null };
   }
 
-  // Sem a 087: caminho antigo em 4 passos.
+  // Sem a 087 nem a 090: caminho antigo em 4 passos.
   // 1. Venda (valor_final é coluna gerada: valor_total − desconto)
   const { data: venda, error: eVenda } = await db.from('vendas').insert({
     empresa_id: d.empresaId,

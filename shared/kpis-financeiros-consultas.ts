@@ -20,7 +20,7 @@ import { buscarTodasPaginas } from './paginacao';
 import type { Limites } from './periodos';
 import type {
   AgendamentoFinRow, ComissaoFinRow, DadosFinanceiros, DespesaFinRow,
-  PagamentoFinRow, ServicoExtraFinRow, TaxaPagaFinRow, VendaFinRow,
+  PagamentoFinRow, ServicoExtraFinRow, TaxaPagaFinRow, TaxaReservaFinRow, VendaFinRow,
 } from './kpis-financeiros';
 import type { FinanceiroFechamentoRow } from './fechamentos-mensais';
 import type { RetiradaSociaDevolucaoRow, RetiradaSociaRow } from './retiradas-socia';
@@ -42,20 +42,57 @@ export async function buscarTodasOuLancar<T>(montar: (de: number, ate: number) =
   });
 }
 
-/** Colunas dos agendamentos (inclui nomes para rankings e categoria/foto para o mobile). */
-export const COLUNAS_AGENDAMENTO_FIN = `id, valor, status, data_hora_inicio, pacote_cliente_id, cliente_id, profissional_id, servico_id,
+/**
+ * Coluna da migration 090 (aplicada à mão no SQL Editor): enquanto ela não existe, o PostgREST
+ * recusa o SELECT inteiro (42703 "column ... desconto_rateado does not exist"). As consultas que a
+ * pedem refazem a busca sem ela (`buscarComDescontoRateado`) e a regra trata a ausência como 0.
+ */
+const DESCONTO_RATEADO = 'desconto_rateado';
+
+/** Erro de "a coluna desconto_rateado ainda não existe" (antes da 090). */
+export function erroSemDescontoRateado(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : (e as { message?: string } | null)?.message ?? '';
+  return msg.includes(DESCONTO_RATEADO);
+}
+
+/**
+ * Busca com `desconto_rateado` e, se a coluna ainda não existe (antes da 090), refaz sem ela. Só
+ * esse erro desce para a versão sem a coluna; qualquer outro é lançado.
+ */
+export async function buscarComDescontoRateado<T>(
+  colunas: string, colunasLegado: string,
+  montar: (colunas: string) => (de: number, ate: number) => PromiseLike<RespostaDb<T>>,
+): Promise<T[]> {
+  try {
+    return await buscarTodasOuLancar<T>(montar(colunas));
+  } catch (e) {
+    if (!erroSemDescontoRateado(e)) throw e;
+    return buscarTodasOuLancar<T>(montar(colunasLegado));
+  }
+}
+
+const RELACOES_AGENDAMENTO_FIN = `
   servico:servicos(nome, categoria),
   profissional:users!agendamentos_profissional_id_fkey(nome, foto_url),
   cliente:clientes!agendamentos_cliente_id_fkey(nome)`;
+
+/** Colunas dos agendamentos antes da 090 (sem `desconto_rateado`). */
+export const COLUNAS_AGENDAMENTO_FIN_LEGADO = `id, valor, status, data_hora_inicio, pacote_cliente_id, cliente_id, profissional_id, servico_id,${RELACOES_AGENDAMENTO_FIN}`;
+
+/** Colunas dos agendamentos (inclui nomes para rankings e categoria/foto para o mobile). */
+export const COLUNAS_AGENDAMENTO_FIN = `id, valor, ${DESCONTO_RATEADO}, status, data_hora_inicio, pacote_cliente_id, cliente_id, profissional_id, servico_id,${RELACOES_AGENDAMENTO_FIN}`;
 
 /**
  * Colunas dos serviços extras da comanda. `comandas!inner` deixa filtrar pela
  * comanda (status e fechada_at) e descarta itens cuja comanda o RLS esconde.
  */
-export const COLUNAS_SERVICO_EXTRA_FIN = `id, valor_unit, quantidade, profissional_id, servico_id, descricao,
+const RELACOES_SERVICO_EXTRA_FIN = `
   servico:servicos(nome),
   profissional:users(nome),
   comanda:comandas!inner(fechada_at, status, clientes_id, cliente:clientes!comandas_clientes_id_fkey(nome))`;
+export const COLUNAS_SERVICO_EXTRA_FIN = `id, valor_unit, quantidade, ${DESCONTO_RATEADO}, profissional_id, servico_id, descricao,${RELACOES_SERVICO_EXTRA_FIN}`;
+/** Antes da 090 (sem `desconto_rateado`). */
+export const COLUNAS_SERVICO_EXTRA_FIN_LEGADO = `id, valor_unit, quantidade, profissional_id, servico_id, descricao,${RELACOES_SERVICO_EXTRA_FIN}`;
 
 type ServicoExtraBrutoRow = Omit<ServicoExtraFinRow, 'fechada_at' | 'cliente_id' | 'cliente'> & {
   comanda: { fechada_at: string; clientes_id: string | null; cliente?: { nome: string } | null } | null;
@@ -68,13 +105,14 @@ type ServicoExtraBrutoRow = Omit<ServicoExtraFinRow, 'fechada_at' | 'cliente_id'
  * consulta não falha por isso, igual às demais.
  */
 export async function carregarServicosExtras(db: ClienteDb, empresaId: string, l: Limites): Promise<ServicoExtraFinRow[]> {
-  const linhas = await buscarTodasOuLancar<ServicoExtraBrutoRow>((de, ate) => db.from('comanda_itens')
-    .select(COLUNAS_SERVICO_EXTRA_FIN)
-    .eq('empresa_id', empresaId).eq('tipo', 'servico')
-    .eq('comanda.status', 'fechada')
-    .gte('comanda.fechada_at', l.startIso).lte('comanda.fechada_at', l.endIso)
-    .order('id')
-    .range(de, ate));
+  const linhas = await buscarComDescontoRateado<ServicoExtraBrutoRow>(COLUNAS_SERVICO_EXTRA_FIN, COLUNAS_SERVICO_EXTRA_FIN_LEGADO,
+    colunas => (de, ate) => db.from('comanda_itens')
+      .select(colunas)
+      .eq('empresa_id', empresaId).eq('tipo', 'servico')
+      .eq('comanda.status', 'fechada')
+      .gte('comanda.fechada_at', l.startIso).lte('comanda.fechada_at', l.endIso)
+      .order('id')
+      .range(de, ate));
   return linhas
     .filter(x => x.comanda?.fechada_at)
     .map(({ comanda, ...x }) => ({
@@ -96,12 +134,13 @@ export const COLUNAS_RETIRADA =
 export async function carregarDadosFinanceiros(db: ClienteDb, empresaId: string, l: Limites): Promise<DadosFinanceiros> {
   const [agendamentos, vendas, taxasCancelamento, taxasReserva, pagamentos, comissoes, despesas, fechamentos, servicosExtras] =
     await Promise.all([
-      buscarTodasOuLancar<AgendamentoFinRow>((de, ate) => db.from('agendamentos')
-        .select(COLUNAS_AGENDAMENTO_FIN)
-        .eq('empresa_id', empresaId)
-        .gte('data_hora_inicio', l.startIso).lte('data_hora_inicio', l.endIso)
-        .order('data_hora_inicio').order('id')
-        .range(de, ate)),
+      buscarComDescontoRateado<AgendamentoFinRow>(COLUNAS_AGENDAMENTO_FIN, COLUNAS_AGENDAMENTO_FIN_LEGADO,
+        colunas => (de, ate) => db.from('agendamentos')
+          .select(colunas)
+          .eq('empresa_id', empresaId)
+          .gte('data_hora_inicio', l.startIso).lte('data_hora_inicio', l.endIso)
+          .order('data_hora_inicio').order('id')
+          .range(de, ate)),
       buscarTodasOuLancar<VendaFinRow>((de, ate) => db.from('vendas')
         .select('id, valor_final, created_at')
         .eq('empresa_id', empresaId)
@@ -114,9 +153,10 @@ export async function carregarDadosFinanceiros(db: ClienteDb, empresaId: string,
         .gte('paga_em', l.startIso).lte('paga_em', l.endIso)
         .order('paga_em').order('id')
         .range(de, ate)),
-      buscarTodasOuLancar<TaxaPagaFinRow>((de, ate) => db.from('taxas_reserva')
-        .select('id, valor, paga_em')
-        .eq('empresa_id', empresaId).not('paga_em', 'is', null)
+      // Só a retida é receita à parte (a paga de atendimento concluído já está no valor dele).
+      buscarTodasOuLancar<TaxaReservaFinRow>((de, ate) => db.from('taxas_reserva')
+        .select('id, valor, paga_em, status')
+        .eq('empresa_id', empresaId).eq('status', 'retida').not('paga_em', 'is', null)
         .gte('paga_em', l.startIso).lte('paga_em', l.endIso)
         .order('paga_em').order('id')
         .range(de, ate)),

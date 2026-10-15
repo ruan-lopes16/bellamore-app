@@ -39,8 +39,9 @@ export function fixtureSetembro(): DadosFinanceiros {
     ],
     taxasCancelamento: [{ id: 't1', valor: 50, paga_em: '2026-09-18T12:00:00Z' }],
     taxasReserva: [
-      { id: 'r1', valor: 30, paga_em: '2026-09-02T12:00:00Z' },
-      { id: 'r2', valor: 25, paga_em: '2026-08-31T23:00:00Z' },                     // 31/08 20:00 BRT → agosto
+      // Retidas (atendimento cancelado/faltou depois de pagar): desde a 090 só elas são receita à parte.
+      { id: 'r1', valor: 30, paga_em: '2026-09-02T12:00:00Z', status: 'retida' },
+      { id: 'r2', valor: 25, paga_em: '2026-08-31T23:00:00Z', status: 'retida' },   // 31/08 20:00 BRT → agosto
     ],
     pagamentos: [
       { id: 'g1', metodo: 'credito', valor: 200, valor_liquido: 194,  created_at: '2026-09-10T13:30:00Z' },

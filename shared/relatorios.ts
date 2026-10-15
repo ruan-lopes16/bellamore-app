@@ -5,7 +5,7 @@
  * (cartões, resumo financeiro) e os rankings das abas.
  */
 import {
-  arredondar, num, valorServicoExtra, variacaoPercentual, type DadosFinanceiros, type KpisFinanceiros, type Valor,
+  arredondar, num, valorAtendimentoReceita, valorServicoExtra, variacaoPercentual, type DadosFinanceiros, type KpisFinanceiros, type Valor,
 } from './kpis-financeiros';
 import { ROTULO_COMPARACAO, instanteMs, type PeriodoRelatorio } from './periodos';
 
@@ -204,7 +204,8 @@ export const STATUS_SERVICO_EXTRA = 'Serviço extra';
 /**
  * Linhas da exportação da aba Financeiro dos Relatórios (web e app): os
  * atendimentos concluídos + os serviços extras da comanda (receita desde
- * 2026-10-08, data = fechamento da comanda), em ordem cronológica.
+ * 2026-10-08, data = fechamento da comanda), em ordem cronológica. Valor = o que
+ * entrou na receita (com a parte do desconto da comanda já tirada, migration 090).
  * `d` já recortado ao período (recortarDados).
  */
 export function linhasAtendimentosRelatorio(
@@ -212,7 +213,7 @@ export function linhasAtendimentosRelatorio(
 ): { inicio: string; cliente: string | null; servico: string | null; valor: number; status: string }[] {
   const ags = d.agendamentos.filter(a => a.status === 'concluido').map(a => ({
     inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null,
-    valor: num(a.valor), status: a.status,
+    valor: arredondar(valorAtendimentoReceita(a)), status: a.status,
   }));
   const extras = d.servicosExtras.map(x => ({
     inicio: x.fechada_at, cliente: x.cliente?.nome ?? null, servico: x.servico?.nome ?? x.descricao ?? null,
