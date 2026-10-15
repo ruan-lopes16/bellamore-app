@@ -35,10 +35,11 @@ const sqlPermissoes = migrations
 const sql089 = ler('supabase/migrations/089_permissoes_alinhamento.sql');
 const matriz = ler('docs/superpowers/notes/2026-10-14-matriz-permissoes.md');
 
-/** Chaves que nenhuma policy/função confere, com o motivo (linha F1 da matriz). */
-const SO_TELA: Partial<Record<ChavePermissao, string>> = {
-  'comanda.editar_fechada': 'A comanda nasce fechada e o fechamento grava itens/pagamentos nela: o banco não distingue fechar de editar (F1).',
-};
+/**
+ * Chaves que nenhuma policy/função confere, com o motivo. Vazio desde a 090: comanda.editar_fechada
+ * (antes F1, só tela) passou a ser conferida em editar_comanda.
+ */
+const SO_TELA: Partial<Record<ChavePermissao, string>> = {};
 
 describe('matriz de permissões — catálogo', () => {
   it('toda chave usada na tela (web e app) existe no catálogo', () => {

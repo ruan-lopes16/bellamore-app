@@ -26,8 +26,8 @@ SELECT ainda não mostrava a comanda recém-criada para ela.
 | 10 | `anamnese.ver` | perfil da cliente (aba Anamnese) | `cliente/[id]` | `anamnese: ver` (SELECT) | ✔/✔ | OK |
 | 11 | `anamnese.editar` | perfil da cliente | `cliente/[id]`, `cliente/[id]/anamnese`, `novo-cliente` | `anamnese: inserir`/`atualizar` (+ SELECT no upsert/RETURNING) | ✔/✔ | **Corrigido** (D6) |
 | 12 | `comanda.fechar` | Comanda, Dashboard (card), Sidebar (badge) | `nova-comanda`, `dashboard` | `comandas: membro insere` (INSERT) | ✔/✔ | **Corrigido** (4088486, D1, D10) |
-| 13 | `comanda.desconto` | Comanda (desconto e Cortesia), Vendas | `nova-comanda`, `vendas` | `registrar_venda_avulsa` (087) | ✔/✔ | OK na venda avulsa; na comanda é só tela (F2) |
-| 14 | `comanda.editar_fechada` | Comanda | `nova-comanda` | — | ✔/✔ | **Só tela** (F1) |
+| 13 | `comanda.desconto` | Comanda (desconto e Cortesia), Vendas | `nova-comanda`, `vendas` | `registrar_venda_avulsa` (087), `fechar_comanda`/`editar_comanda`/`registrar_venda_avulsa_v2` (090) | ✔/✔ | OK; na comanda conferido pela 090 (F2 resolvido; o caminho antigo em passos, sem a 090, continua só tela) |
+| 14 | `comanda.editar_fechada` | Comanda | `nova-comanda` | `editar_comanda` (090) | ✔/✔ | **Corrigido** na 090 (antes F1, só tela; o caminho antigo em passos, sem a 090, continua só tela) |
 | 15 | `vendas.acessar` | `vendas/layout` (`exigirAcesso`), Sidebar | `mais`, `vendas` | `vendas`/`venda_itens` SELECT, `vendas` DELETE, `pagamentos` SELECT, `estoque_movimentos` INSERT, `registrar_venda_avulsa` | ✔/✘ | OK |
 | 16 | `servicos.gerenciar` | Serviços (+ categorias e insumos) | `servicos`, `editar-servico` | `servicos` ALL, `categorias_servico`; 089: `servico_produtos` | ✔/✘ | **Corrigido** (D5, D11) |
 | 17 | `pacotes.gerenciar` | Pacotes (catálogo) | `pacotes`, `editar-pacote` | `pacotes` ALL, `pacote_servicos` ALL (078 derrubou as escritas de membro) | ✔/✘ | OK (D11: `.select` nas escritas) |
@@ -83,9 +83,9 @@ seguintes da mesma tela.
 
 | Id | O quê | Motivo |
 |----|-------|--------|
-| F1 | `comanda.editar_fechada` não tem trava no banco | A comanda nasce `fechada`, e o próprio fechamento grava itens e pagamentos nela. O banco não distingue "fechar" de "editar" sem um estado novo. Travar só o UPDATE de `comandas` deixaria a edição pela metade (os itens são gravados antes). Fica só na tela, nas duas plataformas. |
-| F2 | `comanda.desconto` na comanda não tem trava no banco | O desconto é gravado junto com o desconto de reserva e reaberto na edição. Travar exigiria um trigger comparando OLD e NEW. O total coberto continua conferido. Na venda avulsa, a 087 confere. |
-| F3 | Comanda só com extras fechada por profissional sem `estoque.acessar`/`vendas.acessar`: a baixa de estoque é recusada | `estoque_movimentos` não tem `comanda_id`. Abrir a saída sem atendimento para quem tem `comanda.fechar` deixaria baixar qualquer produto. Já estava registrado em 2026-10-02. |
+| F1 | ~~`comanda.editar_fechada` não tem trava no banco~~ — resolvido na 090 (`editar_comanda`) | A comanda nasce `fechada`, e o próprio fechamento grava itens e pagamentos nela. O banco não distingue "fechar" de "editar" sem um estado novo. Travar só o UPDATE de `comandas` deixaria a edição pela metade (os itens são gravados antes). Fica só na tela, nas duas plataformas. |
+| F2 | ~~`comanda.desconto` na comanda não tem trava no banco~~ — resolvido na 090 (`fechar_comanda`/`editar_comanda`) | O desconto é gravado junto com o desconto de reserva e reaberto na edição. Travar exigiria um trigger comparando OLD e NEW. O total coberto continua conferido. Na venda avulsa, a 087 confere. |
+| F3 | ~~Comanda só com extras fechada por profissional sem `estoque.acessar`/`vendas.acessar`: a baixa de estoque é recusada~~ — resolvido na 090 (`estoque_movimentos.comanda_id` + ramo de RLS da comanda dela) | `estoque_movimentos` não tem `comanda_id`. Abrir a saída sem atendimento para quem tem `comanda.fechar` deixaria baixar qualquer produto. Já estava registrado em 2026-10-02. |
 | F4 | App: a gestora sem `comissoes.ver_todas` não tem "Comissões" no menu; no web ela vê a própria visão | Exige uma tela nova na área `(empresa)` do app, e a decisão é não criar telas nesta fase (fase Equipe/Comissões). |
 | F5 | App: a área `(profissional)` não tem comanda, não tem a lista de clientes e tem a rota `novo-agendamento` inexistente | Já registrado (decisões de 29/09 e 03/10). No app, a profissional só muda status e pede bloqueio. |
 | F6 | App `pacotes`: não tem o botão "Vender" | É paridade de tela, não de permissão: a venda pelo app acontece no agendamento e na comanda. |
