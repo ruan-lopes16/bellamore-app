@@ -34,6 +34,7 @@ import { idadeCliente, formatarAniversario, parseEndereco } from '@shared/client
 import { mensagemErroBanco } from '@shared/erros';
 import { supabase } from '@/lib/supabase';
 import { usePermissoes } from '@/lib/permissions';
+import { podeArquivarCliente, podeEditarAnamnese } from '@shared/permissoes';
 import {
   normalizarAnamnese, restricoesAnamnese, anamnesePreenchida, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
@@ -207,7 +208,7 @@ export default function ClientePerfil() {
     setExcluindo(false);
     if (error) { Alert.alert('Erro', error.message); return; }
     if (!data || data.length === 0) {
-      Alert.alert('Sem permissão', 'Você não tem permissão para excluir clientes definitivamente — apenas a dona da conta pode.');
+      Alert.alert('Sem permissão', 'Você não tem permissão para excluir clientes definitivamente.');
       return;
     }
     qc.invalidateQueries({ queryKey: ['clientes'] });
@@ -332,7 +333,7 @@ export default function ClientePerfil() {
               { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => cliente.telefone && Linking.openURL(`https://wa.me/${toWhatsApp(cliente.telefone ?? '')}`) },
               { icon: <CalendarPlus size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Agendar', onPress: () => router.push(`/(empresa)/novo-agendamento?clienteId=${id}` as any) },
               // "Mais" só abre arquivar/excluir: some se a pessoa não pode nenhum dos dois.
-              ...((pode('clientes.arquivar') || pode('clientes.excluir'))
+              ...((podeArquivarCliente(pode) || pode('clientes.excluir'))
                 ? [{ icon: <MoreHorizontal size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mais', onPress: () => setModalRemover(true) }]
                 : []),
             ].map((a) => (
@@ -652,7 +653,7 @@ export default function ClientePerfil() {
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
                     Ficha de anamnese não preenchida
                   </Text>
-                  {pode('anamnese.editar') && (
+                  {podeEditarAnamnese(pode) && (
                     <TouchableOpacity
                       onPress={() => router.push(`/(empresa)/cliente/${id}/anamnese` as any)}
                       style={{
@@ -675,7 +676,7 @@ export default function ClientePerfil() {
                     <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5 }}>
                       Ficha de Anamnese
                     </Text>
-                    {pode('anamnese.editar') && (
+                    {podeEditarAnamnese(pode) && (
                       <TouchableOpacity onPress={() => router.push(`/(empresa)/cliente/${id}/anamnese` as any)}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.accent }}>Editar</Text>
                       </TouchableOpacity>
@@ -764,7 +765,7 @@ export default function ClientePerfil() {
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, marginBottom: 14 }}>
               O que você deseja fazer com "{cliente?.nome}"?
             </Text>
-            {pode('clientes.arquivar') && (
+            {podeArquivarCliente(pode) && (
             <TouchableOpacity onPress={arquivar}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}>
               <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.amberSoft, alignItems: 'center', justifyContent: 'center' }}>

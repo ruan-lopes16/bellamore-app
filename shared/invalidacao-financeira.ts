@@ -9,6 +9,8 @@
  * também o testa — e o build do web no Vercel não instala as dependências
  * do app. O cliente de query entra por um tipo estrutural mínimo.
  *
+ * `equipe` entra porque a Equipe mostra faturado e comissões pendentes do mês.
+ *
  * `fin-retiradas` fica de fora de propósito: só muda por ações da própria
  * tela de retiradas, que já a invalida.
  */
@@ -30,6 +32,7 @@ export const CHAVES_FINANCEIRO = [
   'dash-reconquista',
   'prof-comissoes',
   'prof-kpis-dia',
+  'equipe',
 ] as const;
 
 /** O mínimo de um QueryClient (TanStack Query) que esta função usa. */

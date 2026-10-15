@@ -36,10 +36,10 @@ export const CATALOGO_PERMISSOES = [
   { chave: 'clientes.ver_todas', grupo: 'Clientes', rotulo: 'Ver todas as clientes', descricao: 'Desligado: vê só as clientes que atendeu ou cadastrou.', padrao: SIM_SIM },
   { chave: 'clientes.cadastrar', grupo: 'Clientes', rotulo: 'Cadastrar cliente', descricao: 'Inclui o cadastro rápido dentro do agendamento.', padrao: SIM_SIM },
   { chave: 'clientes.editar', grupo: 'Clientes', rotulo: 'Editar cliente', descricao: 'Nome, contato, aniversário, endereço e observações.', padrao: SIM_SIM },
-  { chave: 'clientes.arquivar', grupo: 'Clientes', rotulo: 'Arquivar e reativar cliente', descricao: 'A cliente some das listas, mas o histórico é mantido.', padrao: SIM_NAO },
+  { chave: 'clientes.arquivar', grupo: 'Clientes', rotulo: 'Arquivar e reativar cliente', descricao: 'A cliente some das listas, mas o histórico é mantido. Exige também "Editar cliente".', padrao: SIM_NAO },
   { chave: 'clientes.excluir', grupo: 'Clientes', rotulo: 'Excluir cliente para sempre', descricao: 'Só funciona para cliente sem nenhum histórico.', padrao: { gestor: false, profissional: false } },
   { chave: 'anamnese.ver', grupo: 'Clientes', rotulo: 'Ver ficha de anamnese', descricao: 'Dados de saúde da cliente.', padrao: SIM_SIM },
-  { chave: 'anamnese.editar', grupo: 'Clientes', rotulo: 'Preencher e editar ficha de anamnese', descricao: 'Dados de saúde da cliente.', padrao: SIM_SIM },
+  { chave: 'anamnese.editar', grupo: 'Clientes', rotulo: 'Preencher e editar ficha de anamnese', descricao: 'Dados de saúde da cliente. Exige também "Ver ficha de anamnese".', padrao: SIM_SIM },
   { chave: 'comanda.fechar', grupo: 'Comanda', rotulo: 'Fechar comanda', descricao: 'Profissional fecha só as comandas dos próprios atendimentos.', padrao: SIM_SIM },
   { chave: 'comanda.desconto', grupo: 'Comanda', rotulo: 'Dar desconto e cortesia', descricao: 'Campo de desconto e forma de pagamento "Cortesia".', padrao: SIM_SIM },
   { chave: 'comanda.editar_fechada', grupo: 'Comanda', rotulo: 'Editar comanda já fechada', descricao: 'Profissional edita só as comandas dos próprios atendimentos.', padrao: SIM_SIM },
@@ -80,6 +80,30 @@ export function pode(u: PermissoesUsuario, a: Acesso): boolean {
   if (u.isOwner) return true;
   if (a === 'dona') return false;
   return u.chaves.includes(a);
+}
+
+// ── Ações que o banco confere com mais de uma chave ────────────
+// (matriz docs/superpowers/notes/2026-10-14-matriz-permissoes.md). A tela usa estas funções
+// para nunca oferecer uma ação que o banco recusaria.
+
+/** `pode` já ligado a quem está logado (`usePermissoes().pode`, no web e no app). */
+export type PodeFn = (a: Acesso) => boolean;
+
+/**
+ * Arquivar/reativar = UPDATE em `clientes`: a policy de UPDATE exige "clientes.editar" e o
+ * trigger da 083 exige "clientes.arquivar" para mudar `ativo`. Só com as duas.
+ */
+export function podeArquivarCliente(p: PodeFn): boolean {
+  return p('clientes.arquivar') && p('clientes.editar');
+}
+
+/**
+ * Salvar a ficha é um upsert com RETURNING: o caminho de UPDATE do ON CONFLICT e o RETURNING
+ * exigem a policy de SELECT ("anamnese.ver"). Sem ver, a tela abriria a ficha em branco e
+ * sobrescreveria a real — e o banco recusaria. Editar exige também ver.
+ */
+export function podeEditarAnamnese(p: PodeFn): boolean {
+  return p('anamnese.ver') && p('anamnese.editar');
 }
 
 /** Chaves ligadas por padrão para o papel (comportamento de antes da feature). */

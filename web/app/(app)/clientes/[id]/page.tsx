@@ -18,6 +18,8 @@ import { usePermissoes } from '@/components/PermissoesProvider';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { mensagemErroBanco } from '@shared/erros';
+import { novoUuid } from '@shared/uuid';
+import { podeArquivarCliente, podeEditarAnamnese } from '@shared/permissoes';
 import {
   aniversarioParaGravar, nomeClienteValido, parseEndereco, serializarEndereco,
   partesAniversario, diasNoMes, idadeCliente,
@@ -199,13 +201,17 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     const [h, m] = hora.split(':').map(Number);
     const inicio = new Date(`${data}T00:00:00`); inicio.setHours(h, m, 0, 0);
     const fim    = addMinutes(inicio, duracao);
-    const { data: ag, error } = await supabase.from('agendamentos').insert({
+    // Id gerado aqui e SEM RETURNING: com "agenda.gerenciar_outras" e sem "agenda.ver_equipe" a
+    // pessoa cria na agenda de outra profissional, mas não lê a linha nova — o RETURNING recusava.
+    const ag = { id: novoUuid() };
+    const { error } = await supabase.from('agendamentos').insert({
+      id: ag.id,
       empresa_id: empresaId, cliente_id: clienteId, profissional_id: profId,
       servico_id: servicoId, data_hora_inicio: inicio.toISOString(),
       data_hora_fim: fim.toISOString(), status: 'agendado',
       valor: parseFloat(valor) || 0, observacao: obs.trim() || null,
-    }).select().single();
-    if (error || !ag) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
+    });
+    if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
 
     // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
     if (aplicarTaxaReserva) {
@@ -549,7 +555,7 @@ export default function ClientePerfilPage() {
 
   // ── Anamnese ────────────────────────────────────────────────
   const [anamnese,   setAnamnese]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
-  const [editAn,     setEditAn]     = useState(searchParams.get('editar') === '1' && searchParams.get('aba') === 'anamnese' && pode('anamnese.editar'));
+  const [editAn,     setEditAn]     = useState(searchParams.get('editar') === '1' && searchParams.get('aba') === 'anamnese' && podeEditarAnamnese(pode));
   const [rascunho,   setRascunho]   = useState<AnamneseRespostas>(ANAMNESE_VAZIA);
   const [erroAn,     setErroAn]     = useState('');
   const [erroCargaAn, setErroCargaAn] = useState('');
@@ -826,7 +832,7 @@ export default function ClientePerfilPage() {
     if (error) { setConfirmExcluir(false); setErroExcluir(error.message); return; }
     if (!data || data.length === 0) {
       setConfirmExcluir(false);
-      setErroExcluir('Você não tem permissão para excluir clientes definitivamente — apenas a dona da conta pode.');
+      setErroExcluir('Você não tem permissão para excluir clientes definitivamente.');
       return;
     }
     setConfirmExcluir(false);
@@ -949,7 +955,7 @@ export default function ClientePerfilPage() {
                   </p>
                 )}
               </div>
-              {(pode('clientes.arquivar') || pode('clientes.excluir')) && (
+              {(podeArquivarCliente(pode) || pode('clientes.excluir')) && (
                 <button onClick={desativar}
                   className="press"
                   style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', border: 'none', flexShrink: 0 }}>
@@ -1369,7 +1375,7 @@ export default function ClientePerfilPage() {
                     </p>
                   )}
                 </div>
-                {!editAn && !erroCargaAn && pode('anamnese.editar') && (
+                {!editAn && !erroCargaAn && podeEditarAnamnese(pode) && (
                   <button onClick={() => { setRascunho({ ...anamnese }); setEditAn(true); }}
                     className="flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline">
                     <Edit3 size={12}/> Editar
@@ -1536,7 +1542,7 @@ export default function ClientePerfilPage() {
                       </div>
                     </div>
 
-                    {!anamnesePreenchida(anamnese) && !erroCargaAn && pode('anamnese.editar') && (
+                    {!anamnesePreenchida(anamnese) && !erroCargaAn && podeEditarAnamnese(pode) && (
                       <button onClick={() => { setRascunho({ ...anamnese }); setEditAn(true); }}
                         className="text-accent text-sm font-semibold hover:underline self-start">
                         + Preencher ficha
@@ -1630,7 +1636,7 @@ export default function ClientePerfilPage() {
                 ))}
               </ul>
             )}
-            {!anamnesePreenchida(anamnese) && !erroCargaAn && pode('anamnese.editar') && (
+            {!anamnesePreenchida(anamnese) && !erroCargaAn && podeEditarAnamnese(pode) && (
               <button onClick={() => { setAbaAtiva('anamnese'); setRascunho({ ...anamnese }); setEditAn(true); }}
                 className="text-xs font-semibold text-amber mt-2 hover:underline">
                 Preencher agora →
@@ -1705,7 +1711,7 @@ export default function ClientePerfilPage() {
             </div>
             <div className="p-5 flex flex-col gap-3">
               <p className="text-sm text-text-3">O que você deseja fazer com "{cliente?.nome}"?</p>
-              {pode('clientes.arquivar') && (
+              {podeArquivarCliente(pode) && (
               <button onClick={() => { setModalRemover(false); setConfirmArquivar(true); }}
                 className="flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-bg transition text-left">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-amber-soft)' }}>

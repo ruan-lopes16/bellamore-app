@@ -86,6 +86,8 @@ export default function Sidebar({
   useScrollLock(maisAberto, { apenasMobile: true });
 
   const podeVerEstoque = pode(permissoes, 'estoque.acessar');
+  // Mesmo gate do card "Comandas não fechadas" do Dashboard (web e app): sem comanda.fechar não há o que fazer.
+  const podeFecharComanda = pode(permissoes, 'comanda.fechar');
   const navFiltrado          = NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
   const bottomNavFiltrado    = BOTTOM_NAV_DESKTOP.filter(item => !item.permissao || pode(permissoes, item.permissao));
   const mobileNavFiltrado    = MOBILE_NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
@@ -103,8 +105,10 @@ export default function Sidebar({
         supabase.from('comissoes').select('id', { count: 'exact', head: true })
           .eq('empresa_id', empresaId).eq('status', 'pendente'),
         // Atendimentos já ocorridos sem comanda (regra única do Dashboard).
-        aplicarFiltroComandasNaoFechadas(
-          supabase.from('agendamentos').select('id', { count: 'exact', head: true }), empresaId, new Date().toISOString()),
+        podeFecharComanda
+          ? aplicarFiltroComandasNaoFechadas(
+              supabase.from('agendamentos').select('id', { count: 'exact', head: true }), empresaId, new Date().toISOString())
+          : Promise.resolve({ count: 0 } as { count: number | null }),
       ]);
 
       const comCount = comissoes.count ?? 0;
@@ -114,7 +118,7 @@ export default function Sidebar({
       const total = (estoque.count ?? 0) + (despesas.count ?? 0) + (comCount > 0 ? 1 : 0) + (comandasCount > 0 ? 1 : 0);
       setAlertCount(total);
     })();
-  }, [empresaId, podeVerEstoque]);
+  }, [empresaId, podeVerEstoque, podeFecharComanda]);
 
   async function sair() {
     await supabase.auth.signOut();

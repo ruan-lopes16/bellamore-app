@@ -35,6 +35,7 @@ import { CategoriaIcon } from '@/components/CategoriaIcon';
 import { resolverCategoria } from '@/hooks/useAgenda';
 import type { CategoriaServico } from '@/components/CategoriaIcon';
 import { formatarMoeda } from '@shared/moeda';
+import { desfazerVinculoPacote } from '@shared/pacotes-consultas';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -330,6 +331,8 @@ type AgConcluido = {
   id: string;
   data_hora_inicio: string;
   servico_id: string | null;
+  /** Pacote a que o atendimento já estava ligado (ex.: combo); o desfazer volta a ele. */
+  pacote_cliente_id: string | null;
   servico?: { nome: string } | null;
 };
 
@@ -373,7 +376,8 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
         .select('id, servico_id, agendamento_id, observacao, created_at, servico:servicos(nome)')
         .eq('pacote_cliente_id', pc.id).order('created_at', { ascending: false }),
       supabase.from('agendamentos')
-        .select('id, data_hora_inicio, servico_id, servico:servicos(nome)')
+        // pacote_cliente_id: o desfazer do vínculo volta ao valor anterior (atendimento de combo segue no combo).
+        .select('id, data_hora_inicio, servico_id, pacote_cliente_id, servico:servicos(nome)')
         .eq('empresa_id', empresaId).eq('cliente_id', pc.cliente.id).eq('status', 'concluido')
         .order('data_hora_inicio', { ascending: false }).limit(100),
       supabase.from('pacote_uso').select('agendamento_id')
@@ -411,16 +415,27 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
     const ag = candidatos.find((a) => a.id === vincAg);
     if (!ag) return;
     setBusy(true); setErro('');
+    // 1º o vínculo no atendimento, com .select: a policy de UPDATE de agendamentos só deixa a
+    // própria agenda (ou a de outra com "agenda.gerenciar_outras"). Antes o UPDATE vinha depois
+    // e sem conferência: a sessão era lançada e o atendimento seguia contando como faturamento.
+    const { data: vinculados, error: e0 } = await supabase.from('agendamentos')
+      .update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId).select('id');
+    if (e0) { setBusy(false); setErro(e0.message); return; }
+    if (!vinculados || vinculados.length === 0) { setBusy(false); setErro('Você não tem permissão para alterar este atendimento.'); return; }
     const { error: e1 } = await supabase.from('pacote_uso').insert({
-      empresa_id: empresaId,
+      empresa_id:        empresaId,
       pacote_cliente_id: pc.id,
-      servico_id: ag.servico_id,
-      agendamento_id: ag.id,
-      created_at: ag.data_hora_inicio,
+      servico_id:        ag.servico_id,
+      agendamento_id:    ag.id,
+      created_at:        ag.data_hora_inicio,
     });
-    if (e1) { setBusy(false); setErro(e1.message); return; }
-    // Vincula o agendamento ao pacote (para de contar como faturamento, igual às automáticas)
-    await supabase.from('agendamentos').update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId);
+    if (e1) {
+      // Desfaz o vínculo voltando ao pacote ANTERIOR (null tiraria um atendimento de combo do combo e o
+      // faria contar como faturamento); se nem o desfazer passar, avisa para conferir o atendimento.
+      const falhaDesfazer = await desfazerVinculoPacote(supabase, empresaId, ag.id, ag.pacote_cliente_id ?? null);
+      setBusy(false); setErro(falhaDesfazer ?? e1.message);
+      return;
+    }
     setBusy(false); setVincOpen(false); setVincAg('');
     refresh();
   }
@@ -701,11 +716,13 @@ export default function Pacotes() {
   const vendidosFiltrados = filtro === 'todos' ? vendidos : vendidos.filter((v) => v.status === filtro);
 
   async function togglePacote(p: PacoteComServicos) {
-    const { error } = await supabase
+    const { data: alterados, error } = await supabase
       .from('pacotes')
       .update({ ativo: !p.ativo })
-      .eq('id', p.id);
+      .eq('id', p.id)
+      .select('id');
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!alterados || alterados.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar pacotes.'); return; }
     qc.invalidateQueries({ queryKey: ['pacotes'] });
   }
 

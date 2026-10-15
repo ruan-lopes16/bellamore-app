@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { ChevronLeft, Mail, User, Phone, Eye, EyeOff, Sparkles, Copy, Check, Lock } from 'lucide-react-native';
+import { ChevronLeft, Mail, User, Phone, Eye, EyeOff, Sparkles, Copy, Check, Lock, Percent } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import {
   useFonts,
@@ -24,6 +24,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { podeAtribuirRole } from '@/lib/permissions';
+import { maskPhone } from '@shared/mascaras';
+import { rotuloContrato, type TipoContrato } from '@shared/equipe';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -97,6 +99,8 @@ export default function ConvidarProfissional() {
   const [verSenha,   setVerSenha]   = useState(false);
   const [enviando,   setEnviando]   = useState(false);
   const [role, setRole] = useState<'gestor' | 'profissional'>('profissional');
+  const [comissao,     setComissao]     = useState('');
+  const [tipoContrato, setTipoContrato] = useState<TipoContrato | ''>('');
   const [credenciais, setCredenciais] = useState<{ email: string; senha: string } | null>(null);
   const [copiado, setCopiado] = useState(false);
 
@@ -140,6 +144,9 @@ export default function ConvidarProfissional() {
           telefone:  telefone.trim() || undefined,
           email:     email.toLowerCase().trim(),
           senha:     usarConvite ? undefined : senha,
+          // Só vai o que foi preenchido: reenviar o convite nunca zera comissão/contrato (a API valida).
+          percentual_comissao: comissao.trim() !== '' ? comissao.trim() : undefined,
+          tipo_contrato:       tipoContrato || undefined,
           role,
         }),
       });
@@ -149,7 +156,7 @@ export default function ConvidarProfissional() {
       return;
     }
 
-    const resultado = await resposta.json();
+    const resultado = await resposta.json().catch(() => ({}));
     setEnviando(false);
 
     if (!resposta.ok) {
@@ -158,6 +165,7 @@ export default function ConvidarProfissional() {
     }
 
     qc.invalidateQueries({ queryKey: ['equipe'] });
+    qc.invalidateQueries({ queryKey: ['profissionais'] });
 
     if (!usarConvite && resultado.status === 'criado') {
       setCredenciais({ email: email.toLowerCase().trim(), senha });
@@ -272,7 +280,7 @@ export default function ConvidarProfissional() {
           <Campo
             label="Telefone (opcional)"
             icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
-            value={telefone} onChange={setTelefone}
+            value={telefone} onChange={(v) => setTelefone(maskPhone(v))}
             placeholder="(00) 00000-0000"
             keyboardType="phone-pad"
           />
@@ -371,6 +379,38 @@ export default function ConvidarProfissional() {
               </View>
             </View>
           )}
+
+          <Campo
+            label="Comissão por atendimento (%)"
+            icon={<Percent size={13} color={C.primary} strokeWidth={1.8} />}
+            value={comissao} onChange={setComissao}
+            placeholder="0"
+            keyboardType="decimal-pad"
+          />
+
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>
+              Tipo de contrato
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {([['', 'Sem informar'], ['pj', rotuloContrato('pj')], ['clt', rotuloContrato('clt')]] as [TipoContrato | '', string][]).map(([valor, label]) => {
+                const ativo = tipoContrato === valor;
+                return (
+                  <TouchableOpacity key={valor || 'nenhum'} onPress={() => setTipoContrato(valor)}
+                    style={{
+                      height: 40, borderRadius: 12, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center',
+                      borderWidth: 1,
+                      borderColor: ativo ? C.primary : C.border,
+                      backgroundColor: ativo ? C.primarySoft : C.surface,
+                    }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text2 }}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
 
           {/* Botão */}
           <TouchableOpacity

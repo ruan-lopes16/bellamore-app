@@ -116,7 +116,7 @@ export default function EditarServico() {
   async function salvar() {
     if (!podeSalvar || !id) return;
     setSalvando(true);
-    const { error } = await supabase.from('servicos').update({
+    const { data: salvos, error } = await supabase.from('servicos').update({
       nome: nome.trim(),
       descricao: descricao.trim() || null,
       categoria: categoriaId ? null : categoria,
@@ -124,9 +124,10 @@ export default function EditarServico() {
       preco: parseValor(preco),
       custo: parseValor(custo),
       duracao_minutos: duracao,
-    }).eq('id', id);
+    }).eq('id', id).select('id');
     setSalvando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
+    if (!salvos || salvos.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar serviços.'); return; }
     qc.invalidateQueries({ queryKey: ['servicos-gestao'] });
     qc.invalidateQueries({ queryKey: ['servicos-empresa'] });
     router.back();
@@ -141,7 +142,9 @@ export default function EditarServico() {
         {
           text: 'Desativar', style: 'destructive',
           onPress: async () => {
-            await supabase.from('servicos').update({ ativo: false }).eq('id', id!);
+            const { data: alterados, error } = await supabase.from('servicos').update({ ativo: false }).eq('id', id!).select('id');
+            if (error) { Alert.alert('Erro', error.message); return; }
+            if (!alterados || alterados.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar serviços.'); return; }
             qc.invalidateQueries({ queryKey: ['servicos-gestao'] });
             qc.invalidateQueries({ queryKey: ['servicos-empresa'] });
             router.back();

@@ -19,9 +19,12 @@ const esperado: [string, string[]][] = [
   ['configuracoes/page.tsx', ['config.taxas', 'dona']],
 ];
 
+// Chaves conferidas em conjunto pelo banco passam pelas funções de shared/permissoes (matriz 2026-10-14).
+const CHAMADA: Record<string, string> = { 'clientes.arquivar': 'podeArquivarCliente(pode)', 'anamnese.editar': 'podeEditarAnamnese(pode)' };
+
 describe('botões do web consultam a chave certa', () => {
   for (const [arq, chaves] of esperado) {
-    for (const c of chaves) it(`${arq} usa ${c}`, () => expect(ler(arq)).toContain(`pode('${c}')`));
+    for (const c of chaves) it(`${arq} usa ${c}`, () => expect(ler(arq)).toContain(CHAMADA[c] ?? `pode('${c}')`));
   }
   it('agenda não decide mais pelo papel', () => {
     const src = ler('agenda/page.tsx');

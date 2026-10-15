@@ -8,6 +8,7 @@ import {
   CategoriaIcon, CategoriaIconCustom,
 } from '@/components/CategoriaIcon';
 import { createClient } from '@/lib/supabase/client';
+import { mensagemErroBanco } from '@shared/erros';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -155,18 +156,24 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
     setInsumos(prev => prev.map(i => i.produto_id === prodId ? { ...i, quantidade: qtd } : i));
   }
 
-  async function sincronizarInsumos(servicoId: string) {
-    // Apaga os existentes e reinsere
-    await supabase.from('servico_produtos').delete().eq('servico_id', servicoId);
+  /**
+   * Apaga os insumos existentes e reinsere. Retorna mensagem de erro ou null. Antes os erros
+   * eram ignorados: a policy da 008 só deixava a dona gravar, então a gestora (com
+   * servicos.gerenciar) via "salvo" e a receita de insumos não mudava (corrigido na 089).
+   */
+  async function sincronizarInsumos(servicoId: string): Promise<string | null> {
+    const { error: errDel } = await supabase.from('servico_produtos').delete().eq('servico_id', servicoId);
+    if (errDel) return mensagemErroBanco(errDel, 'salvar os insumos do serviço');
     const validos = insumos.filter(i => parseFloat(i.quantidade.replace(',', '.')) > 0);
-    if (validos.length === 0) return;
-    await supabase.from('servico_produtos').insert(
+    if (validos.length === 0) return null;
+    const { error: errIns } = await supabase.from('servico_produtos').insert(
       validos.map(i => ({
         servico_id: servicoId,
         produto_id: i.produto_id,
         quantidade: parseFloat(i.quantidade.replace(',', '.')) || 1,
       })),
     );
+    return errIns ? mensagemErroBanco(errIns, 'salvar os insumos do serviço') : null;
   }
 
   const podeSalvar = nome.trim().length > 0 && parseFloat(preco.replace(',', '.')) > 0;
@@ -193,15 +200,17 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
       const { data, error } = await supabase
         .from('servicos').update(payload).eq('id', editando.id).select().single();
       if (error) { setSalvando(false); setErro(error.message); return; }
-      await sincronizarInsumos(editando.id);
+      const errIns = await sincronizarInsumos(editando.id);
       setSalvando(false);
+      if (errIns) { setErro(`Serviço salvo, mas os insumos não: ${errIns}`); return; }
       setSucesso(data as Servico);
     } else {
       const { data, error } = await supabase
         .from('servicos').insert(payload).select().single();
       if (error) { setSalvando(false); setErro(error.message); return; }
-      await sincronizarInsumos((data as Servico).id);
+      const errIns = await sincronizarInsumos((data as Servico).id);
       setSalvando(false);
+      if (errIns) { setErro(`Serviço criado, mas os insumos não: ${errIns}`); return; }
       setSucesso(data as Servico);
     }
   }
@@ -608,7 +617,12 @@ export default function ServicosPage() {
 
   async function excluirServico(s: Servico) {
     setExcluindoId(null);
-    const { error } = await supabase.from('servicos').delete().eq('id', s.id);
+    const { data: apagados, error } = await supabase.from('servicos').delete().eq('id', s.id).select('id');
+    if (!error && (!apagados || apagados.length === 0)) {
+      setToastErro('Você não tem permissão para excluir serviços.');
+      setTimeout(() => setToastErro(''), 4500);
+      return;
+    }
     if (error) {
       setToastErro('Serviço possui atendimentos vinculados — desative-o em vez de excluir.');
       setTimeout(() => setToastErro(''), 4500);
@@ -620,7 +634,12 @@ export default function ServicosPage() {
   }
 
   async function toggleAtivo(s: Servico) {
-    await supabase.from('servicos').update({ ativo: !s.ativo }).eq('id', s.id);
+    const { data: alterados, error } = await supabase.from('servicos').update({ ativo: !s.ativo }).eq('id', s.id).select('id');
+    if (error || !alterados || alterados.length === 0) {
+      setToastErro(mensagemErroBanco(error ?? { code: '42501' }, 'alterar o serviço'));
+      setTimeout(() => setToastErro(''), 4500);
+      return;
+    }
     setServicos(prev => prev.map(x => x.id === s.id ? { ...x, ativo: !x.ativo } : x));
   }
 

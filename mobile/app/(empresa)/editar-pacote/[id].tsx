@@ -159,24 +159,27 @@ export default function EditarPacote() {
     if (!podeSalvar || !id) return;
     setSalvando(true);
 
-    const { error: errPacote } = await supabase
+    const { data: pacotesSalvos, error: errPacote } = await supabase
       .from('pacotes')
       .update({
         nome:          nome.trim(),
         preco:         parseFloat(preco.replace(',', '.')),
         validade_dias: validade,
       })
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
 
     if (errPacote) {
       setSalvando(false);
       Alert.alert('Erro', errPacote.message);
       return;
     }
+    if (!pacotesSalvos || pacotesSalvos.length === 0) { setSalvando(false); Alert.alert('Sem permissão', 'Você não tem permissão para alterar pacotes.'); return; }
 
     // Pacote já vendido: só nome/preço/validade mudam — composição fica intacta.
     if (!jaVendido) {
-      await supabase.from('pacote_servicos').delete().eq('pacote_id', id);
+      const { error: errDel } = await supabase.from('pacote_servicos').delete().eq('pacote_id', id);
+      if (errDel) { setSalvando(false); Alert.alert('Erro', errDel.message); return; }
 
       const linhas = Object.entries(selecionados).map(([servico_id, quantidade]) => ({
         pacote_id: id,
@@ -202,7 +205,9 @@ export default function EditarPacote() {
         {
           text: 'Desativar', style: 'destructive',
           onPress: async () => {
-            await supabase.from('pacotes').update({ ativo: false }).eq('id', id!);
+            const { data: alterados, error } = await supabase.from('pacotes').update({ ativo: false }).eq('id', id!).select('id');
+            if (error) { Alert.alert('Erro', error.message); return; }
+            if (!alterados || alterados.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar pacotes.'); return; }
             qc.invalidateQueries({ queryKey: ['pacotes'] });
             router.back();
           },

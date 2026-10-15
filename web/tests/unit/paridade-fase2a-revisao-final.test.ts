@@ -20,7 +20,9 @@ describe('mobile invalidarFinanceiro', () => {
 
   it('cada chave existe de fato em algum hook do mobile', () => {
     const hooks = ['useFinanceiro', 'useDashboard', 'useProfissional', 'useRelatorios', 'useComissoesGestor']
-      .map(h => ler('mobile', 'hooks', `${h}.ts`)).join('\n');
+      .map(h => ler('mobile', 'hooks', `${h}.ts`))
+      // A Equipe guarda a query na própria tela (chave ['equipe', empresaId, mes]).
+      .concat(ler('mobile', 'app', '(empresa)', 'equipe.tsx')).join('\n');
     for (const k of CHAVES_FINANCEIRO) expect(hooks).toContain(`'${k}'`);
   });
 

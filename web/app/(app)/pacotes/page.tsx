@@ -44,6 +44,7 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import { format, addDays, parseISO, isPast } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { desfazerVinculoPacote } from '@shared/pacotes-consultas';
 
 const supabase = createClient();
 
@@ -149,12 +150,13 @@ function PacoteModal({
 
     if (pacote) {
       // Atualizar dados do pacote. Se já foi vendido, não mexe em modo/serviços.
-      const { error: e1 } = await supabase.from('pacotes').update(
+      const { data: salvos, error: e1 } = await supabase.from('pacotes').update(
         servicosTravados
           ? { nome: nome.trim(), preco: precoN, validade_dias: validadeN }
           : { nome: nome.trim(), preco: precoN, validade_dias: validadeN, controla_sessoes: controlaSessoes },
-      ).eq('id', pacote.id).eq('empresa_id', empresaId);
+      ).eq('id', pacote.id).eq('empresa_id', empresaId).select('id');
       if (e1) { setErro(e1.message); setSalvando(false); return; }
+      if (!salvos || salvos.length === 0) { setErro('Você não tem permissão para alterar pacotes.'); setSalvando(false); return; }
       pacoteId = pacote.id;
 
       if (servicosTravados) { setSalvando(false); onSalvo(); return; }
@@ -175,8 +177,9 @@ function PacoteModal({
       const idsAntigos = (pacote.servicos ?? []).map(s => s.servico_id);
       const aRemover = idsAntigos.filter(id => !idsNovos.includes(id));
       if (aRemover.length > 0) {
-        await supabase.from('pacote_servicos')
+        const { error: eDel } = await supabase.from('pacote_servicos')
           .delete().eq('pacote_id', pacoteId).in('servico_id', aRemover);
+        if (eDel) { setErro(eDel.message); setSalvando(false); return; }
       }
     }
 
@@ -493,6 +496,8 @@ type PacoteUsoRow = {
 };
 type AgConcluido = {
   id: string; data_hora_inicio: string; servico_id: string | null;
+  /** Pacote a que o atendimento já estava ligado (ex.: combo); o desfazer volta a ele. */
+  pacote_cliente_id: string | null;
   servico?: { nome: string } | null;
 };
 
@@ -538,7 +543,8 @@ function SessoesModal({
         .select('id, servico_id, agendamento_id, observacao, created_at, servico:servicos(nome)')
         .eq('pacote_cliente_id', pc.id).order('created_at', { ascending: false }),
       supabase.from('agendamentos')
-        .select('id, data_hora_inicio, servico_id, servico:servicos(nome)')
+        // pacote_cliente_id: o desfazer do vínculo volta ao valor anterior (atendimento de combo segue no combo).
+        .select('id, data_hora_inicio, servico_id, pacote_cliente_id, servico:servicos(nome)')
         .eq('empresa_id', empresaId).eq('cliente_id', pc.cliente.id).eq('status', 'concluido')
         .order('data_hora_inicio', { ascending: false }).limit(100),
       supabase.from('pacote_uso').select('agendamento_id')
@@ -574,6 +580,13 @@ function SessoesModal({
     const ag = candidatos.find(a => a.id === vincAg);
     if (!ag) return;
     setBusy(true); setErro('');
+    // 1º o vínculo no atendimento, com .select: a policy de UPDATE de agendamentos só deixa a
+    // própria agenda (ou a de outra com "agenda.gerenciar_outras"). Antes o UPDATE vinha depois
+    // e sem conferência: a sessão era lançada e o atendimento seguia contando como faturamento.
+    const { data: vinculados, error: e0 } = await supabase.from('agendamentos')
+      .update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId).select('id');
+    if (e0) { setBusy(false); setErro(e0.message); return; }
+    if (!vinculados || vinculados.length === 0) { setBusy(false); setErro('Você não tem permissão para alterar este atendimento.'); return; }
     const { error: e1 } = await supabase.from('pacote_uso').insert({
       empresa_id:        empresaId,
       pacote_cliente_id: pc.id,
@@ -581,9 +594,13 @@ function SessoesModal({
       agendamento_id:    ag.id,
       created_at:        ag.data_hora_inicio,
     });
-    if (e1) { setBusy(false); setErro(e1.message); return; }
-    // Vincula o agendamento ao pacote (para de contar como faturamento, igual às automáticas)
-    await supabase.from('agendamentos').update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId);
+    if (e1) {
+      // Desfaz o vínculo voltando ao pacote ANTERIOR (null tiraria um atendimento de combo do combo e o
+      // faria contar como faturamento); se nem o desfazer passar, avisa para conferir o atendimento.
+      const falhaDesfazer = await desfazerVinculoPacote(supabase, empresaId, ag.id, ag.pacote_cliente_id ?? null);
+      setBusy(false); setErro(falhaDesfazer ?? e1.message);
+      return;
+    }
     setBusy(false); setVincOpen(false); setVincAg('');
     refresh();
   }
@@ -899,8 +916,13 @@ export default function PacotesPage() {
   // ── Toggle ativo/inativo de pacote
   async function toggleAtivo(p: Pacote) {
     if (!empresaId) return;
-    await supabase.from('pacotes').update({ ativo: !p.ativo }).eq('id', p.id).eq('empresa_id', empresaId);
-    if (empresaId) carregar(empresaId);
+    const { data: alterados, error } = await supabase.from('pacotes').update({ ativo: !p.ativo })
+      .eq('id', p.id).eq('empresa_id', empresaId).select('id');
+    if (error || !alterados || alterados.length === 0) {
+      showToast(error ? `Erro ao atualizar: ${error.message}` : 'Você não tem permissão para alterar pacotes.', 'rose');
+      return;
+    }
+    carregar(empresaId);
   }
 
   // ── Excluir pacote do catálogo
@@ -915,11 +937,12 @@ export default function PacotesPage() {
   async function excluirPacote() {
     if (!empresaId || !confirmExcluir) return;
     setExcluindo(true);
-    const { error } = await supabase.from('pacotes')
-      .delete().eq('id', confirmExcluir.id).eq('empresa_id', empresaId);
+    const { data: apagados, error } = await supabase.from('pacotes')
+      .delete().eq('id', confirmExcluir.id).eq('empresa_id', empresaId).select('id');
     setExcluindo(false);
     setConfirmExcluir(null);
     if (error) { showToast(`Erro ao excluir: ${error.message}`, 'rose'); return; }
+    if (!apagados || apagados.length === 0) { showToast('Você não tem permissão para excluir pacotes.', 'rose'); return; }
     showToast('Pacote excluído.');
     carregar(empresaId);
   }

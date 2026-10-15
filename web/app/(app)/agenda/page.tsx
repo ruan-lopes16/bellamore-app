@@ -47,6 +47,7 @@ import {
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
 import { mensagemErroBanco } from '@shared/erros';
+import { novoUuid } from '@shared/uuid';
 import {
   MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
   montarInsertBloqueio, bloqueioEmConflito, bloqueioNoInstante,
@@ -597,13 +598,15 @@ function NovoAgModal({
 
         // Registra a venda do pacote como faturamento (uma vez, no ato). As
         // sessões consumidas depois não contam como receita.
-        await supabase.from('vendas').insert({
+        const { error: errVendaPac } = await supabase.from('vendas').insert({
           empresa_id:  empresaId,
           cliente_id:  clienteId,
           valor_total: pacote.preco,
           desconto:    0,
           observacao:  `Venda de pacote: ${pacote.nome}`,
         });
+        // O pacote já foi vendido: só avisa (abortar deixaria o pacote sem agendamento).
+        if (errVendaPac) alert(`O pacote foi vendido, mas a receita não foi registrada: ${mensagemErroBanco(errVendaPac, 'registrar a venda do pacote')}`);
       }
     }
 
@@ -623,10 +626,18 @@ function NovoAgModal({
       if (error || !atualizados || atualizados.length === 0) {
         setSalvando(false); setErro(mensagemErroBanco(error ?? { code: '42501' }, 'salvar este agendamento')); return;
       }
-      await supabase.from('agendamento_servicos').delete().eq('agendamento_id', agEditar.id);
+      const { error: errDelLinhas } = await supabase.from('agendamento_servicos').delete().eq('agendamento_id', agEditar.id);
+      if (errDelLinhas) {
+        setSalvando(false); setErro(mensagemErroBanco(errDelLinhas, 'salvar os serviços do agendamento')); return;
+      }
       agId = agEditar.id;
     } else {
-      const { data: ag, error } = await supabase.from('agendamentos').insert({
+      // Id gerado aqui e SEM RETURNING: quem tem "agenda.gerenciar_outras" sem "agenda.ver_equipe"
+      // cria na agenda de outra profissional, mas não lê a linha nova (policy de SELECT) — o
+      // RETURNING derrubava o INSERT com 42501 mesmo com a permissão.
+      const novoId = novoUuid();
+      const { error } = await supabase.from('agendamentos').insert({
+        id:                novoId,
         empresa_id:        empresaId,
         cliente_id:        clienteId,
         profissional_id:   profId,
@@ -637,9 +648,9 @@ function NovoAgModal({
         valor:             filled.reduce((s, l) => s + l.valor, 0),
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
-      }).select().single();
-      if (error || !ag) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
-      agId = ag.id;
+      });
+      if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
+      agId = novoId;
 
       // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
       if (aplicarTaxaReserva) {
@@ -658,7 +669,7 @@ function NovoAgModal({
       }
     }
 
-    await supabase.from('agendamento_servicos').insert(
+    const { error: errLinhas } = await supabase.from('agendamento_servicos').insert(
       filled.map((l, i) => ({
         agendamento_id:  agId,
         servico_id:      l.servico_id,
@@ -668,6 +679,11 @@ function NovoAgModal({
         empresa_id:      empresaId,
       }))
     );
+    if (errLinhas) {
+      setSalvando(false);
+      setErro(`O agendamento foi salvo, mas os serviços não: ${mensagemErroBanco(errLinhas, 'salvar os serviços do agendamento')}`);
+      return;
+    }
     setSalvando(false);
     setSucesso({
       clienteNome:   clientes.find(c => c.id === clienteId)?.nome ?? 'Cliente',

@@ -24,7 +24,7 @@ export default function EmpresaLayout() {
       {[
         'agendamento/[id]', 'cliente/[id]', 'cliente/[id]/anamnese', 'cliente/[id]/editar',
         'comissoes', 'configuracoes', 'convidar-profissional',
-        'editar-pacote/[id]', 'editar-produto/[id]', 'editar-servico/[id]',
+        'editar-pacote/[id]', 'editar-produto/[id]', 'editar-profissional/[id]', 'editar-servico/[id]',
         'equipe', 'estoque', 'notificacoes', 'nova-comanda', 'nova-despesa', 'nova-retirada',
         'novo-agendamento', 'novo-cliente', 'novo-pacote', 'novo-produto', 'novo-servico',
         'pacotes', 'relatorios', 'servicos', 'vendas',

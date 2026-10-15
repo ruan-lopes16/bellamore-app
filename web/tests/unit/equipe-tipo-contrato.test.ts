@@ -7,14 +7,14 @@ const api    = readFileSync(join(process.cwd(), 'app', 'api', 'profissionais', '
 
 describe('equipe: tipo de contrato', () => {
   it('modal tem o select com pj e clt', () => {
-    expect(equipe).toContain('PJ / Comissionada');
+    expect(equipe).toContain("rotuloContrato('pj')");
     expect(equipe).toMatch(/value="clt"/);
   });
   it('select da listagem traz tipo_contrato', () => {
     expect(equipe).toMatch(/tipo_contrato/);
   });
-  it('API PATCH valida e grava tipo_contrato', () => {
-    expect(api).toMatch(/tipo_contrato === 'pj' \|\| tipo_contrato === 'clt'/);
-    expect(api).toContain('tipo_contrato: tc');
+  it('API PATCH valida e grava tipo_contrato (montarPatchVinculo de shared)', () => {
+    expect(api).toContain('montarPatchVinculo(');
+    expect(api).toContain('.update(vinculo.patch)');
   });
 });

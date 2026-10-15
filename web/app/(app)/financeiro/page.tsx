@@ -655,9 +655,11 @@ function MarcarPagoModal({ despesa, onClose, onSalvo }: {
       setSalvando(false);
       return;
     }
-    const { error } = await supabase.from('despesas').update(payload).eq('id', despesa.id);
+    // .select('id'): RLS recusando o UPDATE devolve 0 linhas sem erro (sucesso falso).
+    const { data: pagas, error } = await supabase.from('despesas').update(payload).eq('id', despesa.id).select('id');
     setSalvando(false);
     if (error) { setErro(error.message); return; }
+    if (!pagas || pagas.length === 0) { setErro('Não foi possível salvar: você não tem permissão para lançar ou editar despesas.'); return; }
     onSalvo();
   }
 
@@ -757,6 +759,8 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   despesa: Despesa; onClose: () => void; onSalvo: () => void;
 }) {
   useScrollLock();
+  const { pode } = usePermissoes();
+  const podeExcluir = pode('dona');
   const [descricao,     setDescricao]     = useState(despesa.descricao);
   const [valor,         setValor]         = useState(formatValorMonetarioInput(Number(despesa.valor)));
   const [categoria,     setCategoria]     = useState(despesa.categoria ?? '');
@@ -809,7 +813,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
     const recorrenciaAteFinal = usaParcelas
       ? calcularRecorrenciaAtePorParcelas(vencimento, totalParcelasNum, parcelaAtualNum)
       : recorrenciaAte;
-    const { error } = await supabase.from('despesas').update({
+    const { data: salvas, error } = await supabase.from('despesas').update({
       descricao:       descricao.trim(),
       categoria:       categoria || null,
       valor:           valorN,
@@ -820,16 +824,21 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
       parcela_atual:   recorrente && usaParcelas ? parcelaAtualNum : null,
       total_parcelas:  recorrente && usaParcelas ? totalParcelasNum : null,
       valor_total_compra: usaValorDividido ? valorTotalCompraNum : null,
-    }).eq('id', despesa.id);
+    }).eq('id', despesa.id).select('id');
     setSalvando(false);
     if (error) { setErro(error.message); return; }
+    if (!salvas || salvas.length === 0) { setErro('Não foi possível salvar: você não tem permissão para lançar ou editar despesas.'); return; }
     onSalvo();
   }
 
+  // Excluir despesa é só da dona (policy 'despesas: owner pode deletar'): o botão só aparece
+  // para ela, e o .select('id') transforma uma recusa da RLS em mensagem (antes: sucesso falso).
   async function excluir() {
-    setExcluindo(true);
-    await supabase.from('despesas').delete().eq('id', despesa.id);
+    setExcluindo(true); setErro('');
+    const { data: apagadas, error } = await supabase.from('despesas').delete().eq('id', despesa.id).select('id');
     setExcluindo(false);
+    if (error) { setErro(error.message); return; }
+    if (!apagadas || apagadas.length === 0) { setErro('Só a dona pode excluir despesas.'); return; }
     onSalvo();
   }
 
@@ -961,7 +970,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
             )}
           </div>
           {erro && <p className="text-red text-sm">{erro}</p>}
-          <div className="border-t border-border pt-3">
+          {podeExcluir && <div className="border-t border-border pt-3">
             {confirmDelete ? (
               <div className="flex items-center gap-2">
                 <p className="text-xs text-red flex-1">Confirmar exclusão?</p>
@@ -978,7 +987,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
                 <Trash2 size={12} strokeWidth={2}/> Excluir despesa
               </button>
             )}
-          </div>
+          </div>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose}
               className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
