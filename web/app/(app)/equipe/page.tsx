@@ -20,6 +20,15 @@ import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { configVazia, contarExcecoes, podeGerenciarMembro, type ConfigPermissoes } from '@shared/permissoes';
 import { Sk } from '@/components/Skeleton';
+import { SmoothTabs } from '@/components/SmoothTabs';
+import { mensagemCadastroEquipe } from '@/lib/convites-web';
+import {
+  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe,
+  type ConvitePendente,
+} from '@shared/convites-consultas';
+import {
+  descreverHistoricoEquipe, quandoHistoricoEquipe, rotuloPapelEquipe, type LinhaHistoricoEquipe,
+} from '@shared/equipe';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { maskPhone } from '@/lib/masks';
 import { avancarComEnter } from '@/lib/formNav';
@@ -62,12 +71,14 @@ function gerarSenha() {
 
 // ── Modal adicionar profissional ──────────────────────────────
 
-function NovoProfModal({ empresaId, isOwner, onClose, onSalvo }: {
+function NovoProfModal({ empresaId, isOwner, onClose, onSalvo, onConvitePendente }: {
   empresaId: string;
   /** Só a dona cria gestora (mesma regra das APIs de convite e de cadastro). */
   isOwner: boolean;
   onClose: () => void;
   onSalvo: (p: Profissional, mensagem?: string) => void;
+  /** Conta já existente fora da equipe: nasce um convite pendente, sem vínculo. */
+  onConvitePendente: (convite: ConvitePendente | null, mensagem: string) => void;
 }) {
   useScrollLock();
   const [nome,          setNome]          = useState('');
@@ -117,6 +128,11 @@ function NovoProfModal({ empresaId, isOwner, onClose, onSalvo }: {
 
     if (!res.ok) { setErro(json.error ?? 'Erro ao salvar.'); return; }
 
+    if (json.status === 'convite_pendente') {
+      onConvitePendente((json.convite as ConvitePendente | undefined) ?? null, mensagemCadastroEquipe('convite_pendente', nome.trim())!);
+      return;
+    }
+
     const membro: Profissional = {
       ...json.membro,
       total_mes: 0, atendimentos_mes: 0,
@@ -130,14 +146,7 @@ function NovoProfModal({ empresaId, isOwner, onClose, onSalvo }: {
       return;
     }
 
-    onSalvo(
-      membro,
-      json.status === 'convite_enviado'
-        ? `Convite enviado! ${nome.trim()} vai receber um e-mail para criar a senha.`
-        : json.status === 'adicionado'
-          ? `${nome.trim()} já tinha conta e foi adicionada à equipe.`
-          : undefined,
-    );
+    onSalvo(membro, mensagemCadastroEquipe(json.status, nome.trim()));
   }
 
   function copiarCredenciais() {
@@ -646,6 +655,85 @@ function ProfCard({ prof, excecoes, visiveis, podeAlterarRole, podeGerenciar, on
 
 // ── Tela principal ────────────────────────────────────────────
 
+/** Seção "Convites pendentes": convidadas que ainda não aceitaram (conta existente, sem vínculo). */
+function ConvitesPendentesSecao({ convites, podeCancelar, onCancelar }: {
+  convites: ConvitePendente[];
+  /** Convite de gestora só a dona cancela. */
+  podeCancelar: (c: ConvitePendente) => boolean;
+  onCancelar: (c: ConvitePendente) => void;
+}) {
+  return (
+    <section className="mb-6">
+      <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, color: 'var(--color-ink4)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
+        Convites pendentes ({convites.length})
+      </p>
+      <div className="flex flex-col gap-2">
+        {convites.map(c => (
+          <div key={c.id} className="flex items-center gap-3 rounded-2xl px-4 py-3"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-text truncate">{c.nome || c.email}</p>
+              <p className="text-xs text-text-3 truncate">
+                {c.email} · {rotuloPapelEquipe(c.role)} · {quandoHistoricoEquipe(c.criado_em)}
+              </p>
+            </div>
+            {podeCancelar(c) && (
+              <button type="button" onClick={() => onCancelar(c)}
+                className="shrink-0 h-9 px-3 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+                Cancelar
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Aba "Histórico": convites, desativações e mudanças de papel, comissão e contrato, paginada. */
+function HistoricoEquipePainel({ linhas, profs, carregando, erro, temMais, onMais, onTentar }: {
+  linhas: LinhaHistoricoEquipe[];
+  profs: Profissional[];
+  carregando: boolean;
+  erro: string;
+  temMais: boolean;
+  onMais: () => void;
+  onTentar: () => void;
+}) {
+  const nomes: Record<string, string> = {};
+  for (const p of profs) if (p.user.nome) nomes[p.user_id] = p.user.nome;
+  return (
+    <div>
+      {erro && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm" style={{ background: 'var(--color-rose-soft)', color: 'var(--color-rose)' }}>
+          <span>{erro}</span>
+          <button onClick={onTentar} className="font-bold underline shrink-0">Tentar de novo</button>
+        </div>
+      )}
+      {carregando && linhas.length === 0 ? (
+        <div className="flex flex-col gap-2">{[1,2,3,4].map(i => <Sk key={i} className="h-14 rounded-2xl"/>)}</div>
+      ) : linhas.length === 0 && !erro ? (
+        <p className="text-center py-12 text-sm text-text-3">Nada no histórico ainda.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {linhas.map(l => (
+            <div key={l.id} className="rounded-2xl px-4 py-3" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+              <p className="text-sm text-text">{descreverHistoricoEquipe(l, nomes)}</p>
+              <p className="text-xs text-text-3 mt-0.5">{quandoHistoricoEquipe(l.criado_em)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {temMais && (
+        <button type="button" disabled={carregando} onClick={onMais}
+          className="mt-4 w-full h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition disabled:opacity-50">
+          {carregando ? 'Carregando...' : 'Mostrar mais'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function EquipePage() {
   const [profs,     setProfs]     = useState<Profissional[]>([]);
   const [loading,   setLoading]   = useState(true);
@@ -659,11 +747,71 @@ export default function EquipePage() {
   const [erroCarga, setErroCarga] = useState('');
   const [erroAcao,  setErroAcao]  = useState('');
   const reqRef = useRef(0);
+  const [aba, setAba] = useState<'equipe' | 'historico'>('equipe');
+  const [convites, setConvites] = useState<ConvitePendente[]>([]);
+  const [cancelando, setCancelando] = useState<ConvitePendente | null>(null);
+  const [historico, setHistorico] = useState<LinhaHistoricoEquipe[]>([]);
+  const [histPagina, setHistPagina] = useState(0);
+  const [histTemMais, setHistTemMais] = useState(false);
+  const [histDisponivel, setHistDisponivel] = useState(true);
+  const [histCarregando, setHistCarregando] = useState(false);
+  const [histErro, setHistErro] = useState('');
+  const histReq = useRef(0);
   const [cfgPerms,  setCfgPerms]  = useState<ConfigPermissoes>(configVazia());
   const { isOwner, papel, pode } = usePermissoes();
   // O selo leva à aba Permissões, que só dona/gestora enxergam (igual ao app).
   const veSeloExcecoes = isOwner || papel === 'gestor';
   const podeEquipe = pode('equipe.gerenciar');
+  /** Convites pendentes e histórico: `equipe.gerenciar`; o histórico também é da dona. */
+  const veConvites = podeEquipe;
+  const veHistorico = (podeEquipe || isOwner) && histDisponivel;
+
+  /** Uma página do histórico (0 = recarrega do início); só a última requisição aplica o resultado. */
+  async function carregarHistorico(empId: string, pagina: number) {
+    const minha = ++histReq.current;
+    setHistCarregando(true); setHistErro('');
+    try {
+      const r = await carregarHistoricoEquipe(supabase, empId, pagina);
+      if (minha !== histReq.current) return;
+      setHistDisponivel(r.disponivel);
+      setHistPagina(pagina);
+      setHistTemMais(r.temMais);
+      setHistorico(prev => pagina === 0 ? r.linhas : [...prev, ...r.linhas]);
+    } catch (e) {
+      if (minha !== histReq.current) return;
+      setHistErro(e instanceof Error ? e.message : 'Não foi possível carregar o histórico.');
+    }
+    if (minha === histReq.current) setHistCarregando(false);
+  }
+
+  async function carregarConvites(empId: string) {
+    try { setConvites(await carregarConvitesPendentes(supabase, empId)); }
+    catch (e) { setErroAcao(e instanceof Error ? e.message : 'Não foi possível carregar os convites pendentes.'); }
+  }
+
+  async function confirmarCancelarConvite() {
+    const c = cancelando;
+    if (!c || !empresaId) return;
+    try {
+      await cancelarConvite(supabase, empresaId, c.id);
+      setErroAcao('');
+      setConvites(prev => prev.filter(x => x.id !== c.id));
+      if (veHistorico) carregarHistorico(empresaId, 0);
+    } catch (e) {
+      setErroAcao(e instanceof Error ? e.message : 'Não foi possível cancelar o convite.');
+      await carregarConvites(empresaId);
+    }
+    setCancelando(null);
+  }
+
+  function onConvitePendente(convite: ConvitePendente | null, mensagem: string) {
+    setModal(false);
+    showToast(mensagem);
+    if (!empresaId) return;
+    if (convite) setConvites(prev => [convite, ...prev.filter(c => c.id !== convite.id)]);
+    else carregarConvites(empresaId);
+    if (veHistorico) carregarHistorico(empresaId, 0);
+  }
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
@@ -701,6 +849,8 @@ export default function EquipePage() {
       setErroCarga(e instanceof Error ? e.message : 'Não foi possível carregar a equipe.');
     }
     if (minha === reqRef.current) setLoading(false);
+    if (minha === reqRef.current && veConvites) carregarConvites(empId);
+    if (minha === reqRef.current && (podeEquipe || isOwner)) carregarHistorico(empId, 0);
   }
 
   /** Grava ativo/inativo; a lista local só muda depois do sucesso. */
@@ -843,6 +993,21 @@ export default function EquipePage() {
         </div>
       </div>
 
+      {veHistorico && (
+        <SmoothTabs variant="underline" className="mb-5" active={aba} onChange={k => setAba(k as 'equipe' | 'historico')}
+          tabs={[{ key: 'equipe', label: 'Equipe' }, { key: 'historico', label: 'Histórico' }]}/>
+      )}
+
+      {aba === 'historico' && veHistorico ? (
+        <HistoricoEquipePainel
+          linhas={historico} profs={profs} carregando={histCarregando} erro={histErro} temMais={histTemMais}
+          onMais={() => empresaId && carregarHistorico(empresaId, histPagina + 1)}
+          onTentar={() => empresaId && carregarHistorico(empresaId, 0)}/>
+      ) : (<>
+      {veConvites && convites.length > 0 && (
+        <ConvitesPendentesSecao convites={convites} podeCancelar={(c) => c.role !== 'gestor' || isOwner} onCancelar={setCancelando}/>
+      )}
+
       {/* Stats */}
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
@@ -919,9 +1084,22 @@ export default function EquipePage() {
         </>
       )}
 
+      </>)}
+
       {modal && empresaId && (
-        <NovoProfModal empresaId={empresaId} isOwner={isOwner} onClose={() => setModal(false)} onSalvo={onProfSalva}/>
+        <NovoProfModal empresaId={empresaId} isOwner={isOwner} onClose={() => setModal(false)} onSalvo={onProfSalva}
+          onConvitePendente={onConvitePendente}/>
       )}
+
+      <ConfirmDialog
+        open={!!cancelando}
+        title="Cancelar convite"
+        message={`O convite para "${cancelando?.nome || cancelando?.email}" será cancelado e ela não poderá mais aceitá-lo.`}
+        confirmLabel="Cancelar convite"
+        variant="warning"
+        onConfirm={confirmarCancelarConvite}
+        onCancel={() => setCancelando(null)}
+      />
 
       {editandoInfo && empresaId && (
         <EditInfoModal

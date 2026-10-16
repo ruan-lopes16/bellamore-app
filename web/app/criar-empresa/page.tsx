@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { maskPhone } from '@/lib/masks';
+import ConvitesRecebidosBanner from '@/components/ConvitesRecebidosBanner';
 
 export default function CriarEmpresaPage() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function CriarEmpresaPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
+        <ConvitesRecebidosBanner />
 
         {/* Header */}
         <div className="text-center mb-8">
