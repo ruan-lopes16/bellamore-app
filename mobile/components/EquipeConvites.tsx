@@ -5,7 +5,7 @@ import { MailQuestion, X } from 'lucide-react-native';
 
 import { supabase } from '@/lib/supabase';
 import {
-  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe,
+  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe, podeCancelarConvite,
   type ConvitePendente,
 } from '@shared/convites-consultas';
 import {
@@ -31,9 +31,9 @@ const diaDe = (iso: string) => quandoHistoricoEquipe(iso).slice(0, 10);
 /**
  * Seção "Convites pendentes" da Equipe (migration 092): nome, e-mail, papel, data e Cancelar com
  * confirmação. Sem a 092 a lista vem vazia e a seção não aparece. Só para quem tem `equipe.gerenciar`
- * (a tela decide); convite de gestora só a dona cancela (o banco recusa e a mensagem aparece).
+ * (a tela decide); convite de gestora só a dona cancela (botão escondido, igual ao web; o banco também recusa).
  */
-export function ConvitesPendentesSecao({ empresaId }: { empresaId: string }) {
+export function ConvitesPendentesSecao({ empresaId, isOwner }: { empresaId: string; isOwner: boolean }) {
   const qc = useQueryClient();
   const [cancelandoId, setCancelandoId] = useState<string | null>(null);
 
@@ -105,6 +105,7 @@ export function ConvitesPendentesSecao({ empresaId }: { empresaId: string }) {
                 {rotuloPapelEquipe(c.role)}{c.tipo_contrato ? ` · ${rotuloContrato(c.tipo_contrato)}` : ''} · enviado em {diaDe(c.criado_em)}
               </Text>
             </View>
+            {podeCancelarConvite(c.role, isOwner) && (
             <TouchableOpacity
               onPress={() => confirmarCancelar(c)} disabled={cancelandoId !== null}
               style={{
@@ -117,6 +118,7 @@ export function ConvitesPendentesSecao({ empresaId }: { empresaId: string }) {
                 : <X size={13} color={C.rose} strokeWidth={2.5} />}
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.rose }}>Cancelar</Text>
             </TouchableOpacity>
+            )}
           </View>
         ))}
       </View>

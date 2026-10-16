@@ -93,15 +93,15 @@ describe('convidar-profissional (app)', () => {
 
   it("trata 'convite_pendente' com o texto da spec", () => {
     expect(src).toContain("resultado.status === 'convite_pendente'");
-    expect(src).toContain('Convite enviado. Ela precisa aceitar no app ou no site.');
+    expect(src).toContain('MENSAGEM_CONVITE_PENDENTE');
   });
 
   it('a explicação da tela não promete mais vínculo imediato', () => {
     expect(src).not.toContain('será adicionada imediatamente');
   });
 
-    expect(src).toContain('resultado.error');
   it('mostra o erro da API (403 da gestora e 503 da 092) em vez de genérico', () => {
+    expect(src).toContain('resultado.error');
     expect(src).toContain('resposta.status === 503');
   });
 

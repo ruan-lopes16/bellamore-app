@@ -26,6 +26,7 @@ import { supabase } from '@/lib/supabase';
 import { podeAtribuirRole } from '@/lib/permissions';
 import { maskPhone } from '@shared/mascaras';
 import { rotuloContrato, type TipoContrato } from '@shared/equipe';
+import { MENSAGEM_CONVITE_PENDENTE } from '@shared/convites-consultas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ export default function ConvidarProfissional() {
     }
 
     if (resultado.status === 'convite_pendente') {
-      Alert.alert('Convite enviado!', 'Convite enviado. Ela precisa aceitar no app ou no site.', [
+      Alert.alert('Convite enviado!', MENSAGEM_CONVITE_PENDENTE, [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } else if (resultado.status === 'adicionado') {

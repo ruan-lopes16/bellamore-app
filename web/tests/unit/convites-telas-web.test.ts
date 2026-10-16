@@ -11,7 +11,7 @@ const ler = (p: string) => readFileSync(join(root, p), 'utf8').replace(/\r\n/g, 
 describe('mensagemCadastroEquipe', () => {
   it('convite pendente avisa que a pessoa precisa aceitar', () => {
     expect(mensagemCadastroEquipe('convite_pendente', 'Ana')).toBe(MENSAGEM_CONVITE_PENDENTE);
-    expect(MENSAGEM_CONVITE_PENDENTE).toBe('Convite enviado. A pessoa já tem conta e precisa aceitar o convite ao entrar no app.');
+    expect(MENSAGEM_CONVITE_PENDENTE).toBe('Convite enviado. Ela precisa aceitar no app ou no site.');
   });
   it('mantém as mensagens antigas', () => {
     expect(mensagemCadastroEquipe('convite_enviado', 'Ana')).toContain('Convite enviado! Ana');
@@ -26,7 +26,7 @@ describe('banner da convidada', () => {
     expect(banner).toContain('carregarMeusConvites(');
     expect(banner).toContain('aceitarConvite(');
     expect(banner).toContain('recusarConvite(');
-    expect(banner).toContain('window.location.reload');
+    expect(banner).toContain("window.location.assign('/dashboard')");
     expect(banner).toContain('Aceitar');
     expect(banner).toContain('Recusar');
   });

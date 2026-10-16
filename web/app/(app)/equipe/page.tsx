@@ -23,7 +23,7 @@ import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { mensagemCadastroEquipe } from '@/lib/convites-web';
 import {
-  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe,
+  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe, podeCancelarConvite,
   type ConvitePendente,
 } from '@shared/convites-consultas';
 import {
@@ -750,6 +750,8 @@ export default function EquipePage() {
   const [aba, setAba] = useState<'equipe' | 'historico'>('equipe');
   const [convites, setConvites] = useState<ConvitePendente[]>([]);
   const [cancelando, setCancelando] = useState<ConvitePendente | null>(null);
+  const [cancelandoOcupado, setCancelandoOcupado] = useState(false);
+  const cancelandoRef = useRef(false);
   const [historico, setHistorico] = useState<LinhaHistoricoEquipe[]>([]);
   const [histPagina, setHistPagina] = useState(0);
   const [histTemMais, setHistTemMais] = useState(false);
@@ -791,7 +793,9 @@ export default function EquipePage() {
 
   async function confirmarCancelarConvite() {
     const c = cancelando;
-    if (!c || !empresaId) return;
+    if (!c || !empresaId || cancelandoRef.current) return;
+    cancelandoRef.current = true;
+    setCancelandoOcupado(true);
     try {
       await cancelarConvite(supabase, empresaId, c.id);
       setErroAcao('');
@@ -801,6 +805,8 @@ export default function EquipePage() {
       setErroAcao(e instanceof Error ? e.message : 'Não foi possível cancelar o convite.');
       await carregarConvites(empresaId);
     }
+    cancelandoRef.current = false;
+    setCancelandoOcupado(false);
     setCancelando(null);
   }
 
@@ -1005,7 +1011,7 @@ export default function EquipePage() {
           onTentar={() => empresaId && carregarHistorico(empresaId, 0)}/>
       ) : (<>
       {veConvites && convites.length > 0 && (
-        <ConvitesPendentesSecao convites={convites} podeCancelar={(c) => c.role !== 'gestor' || isOwner} onCancelar={setCancelando}/>
+        <ConvitesPendentesSecao convites={convites} podeCancelar={(c) => podeCancelarConvite(c.role, isOwner)} onCancelar={setCancelando}/>
       )}
 
       {/* Stats */}
@@ -1097,8 +1103,9 @@ export default function EquipePage() {
         message={`O convite para "${cancelando?.nome || cancelando?.email}" será cancelado e ela não poderá mais aceitá-lo.`}
         confirmLabel="Cancelar convite"
         variant="warning"
+        loading={cancelandoOcupado}
         onConfirm={confirmarCancelarConvite}
-        onCancel={() => setCancelando(null)}
+        onCancel={() => { if (!cancelandoRef.current) setCancelando(null); }}
       />
 
       {editandoInfo && empresaId && (

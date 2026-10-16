@@ -1,8 +1,8 @@
 /** Textos das telas do web para convite com aceite (Entrega 3). */
+import { MENSAGEM_CONVITE_PENDENTE } from '@shared/convites-consultas';
 
-/** Resposta `convite_pendente` da API: a conta já existe e precisa aceitar. */
-export const MENSAGEM_CONVITE_PENDENTE =
-  'Convite enviado. A pessoa já tem conta e precisa aceitar o convite ao entrar no app.';
+/** Resposta `convite_pendente` da API: o mesmo texto do app (vem de shared). */
+export { MENSAGEM_CONVITE_PENDENTE };
 
 /**
  * Mensagem de sucesso depois de cadastrar/convidar na Equipe, conforme o `status` da API.

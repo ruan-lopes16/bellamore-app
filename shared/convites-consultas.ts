@@ -42,6 +42,23 @@ export type ConvitePendente = {
   criado_em: string;
 };
 
+/** Texto da tela (web e app) quando a API responde `convite_pendente`: a conta já existe e precisa aceitar. */
+export const MENSAGEM_CONVITE_PENDENTE = 'Convite enviado. Ela precisa aceitar no app ou no site.';
+
+/**
+ * Aviso do web depois do aceite para quem já está em outra empresa: o site usa o primeiro vínculo
+ * ativo e ainda não tem seletor de empresa, então não dá para levar a pessoa à empresa nova.
+ */
+export function mensagemConviteAceitoOutraEmpresa(empresaNome: string): string {
+  return `Convite aceito. Você agora faz parte da equipe de ${empresaNome}. O site ainda não troca de empresa `
+    + 'e continua mostrando a empresa em que você já estava. No app, você escolhe a empresa em Mais.';
+}
+
+/** Quem pode cancelar um convite pendente (além de `equipe.gerenciar`): convite de gestora só a dona. */
+export function podeCancelarConvite(role: 'gestor' | 'profissional', isOwner: boolean): boolean {
+  return role !== 'gestor' || isOwner;
+}
+
 /** Itens por página do histórico da Equipe. */
 export const TAMANHO_PAGINA_HISTORICO_EQUIPE = 30;
 

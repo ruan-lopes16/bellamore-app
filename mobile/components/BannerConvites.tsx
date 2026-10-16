@@ -80,7 +80,7 @@ export function BannerConvites() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text, lineHeight: 19 }}>
-                  Você foi convidada para entrar na equipe de {c.empresa_nome} como {rotuloPapelEquipe(c.role)}.
+                  Você foi convidada para entrar na equipe de {c.empresa_nome} como {rotuloPapelEquipe(c.role).toLowerCase()}.
                 </Text>
                 {c.convidado_por_nome ? (
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>

@@ -599,7 +599,7 @@ export default function Equipe() {
         {/* ── Convites pendentes (migration 092; some sem ela) ── */}
         {verConvitesEHistorico && !carregando && (
           <View style={{ marginTop: 4 }}>
-            <ConvitesPendentesSecao empresaId={empresaId!} />
+            <ConvitesPendentesSecao empresaId={empresaId!} isOwner={isOwner} />
           </View>
         )}
 
