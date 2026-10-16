@@ -140,10 +140,10 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   const [erro,       setErro]       = useState('');
 
   // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço).
-  // `aplicarTaxaReserva` é opt-in explícito e nasce desmarcado: sem ele nenhuma
-  // linha de `taxas_reserva` é criada (nem 'pendente').
+  // `aplicarTaxaReserva` é o switch "Cobrar taxa de reserva neste atendimento": nasce ligado
+  // (a chave geral da empresa é o padrão) e, desligado, nenhuma linha de `taxas_reserva` é criada.
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
-  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(false);
+  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(true);
   const [taxaReserva,        setTaxaReserva]        = useState('0');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
@@ -214,12 +214,12 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     });
     if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
 
-    // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
+    // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
     if (aplicarTaxaReserva) {
       const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
       const taxaReservaPayload = buildTaxaReservaInsert({
         empresaId, agendamentoId: ag.id, clienteId, valor: taxaReservaValorNum,
-        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
+        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo, cobrar: aplicarTaxaReserva,
       }, new Date().toISOString());
       if (taxaReservaPayload) {
         const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
@@ -294,7 +294,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
                   onChange={e => setAplicarTaxaReserva(e.target.checked)}
                   className="w-4 h-4 rounded border-border accent-primary"
                 />
-                <span className="text-xs font-semibold text-text-2 uppercase tracking-wide">Aplicar taxa de reserva</span>
+                <span className="text-xs font-semibold text-text-2 uppercase tracking-wide">Cobrar taxa de reserva neste atendimento</span>
               </label>
               {aplicarTaxaReserva && (
                 <div className="mt-2">

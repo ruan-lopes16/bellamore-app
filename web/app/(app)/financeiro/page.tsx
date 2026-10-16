@@ -1189,6 +1189,26 @@ export default function FinanceiroPage() {
     if (empresaId) await carregar(empresaId, mesRef);
   }
 
+  /**
+   * "Dispensar" uma taxa de cancelamento pendente: desliga `cobrar_taxa_cancelamento` no atendimento e o
+   * trigger (migration 091) encerra a taxa. `.select('id')` + conferência de linhas: o RLS de UPDATE em
+   * `agendamentos` recusa sem erro (0 linhas), e sem a 091 a coluna não existe (erro do banco).
+   */
+  async function dispensarTaxaCancelamento(taxa: TaxaCancelamento) {
+    if (!empresaId) return;
+    const { data, error } = await supabase.from('agendamentos')
+      .update({ cobrar_taxa_cancelamento: false })
+      .eq('id', taxa.agendamento_id)
+      .eq('empresa_id', empresaId)
+      .select('id');
+    if (error) { alert(`Erro ao dispensar a taxa: ${error.message}`); return; }
+    if (!data || data.length === 0) {
+      alert('Você não tem permissão para dispensar esta taxa. Peça a um gestor.');
+      return;
+    }
+    await carregar(empresaId, mesRef);
+  }
+
   async function marcarReservaPaga(taxa: TaxaReserva, metodo: string | null) {
     // `.select()` não é decoração: o RLS de UPDATE de taxas_reserva só libera
     // gestor/owner. Sem ele, um clique de profissional não atualiza nada e o
@@ -1583,6 +1603,12 @@ export default function FinanceiroPage() {
                     </span>
                   </div>
                 </div>
+                {t.status === 'pendente' && podeMarcarTaxas && (
+                  <button type="button" onClick={() => dispensarTaxaCancelamento(t)}
+                    className="flex-shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-border bg-bg text-text-2 hover:border-primary/40 transition">
+                    Dispensar
+                  </button>
+                )}
               </div>
             ))}
           </div>

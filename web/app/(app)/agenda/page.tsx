@@ -45,6 +45,8 @@ import {
   resolverCategoriaServico, bgDaCor,
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento } from '@shared/taxas-atendimento';
+import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
 import { mensagemErroBanco } from '@shared/erros';
 import { novoUuid } from '@shared/uuid';
@@ -369,10 +371,10 @@ function NovoAgModal({
   const [avisoTaxaReserva, setAvisoTaxaReserva] = useState('');
 
   // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço).
-  // `aplicarTaxaReserva` é opt-in explícito e nasce desmarcado: sem ele nenhuma
-  // linha de `taxas_reserva` é criada (nem 'pendente').
+  // `aplicarTaxaReserva` é o switch "Cobrar taxa de reserva neste atendimento": nasce ligado
+  // (a chave geral da empresa é o padrão) e, desligado, nenhuma linha de `taxas_reserva` é criada.
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
-  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(false);
+  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(true);
   const [taxaReserva,        setTaxaReserva]        = useState('0');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
@@ -652,12 +654,12 @@ function NovoAgModal({
       if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
       agId = novoId;
 
-      // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
+      // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
       if (aplicarTaxaReserva) {
         const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
         const taxaReservaPayload = buildTaxaReservaInsert({
           empresaId, agendamentoId: agId, clienteId, valor: taxaReservaValorNum,
-          jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
+          jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo, cobrar: aplicarTaxaReserva,
         }, new Date().toISOString());
         if (taxaReservaPayload) {
           const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
@@ -1091,7 +1093,7 @@ function NovoAgModal({
                   onChange={e => setAplicarTaxaReserva(e.target.checked)}
                   className="w-4 h-4 rounded border-border accent-primary"
                 />
-                <span className="text-xs font-semibold text-text-2 uppercase tracking-wide">Aplicar taxa de reserva</span>
+                <span className="text-xs font-semibold text-text-2 uppercase tracking-wide">Cobrar taxa de reserva neste atendimento</span>
               </label>
               {aplicarTaxaReserva && (
                 <div className="mt-2">
@@ -2223,20 +2225,58 @@ export default function AgendaPage() {
       setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
   }
 
+  /** Atendimento aguardando a resposta de "Cobrar taxa de cancelamento de R$ X?". */
+  const [perguntaTaxa, setPerguntaTaxa] = useState<{ id: string; status: string; valor: number; clienteNome: string } | null>(null);
+  const [gravandoTaxa, setGravandoTaxa] = useState(false);
+
+  /**
+   * Ponto único de mudança de status da Agenda (dropdown, detalhe e timeline chegam aqui).
+   * Para cancelado/faltou com a migration 091 aplicada, o UPDATE sempre leva `cobrar_taxa_cancelamento`:
+   * a escolha da pessoa quando há pergunta, ou `true` quando não há. Sem a 091 não pergunta nem envia a coluna.
+   */
   async function mudarStatus(id: string, status: string) {
-    // Salva o status original ANTES de atualizar (necessário para revert)
     const ag = ags.find(a => a.id === id);
-    const statusOriginal = ag?.status ?? '';
     if (ag && !podeAlterarAg(ag)) {
       showErro(mensagemErroBanco({ code: '42501' }, 'mudar o status de agendamento de outra profissional'));
       return;
     }
+    if (status !== 'cancelado' && status !== 'faltou') { await aplicarStatus(id, status); return; }
+    if (!(await colunaCobrarTaxaExiste(supabase))) { await aplicarStatus(id, status); return; }
+    let pergunta = { perguntar: false, valor: 0 };
+    if (empresaId && ag?.cliente) {
+      try {
+        const cfg = await carregarConfigTaxas(supabase, empresaId);
+        pergunta = perguntaTaxaCancelamento(cfg.cancelamento, status, ag.cliente.id, ag.valor);
+      } catch (e) {
+        showErro(mensagemErroBanco({ message: (e as Error).message }, 'ler a configuração da taxa de cancelamento'));
+        return;
+      }
+    }
+    if (pergunta.perguntar) {
+      setPerguntaTaxa({ id, status, valor: pergunta.valor, clienteNome: ag?.cliente?.nome ?? '' });
+      return;
+    }
+    await aplicarStatus(id, status, true);
+  }
+
+  async function responderPerguntaTaxa(cobrar: boolean) {
+    if (!perguntaTaxa) return;
+    setGravandoTaxa(true);
+    await aplicarStatus(perguntaTaxa.id, perguntaTaxa.status, cobrar);
+    setGravandoTaxa(false);
+    setPerguntaTaxa(null);
+  }
+
+  async function aplicarStatus(id: string, status: string, cobrarTaxaCancelamento?: boolean) {
+    // Salva o status original ANTES de atualizar (necessário para revert)
+    const ag = ags.find(a => a.id === id);
+    const statusOriginal = ag?.status ?? '';
     // Otimista: atualiza local imediatamente
     setAgs(prev => prev.map(a => a.id === id ? { ...a, status } : a));
     // .select('id') + guarda de 0 linhas: RLS recusando UPDATE devolve sucesso sem linha.
     const { data: rows, error } = await supabase
       .from('agendamentos')
-      .update({ status })
+      .update(cobrarTaxaCancelamento === undefined ? { status } : { status, cobrar_taxa_cancelamento: cobrarTaxaCancelamento })
       .eq('id', id)
       .select('id');
     if (error || !rows || rows.length === 0) {
@@ -2474,6 +2514,17 @@ export default function AgendaPage() {
             if (view === 'mes') fetchMes(dataSel, empresaId);
           }}
           agEditar={agEditar ?? undefined}
+        />
+      )}
+
+      {perguntaTaxa && (
+        <PerguntaTaxaCancelamentoModal
+          valor={perguntaTaxa.valor}
+          clienteNome={perguntaTaxa.clienteNome}
+          loading={gravandoTaxa}
+          onCobrar={() => responderPerguntaTaxa(true)}
+          onNaoCobrar={() => responderPerguntaTaxa(false)}
+          onFechar={() => setPerguntaTaxa(null)}
         />
       )}
 
