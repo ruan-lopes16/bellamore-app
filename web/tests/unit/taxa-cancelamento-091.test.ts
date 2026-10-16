@@ -68,4 +68,14 @@ describe('migration 091 — trigger e fim', () => {
     expect(sql).toContain('drop column if exists cobrar_taxa_cancelamento');
     expect(corpo.trim().endsWith("notify pgrst, 'reload schema';")).toBe(true);
   });
+  it('cabeçalho só tem comentários (nenhum código antes do add column) e o rollback termina com notify', () => {
+    const cabecalho = sql.slice(0, sql.indexOf('\nalter table public.agendamentos'));
+    expect(cabecalho.split('\n').filter(l => l.trim() && !l.trim().startsWith('--'))).toEqual([]);
+    expect(cabecalho).toMatch(/--\s+4\. notify pgrst, 'reload schema';/);
+  });
+  it('reset ao sair de cancelado/faltou: before update, criado depois da coluna', () => {
+    expect(c.indexOf('create or replace function public.resetar_cobrar_taxa_cancelamento()'))
+      .toBeGreaterThan(c.indexOf('add column if not exists cobrar_taxa_cancelamento'));
+    expect(c).toMatch(/create trigger trg_resetar_cobrar_taxa_cancelamento before update on public\.agendamentos for each row execute function public\.resetar_cobrar_taxa_cancelamento\(\)/);
+  });
 });

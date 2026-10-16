@@ -51,6 +51,8 @@ import type {
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { colunaCobrarTaxaExiste } from '@shared/taxas-atendimento';
+import { mensagemErroBanco } from '@shared/erros';
 
 const supabase = createClient();
 
@@ -1014,6 +1016,9 @@ export default function FinanceiroPage() {
   const isOwner = pode('dona');
   const podeDespesas = pode('despesas.gerenciar');
   const podeMarcarTaxas = pode('taxas.marcar_pagas');
+  // "Dispensar" só existe com a migration 091 (coluna agendamentos.cobrar_taxa_cancelamento), igual ao app.
+  const [temColunaCobrar, setTemColunaCobrar] = useState(false);
+  useEffect(() => { colunaCobrarTaxaExiste(supabase).then(setTemColunaCobrar).catch(() => setTemColunaCobrar(false)); }, []);
   // Contador de requisições: respostas de cargas antigas (mês trocado rápido) são descartadas.
   const reqRef = useRef(0);
   const [loading,  setLoading]  = useState(true);
@@ -1196,12 +1201,13 @@ export default function FinanceiroPage() {
    */
   async function dispensarTaxaCancelamento(taxa: TaxaCancelamento) {
     if (!empresaId) return;
+    if (!confirm(`Dispensar a taxa de cancelamento de ${fmtBRL(Number(taxa.valor))}?`)) return;
     const { data, error } = await supabase.from('agendamentos')
       .update({ cobrar_taxa_cancelamento: false })
       .eq('id', taxa.agendamento_id)
       .eq('empresa_id', empresaId)
       .select('id');
-    if (error) { alert(`Erro ao dispensar a taxa: ${error.message}`); return; }
+    if (error) { alert(mensagemErroBanco(error, 'dispensar a taxa')); return; }
     if (!data || data.length === 0) {
       alert('Você não tem permissão para dispensar esta taxa. Peça a um gestor.');
       return;
@@ -1603,7 +1609,7 @@ export default function FinanceiroPage() {
                     </span>
                   </div>
                 </div>
-                {t.status === 'pendente' && podeMarcarTaxas && (
+                {t.status === 'pendente' && podeMarcarTaxas && temColunaCobrar && (
                   <button type="button" onClick={() => dispensarTaxaCancelamento(t)}
                     className="flex-shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-border bg-bg text-text-2 hover:border-primary/40 transition">
                     Dispensar

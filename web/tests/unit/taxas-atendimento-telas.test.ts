@@ -111,6 +111,23 @@ describe('web', () => {
     expect(fin).toMatch(/podeMarcarTaxas[\s\S]{0,600}Dispensar/);
   });
 
+  it('Financeiro: Dispensar igual ao app — só com a 091, com confirmação e erro em português', () => {
+    expect(fin).toContain('colunaCobrarTaxaExiste(supabase)');
+    expect(fin).toMatch(/t\.status === 'pendente' && podeMarcarTaxas && temColunaCobrar &&/);
+    const i = fin.indexOf('async function dispensarTaxaCancelamento');
+    const corpo = fin.slice(i, fin.indexOf('\n  }\n', i));
+    expect(corpo).toContain('confirm(`Dispensar a taxa de cancelamento de ${fmtBRL(');
+    expect(corpo).toContain("mensagemErroBanco(error, 'dispensar a taxa')");
+    expect(corpo).not.toContain('error.message');
+  });
+
+  it('valor sugerido da reserva vem de shared (mesma conta do app)', () => {
+    for (const fonte of [agenda, perfil]) {
+      expect(fonte).toContain('valorTaxaReservaSugerida(');
+      expect(fonte).not.toContain('Math.round((s.preco * taxaReservaCfg.valor / 100) * 100) / 100');
+    }
+  });
+
   it('o web nunca importa mobile/', () => {
     for (const fonte of [agenda, perfil, fin, modal]) expect(fonte).not.toMatch(/from ['"][^'"]*mobile\//);
   });

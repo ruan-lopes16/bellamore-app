@@ -16,6 +16,7 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { mensagemErroBanco } from '@shared/erros';
 import { novoUuid } from '@shared/uuid';
@@ -190,9 +191,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     const s = servicos.find(sv => sv.id === id);
     if (s) { setDuracao(s.duracao_minutos); setValor(String(s.preco)); }
     if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
-      const sugerido = taxaReservaCfg.modo === 'fixo'
-        ? taxaReservaCfg.valor
-        : Math.round((s.preco * taxaReservaCfg.valor / 100) * 100) / 100;
+      const sugerido = valorTaxaReservaSugerida(taxaReservaCfg, s.preco);
       setTaxaReserva(String(sugerido).replace('.', ','));
     }
   }

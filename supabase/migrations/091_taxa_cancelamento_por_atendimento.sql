@@ -28,25 +28,7 @@
 --   2. drop trigger if exists trg_resetar_cobrar_taxa_cancelamento on public.agendamentos;
 --      drop function if exists public.resetar_cobrar_taxa_cancelamento();
 --   3. alter table public.agendamentos drop column if exists cobrar_taxa_cancelamento;
---   4. -- Sair de cancelado/faltou encerra o episódio: a dispensa não vale para um cancelamento futuro.
-create or replace function public.resetar_cobrar_taxa_cancelamento()
-returns trigger as $$
-begin
-  if old.status in ('cancelado', 'faltou') and new.status not in ('cancelado', 'faltou') then
-    new.cobrar_taxa_cancelamento := true;
-  end if;
-  return new;
-end;
-$$ language plpgsql set search_path = public;
-
-drop trigger if exists trg_resetar_cobrar_taxa_cancelamento on public.agendamentos;
-
-create trigger trg_resetar_cobrar_taxa_cancelamento
-  before update on public.agendamentos
-  for each row
-  execute function public.resetar_cobrar_taxa_cancelamento();
-
-notify pgrst, 'reload schema';
+--   4. notify pgrst, 'reload schema';
 -- ============================================================
 
 alter table public.agendamentos
@@ -129,6 +111,24 @@ begin
   return new;
 end;
 $$ language plpgsql security definer set search_path = public;
+
+-- Sair de cancelado/faltou encerra o episódio: a dispensa não vale para um cancelamento futuro.
+create or replace function public.resetar_cobrar_taxa_cancelamento()
+returns trigger as $$
+begin
+  if old.status in ('cancelado', 'faltou') and new.status not in ('cancelado', 'faltou') then
+    new.cobrar_taxa_cancelamento := true;
+  end if;
+  return new;
+end;
+$$ language plpgsql set search_path = public;
+
+drop trigger if exists trg_resetar_cobrar_taxa_cancelamento on public.agendamentos;
+
+create trigger trg_resetar_cobrar_taxa_cancelamento
+  before update on public.agendamentos
+  for each row
+  execute function public.resetar_cobrar_taxa_cancelamento();
 
 drop trigger if exists trg_gerar_taxa_cancelamento on public.agendamentos;
 

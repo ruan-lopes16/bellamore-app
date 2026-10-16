@@ -45,7 +45,7 @@ import {
   resolverCategoriaServico, bgDaCor,
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
-import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento } from '@shared/taxas-atendimento';
+import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
 import { mensagemErroBanco } from '@shared/erros';
@@ -505,9 +505,7 @@ function NovoAgModal({
         : l
     ));
     if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
-      const sugerido = taxaReservaCfg.modo === 'fixo'
-        ? taxaReservaCfg.valor
-        : Math.round((s.preco * taxaReservaCfg.valor / 100) * 100) / 100;
+      const sugerido = valorTaxaReservaSugerida(taxaReservaCfg, s.preco);
       setTaxaReserva(String(sugerido).replace('.', ','));
     }
   }
