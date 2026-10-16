@@ -1,10 +1,13 @@
+import { View } from 'react-native';
 import { Tabs } from 'expo-router';
+import { BannerConvites } from '@/components/BannerConvites';
 import { usePermissoes } from '@/lib/permissions';
 
 export default function EmpresaLayout() {
   const { pode } = usePermissoes();
 
   return (
+    <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -32,5 +35,7 @@ export default function EmpresaLayout() {
         <Tabs.Screen key={name} name={name} options={{ href: null }} />
       ))}
     </Tabs>
+    <BannerConvites />
+    </View>
   );
 }

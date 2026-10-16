@@ -38,6 +38,7 @@ import { supabase } from '@/lib/supabase';
 import { configVazia, contarExcecoes, podeGerenciarMembro } from '@shared/permissoes';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { formatarMoeda } from '@shared/moeda';
+import { ConvitesPendentesSecao, HistoricoEquipeSecao } from '@/components/EquipeConvites';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -429,6 +430,10 @@ export default function Equipe() {
   const carregando = !permissoesCarregadas || !empresaAtiva || isLoading;
   // Em erro sem dados: só o banner — nunca "nenhuma profissional" com zeros.
   const semDados = isError && membros.length === 0;
+  // user_id → nome, para as frases do histórico (o banco só devolve nome de quem é colega).
+  const nomesEquipe: Record<string, string> = {};
+  for (const m of membros) if (m.user?.nome) nomesEquipe[m.user_id] = m.user.nome;
+  const verConvitesEHistorico = !!empresaId && (podeGerenciarEquipe || isOwner);
   const erroCarga = isError ? (error instanceof Error ? error.message : 'Não foi possível carregar a equipe.') : '';
 
   /** Recarrega a equipe (aguardável) e invalida profissionais e os números financeiros. */
@@ -591,6 +596,13 @@ export default function Equipe() {
           </Text>
         )}
 
+        {/* ── Convites pendentes (migration 092; some sem ela) ── */}
+        {verConvitesEHistorico && !carregando && (
+          <View style={{ marginTop: 4 }}>
+            <ConvitesPendentesSecao empresaId={empresaId!} />
+          </View>
+        )}
+
         {/* ── Lista ── */}
         {!semDados && !carregando && (
           <>
@@ -637,6 +649,13 @@ export default function Equipe() {
               )}
             </View>
           </>
+        )}
+
+        {/* ── Histórico (migration 092; some sem ela) ── */}
+        {verConvitesEHistorico && !carregando && (
+          <View style={{ marginTop: 16 }}>
+            <HistoricoEquipeSecao empresaId={empresaId!} nomes={nomesEquipe} />
+          </View>
         )}
       </ScrollView>
     </View>
