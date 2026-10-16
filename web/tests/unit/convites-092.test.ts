@@ -71,6 +71,11 @@ describe('092 por texto', () => {
     expect(c).toMatch(/for update/);
   });
 
+  it('derruba o INSERT direto em empresa_membros (vínculo só pela rota com service role ou pelo aceite)', () => {
+    expect(sql092).toContain('drop policy if exists "membros: gestor ou owner convida" on public.empresa_membros;');
+    expect(sql092).not.toMatch(/^create policy [^\n]*on public\.empresa_membros for insert/m);
+  });
+
   it('idempotente: tudo com if not exists / or replace / drop if exists', () => {
     expect(sql092).not.toMatch(/^create table (?!if not exists)/m);
     expect(sql092).not.toMatch(/^create (unique )?index (?!if not exists)/m);
@@ -260,6 +265,20 @@ describe('RLS e privilégios', () => {
     await db.exec('reset role; set role anon');
     expect(await erro(() => q('select public.meus_convites()'))).toMatch(/permission denied/);
     expect(await erro(() => q('select 1 from convites_equipe'))).toMatch(/permission denied/);
+  });
+
+  it('ninguém vincula conta existente direto pela API REST: INSERT em empresa_membros recusado, nem pela dona', async () => {
+    // O user_id da convidada é visível para quem convidou (convites_equipe e resposta da rota).
+    for (const [quem, role] of [[GES, 'profissional'], [DONA, 'profissional'], [DONA, 'gestor']] as const) {
+      await como(quem);
+      expect(await erro(() => q(`insert into empresa_membros (empresa_id, user_id, role, ativo) values ($1, $2, $3, true)`, [E, CAU, role])))
+        .toMatch(/row-level security|permission denied/);
+    }
+    // Reatribuir um vínculo existente a outra conta continua barrado (043).
+    await como(GES);
+    expect(await erro(() => q(`update empresa_membros set user_id = $1 where empresa_id = $2 and user_id = $3`, [CAU, E, PROF])))
+      .toMatch(/reatribuir/);
+    expect(await admin(`select 1 from empresa_membros where empresa_id = $1 and user_id = $2`, [E, CAU])).toHaveLength(0);
   });
 });
 

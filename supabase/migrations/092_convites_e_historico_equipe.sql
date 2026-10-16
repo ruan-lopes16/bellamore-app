@@ -25,6 +25,12 @@
 --  6. Triggers de histórico em convites_equipe (envio e mudança de status) e em empresa_membros
 --     (ativo, papel, comissão, contrato). Alteração feita pela rota com service role grava
 --     `feito_por` nulo (a tela mostra "Alguém").
+--  7. Derruba a policy de INSERT "membros: gestor ou owner convida" (083) de empresa_membros: com ela,
+--     quem tem `equipe.gerenciar` vinculava qualquer conta direto pela API REST (o user_id da
+--     convidada aparece em convites_equipe e na resposta da rota), sem aceite e até depois de uma
+--     recusa. Nenhuma tela grava em empresa_membros com o client logado: o vínculo nasce só pela rota
+--     (service role: conta nova ou vínculo ativo), por aceitar_convite e por criar_empresa_completo,
+--     todos sem passar pela RLS. Reatribuir um vínculo a outra conta já é barrado pelo trigger da 043.
 --
 -- Sem expiração: a spec não define prazo; o convite vale até ser aceito, recusado ou cancelado.
 -- Idempotente: create ... if not exists, create or replace, drop ... if exists antes de recriar.
@@ -43,6 +49,13 @@
 --   drop function if exists public.mascarar_email(text);
 --   drop table if exists public.equipe_historico;
 --   drop table if exists public.convites_equipe;
+--   -- Só se alguma tela voltar a precisar (reabre o vínculo sem aceite pela API REST):
+--   create policy "membros: gestor ou owner convida" on public.empresa_membros for insert with check (
+--     role = any (array['gestor'::perfil_role, 'profissional'::perfil_role])
+--     and tem_permissao(empresa_id, 'equipe.gerenciar')
+--     and (role = 'profissional'::perfil_role
+--          or exists (select 1 from public.empresas
+--                     where empresas.id = empresa_membros.empresa_id and empresas.owner_id = auth.uid())));
 --   notify pgrst, 'reload schema';
 --   (As rotas da Task 2 voltam a responder 503 para conta existente — nunca vinculam sem aceite.)
 -- ============================================================
@@ -103,6 +116,11 @@ grant select on public.equipe_historico to authenticated;
 drop policy if exists "equipe_historico: dona ve" on public.equipe_historico;
 create policy "equipe_historico: dona ve" on public.equipe_historico for select
   using (eh_dona_da_empresa(empresa_id));
+
+-- ── 2b. empresa_membros: sem INSERT pelo client logado ─────────
+-- Conta existente nunca é vinculada sem aceite: o vínculo nasce só pela rota (service role), por
+-- aceitar_convite e por criar_empresa_completo (security definer, sem RLS).
+drop policy if exists "membros: gestor ou owner convida" on public.empresa_membros;
 
 -- ── 3. Máscara de e-mail ──────────────────────────────────────
 -- "thalia@gmail.com" → "th***@gmail.com"; "a@x.com" → "a***@x.com". Sem "@": como veio.

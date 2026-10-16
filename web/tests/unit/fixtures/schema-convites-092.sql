@@ -73,3 +73,18 @@ begin
 end $$;
 create trigger trg_membros_papel_so_dona before update of role on empresa_membros
   for each row execute function fn_membros_papel_so_dona();
+
+-- RLS de empresa_membros como em produção (083): SELECT de membro, UPDATE e INSERT com equipe.gerenciar.
+-- A 092 derruba a policy de INSERT (conta existente nunca é vinculada sem aceite).
+alter table empresa_membros enable row level security;
+create policy "membros: ver da empresa" on empresa_membros for select using (empresa_id in (select minha_empresas()));
+create policy "membros: gestor ou owner atualiza" on empresa_membros for update
+  using (tem_permissao(empresa_id, 'equipe.gerenciar')
+         and (eh_dona_da_empresa(empresa_id) or (role = 'profissional'::perfil_role and user_id <> auth.uid())))
+  with check (tem_permissao(empresa_id, 'equipe.gerenciar')
+         and (eh_dona_da_empresa(empresa_id) or (role = 'profissional'::perfil_role and user_id <> auth.uid())));
+create policy "membros: gestor ou owner convida" on empresa_membros for insert with check (
+  role = any (array['gestor'::perfil_role, 'profissional'::perfil_role])
+  and tem_permissao(empresa_id, 'equipe.gerenciar')
+  and (role = 'profissional'::perfil_role
+       or exists (select 1 from empresas where empresas.id = empresa_membros.empresa_id and empresas.owner_id = auth.uid())));

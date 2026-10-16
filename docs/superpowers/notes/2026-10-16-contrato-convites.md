@@ -62,6 +62,15 @@ As Tasks 2 (API), 3 (web) e 4 (app) consomem o que está aqui. Spec:
     ```
     (As mudanças de comissão/contrato feitas pela mesma rota caem no trigger com `feito_por` nulo.)
 
+### `public.empresa_membros` (mudança na 092)
+- A 092 derruba a policy de INSERT `"membros: gestor ou owner convida"` (083): o client logado não cria
+  mais vínculo. Antes, quem tem `equipe.gerenciar` vinculava qualquer conta direto pela API REST (o
+  `user_id` da convidada aparece em `convites_equipe` e na resposta `convite_pendente`), sem aceite e até
+  depois de uma recusa. O vínculo nasce só pela rota (service role: conta nova ou vínculo ativo), por
+  `aceitar_convite` e por `criar_empresa_completo`. **Telas (Tasks 3/4): nunca fazer `insert`/`upsert` em
+  `empresa_membros` com o client logado.** UPDATE continua como na 083 (o trigger da 043 barra trocar
+  `user_id`/`empresa_id`).
+
 ## Funções (todas `security definer`, `set search_path = public`, execute só para `authenticated`)
 
 | função | retorno | quem |
