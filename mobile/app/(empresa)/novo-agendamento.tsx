@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StatusBar, Alert, ActivityIndicator, Modal, FlatList,
+  StatusBar, Alert, ActivityIndicator, Modal, FlatList, Switch,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -36,6 +36,7 @@ import { useClientes } from '@/hooks/useClientes';
 import { supabase } from '@/lib/supabase';
 import SuccessCheck from '@/components/SuccessCheck';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { maskPhone } from '@shared/mascaras';
 import { nomeClienteValido } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
@@ -159,9 +160,9 @@ export default function NovoAgendamento() {
     params.hora ? { h: horaInicial.getHours(), m: horaInicial.getMinutes() } : null
   );
   const [valor, setValor]       = useState('');
-  // `aplicarTaxaReserva` é opt-in explícito e nasce desmarcado: sem ele nenhuma
-  // linha de `taxas_reserva` é criada (nem 'pendente').
-  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(false);
+  // `cobrarTaxaReserva`: "Cobrar taxa de reserva neste atendimento" (padrão ligado quando a chave
+  // da empresa está ligada). Desligado, nenhuma linha de `taxas_reserva` é criada.
+  const [cobrarTaxaReserva, setCobrarTaxaReserva] = useState(true);
   const [taxaReserva, setTaxaReserva]             = useState('');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
@@ -321,9 +322,9 @@ export default function NovoAgendamento() {
     setServicoSelecionado({ id: s.id, nome: s.nome, preco: s.preco, duracao_minutos: s.duracao_minutos });
     setValor(s.preco.toFixed(2));
     if (taxaReservaAtiva && !taxaReservaEditada) {
-      const sugerido = taxaReservaModo === 'fixo'
-        ? taxaReservaCfgValor
-        : Math.round((s.preco * taxaReservaCfgValor / 100) * 100) / 100;
+      const sugerido = valorTaxaReservaSugerida(
+        { ativa: true, modo: taxaReservaModo, valor: taxaReservaCfgValor }, s.preco,
+      );
       setTaxaReserva(sugerido.toFixed(2));
     }
   }
@@ -407,13 +408,13 @@ export default function NovoAgendamento() {
       return;
     }
 
-    // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
-    if (novoAg && aplicarTaxaReserva) {
+    // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
+    if (novoAg && taxaReservaAtiva && cobrarTaxaReserva) {
       const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
       const taxaReservaPayload = buildTaxaReservaInsert({
         empresaId: empresaAtiva.id, agendamentoId: novoAg.id,
         clienteId: clienteSelecionado!.id, valor: taxaReservaValorNum,
-        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
+        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo, cobrar: cobrarTaxaReserva,
       }, new Date().toISOString());
       if (taxaReservaPayload) {
         const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
@@ -881,24 +882,18 @@ export default function NovoAgendamento() {
           </View>
 
           {taxaReservaAtiva && (
-            <TouchableOpacity
-              onPress={() => setAplicarTaxaReserva(v => !v)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 }}
-            >
-              <View style={{
-                width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
-                borderColor: aplicarTaxaReserva ? C.primary : C.border,
-                backgroundColor: aplicarTaxaReserva ? C.primary : C.surface,
-                alignItems: 'center', justifyContent: 'center',
-              }}>
-                {aplicarTaxaReserva && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700', lineHeight: 14 }}>✓</Text>}
-              </View>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
-                Aplicar taxa de reserva
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 }}>
+              <Switch
+                value={cobrarTaxaReserva}
+                onValueChange={setCobrarTaxaReserva}
+                trackColor={{ false: C.border, true: C.primary }}
+              />
+              <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>
+                Cobrar taxa de reserva neste atendimento
               </Text>
-            </TouchableOpacity>
+            </View>
           )}
-          {taxaReservaAtiva && aplicarTaxaReserva && (
+          {taxaReservaAtiva && cobrarTaxaReserva && (
             <View style={{
               marginTop: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
               borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -920,7 +915,7 @@ export default function NovoAgendamento() {
               />
             </View>
           )}
-          {taxaReservaAtiva && aplicarTaxaReserva && (parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+          {taxaReservaAtiva && cobrarTaxaReserva && (parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
             <>
               <TouchableOpacity
                 onPress={() => {

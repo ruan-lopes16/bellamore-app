@@ -31,7 +31,7 @@ describe('mobile invalidarFinanceiro', () => {
     const ag = ler('mobile', 'app', '(empresa)', 'agendamento', '[id].tsx');
     expect(ag.match(/invalidarFinanceiro\(qc\)/g)?.length).toBe(2);
     expect(ler('mobile', 'hooks', 'useComissoesGestor.ts')).toContain('invalidarFinanceiro(qc)');
-    expect(ler('mobile', 'app', '(empresa)', 'financeiro.tsx').match(/invalidarFinanceiro\(qc\)/g)?.length).toBe(3);
+    expect(ler('mobile', 'app', '(empresa)', 'financeiro.tsx').match(/invalidarFinanceiro\(qc\)/g)?.length).toBe(4);
     expect(ler('mobile', 'app', '(empresa)', 'nova-despesa.tsx')).toContain('invalidarFinanceiro(qc)');
   });
 });

@@ -52,6 +52,9 @@ import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoDespesas } from '@shared/exportacao/financeiro';
 import type { OcorrenciaHistorico } from '@shared/despesas';
 import { formatarMoeda } from '@shared/moeda';
+import { colunaCobrarTaxaExiste } from '@shared/taxas-atendimento';
+import { mensagemErroBanco } from '@shared/erros';
+import { useAuthStore } from '@/stores/authStore';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -312,10 +315,12 @@ function DespesaRow({
 // ── Taxa de cancelamento row ─────────────────────────────────
 
 function TaxaCancelamentoRow({
-  item, isLast, onMarcarPago, podeMarcar,
+  item, isLast, onMarcarPago, podeMarcar, onDispensar,
 }: {
   /** 'taxas.marcar_pagas': sem ela a linha é só leitura. */
   podeMarcar: boolean;
+  /** Dispensar a taxa pendente (só com 'taxas.marcar_pagas' e a migration 091). */
+  onDispensar?: (item: TaxaCancelamento) => void;
   item: TaxaCancelamento & { cliente: { nome: string } | null };
   isLast: boolean;
   onMarcarPago: (item: TaxaCancelamento & { cliente: { nome: string } | null }) => void;
@@ -370,6 +375,11 @@ function TaxaCancelamentoRow({
             {pago ? 'Paga' : podeMarcar ? 'Toque p/ pagar' : 'Pendente'}
           </Text>
         </View>
+        {!pago && podeMarcar && onDispensar && (
+          <TouchableOpacity onPress={() => onDispensar(item)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={{ marginTop: 6 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.text3 }}>Dispensar</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -1362,6 +1372,10 @@ export default function Financeiro() {
   const [excluirDe,    setExcluirDe]    = useState<RetiradaSociaRow | null>(null);
 
   const qc = useQueryClient();
+  const { empresaAtiva } = useAuthStore();
+  // "Dispensar" só existe com a migration 091 (coluna agendamentos.cobrar_taxa_cancelamento).
+  const [temColunaCobrar, setTemColunaCobrar] = useState(false);
+  useEffect(() => { colunaCobrarTaxaExiste(supabase).then(setTemColunaCobrar).catch(() => setTemColunaCobrar(false)); }, []);
   const {
     resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, isError, erroKpis, refetch,
     recorrentesParaLancar, lancarRecorrentes, lancandoRecorrentes,
@@ -1394,6 +1408,32 @@ export default function Financeiro() {
     }
     setConfirmarTaxaCanc(null);
     invalidarFinanceiro(qc);   // receita/KPIs mudam ao pagar a taxa
+  }
+
+  /** Dispensa a taxa de cancelamento pendente: o trigger (091) encerra a taxa como 'cancelada'. */
+  async function dispensarTaxaCancelamento(item: TaxaCancelamento) {
+    Alert.alert('Dispensar taxa', `Dispensar a taxa de cancelamento de ${formatarMoeda(item.valor)}?`, [
+      { text: 'Voltar', style: 'cancel' },
+      {
+        text: 'Dispensar',
+        style: 'destructive',
+        onPress: async () => {
+          // .select('id') + conferência: RLS recusando o UPDATE devolve sucesso com 0 linhas.
+          const { data, error } = await supabase
+            .from('agendamentos')
+            .update({ cobrar_taxa_cancelamento: false })
+            .eq('id', item.agendamento_id)
+            .eq('empresa_id', empresaAtiva?.id ?? '')
+            .select('id');
+          if (error) { Alert.alert('Erro', mensagemErroBanco(error, 'dispensar a taxa')); return; }
+          if (!data || data.length === 0) {
+            Alert.alert('Sem permissão', 'Você não tem permissão para dispensar esta taxa.');
+            return;
+          }
+          invalidarFinanceiro(qc);   // a taxa sai da lista e dos KPIs
+        },
+      },
+    ]);
   }
 
   async function marcarReservaPaga(item: TaxaReserva, metodo: PagamentoMetodo | null) {
@@ -1890,6 +1930,7 @@ export default function Financeiro() {
                   isLast={i === arr.length - 1}
                   onMarcarPago={setConfirmarTaxaCanc}
                   podeMarcar={podeMarcarTaxas}
+                  onDispensar={temColunaCobrar ? dispensarTaxaCancelamento : undefined}
                 />
               ))}
             </View>

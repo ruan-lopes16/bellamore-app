@@ -39,6 +39,7 @@ import {
 import { podeExcluirAgendamento, podeMexerNoAgendamento } from '@shared/agendamentos';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
+import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -408,11 +409,17 @@ export default function AgendamentoDetalhe() {
   const [c1Prof,    c2Prof]      = avatarColors(ag.profissional?.nome ?? '');
 
   async function atualizarStatus(novoStatus: AgendamentoStatus) {
+    // Cancelado/faltou: com a 091, pergunta (ou envia true) o campo cobrar_taxa_cancelamento.
+    const { continuar, extra } = await escolherCobrancaCancelamento({
+      empresaId: empresaAtiva?.id, novoStatus,
+      clienteId: ag.cliente_id ?? ag.cliente?.id, valorAtendimento: Number(ag.valor),
+    });
+    if (!continuar) return;
     setAtualizando(true);
     // .select('id') + guarda de 0 linhas: RLS recusando UPDATE devolve sucesso sem linha.
     const { data: rows, error } = await supabase
       .from('agendamentos')
-      .update({ status: novoStatus })
+      .update({ status: novoStatus, ...extra })
       .eq('id', id)
       .select('id');
     setAtualizando(false);
