@@ -49,6 +49,7 @@ import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { hojeBRT, somarDias, limitesDias, rotuloDiaExtenso, rotuloDataHoraBRT } from '@shared/periodos';
+import { novoUuid } from '@shared/uuid';
 
 const supabase = createClient();
 
@@ -148,6 +149,14 @@ export default function VendasPage() {
   const [vendaIncompleta, setVendaIncompleta] = useState<string | null>(null);
   // Trava de duplo clique (o estado `finalizando` só vale no próximo render)
   const gravandoRef = useRef(false);
+  // Chave da venda (`p_venda_id` da registrar_venda_avulsa_v2, migration 090): uma por carrinho,
+  // reaproveitada na nova tentativa (se a 1ª gravou, o banco devolve a mesma venda). Trocada só no
+  // sucesso ou em "Nova venda" (limparVenda).
+  const vendaIdRef = useRef<string>(novoUuid());
+  // "Sem resposta do servidor": a venda pode ter sido gravada com esta chave. O carrinho trava (a
+  // nova tentativa tem que ser a MESMA venda); para outra venda, "Nova venda" troca a chave.
+  const [semResposta, setSemResposta] = useState(false);
+  const carrinhoTravado = !!vendaIncompleta || semResposta;
 
   // Histórico: vendas do dia escolhido (chave 'yyyy-MM-dd' em Brasília)
   const [diaHist,       setDiaHist]       = useState<string>(() => hojeBRT());
@@ -288,7 +297,8 @@ export default function VendasPage() {
 
   function limparVenda() {
     setCart([]); setClienteId(''); setDescontoEntrada(''); setSplits([]);
-    setVendaIncompleta(null); setErro('');
+    setVendaIncompleta(null); setSemResposta(false); setErro('');
+    vendaIdRef.current = novoUuid();
   }
 
   // ── Finalizar venda
@@ -305,7 +315,7 @@ export default function VendasPage() {
     try {
       const r = await gravarVenda(supabase, {
         empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN,
-        splits: splitsNumericos, config,
+        splits: splitsNumericos, config, vendaId: vendaIdRef.current,
       });
       const lancados = splits.filter(sp => parseValorBR(sp.valor) > 0);
       setSucesso({
@@ -324,6 +334,7 @@ export default function VendasPage() {
         if (e.vendaId) {
           setVendaIncompleta(e.vendaId);
         }
+        if (e.message.includes('Sem resposta do servidor')) setSemResposta(true);
         carregar(empresaId);
         setErro(e.message);
       } else {
@@ -456,7 +467,7 @@ export default function VendasPage() {
                 const semEstoque = p.estoque_atual <= 0;
                 return (
                   <button key={p.id} onClick={() => setCart(prev => adicionarAoCarrinho(prev, p))}
-                    disabled={semEstoque || !!vendaIncompleta}
+                    disabled={semEstoque || carrinhoTravado}
                     className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl border text-left transition flex-shrink-0 ${
                       semEstoque
                         ? 'border-border bg-bg opacity-50 cursor-not-allowed'
@@ -496,7 +507,7 @@ export default function VendasPage() {
                     </span>
                   )}
                 </h3>
-                {cart.length > 0 && !vendaIncompleta && (
+                {cart.length > 0 && !carrinhoTravado && (
                   <button onClick={() => setCart([])}
                     className="text-xs text-text-4 hover:text-red transition">
                     Limpar
@@ -521,14 +532,14 @@ export default function VendasPage() {
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
                           onClick={() => setCart(prev => alterarQuantidade(prev, item.produtoId, item.quantidade - 1))}
-                          disabled={!!vendaIncompleta}
+                          disabled={carrinhoTravado}
                           className="w-7 h-7 rounded-lg border border-border text-text-2 flex items-center justify-center hover:bg-bg transition disabled:opacity-30">
                           {item.quantidade > 1 ? <Minus size={11}/> : <Trash2 size={11}/>}
                         </button>
                         <span className="w-7 text-center text-sm font-bold text-text">{item.quantidade}</span>
                         <button
                           onClick={() => setCart(prev => alterarQuantidade(prev, item.produtoId, item.quantidade + 1))}
-                          disabled={item.quantidade >= item.estoqueAtual || !!vendaIncompleta}
+                          disabled={item.quantidade >= item.estoqueAtual || carrinhoTravado}
                           className="w-7 h-7 rounded-lg border border-border text-text-2 flex items-center justify-center hover:bg-bg transition disabled:opacity-30">
                           <Plus size={11}/>
                         </button>
@@ -537,7 +548,7 @@ export default function VendasPage() {
                         {fmtBRL(item.precoUnitario * item.quantidade)}
                       </p>
                       <button onClick={() => setCart(prev => alterarQuantidade(prev, item.produtoId, 0))}
-                        disabled={!!vendaIncompleta}
+                        disabled={carrinhoTravado}
                         className="w-6 h-6 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition disabled:opacity-30">
                         <X size={12}/>
                       </button>
@@ -751,7 +762,7 @@ export default function VendasPage() {
               <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
                 <AlertCircle size={14} className="text-red flex-shrink-0"/>
                 <p className="text-sm text-red flex-1">{erro}</p>
-                {vendaIncompleta && (
+                {carrinhoTravado && (
                   <button onClick={limparVenda}
                     className="text-xs font-bold text-primary underline flex-shrink-0">
                     Nova venda
