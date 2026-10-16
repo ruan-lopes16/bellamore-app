@@ -126,3 +126,44 @@ Para a Task 2, sem a 092 o PostgREST devolve `PGRST205` (tabela) / `PGRST202` (f
 ## Produção
 Rodar a 092 no SQL Editor **antes** do deploy da Task 2. Ela depende de `tem_permissao` e
 `eh_dona_da_empresa` (083) e do enum `perfil_role`.
+
+## API (Task 2)
+
+### `POST /api/profissionais` e `POST /api/convites`
+Corpo e validações como antes. Resposta por caso:
+
+| caso | resposta |
+|---|---|
+| conta nova | como antes: `{ status: 'criado' \| 'convite_enviado', membro }` (vínculo na hora) |
+| conta existente com vínculo **ativo** na empresa | como antes: `{ status: 'adicionado', membro }` |
+| conta existente **sem vínculo** ou com vínculo **inativo** | `{ status: 'convite_pendente', convite }` — nenhum vínculo é criado nem reativado |
+
+- `convite` tem o formato de `ConvitePendente` (`id, user_id, email, nome, role, percentual_comissao,
+  tipo_contrato, convidado_por, criado_em`) — a tela pode pôr direto na seção "Convites pendentes".
+  Texto da tela: "Convite enviado. Ela precisa aceitar no app ou no site."
+- Em `/api/profissionais`, a senha digitada é ignorada para conta existente (igual a antes).
+- Papel do convite = papel do vínculo inativo quando existe (senão o pedido); comissão/contrato =
+  `vinculoParaGravar(vinculoInativo, corpo)` (nunca zera).
+- Já existe pendente para a pessoa → a mesma linha é atualizada (sem novo `convite_enviado` no histórico).
+- Erros novos:
+  - `503` "Atualização do banco pendente: peça para rodar a migration 092." (sem a 092; detectado só por
+    `PGRST205`/`PGRST202`/`42P01`);
+  - `403` "Só a dona pode alterar o convite de uma gestora." (gestora reenviando sobre pendente de gestora);
+  - `403` "Você só pode editar profissionais da equipe (não a dona, outra gestora ou você mesma)." —
+    agora também para vínculo inativo de gestora e para a dona sem vínculo;
+  - `409` "O convite desta pessoa mudou enquanto você salvava. Recarregue a Equipe e tente de novo."
+    (pendente respondido no meio, ou dois pedidos ao mesmo tempo — 23505).
+
+### `PATCH /api/profissionais`
+Sem mudança na resposta. Depois de trocar o login com sucesso grava `login_trocado`
+(`detalhe: { de, para }`, `feito_por` = quem chamou). Falha ao gravar o histórico (ou sem a 092) não
+desfaz a troca — só vai para o log.
+
+### `DELETE /api/convites` (novo)
+- Corpo `{ empresaId, conviteId }`; web por cookie, app por `Authorization: Bearer`.
+- Chama `cancelar_convite` **como quem chama** (não service role), então valem as regras da função.
+- Respostas: `200 { ok: true }`; `400` corpo incompleto ou erro de regra (mensagem P0001 da função, ex.
+  "Só a dona pode cancelar o convite de uma gestora."); `401` sem sessão; `403` 42501 ("Você não tem
+  permissão para cancelar o convite. Fale com a dona ou a gestora."); `503` sem a 092.
+- Alternativa equivalente nas telas: `cancelarConvite(db, empresaId, conviteId)` de `shared/convites-consultas.ts`
+  (RPC direta com o client logado).

@@ -5,6 +5,7 @@ import { quemChama, traduzirErroEmailAuth } from '@/lib/auth/quem-chama';
 import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
 import { podeGerenciarMembro } from '@shared/permissoes';
 import { emailValido, montarPatchVinculo, vinculoParaGravar, type TipoContrato } from '@shared/equipe';
+import { gravarConvitePendente, faltaMigration092 } from '@/lib/equipe/convite-pendente';
 
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -35,9 +36,12 @@ function escaparLike(s: string): string {
 }
 
 /**
- * Adiciona uma profissional com senha definida pela dona/gestora (web e app). Se o e-mail já tem conta,
- * só vincula à empresa (sem mexer na senha). Vínculo existente nunca tem comissão/contrato zerados:
- * só troca o que veio no corpo (`vinculoParaGravar`).
+ * Adiciona uma profissional com senha definida pela dona/gestora (web e app). Conta nova: cria a conta e
+ * o vínculo na hora (`status: 'criado'`). E-mail que já tem conta (a senha é ignorada):
+ * - com vínculo ATIVO nesta empresa → atualiza o vínculo como antes (`status: 'adicionado'`);
+ * - sem vínculo ou com vínculo inativo → nunca vincula sem aceite: grava o convite pendente (092) e
+ *   responde `{ status: 'convite_pendente', convite }`; sem a 092, 503.
+ * Vínculo existente nunca tem comissão/contrato zerados: só troca o que veio no corpo (`vinculoParaGravar`).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -129,7 +133,7 @@ export async function POST(req: NextRequest) {
     // 3. Vínculo com a empresa: preserva papel, comissão e contrato de quem já era da equipe.
     const { data: existente, error: errExistente } = await adminClient
       .from('empresa_membros')
-      .select('id, role, percentual_comissao, tipo_contrato')
+      .select('id, role, percentual_comissao, tipo_contrato, ativo')
       .eq('empresa_id', empresaId)
       .eq('user_id', userId!)
       .maybeSingle();
@@ -137,19 +141,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Não foi possível ler o vínculo atual. Tente de novo.' }, { status: 500 });
     }
 
-    const atual = existente as { role: string; percentual_comissao: number; tipo_contrato: TipoContrato | null } | null;
-    if (atual) {
-      // Já é da equipe: mesma regra do PATCH (a gestora não mexe na dona, em outra gestora nem em si mesma,
-      // e não reativa quem não pode gerenciar).
+    const atual = existente as { role: string; percentual_comissao: number; tipo_contrato: TipoContrato | null; ativo: boolean } | null;
+    const contaExistente = status === 'adicionado';
+    if (atual || contaExistente) {
+      // Mesma regra do PATCH (a gestora não mexe na dona, em outra gestora nem em si mesma, e não
+      // reativa nem convida de novo quem não pode gerenciar) — vale também para vínculo inativo.
       const { data: emp, error: errEmp } = await adminClient.from('empresas').select('owner_id').eq('id', empresaId).maybeSingle();
       if (errEmp) return NextResponse.json({ error: ERRO_INTERNO }, { status: 500 });
-      const roleAlvo = (emp as { owner_id?: string } | null)?.owner_id === userId ? 'owner' : atual.role;
+      const roleAlvo = (emp as { owner_id?: string } | null)?.owner_id === userId ? 'owner' : (atual?.role ?? roleSolicitado);
       if (!podeGerenciarMembro({ isOwner: permsReq.isOwner, userId: requesterId }, true, { role: roleAlvo, userId: userId! })) {
         return NextResponse.json({ error: ERRO_GERENCIAR_MEMBRO }, { status: 403 });
       }
     }
     const v = vinculoParaGravar(atual, { percentual_comissao, tipo_contrato });
     if ('erro' in v) return NextResponse.json({ error: v.erro }, { status: 400 });
+
+    // 4. Conta que já existia sem vínculo ATIVO nesta empresa: nunca vincula (nem reativa) sem aceite —
+    //    só grava o convite pendente (092). Ela aceita no app ou no site.
+    if (contaExistente && !atual?.ativo) {
+      const roleConvite = atual ? atual.role : roleSolicitado;
+      if (roleConvite !== 'gestor' && roleConvite !== 'profissional') {
+        return NextResponse.json({ error: ERRO_GERENCIAR_MEMBRO }, { status: 403 });
+      }
+      const r = await gravarConvitePendente(adminClient, {
+        empresaId, userId: userId!, email: emailFinal, nome: nome.trim(), role: roleConvite,
+        percentual_comissao: v.valores.percentual_comissao, tipo_contrato: v.valores.tipo_contrato,
+        convidadoPor: requesterId, quemConvidaEhDona: permsReq.isOwner,
+      });
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+      return NextResponse.json({ status: 'convite_pendente', convite: r.convite });
+    }
 
     const { data: membro, error: membroError } = await adminClient
       .from('empresa_membros')
@@ -178,7 +199,8 @@ export async function POST(req: NextRequest) {
  * Edita uma pessoa da equipe (web e app via Bearer). Corpo:
  * `{ empresaId, userId, membroId, nome?, telefone?, email?, percentual_comissao?, tipo_contrato? }`.
  * Só mexe em vínculo e usuário da empresa informada. Trocar o e-mail troca também o login (Auth), e o
- * Auth é trocado antes de `users` — se `users` falhar depois, o e-mail antigo volta no Auth.
+ * Auth é trocado antes de `users` — se `users` falhar depois, o e-mail antigo volta no Auth. Troca de login
+ * concluída vira `login_trocado` no histórico da Equipe (de/para, quem fez).
  */
 export async function PATCH(req: NextRequest) {
   try {
@@ -318,6 +340,18 @@ export async function PATCH(req: NextRequest) {
             ? 'Não foi possível salvar os dados da pessoa. Nada foi alterado.'
             : 'Não foi possível salvar os dados da pessoa, e o e-mail de login já tinha sido trocado. Confira o e-mail e tente de novo.',
         }, { status: 400 });
+      }
+    }
+
+    // Login trocado e confirmado (users já acompanha): registra no histórico da Equipe (092). A troca já
+    // valeu, então uma falha aqui só vai para o log — sem a 092 não há histórico para gravar.
+    if (trocouEmail) {
+      const { error: errHist } = await adminClient.from('equipe_historico').insert({
+        empresa_id: empresaId, alvo_user_id: userId, acao: 'login_trocado',
+        detalhe: { de: emailAntigoAuth, para: emailNovo }, feito_por: requesterId,
+      });
+      if (errHist && !faltaMigration092(errHist)) {
+        console.error('Não foi possível registrar a troca de login no histórico da Equipe:', errHist.code, errHist.message);
       }
     }
 

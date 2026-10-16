@@ -27,7 +27,7 @@ describe('POST de profissionais e convites', () => {
     const post = handler(src, 'POST');
     expect(post).toContain('vinculoParaGravar(');
     expect(post).not.toMatch(/percentual_comissao\s*\?\?\s*0/);
-    expect(post).toMatch(/select\('id, role, percentual_comissao, tipo_contrato'\)/);
+    expect(post).toMatch(/select\('id, role, percentual_comissao, tipo_contrato, ativo'\)/);
     expect(post).toMatch(/\.select\('[^']*tipo_contrato[^']*user:users/);
   });
 });

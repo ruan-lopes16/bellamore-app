@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 
 /**
@@ -15,6 +15,22 @@ export async function quemChama(req: NextRequest, adminClient: SupabaseClient): 
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
   return data.user?.id ?? null;
+}
+
+/**
+ * Client do Supabase agindo COMO quem chama (RLS e `auth.uid()` valem), para rotas que chamam funções
+ * do banco que conferem a própria pessoa (ex.: `cancelar_convite`). Com Bearer (app), manda o token no
+ * cabeçalho; sem ele (web), usa a sessão do cookie. Confira antes, com `quemChama`, que a sessão é válida.
+ */
+export async function clienteComoQuemChama(req: NextRequest): Promise<SupabaseClient> {
+  const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim();
+  if (token) {
+    return createSupabaseClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+  }
+  return (await createClient()) as unknown as SupabaseClient;
 }
 
 export const ERRO_EMAIL_EM_USO = 'Este e-mail já é usado por outra conta.';
