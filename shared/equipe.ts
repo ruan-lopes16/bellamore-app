@@ -122,3 +122,77 @@ export function numerosVisiveis(
     comissao: euMesma || pode('comissoes.ver_todas'),
   };
 }
+
+// ── Histórico da Equipe (migration 092) ─────────────────────────────────────
+
+/** Ações gravadas em `equipe_historico` (mesma lista do CHECK da 092). */
+export const ACOES_HISTORICO_EQUIPE = [
+  'convite_enviado', 'convite_aceito', 'convite_recusado', 'convite_cancelado',
+  'login_trocado', 'desativado', 'reativado', 'papel_trocado', 'comissao_trocada', 'contrato_trocado',
+] as const;
+export type AcaoHistoricoEquipe = typeof ACOES_HISTORICO_EQUIPE[number];
+
+/** Linha de `listar_historico_equipe` (e-mails já mascarados pelo banco para quem não é a dona). */
+export type LinhaHistoricoEquipe = {
+  id: string;
+  empresa_id?: string;
+  alvo_user_id: string | null;
+  acao: AcaoHistoricoEquipe | string;
+  detalhe: Record<string, unknown> | null;
+  feito_por: string | null;
+  criado_em: string;
+  alvo_nome?: string | null;
+  feito_por_nome?: string | null;
+};
+
+/** Rótulo do papel na Equipe: Dona, Gestora ou Profissional (desconhecido = como veio). */
+export function rotuloPapelEquipe(p: unknown): string {
+  return p === 'owner' ? 'Dona' : p === 'gestor' ? 'Gestora' : p === 'profissional' ? 'Profissional' : String(p ?? '');
+}
+
+const texto = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+/** "45,5%" / "40%" (sem Intl: o Hermes do app não tem locale pt-BR completo). */
+function percentual(v: unknown): string {
+  const n = Number(v);
+  if (v === null || v === undefined || !Number.isFinite(n)) return '—';
+  return `${String(Math.round(n * 100) / 100).replace('.', ',')}%`;
+}
+
+const contrato = (v: unknown) => rotuloContrato(v === 'pj' || v === 'clt' ? v : null) || 'sem contrato';
+
+/**
+ * Frase em português de uma linha do histórico da Equipe (web e app). Nomes: primeiro o mapa
+ * `nomes` (user_id → nome) da tela, depois o nome que o banco devolveu; quem fez a mudança pela
+ * rota do servidor (`feito_por` nulo) aparece como "Alguém".
+ */
+export function descreverHistoricoEquipe(linha: LinhaHistoricoEquipe, nomes: Record<string, string> = {}): string {
+  const d = linha.detalhe ?? {};
+  const autor = (linha.feito_por && nomes[linha.feito_por]) || texto(linha.feito_por_nome) || 'Alguém';
+  const alvo = (linha.alvo_user_id && nomes[linha.alvo_user_id]) || texto(linha.alvo_nome)
+    || texto(d.nome) || texto(d.email) || 'uma pessoa';
+  const papel = rotuloPapelEquipe(d.role);
+  switch (linha.acao) {
+    case 'convite_enviado': return `${autor} convidou ${alvo} para a equipe como ${papel}.`;
+    case 'convite_aceito': return `${alvo} aceitou o convite e entrou na equipe como ${papel}.`;
+    case 'convite_recusado': return `${alvo} recusou o convite para a equipe.`;
+    case 'convite_cancelado': return `${autor} cancelou o convite de ${alvo}.`;
+    case 'login_trocado': return `${autor} trocou o e-mail de login de ${alvo} de ${texto(d.de) ?? '—'} para ${texto(d.para) ?? '—'}.`;
+    case 'desativado': return `${autor} desativou ${alvo}.`;
+    case 'reativado': return `${autor} reativou ${alvo}.`;
+    case 'papel_trocado': return `${autor} mudou o papel de ${alvo} de ${rotuloPapelEquipe(d.de)} para ${rotuloPapelEquipe(d.para)}.`;
+    case 'comissao_trocada': return `${autor} mudou a comissão de ${alvo} de ${percentual(d.de)} para ${percentual(d.para)}.`;
+    case 'contrato_trocado': return `${autor} mudou o contrato de ${alvo} de ${contrato(d.de)} para ${contrato(d.para)}.`;
+    default: return `${autor} alterou ${alvo}.`;
+  }
+}
+
+const dois = (n: number) => String(n).padStart(2, '0');
+
+/** "16/10/2026 14:30" em Brasília (UTC−3 fixo, mesma regra de shared/periodos), sem Intl. */
+export function quandoHistoricoEquipe(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  const d = new Date(t - 3 * 3600_000);
+  return `${dois(d.getUTCDate())}/${dois(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${dois(d.getUTCHours())}:${dois(d.getUTCMinutes())}`;
+}
