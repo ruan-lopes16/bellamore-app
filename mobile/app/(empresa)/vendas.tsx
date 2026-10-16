@@ -14,6 +14,8 @@
  * - gravação vendas → venda_itens → estoque_movimentos → pagamentos = gravarVenda
  *   (estoque_atual decrementado pelo trigger trg_atualizar_estoque)
  * - venda gravada pela metade (ErroVenda com vendaId) trava um novo "Finalizar" deste carrinho.
+ * - chave da venda (vendaIdRef, novoUuid): uma por carrinho, reenviada na nova tentativa para a
+ *   registrar_venda_avulsa_v2 (090) não registrar duas vezes; troca só no sucesso ou em "Nova venda".
  */
 import { useState, useMemo, useCallback, useRef } from 'react';
 import {
@@ -54,6 +56,7 @@ import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { limitesDias, chaveDiaExibido, horaBRT, rotuloDiaExtenso } from '@shared/periodos';
+import { novoUuid } from '@shared/uuid';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -148,6 +151,10 @@ export default function VendasScreen() {
   const [vendaIncompleta, setVendaIncompleta] = useState<string | null>(null);
   // Trava de duplo toque (o estado `finalizando` só vale no próximo render)
   const gravandoRef = useRef(false);
+  // Chave da venda (registrar_venda_avulsa_v2, migration 090): uma por carrinho. A nova tentativa
+  // depois de "sem resposta" reenvia a mesma — se a 1ª gravou, o banco devolve a venda sem duplicar.
+  // Só troca no sucesso ou em "Nova venda" (limparVenda).
+  const vendaIdRef = useRef<string>(novoUuid());
   const [sucesso, setSucesso] = useState<Sucesso | null>(null);
 
   // Histórico
@@ -262,6 +269,7 @@ export default function VendasScreen() {
   function limparVenda() {
     setCart([]); setClienteId(''); setBuscaCliente(''); setDescontoEntrada(''); setSplits([]);
     setVendaIncompleta(null); setErro('');
+    vendaIdRef.current = novoUuid();
   }
 
   // ── Finalizar venda
@@ -277,7 +285,7 @@ export default function VendasScreen() {
     try {
       const r = await gravarVenda(supabase, {
         empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN,
-        splits: splitsNumericos, config,
+        splits: splitsNumericos, config, vendaId: vendaIdRef.current,
       });
       const lancados = splits.filter(s => parseValorBR(s.valor) > 0);
       setSucesso({

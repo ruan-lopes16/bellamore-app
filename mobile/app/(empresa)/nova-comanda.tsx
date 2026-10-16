@@ -60,6 +60,10 @@ import {
 import { limitesDias, chaveDiaExibido } from '@shared/periodos';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
+import {
+  montarPayloadFechamento, montarPayloadEdicao, fecharComandaNoBanco, editarComandaNoBanco,
+  ErroGravacaoComanda,
+} from '@shared/comanda-gravacao';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -120,6 +124,12 @@ type ComandaItem = {
   profissional_id?: string;
   /** Linha já gravada em `comanda_itens` (edição de comanda fechada). */
   item_id?: string;
+  /**
+   * Extra novo: id de `comanda_itens` gerado na tela ao incluir (novoUuid) e mandado como `item_id`
+   * para `editar_comanda` (090) — a nova tentativa reenvia o mesmo e o item não duplica. Separado de
+   * `item_id` porque o caminho antigo (diffItensComanda) usa `item_id` = "já gravado".
+   */
+  novo_item_id?: string;
   /** Comissão deste extra já paga: profissional e remoção travadas (o banco recusaria — 085). */
   comissao_paga?: boolean;
 };
@@ -136,6 +146,8 @@ type Split = {
   maquininhaId?: string | null;
   taxaGravada?: number | null; metodoGravado?: string; parcelasGravadas?: number; criadoEm?: string | null;
   maquininhaGravada?: string | null; bandeiraGravada?: string | null;
+  /** `pagamentos.id` do reaberto: `editar_comanda` (090) mantém id/taxa/data se nada do cartão mudou. */
+  pagamentoId?: string | null;
 };
 
 type ClienteComanda = {
@@ -160,6 +172,19 @@ function avatarHue(nome: string) {
 }
 let uidCount = 0;
 function uid() { return `tmp_${++uidCount}`; }
+
+/**
+ * M7: as linhas de `agendamento_servicos` só valem como itens da comanda reaberta quando somam o
+ * valor gravado do atendimento (centavos). Linha tirada da comanda no fechamento (o web tira por
+ * linha) não é regravada e manteria o valor antigo: reabrir todas somaria um serviço que não foi
+ * cobrado ao salvar a edição. Sem conferir, o atendimento reabre como uma linha só (valor gravado).
+ */
+function linhasConferemComValor(ag: { valor: number | string | null; agendamento_servicos?: { valor: number | string }[] | null }): boolean {
+  const linhas = ag.agendamento_servicos ?? [];
+  if (linhas.length === 0) return false;
+  const soma = linhas.reduce((s, l) => s + Math.round(Number(l.valor) * 100), 0);
+  return soma === Math.round(Number(ag.valor ?? 0) * 100);
+}
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -252,6 +277,10 @@ export default function NovaComandaScreen() {
   // Comandas só com extras criadas que falharam numa etapa seguinte (cliente → comanda_id):
   // bloqueiam um novo fechamento da mesma cliente nesta tela (ver falharAposCriar).
   const [comandasParciais, setComandasParciais] = useState<Record<string, string>>({});
+  // `comanda_id` do fechamento pela função (090): um por comanda aberta, reenviado na nova
+  // tentativa depois de "sem resposta" (se a 1ª gravou, o banco devolve a comanda sem duplicar).
+  // Só troca depois do sucesso ou quando se abre outra comanda.
+  const chaveComandaRef = useRef<string>(novoUuid());
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -514,6 +543,7 @@ export default function NovaComandaScreen() {
     setClienteSel(cliente);
     setComandaExistenteId(null);
     aberturaRef.current++;
+    chaveComandaRef.current = novoUuid();
     setCargaFalhou(false);
     setCarregandoComanda(false);
     setItensOriginais([]);
@@ -575,6 +605,7 @@ export default function NovaComandaScreen() {
     const comandaId = cliente.comandaId;
     if (!comandaId || !empresaId) { abrirComanda(cliente); return; }
 
+    chaveComandaRef.current = novoUuid();
     setClienteSel(cliente);
     setComandaExistenteId(comandaId);
     // Zera tudo ANTES de ler: nada da comanda anterior pode vazar para esta.
@@ -594,7 +625,9 @@ export default function NovaComandaScreen() {
 
     const agItems: ComandaItem[] = agsDaComanda.flatMap<ComandaItem>(ag => {
       const linhas = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
-      if (linhas.length > 0) {
+      // M7: só reabre por linha quando as linhas somam o valor gravado (linha tirada no
+      // fechamento não volta); senão, uma linha só com o valor do atendimento.
+      if (linhas.length > 0 && linhasConferemComValor(ag)) {
         return linhas.map(s => ({
           uid: uid(), tipo: 'agendamento' as const, descricao: s.servico?.nome ?? 'Serviço',
           profissional: ag.profissional?.nome, valor: Number(s.valor), quantidade: 1,
@@ -678,6 +711,7 @@ export default function NovaComandaScreen() {
       maquininhaGravada: p.maquininha_id ?? null,
       bandeiraGravada:  p.bandeira ?? null,
       criadoEm:         p.created_at ?? null,
+      pagamentoId:      p.id ?? null,
     })));
     setCarregandoComanda(false);
   }
@@ -687,7 +721,7 @@ export default function NovaComandaScreen() {
    * relê sem ela (todos ficam como "gravados antes da 086", maquininha null). Igual ao web.
    */
   async function lerPagamentosDaComanda(comandaId: string) {
-    const base = 'metodo,valor,bandeira,parcelas,taxa_perc,created_at';
+    const base = 'id,metodo,valor,bandeira,parcelas,taxa_perc,created_at';
     const r = await supabase.from('pagamentos').select(`${base},maquininha_id`).eq('comanda_id', comandaId).order('created_at');
     if (r.error && /maquininha_id/.test(r.error.message ?? '')) {
       return supabase.from('pagamentos').select(base).eq('comanda_id', comandaId).order('created_at');
@@ -696,15 +730,15 @@ export default function NovaComandaScreen() {
   }
 
   function adicionarServico(s: { id: string; nome: string; preco: number }) {
-    setItens(prev => [...prev, { uid: uid(), tipo: 'servico', descricao: s.nome, valor: s.preco, quantidade: 1, servico_id: s.id }]);
+    setItens(prev => [...prev, { uid: uid(), novo_item_id: novoUuid(), tipo: 'servico', descricao: s.nome, valor: s.preco, quantidade: 1, servico_id: s.id }]);
     setShowExtras(false);
   }
   function adicionarProduto(p: { id: string; nome: string; preco_venda: number }) {
-    setItens(prev => [...prev, { uid: uid(), tipo: 'produto', descricao: p.nome, valor: p.preco_venda, quantidade: 1, produto_id: p.id }]);
+    setItens(prev => [...prev, { uid: uid(), novo_item_id: novoUuid(), tipo: 'produto', descricao: p.nome, valor: p.preco_venda, quantidade: 1, produto_id: p.id }]);
     setShowExtras(false);
   }
   function adicionarPacote(p: { id: string; nome: string; preco: number }) {
-    setItens(prev => [...prev, { uid: uid(), tipo: 'pacote', descricao: p.nome, valor: p.preco, quantidade: 1, pacote_id: p.id }]);
+    setItens(prev => [...prev, { uid: uid(), novo_item_id: novoUuid(), tipo: 'pacote', descricao: p.nome, valor: p.preco, quantidade: 1, pacote_id: p.id }]);
     setShowExtras(false);
   }
   /**
@@ -885,6 +919,23 @@ export default function NovaComandaScreen() {
     if (!clienteSel || !empresaId || fechando || !podeEditarFechada) return;
     if (bloqueioTaxaReserva) { Alert.alert('Não é possível salvar', bloqueioTaxaReserva); return; }
     setFechando(true);
+
+    // 0. Caminho principal: `editar_comanda` (090) grava o estado completo numa transação (qualquer
+    //    erro desfaz tudo). Extra novo vai com o id gerado na tela ao incluir (novo_item_id), o mesmo
+    //    em toda nova tentativa. Sem a 090 (`via: 'antigo'`) segue o caminho em passos abaixo.
+    let resultadoEdicao: Awaited<ReturnType<typeof editarComandaNoBanco>>;
+    try {
+      resultadoEdicao = await editarComandaNoBanco(supabase, montarPayloadEdicao({
+        comandaId, empresaId, desconto: descontoN,
+        itens: itens.map(i => ({ ...i, item_id: i.item_id ?? i.novo_item_id })),
+        splits: splitsNumericos, config,
+      }));
+    } catch (e) {
+      avisarErroFuncao(e, 'salvar a comanda');
+      return;
+    }
+    if (resultadoEdicao.via === 'funcao') { concluirEdicao(); return; }
+
     const falhar = (etapaFalha: string, erro: Parameters<typeof falharFechamento>[1]) => {
       setCargaFalhou(true);
       const msg = typeof erro === 'string' ? erro : mensagemErroBanco(erro, 'salvar a comanda');
@@ -954,6 +1005,18 @@ export default function NovaComandaScreen() {
       }
     }
 
+    concluirEdicao();
+  }
+
+  /** Splits do recibo da tela de sucesso: cortesia automática aparece como "Cortesia R$ 0,00". */
+  function splitsDoSucesso(): Split[] {
+    const lancados = splits.filter(s => parseValorBR(s.valor) > 0);
+    return lancados.length === 0 && resumo.cortesiaAutomatica ? [{ metodo: 'cortesia', valor: '0,00' }] : lancados;
+  }
+
+  /** Pós-sucesso da edição (pela função ou pelo caminho em passos): o mesmo de sempre. */
+  function concluirEdicao() {
+    if (!clienteSel) return;
     setFechando(false);
     // Receita, comissão, taxas de cartão e alerta de comandas abertas mudaram: atualiza tudo.
     invalidarFinanceiro(qc);
@@ -965,10 +1028,67 @@ export default function NovaComandaScreen() {
     setProximoCliente(null);
     setSucessoData({
       nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
-      splits: (() => {
-        const lancados = splits.filter(s => parseValorBR(s.valor) > 0);
-        return lancados.length === 0 && resumo.cortesiaAutomatica ? [{ metodo: 'cortesia', valor: '0,00' }] : lancados;
-      })(),
+      splits: splitsDoSucesso(),
+      itensCount: itens.length,
+      itens: itens.map(i => ({ descricao: i.descricao, quantidade: i.quantidade, valor: i.valor })),
+      dataIso: new Date().toISOString(),
+      desconto: descontoN, descontoReserva: descontoReservaAplicado,
+    });
+    setEtapa('sucesso');
+  }
+
+  /**
+   * Erro de `fechar_comanda`/`editar_comanda` (090): nada foi gravado (a transação desfaz tudo),
+   * exceto "sem resposta", em que pode ter gravado — a chave (comanda_id / item_id) continua a
+   * mesma, então a nova tentativa não duplica. Mensagens da função já vêm em português.
+   * Recarrega o dia (ex.: "Este atendimento já teve a comanda fechada." vindo de outro aparelho).
+   */
+  function avisarErroFuncao(e: unknown, acao: string) {
+    setFechando(false);
+    if (e instanceof ErroGravacaoComanda) {
+      Alert.alert(e.semResposta ? 'Sem resposta do servidor' : 'Erro', e.message);
+    } else {
+      Alert.alert('Erro', e instanceof Error && e.message ? e.message : `Não foi possível ${acao}.`);
+    }
+    carregarDia();
+  }
+
+  /**
+   * Pós-sucesso do fechamento (pela função ou pelo caminho em passos): marca os atendimentos como
+   * fechados na lista, invalida financeiro/estoque, recarrega backlog e o dia (totalDia passa a
+   * considerar o desconto rateado gravado pela função) e mostra o sucesso com o recibo.
+   */
+  function concluirFechamento(
+    comandaId: string,
+    gruposValor: ReturnType<typeof agruparValoresPorAgendamento>,
+    agIds: string[],
+  ) {
+    if (!clienteSel) return;
+    setFechando(false);
+    // Receita, comissão e alerta de comandas abertas mudaram: atualiza todas as telas.
+    invalidarFinanceiro(qc);
+    invalidarEstoque();
+    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    carregarBacklog();
+    // Valor cobrado, vínculo de pacote, status E comanda_id — senão o atendimento
+    // continua listado como aberto (e o "Total do dia" usa o valor antigo).
+    setAgDia(prev => marcarAgendamentosFechados(prev.map(ag => {
+      const g = gruposValor.find(x => x.agendamentoId === ag.id);
+      if (!g) return ag;
+      return {
+        ...ag,
+        valor: g.novoValorTotal,
+        pacote_cliente_id: g.pacoteClienteId !== undefined ? g.pacoteClienteId : ag.pacote_cliente_id,
+      };
+    }), agIds, comandaId));
+    // Relê do banco: o desconto rateado (090) só existe lá e o "Total do dia" desconta ele.
+    carregarDia();
+    setProximoCliente(proximoClienteAberto(clienteSel.chave));
+    setSucessoData({
+      nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
+      // Cortesia automática (total R$ 0 sem pagamento — a linha que montarPagamentos grava)
+      // aparece como "Cortesia R$ 0,00" em vez de uma lista vazia.
+      splits: splitsDoSucesso(),
       itensCount: itens.length,
       itens: itens.map(i => ({ descricao: i.descricao, quantidade: i.quantidade, valor: i.valor })),
       dataIso: new Date().toISOString(),
@@ -998,6 +1118,32 @@ export default function NovaComandaScreen() {
     }
     setFechando(true);
 
+    // 0. Caminho principal: `fechar_comanda` (090) grava tudo numa transação — comanda, atendimentos,
+    //    itens, venda de produtos/pacotes, baixa de estoque e pagamentos; qualquer erro desfaz tudo.
+    //    O banco confere a duplicidade (UPDATE ... WHERE comanda_id IS NULL), então a conferência
+    //    abaixo só roda no caminho antigo: na nova tentativa depois de "sem resposta", o mesmo
+    //    comanda_id (chaveComandaRef) faz a função devolver a comanda já gravada sem duplicar.
+    //    Taxa do cartão vem da configuração carregada (configIndisponivel = sem taxa, nunca inventada).
+    const gruposFuncao = agruparValoresPorAgendamento(itens, pacoteLinks);
+    const agIdsFuncao = [...new Set(itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!))];
+    let resultadoFechamento: Awaited<ReturnType<typeof fecharComandaNoBanco>>;
+    try {
+      resultadoFechamento = await fecharComandaNoBanco(supabase, montarPayloadFechamento({
+        comandaId: chaveComandaRef.current, empresaId, clienteId: clienteSel.id, desconto: descontoN,
+        itens, pacoteLinks, splits: splitsNumericos, config,
+      }));
+    } catch (e) {
+      avisarErroFuncao(e, 'fechar a comanda');
+      return;
+    }
+    if (resultadoFechamento.via === 'funcao') {
+      const comandaFechada = chaveComandaRef.current;
+      chaveComandaRef.current = novoUuid();
+      concluirFechamento(comandaFechada, gruposFuncao, agIdsFuncao);
+      return;
+    }
+
+    // Sem a 090 (via === 'antigo'): caminho em passos, igual a antes.
     // Barra fechamento duplicado: se algum atendimento desta comanda já ganhou
     // comanda (outro aparelho, lista desatualizada), criar outra geraria
     // pagamento em dobro. Confere no banco, não na lista local.
@@ -1166,38 +1312,7 @@ export default function NovaComandaScreen() {
       }
     }
 
-    setFechando(false);
-    // Receita, comissão e alerta de comandas abertas mudaram: atualiza todas as telas.
-    invalidarFinanceiro(qc);
-    invalidarEstoque();
-    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
-    carregarBacklog();
-    // Valor cobrado, vínculo de pacote, status E comanda_id — senão o atendimento
-    // continua listado como aberto (e o "Total do dia" usa o valor antigo).
-    setAgDia(prev => marcarAgendamentosFechados(prev.map(ag => {
-      const g = gruposValor.find(x => x.agendamentoId === ag.id);
-      if (!g) return ag;
-      return {
-        ...ag,
-        valor: g.novoValorTotal,
-        pacote_cliente_id: g.pacoteClienteId !== undefined ? g.pacoteClienteId : ag.pacote_cliente_id,
-      };
-    }), agIds, comandaId));
-    setProximoCliente(proximoClienteAberto(clienteSel.chave));
-    setSucessoData({
-      nome: clienteSel.nome, valor: total, telefone: clienteSel.telefone,
-      // Cortesia automática (total R$ 0 sem pagamento — a linha que montarPagamentos grava)
-      // aparece como "Cortesia R$ 0,00" em vez de uma lista vazia.
-      splits: (() => {
-        const lancados = splits.filter(s => parseValorBR(s.valor) > 0);
-        return lancados.length === 0 && resumo.cortesiaAutomatica ? [{ metodo: 'cortesia', valor: '0,00' }] : lancados;
-      })(),
-      itensCount: itens.length,
-      itens: itens.map(i => ({ descricao: i.descricao, quantidade: i.quantidade, valor: i.valor })),
-      dataIso: new Date().toISOString(),
-      desconto: descontoN, descontoReserva: descontoReservaAplicado,
-    });
-    setEtapa('sucesso');
+    concluirFechamento(comandaId, gruposValor, agIds);
   }
 
   if (!fontsLoaded) return null;

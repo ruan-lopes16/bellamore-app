@@ -5,6 +5,74 @@ import { join } from 'node:path';
 const raiz = join(process.cwd(), '..');
 const ler = (...p: string[]) => readFileSync(join(raiz, ...p), 'utf8');
 
+describe('app', () => {
+  const comanda = ler('mobile', 'app', '(empresa)', 'nova-comanda.tsx');
+  const vendas = ler('mobile', 'app', '(empresa)', 'vendas.tsx');
+
+  it('fechar: monta o payload pela regra única e chama a função antes do caminho antigo', () => {
+    expect(comanda).toMatch(/from '@shared\/comanda-gravacao'/);
+    expect(comanda).toContain('montarPayloadFechamento(');
+    const iFuncao = comanda.indexOf('fecharComandaNoBanco(supabase,');
+    expect(iFuncao).toBeGreaterThan(-1);
+    // A conferência de duplicidade e o INSERT antigo só rodam quando a função não existe:
+    // na nova tentativa depois de "sem resposta", a função devolve a comanda já gravada.
+    expect(comanda.indexOf(".in('id', agIdsNaComanda)")).toBeGreaterThan(iFuncao);
+    expect(comanda.indexOf(".from('comandas').insert(")).toBeGreaterThan(iFuncao);
+    expect(comanda).toMatch(/via === 'antigo'/);
+  });
+
+  it('comanda_id: gerado uma vez por comanda aberta, reaproveitado e trocado só no sucesso ou ao abrir outra', () => {
+    expect(comanda).toMatch(/const chaveComandaRef = useRef<string>\(novoUuid\(\)\)/);
+    expect(comanda).toContain('comandaId: chaveComandaRef.current');
+    // Troca: abrirComanda, abrirComandaFechada e depois do sucesso pela função
+    expect(comanda.match(/chaveComandaRef\.current = novoUuid\(\)/g)?.length).toBe(3);
+  });
+
+  it('editar: estado completo pela função, extra novo com id gerado na tela e pagamento reaberto com id', () => {
+    expect(comanda).toContain('montarPayloadEdicao(');
+    expect(comanda).toContain('editarComandaNoBanco(supabase,');
+    expect(comanda).toMatch(/novo_item_id: novoUuid\(\)/);
+    expect(comanda).toMatch(/item_id: i\.item_id \?\? i\.novo_item_id/);
+    expect(comanda).toMatch(/pagamentoId: +p\.id/);
+    expect(comanda).toMatch(/const base = 'id,metodo,valor/);
+  });
+
+  it('erros da função em português num Alert; sem resposta mantém a chave', () => {
+    expect(comanda).toContain('ErroGravacaoComanda');
+    expect(comanda).toMatch(/e instanceof ErroGravacaoComanda[\s\S]{0,400}Alert\.alert\(/);
+    expect(comanda).toContain("'Sem resposta do servidor'");
+  });
+
+  it('sucesso pela função: mesmo pós-sucesso e recarga do dia (totalDia com o desconto rateado)', () => {
+    const i = comanda.indexOf('function concluirFechamento(');
+    expect(i).toBeGreaterThan(-1);
+    const corpo = comanda.slice(i, i + 3500);
+    for (const t of ['invalidarFinanceiro(qc)', 'invalidarEstoque()', 'carregarBacklog()', 'carregarDia()', "setEtapa('sucesso')", 'marcarAgendamentosFechados(']) {
+      expect(corpo).toContain(t);
+    }
+  });
+
+  it('M7: multi-serviço reaberto cujas linhas não somam o valor do atendimento vira uma linha só', () => {
+    expect(comanda).toMatch(/function linhasConferemComValor\(/);
+    const i = comanda.indexOf('async function abrirComandaFechada(');
+    expect(comanda.slice(i, i + 3000)).toContain('linhasConferemComValor(');
+  });
+
+  it('preserva CRLF', () => {
+    expect(comanda.replace(/\r\n/g, '')).not.toContain('\n');
+    expect(vendas.replace(/\r\n/g, '')).not.toContain('\n');
+  });
+
+  it('Vendas: vendaId gerado uma vez por carrinho e trocado só no sucesso ou em "Nova venda"', () => {
+    expect(vendas).toMatch(/import \{ novoUuid \} from '@shared\/uuid'/);
+    expect(vendas).toMatch(/const vendaIdRef = useRef<string>\(novoUuid\(\)\)/);
+    expect(vendas).toContain('vendaId: vendaIdRef.current');
+    expect(vendas.match(/vendaIdRef\.current = novoUuid\(\)/g)?.length).toBe(1);
+    const iLimpar = vendas.indexOf('function limparVenda()');
+    expect(vendas.slice(iLimpar, iLimpar + 400)).toContain('vendaIdRef.current = novoUuid()');
+  });
+});
+
 describe('web', () => {
   const comanda = ler('web', 'app', '(app)', 'comanda', 'page.tsx');
   const vendas = ler('web', 'app', '(app)', 'vendas', 'page.tsx');
