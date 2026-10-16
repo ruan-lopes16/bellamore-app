@@ -11,14 +11,16 @@
  *   esse código) devolvem `{ via: 'antigo' }` e a tela segue pelo caminho atual em passos (ordem de
  *   deploy livre). Qualquer outro erro vira `ErroGravacaoComanda` com mensagem em português.
  *
- * Idempotência: a tela gera `comandaId` (e o `item_id` de cada extra novo na edição) UMA vez e
- * reaproveita na nova tentativa depois de "sem resposta" — se a 1ª chegou a gravar, o banco
- * devolve o id sem duplicar.
+ * Idempotência: o `comandaId` só é reaproveitado na nova tentativa depois de "sem resposta" e com o
+ * MESMO conteúdo (`assinaturaGravacao`/`chaveDaTentativa`) — se a 1ª chegou a gravar, o banco
+ * devolve o id sem duplicar; com conteúdo alterado a tela bloqueia e manda conferir
+ * (`tentativaFoiGravada`). O `item_id` de cada extra novo na edição é gerado UMA vez na tela.
  */
 import { agruparValoresPorAgendamento } from './comanda';
 import { montarPagamentos, type SplitPagamento } from './comanda-fechamento';
 import { mensagemErroBanco } from './erros';
 import type { ConfigCartoes } from './taxas-cartao';
+import { novoUuid } from './uuid';
 
 /** O mínimo do client supabase-js usado aqui (`rpc`). Estrutural, como `ClienteDb`. */
 export interface ClienteDbRpc {
@@ -48,7 +50,7 @@ export type ItemComandaTela = {
 
 /** Estado da tela no momento de fechar uma comanda nova. */
 export type EstadoFechamentoComanda = {
-  /** Gerado na tela uma vez por tentativa de fechar (novoUuid) e reaproveitado na nova tentativa. */
+  /** Chave da tentativa (`chaveDaTentativa`): nova, ou a da tentativa sem resposta com o mesmo conteúdo. */
   comandaId: string;
   empresaId: string;
   /** `clientes.id`; `'__sem__'`, `''` ou null = cliente avulso. */
@@ -198,25 +200,96 @@ export type ResultadoGravacaoComanda = { via: 'funcao' } | { via: 'antigo' };
 
 type ErroRpc = { code?: string | null; message?: string | null } | null | undefined;
 
-/** Erros do Postgres que chegam em inglês: tradução fixa (a mensagem original não vai para a tela). */
-const MENSAGENS_CODIGO: Record<string, string> = {
-  '22P02': 'Dado inválido enviado ao banco.',
-  '23505': 'Registro duplicado.',
-  '57014': 'O banco demorou demais para responder. Confira antes de repetir.',
-};
-
 /**
  * Converte o erro da função: as mensagens de regra (P0001) e de permissão (42501) da 090 já vêm em
  * português, prontas para a tela; uma recusa de RLS em inglês vira o aviso padrão de permissão.
+ * Qualquer outro código passa por `mensagemErroBanco`: tradução fixa (PGRST301 = sessão expirada,
+ * 22P02, 23505, 57014...) ou mensagem genérica em português (o texto técnico fica no console).
  */
 function erroDaFuncao(e: NonNullable<ErroRpc>, acao: string, semRespostaMsg: string): ErroGravacaoComanda {
   if (!e.code) return new ErroGravacaoComanda(semRespostaMsg, null, true);
-  const traduzida = MENSAGENS_CODIGO[e.code];
-  if (traduzida) return new ErroGravacaoComanda(traduzida, e.code, false);
   const msg = e.message ?? '';
-  const texto = /row-level security/i.test(msg) || !msg ? mensagemErroBanco(e, acao) : msg;
-  return new ErroGravacaoComanda(texto, e.code, false);
+  const daFuncao = (e.code === 'P0001' || e.code === '42501') && !!msg && !/row-level security/i.test(msg);
+  return new ErroGravacaoComanda(daFuncao ? msg : mensagemErroBanco(e, acao), e.code, false);
 }
+
+/** Recusa da função porque outra aba/aparelho já fechou a comanda do atendimento. */
+export function ehComandaJaFechada(e: unknown): boolean {
+  return e instanceof ErroGravacaoComanda && e.message.includes('já teve a comanda fechada');
+}
+
+/** Mesmo texto no web e no app quando o atendimento já tem comanda (função ou caminho antigo). */
+export const AVISO_COMANDA_JA_FECHADA = 'Este atendimento já teve a comanda fechada. Recarregue o dia para ver a comanda existente.';
+
+/**
+ * Mensagem de erro de `fechar_comanda`/`editar_comanda` para a tela (web e app, mesmo texto). As
+ * mensagens da função já vêm em português; "já teve a comanda fechada" ganha a orientação de recarregar.
+ */
+export function mensagemFalhaGravacao(e: unknown, acao: string): string {
+  if (ehComandaJaFechada(e)) return AVISO_COMANDA_JA_FECHADA;
+  return e instanceof Error && e.message ? e.message : `Não foi possível ${acao}.`;
+}
+
+// ── Nova tentativa depois de "sem resposta" (comanda e venda, web e app) ───────────────────────
+//
+// A chave (`comanda_id` de fechar_comanda, `p_venda_id` da registrar_venda_avulsa_v2) só é
+// reaproveitada quando a tentativa anterior ficou SEM RESPOSTA (pode ter gravado) e o conteúdo é o
+// MESMO: aí o banco devolve a gravação antiga sem duplicar, e ela é igual ao que a tela mostra. Com
+// conteúdo diferente, a mesma chave devolveria a gravação antiga como sucesso — a tela mostraria e
+// recibaria o estado novo sem ele ter sido gravado. Então bloqueia e manda conferir (Recarregar).
+// Sem pendente, cada tentativa usa chave nova (erro definitivo = nada gravado).
+
+/** Tentativa que ficou sem resposta: a chave usada, o que foi enviado e de qual cartão/carrinho. */
+export type TentativaSemResposta = { chave: string; assinatura: string; cartao: string };
+
+/** Ordena as chaves dos objetos (recursivo) e descarta `undefined`: mesmo conteúdo = mesmo texto. */
+function formaEstavel(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(formaEstavel);
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(o).sort().filter(k => o[k] !== undefined).map(k => [k, formaEstavel(o[k])]));
+  }
+  return v;
+}
+
+/** O que foi enviado, sem a chave, em forma estável: a nova tentativa só reaproveita a chave com o MESMO conteúdo. */
+export function assinaturaGravacao(payload: object): string {
+  const { comanda_id: _c, p_venda_id: _v, ...resto } = payload as Record<string, unknown>;
+  return JSON.stringify(formaEstavel(resto));
+}
+
+/**
+ * Chave da próxima tentativa: sem pendente (ou pendente de outro cartão) → chave nova; pendente do
+ * mesmo cartão com a mesma assinatura → a chave dele; assinatura diferente → `null` (bloquear e
+ * mostrar `AVISO_REPETIR_ALTERADO` com o botão Recarregar, sem chamar o banco).
+ */
+export function chaveDaTentativa(pendente: TentativaSemResposta | null, cartao: string, assinatura: string): string | null {
+  if (!pendente || pendente.cartao !== cartao) return novoUuid();
+  return pendente.assinatura === assinatura ? pendente.chave : null;
+}
+
+/** O mínimo do client supabase-js para a conferência (só leitura). Estrutural. */
+export interface ClienteDbLeitura {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  from(tabela: string): any;
+}
+
+/**
+ * Só leitura: a comanda/venda gravada com esta chave existe? Quem fechou enxerga a comanda
+ * (`profissional_id = auth.uid()`, 089) e quem vendeu enxerga a venda (086). Erro de leitura lança
+ * (a tela mantém a pendência e mostra a mensagem).
+ */
+export async function tentativaFoiGravada(db: ClienteDbLeitura, tabela: 'comandas' | 'vendas', chave: string): Promise<boolean> {
+  const { data, error } = await db.from(tabela).select('id').eq('id', chave).limit(1);
+  if (error) throw new Error(mensagemErroBanco(error, tabela === 'comandas' ? 'conferir a comanda' : 'conferir a venda'));
+  return Array.isArray(data) && data.length > 0;
+}
+
+export const AVISO_REPETIR_ALTERADO =
+  'Sem resposta do servidor na tentativa anterior: ela pode ter sido gravada como estava. ' +
+  'Confira antes de repetir — toque em Recarregar.';
+export const AVISO_COMANDA_JA_GRAVADA = 'Essa comanda já tinha sido fechada.';
+export const AVISO_VENDA_JA_GRAVADA = 'Essa venda já tinha sido registrada.';
 
 const SEM_RESPOSTA_FECHAR = 'Sem resposta do servidor: a comanda pode ter sido fechada. Confira antes de repetir.';
 const SEM_RESPOSTA_EDITAR = 'Sem resposta do servidor: a alteração da comanda pode ter sido salva. Confira antes de repetir.';

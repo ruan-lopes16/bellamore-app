@@ -3,6 +3,8 @@ import { ratearDescontoCentavos } from '@shared/comanda-fechamento';
 import {
   montarPayloadFechamento, montarPayloadEdicao, fecharComandaNoBanco, editarComandaNoBanco,
   ErroGravacaoComanda, type EstadoFechamentoComanda, type EstadoEdicaoComanda, type ItemComandaTela,
+  assinaturaGravacao, chaveDaTentativa, tentativaFoiGravada, mensagemFalhaGravacao, ehComandaJaFechada,
+  AVISO_COMANDA_JA_FECHADA, AVISO_REPETIR_ALTERADO, type TentativaSemResposta,
 } from '@shared/comanda-gravacao';
 import { configLegada, type ConfigCartoes } from '@shared/taxas-cartao';
 import { fakeDb } from './fixtures/fake-db';
@@ -299,5 +301,69 @@ describe('fecharComandaNoBanco / editarComandaNoBanco', () => {
     await fecharComandaNoBanco(db, payload).catch(() => null);
     await expect(fecharComandaNoBanco(db, payload)).resolves.toEqual({ via: 'funcao' });
     expect(rpcs.map(r => (r.args.p as { comanda_id: string }).comanda_id)).toEqual(['C', 'C']);
+  });
+
+  it('M8: sessão expirada (PGRST301) e código desconhecido viram mensagem em português', async () => {
+    const { db } = fakeDb({ rpc: () => ({ data: null, error: { code: 'PGRST301', message: 'JWT expired' } }) });
+    await expect(fecharComandaNoBanco(db, payload)).rejects.toThrow('Sua sessão expirou. Entre de novo.');
+    const { db: db2 } = fakeDb({ rpc: () => ({ data: null, error: { code: 'XX000', message: 'internal english error' } }) });
+    const e = await fecharComandaNoBanco(db2, payload).catch(x => x) as ErroGravacaoComanda;
+    expect(e.message).toBe('Não foi possível fechar a comanda. Tente de novo; se continuar, fale com o suporte.');
+    expect(e.message).not.toContain('english');
+    expect(e.code).toBe('XX000');
+  });
+});
+
+describe('I1: nova tentativa depois de "sem resposta" (assinatura e chave)', () => {
+  const base = estado({ itens: [at('AG1', 120)], splits: [{ metodo: 'pix', valor: 120 }] });
+
+  it('assinatura ignora a chave e a ordem das propriedades; muda com qualquer conteúdo', () => {
+    const a = montarPayloadFechamento({ ...base, comandaId: 'K1' });
+    const b = montarPayloadFechamento({ ...base, comandaId: 'K2' });
+    expect(assinaturaGravacao(a)).toBe(assinaturaGravacao(b));
+    expect(assinaturaGravacao({ x: 1, y: { b: 2, a: 1 } })).toBe(assinaturaGravacao({ y: { a: 1, b: 2 }, x: 1 }));
+    expect(assinaturaGravacao({ p_venda_id: 'V1', p_itens: [1] })).toBe(assinaturaGravacao({ p_venda_id: 'V2', p_itens: [1] }));
+    const comDesconto = montarPayloadFechamento({ ...base, comandaId: 'K1', desconto: 10 });
+    expect(assinaturaGravacao(comDesconto)).not.toBe(assinaturaGravacao(a));
+    const comProduto = montarPayloadFechamento({ ...base, comandaId: 'K1',
+      itens: [...base.itens, { tipo: 'produto', descricao: 'Óleo', valor: 15, quantidade: 1, produto_id: 'PR1' }] });
+    expect(assinaturaGravacao(comProduto)).not.toBe(assinaturaGravacao(a));
+  });
+
+  it('chaveDaTentativa: sem pendente → chave nova a cada tentativa (nada vaza entre dias/clientes)', () => {
+    const k1 = chaveDaTentativa(null, 'D1|__sem__|aberta', 'S');
+    const k2 = chaveDaTentativa(null, 'D1|__sem__|aberta', 'S');
+    expect(k1).toMatch(/^[0-9a-f-]{36}$/);
+    expect(k2).not.toBe(k1);
+  });
+
+  it('chaveDaTentativa: pendente do mesmo cartão — mesma assinatura repete a chave; diferente bloqueia (null)', () => {
+    const p: TentativaSemResposta = { chave: 'K', assinatura: 'S', cartao: 'D1|C1|aberta' };
+    expect(chaveDaTentativa(p, 'D1|C1|aberta', 'S')).toBe('K');
+    expect(chaveDaTentativa(p, 'D1|C1|aberta', 'S2')).toBeNull();
+    // Outro cartão (outra cliente, ou a mesma em outro dia): chave nova.
+    const outra = chaveDaTentativa(p, 'D2|C1|aberta', 'S');
+    expect(outra).not.toBe('K');
+    expect(outra).not.toBeNull();
+  });
+
+  it('tentativaFoiGravada: só leitura pelo id, true/false e erro em português', async () => {
+    const com = fakeDb({ awaitavel: true, linhas: { comandas: [{ id: 'K' }] } });
+    await expect(tentativaFoiGravada(com.db, 'comandas', 'K')).resolves.toBe(true);
+    expect(com.chamadas).toEqual([{ tabela: 'comandas', ops: [['select', ['id']], ['eq', ['id', 'K']], ['limit', [1]]] }]);
+    expect(com.rpcs).toHaveLength(0);
+    const sem = fakeDb({ awaitavel: true, linhas: { vendas: [] } });
+    await expect(tentativaFoiGravada(sem.db, 'vendas', 'V')).resolves.toBe(false);
+    const falha = fakeDb({ awaitavel: true, erroTabelasCodigo: { comandas: { code: '42501', message: 'permission denied' } } });
+    await expect(tentativaFoiGravada(falha.db, 'comandas', 'K')).rejects.toThrow('Você não tem permissão para conferir a comanda.');
+  });
+
+  it('textos: aviso de conteúdo alterado e "já fechada" iguais no web e no app', () => {
+    expect(AVISO_REPETIR_ALTERADO).toContain('Recarregar');
+    const ja = new ErroGravacaoComanda('Este atendimento já teve a comanda fechada.', 'P0001', false);
+    expect(ehComandaJaFechada(ja)).toBe(true);
+    expect(mensagemFalhaGravacao(ja, 'fechar a comanda')).toBe(AVISO_COMANDA_JA_FECHADA);
+    expect(AVISO_COMANDA_JA_FECHADA).toContain('Recarregue o dia');
+    expect(mensagemFalhaGravacao(new Error(''), 'fechar a comanda')).toBe('Não foi possível fechar a comanda.');
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda,
+  adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, assinaturaVenda,
   type ItemVenda, type ProdutoVenda, type DadosVenda,
 } from '@shared/venda';
 import { configLegada, type ConfigCartoes } from '@shared/taxas-cartao';
@@ -48,7 +48,7 @@ describe('gravarVenda', () => {
     maquininhas: configLegada(null).maquininhas.map(m => ({ ...m, id: 'maq1' })) };
   const itens = alterarQuantidade(adicionarAoCarrinho([], oleo), 'p2', 2); // 10,10
   const dados = (extra: Partial<DadosVenda> = {}): DadosVenda => ({
-    empresaId: 'e1', clienteId: 'c1', itens, desconto: 0.1, config,
+    empresaId: 'e1', clienteId: 'c1', itens, desconto: 0.1, config, vendaId: 'V0',
     splits: [{ metodo: 'credito', valor: 10, bandeira: 'visa', parcelas: 2 }], ...extra,
   });
   const linhas = { vendas: [{ id: 'v1' }] };
@@ -87,6 +87,7 @@ describe('gravarVenda', () => {
       const e = await gravarVenda(db, { ...dados(), vendaId: 'V1' }).catch(x => x);
       expect(e).toBeInstanceOf(ErroVenda);
       expect(e.message).toMatch(/^venda: Sem resposta do servidor/);
+      expect(e.semResposta).toBe(true);
       const r = await gravarVenda(db, { ...dados(), vendaId: 'V1' });
       expect(r.vendaId).toBe('V1');
       expect(rpcs.map(x => [x.fn, x.args.p_venda_id])).toEqual([
@@ -99,14 +100,19 @@ describe('gravarVenda', () => {
         rpc: v2(() => ({ data: null, error: { code: 'P0001', message: 'Estoque insuficiente: Óleo (restam 1)' } })) });
       const e = await gravarVenda(db, { ...dados(), vendaId: 'V1' }).catch(x => x);
       expect(e.message).toBe('venda: Estoque insuficiente: Óleo (restam 1)');
+      expect(e.semResposta).toBe(false);
       expect(rpcs).toHaveLength(1);
       expect(chamadas).toHaveLength(0);
     });
 
-    it('sem vendaId da tela, gera um uuid (sem idempotência entre tentativas)', async () => {
-      const { db, rpcs } = fakeDb({ awaitavel: true, linhas, rpc: v2(() => ({ data: 'gerado', error: null })) });
-      await gravarVenda(db, dados());
-      expect(rpcs[0].args.p_venda_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    it('assinaturaVenda: o que vai ao banco sem a chave — igual para a mesma venda, diferente com qualquer mudança', () => {
+      const { vendaId: _v, ...base } = dados();
+      expect(assinaturaVenda(base)).toBe(assinaturaVenda({ ...base }));
+      expect(assinaturaVenda(base)).not.toContain('V0');
+      expect(assinaturaVenda({ ...base, desconto: 0.2 })).not.toBe(assinaturaVenda(base));
+      expect(assinaturaVenda({ ...base, clienteId: null })).not.toBe(assinaturaVenda(base));
+      expect(assinaturaVenda({ ...base, itens: alterarQuantidade(itens, 'p2', 1) })).not.toBe(assinaturaVenda(base));
+      expect(assinaturaVenda({ ...base, splits: [{ metodo: 'pix', valor: 10 }] })).not.toBe(assinaturaVenda(base));
     });
 
     it('sem a 090 cai na v1 (087) e, sem a 087, no caminho antigo', async () => {

@@ -63,7 +63,10 @@ import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import { calcularDesconto, resumoComanda, montarPagamentos, taxaDoSplit, parseValorBR, diffItensComanda, type ItemComandaOriginal, type ModoDesconto } from '@shared/comanda-fechamento';
 import { mensagemErroBanco } from '@shared/erros';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
-import { agruparValoresPorAgendamento, marcarAgendamentosFechados, cartoesComandaDoDia, type ComandaSoExtras } from '@shared/comanda';
+import {
+  agruparValoresPorAgendamento, marcarAgendamentosFechados, cartoesComandaDoDia, completarLinhasTiradas,
+  linhasConferemComValor, descricaoLinhasAgrupadas, type ComandaSoExtras,
+} from '@shared/comanda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
 import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
@@ -75,8 +78,9 @@ import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 import {
   montarPayloadFechamento, montarPayloadEdicao, fecharComandaNoBanco, editarComandaNoBanco, ErroGravacaoComanda,
+  mensagemFalhaGravacao, ehComandaJaFechada, AVISO_COMANDA_JA_FECHADA, assinaturaGravacao, chaveDaTentativa,
+  tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_COMANDA_JA_GRAVADA, type TentativaSemResposta,
 } from '@shared/comanda-gravacao';
-import { completarLinhasTiradas, linhasConferemComValor } from '@/lib/comanda-linhas';
 
 const supabase = createClient();
 
@@ -192,18 +196,6 @@ type SucessoRecibo = {
 /** Comanda só com extras que falhou depois de criada (mesmo texto no app). */
 const AVISO_COMANDA_PARCIAL = 'A comanda foi criada mas não terminou de gravar — confira em Comanda/Financeiro antes de lançar de novo';
 
-/**
- * Mensagem de erro de `fechar_comanda`/`editar_comanda` (090) para a tela. As mensagens da função já
- * vêm em português (ErroGravacaoComanda); "já teve a comanda fechada" ganha a orientação de recarregar.
- */
-function mensagemFalhaGravacao(e: unknown, acao: string): string {
-  const msg = e instanceof Error && e.message ? e.message : `Não foi possível ${acao}.`;
-  if (e instanceof ErroGravacaoComanda && msg.includes('já teve a comanda fechada')) {
-    return `${msg} Recarregue o dia para ver a comanda existente.`;
-  }
-  return msg;
-}
-
 // ── Componente principal ──────────────────────────────────────
 
 export default function ComandaPage() {
@@ -276,10 +268,19 @@ export default function ComandaPage() {
   // Comandas só com extras que foram criadas mas falharam numa etapa seguinte (cliente → comanda_id):
   // bloqueiam um novo fechamento da mesma cliente nesta tela (ver falharAposCriar).
   const [comandasParciais, setComandasParciais] = useState<Record<string, string>>({});
-  // `comanda_id` de `fechar_comanda` (090), um por cartão aberto (chave do cartão → uuid). Gerado
-  // na 1ª tentativa e REAPROVEITADO nas seguintes (inclusive depois de "sem resposta": se a 1ª
-  // gravou, a função devolve a mesma comanda em vez de criar outra). Apagado só no sucesso.
-  const chavesFechamentoRef = useRef<Record<string, string>>({});
+  // Fechamentos pela função (090) que ficaram "sem resposta" (podem ter gravado), por cartão do dia
+  // (`cartaoDoFechamento`). Só aí a chave (`comanda_id`) é reaproveitada, e só com o MESMO conteúdo
+  // (chaveDaTentativa); sem pendente cada tentativa usa chave nova. Resolvido no sucesso, em erro
+  // definitivo ou no "Recarregar" (tentativaFoiGravada).
+  const [pendentes, setPendentes] = useState<Record<string, TentativaSemResposta>>({});
+  const [conferindoPendente, setConferindoPendente] = useState(false);
+
+  // O aviso (toast) some sozinho
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Avança automaticamente para a próxima comanda em aberto após fechar a atual
   useEffect(() => {
@@ -422,11 +423,21 @@ export default function ComandaPage() {
       .order('data_hora_inicio');
   }
 
+  /** Taxas de reserva pagas dos atendimentos (sempre `.in(ids)`: sem o filtro o limite de 1000 linhas cortaria a de hoje). */
+  function consultarTaxasReservaPagas(empId: string, agIds: string[]) {
+    return agIds.length > 0
+      ? supabase.from('taxas_reserva').select('agendamento_id, valor')
+          .eq('empresa_id', empId).eq('status', 'pago').in('agendamento_id', agIds)
+      : Promise.resolve({ data: [] as { agendamento_id: string; valor: number }[], error: null });
+  }
+
   /**
-   * Relê os atendimentos e as comandas só com extras do dia sem fechar a tela (depois de gravar pela
-   * função 090: valores, `comanda_id` e `desconto_rateado` vêm do banco, e o "Total do dia" já sai
-   * com o desconto). Confere o contador do dia (sem incrementar, como recarregarTaxasReserva): troca
-   * de dia no meio descarta a resposta.
+   * Relê os atendimentos, as taxas de reserva pagas e as comandas só com extras do dia sem fechar a
+   * tela (depois de gravar pela função 090: valores, `comanda_id` e `desconto_rateado` vêm do banco,
+   * e o "Total do dia" já sai com o desconto). As taxas são relidas porque a recarga pode trazer um
+   * atendimento novo com reserva paga: sem ela o desconto da reserva sairia R$ 0 (cobrança a mais);
+   * falha na leitura liga o bloqueio (bloqueioTaxaReserva). Confere o contador do dia (sem
+   * incrementar, como recarregarTaxasReserva): troca de dia no meio descarta a resposta.
    */
   async function recarregarDia() {
     if (!empresaId) return;
@@ -439,7 +450,16 @@ export default function ComandaPage() {
     ]);
     if (req !== reqDiaRef.current) return;
     if (rAgs.error) { setErro(mensagemErroBanco(rAgs.error, 'recarregar os atendimentos do dia')); return; }
-    setAgDia((rAgs.data ?? []) as unknown as AgDia[]);
+    const agsDoDia = (rAgs.data ?? []) as unknown as AgDia[];
+    const rTaxas = await consultarTaxasReservaPagas(empresaId, agsDoDia.map(ag => ag.id));
+    if (req !== reqDiaRef.current) return;
+    if (rTaxas.error) {
+      setErroTaxasReserva(mensagemErroBanco(rTaxas.error, 'carregar as taxas de reserva pagas'));
+    } else {
+      setTaxasReservaPagas((rTaxas.data ?? []) as { agendamento_id: string; valor: number }[]);
+      setErroTaxasReserva(null);
+    }
+    setAgDia(agsDoDia);
     if (extras) setSoExtrasDia(extras);
   }
 
@@ -450,12 +470,8 @@ export default function ComandaPage() {
   async function recarregarTaxasReserva() {
     if (!empresaId) return;
     const req = reqDiaRef.current;
-    const agIds = agDia.map(ag => ag.id);
     setRecarregandoTaxas(true);
-    const r = agIds.length > 0
-      ? await supabase.from('taxas_reserva').select('agendamento_id, valor')
-          .eq('empresa_id', empresaId).eq('status', 'pago').in('agendamento_id', agIds)
-      : { data: [] as { agendamento_id: string; valor: number }[], error: null };
+    const r = await consultarTaxasReservaPagas(empresaId, agDia.map(ag => ag.id));
     if (req !== reqDiaRef.current) return;
     setRecarregandoTaxas(false);
     if (r.error) {
@@ -653,7 +669,7 @@ export default function ComandaPage() {
       if (servicos.length > 0 && !linhasConferemComValor(ag)) {
         return [{
           uid: uid(), tipo: 'agendamento' as const,
-          descricao: servicos.map(s => s.servico?.nome ?? 'Serviço').join(' + '),
+          descricao: descricaoLinhasAgrupadas(servicos, ag.servico),
           profissional: ag.profissional?.nome,
           valor: Number(ag.valor), quantidade: 1,
           agendamento_id: ag.id,
@@ -946,6 +962,49 @@ export default function ComandaPage() {
     concluirEdicao();
   }
 
+  /** Cartão do fechamento para a tentativa pendente: dia exibido + cartão (`cliente|aberta` se repete entre dias). */
+  function cartaoDoFechamento(c: ClienteComanda): string {
+    return `${chaveDiaExibido(dataComanda)}|${c.chave}`;
+  }
+
+  /** Tira a tentativa pendente do cartão (resolvida: gravou, erro definitivo ou conferida). */
+  function resolverPendente(cartao: string) {
+    setPendentes(prev => {
+      if (!(cartao in prev)) return prev;
+      const { [cartao]: _resolvida, ...resto } = prev;
+      return resto;
+    });
+  }
+
+  /**
+   * "Recarregar" da tentativa que ficou sem resposta: confere no banco (só leitura) se a comanda
+   * daquela chave existe. Gravou → relê o dia, fecha o painel e avisa; não gravou → libera (a
+   * próxima tentativa usa chave nova). Erro na conferência mantém a pendência.
+   */
+  async function conferirTentativaPendente() {
+    if (!clienteSel || conferindoPendente) return;
+    const cartao = cartaoDoFechamento(clienteSel);
+    const p = pendentes[cartao];
+    if (!p) return;
+    setConferindoPendente(true);
+    try {
+      const gravou = await tentativaFoiGravada(supabase, 'comandas', p.chave);
+      resolverPendente(cartao);
+      setErro('');
+      if (gravou) {
+        setClienteSel(null);
+        setComandaExistenteId(null);
+        setToast(AVISO_COMANDA_JA_GRAVADA);
+        recarregarDia();
+        if (empresaId) fetchBacklog(empresaId);
+      }
+    } catch (e) {
+      setErro(e instanceof Error && e.message ? e.message : 'Não foi possível conferir a comanda.');
+    } finally {
+      setConferindoPendente(false);
+    }
+  }
+
   /** Pós-sucesso da edição (função 090 ou caminho antigo): tela de sucesso com o recibo e backlog. */
   function concluirEdicao() {
     setFechando(false);
@@ -1021,9 +1080,14 @@ export default function ComandaPage() {
     const n = parseValorBR(v);
     setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: n } : i));
   }
+  /** Quantidade digitada; pacote é vendido por unidade (inteiro, mínimo 1 — o banco recusa fração). */
   function atualizarQtd(u: string, v: string) {
     const n = parseValorBR(v);
-    setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: n > 0 ? n : 1 } : i));
+    setItens(prev => prev.map(i => {
+      if (i.uid !== u) return i;
+      if (i.tipo === 'pacote') return { ...i, quantidade: Math.max(1, Math.round(n) || 1) };
+      return { ...i, quantidade: n > 0 ? n : 1 };
+    }));
   }
   /**
    * "Profissional (opcional)" no seletor vem como '' — vira `undefined` (gravado como null),
@@ -1120,30 +1184,43 @@ export default function ComandaPage() {
     setFechando(true); setErro('');
 
     // 0. Tudo ou nada pela função `fechar_comanda` (090): comanda, atendimentos, extras, pacotes,
-    //    estoque, vendas e pagamentos numa transação. O `comanda_id` é o do cartão (gerado uma vez e
-    //    reaproveitado: "sem resposta" + nova tentativa não fecha duas vezes). Duplicidade (outra
-    //    aba/aparelho) é recusada pelo banco ("já teve a comanda fechada"). Linha de multi-serviço
-    //    tirada da comanda vai com R$ 0 (M7). Erro = nada gravado. Sem a 090 → caminho antigo abaixo.
+    //    estoque, vendas e pagamentos numa transação. Chave (`comanda_id`) nova a cada tentativa;
+    //    só depois de "sem resposta" e com o MESMO conteúdo reaproveita a da tentativa pendente (se a
+    //    1ª gravou, a função devolve a mesma comanda). Conteúdo alterado com pendente: bloqueia e
+    //    manda conferir (Recarregar) — a mesma chave devolveria a gravação antiga como sucesso.
+    //    Duplicidade (outra aba/aparelho) é recusada pelo banco ("já teve a comanda fechada"). Linha
+    //    de multi-serviço tirada da comanda vai com R$ 0 (M7). Sem a 090 → caminho antigo abaixo.
     const c = clienteSel;
-    const chave = (chavesFechamentoRef.current[c.chave] ??= novoUuid());
+    const cartao = cartaoDoFechamento(c);
+    const payload = montarPayloadFechamento({
+      comandaId: '',
+      empresaId, clienteId: c.id, desconto: descontoN,
+      itens: completarLinhasTiradas(itens, c.agendamentos),
+      pacoteLinks, splits: splitsNumericos, config,
+    });
+    const assinatura = assinaturaGravacao(payload);
+    const chave = chaveDaTentativa(pendentes[cartao] ?? null, cartao, assinatura);
+    if (!chave) { setErro(AVISO_REPETIR_ALTERADO); setFechando(false); return; }
     try {
-      const r = await fecharComandaNoBanco(supabase, montarPayloadFechamento({
-        comandaId: chave,
-        empresaId, clienteId: c.id, desconto: descontoN,
-        itens: completarLinhasTiradas(itens, c.agendamentos),
-        pacoteLinks, splits: splitsNumericos, config,
-      }));
+      const r = await fecharComandaNoBanco(supabase, { ...payload, comanda_id: chave });
+      resolverPendente(cartao);
       if (r.via === 'funcao') {
-        delete chavesFechamentoRef.current[c.chave];
         concluirFechamento(chave, itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!));
         recarregarDia();
         return;
       }
     } catch (e) {
+      // "Sem resposta": pode ter gravado — guarda a tentativa (a próxima, igual, repete a chave).
+      // Erro definitivo: nada foi gravado com esta chave — a próxima usa chave nova.
+      if (e instanceof ErroGravacaoComanda && e.semResposta) {
+        setPendentes(prev => ({ ...prev, [cartao]: { chave, assinatura, cartao } }));
+      } else {
+        resolverPendente(cartao);
+      }
       setErro(mensagemFalhaGravacao(e, 'fechar a comanda'));
       setFechando(false);
       // Outra aba/aparelho já fechou: a lista local está velha — relê o dia.
-      if (e instanceof ErroGravacaoComanda && e.message.includes('já teve a comanda fechada')) recarregarDia();
+      if (ehComandaJaFechada(e)) recarregarDia();
       return;
     }
 
@@ -1157,8 +1234,10 @@ export default function ComandaPage() {
         .select('id').in('id', agIdsNaComanda).not('comanda_id', 'is', null);
       if (errCheck) { setErro(errCheck.message); setFechando(false); return; }
       if (jaFechados && jaFechados.length > 0) {
-        setErro('Este atendimento já teve a comanda fechada. Recarregue a página para ver a comanda existente.');
-        setFechando(false); return;
+        setErro(AVISO_COMANDA_JA_FECHADA);
+        setFechando(false);
+        recarregarDia();
+        return;
       }
     }
 
@@ -1555,7 +1634,7 @@ export default function ComandaPage() {
       <div className={`${!clienteSel ? 'hidden lg:flex' : 'flex'} flex-1 flex-col overflow-hidden bg-surface relative`}>
         {/* Toast de feedback */}
         {toast && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-green text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 pointer-events-none">
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-green text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 pointer-events-none">
             <Check size={15} strokeWidth={3}/>{toast}
           </div>
         )}
@@ -2135,6 +2214,20 @@ export default function ComandaPage() {
                   <div className="flex items-center gap-2 bg-red-soft rounded-xl px-4 py-3 border border-red/20">
                     <AlertCircle size={16} className="text-red flex-shrink-0"/>
                     <p className="text-sm text-red">{erro}</p>
+                  </div>
+                )}
+
+                {/* Fechamento sem resposta: confere no banco antes de repetir com outro conteúdo */}
+                {!comandaExistenteId && clienteSel && pendentes[cartaoDoFechamento(clienteSel)] && (
+                  <div className="flex items-center gap-2 bg-amber/10 rounded-xl px-4 py-3 border border-amber/30">
+                    <AlertCircle size={16} className="text-amber flex-shrink-0"/>
+                    <p className="text-sm text-amber flex-1">
+                      A tentativa anterior ficou sem resposta e pode ter fechado a comanda. Repita sem mudar nada, ou confira antes.
+                    </p>
+                    <button type="button" onClick={conferirTentativaPendente} disabled={conferindoPendente}
+                      className="text-xs font-bold text-primary underline flex-shrink-0 disabled:opacity-50">
+                      {conferindoPendente ? 'Conferindo...' : 'Recarregar'}
+                    </button>
                   </div>
                 )}
 

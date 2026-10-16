@@ -41,7 +41,8 @@ import PagamentosEditor, { METODOS_PAGAMENTO } from '@/components/comanda/Pagame
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import {
-  marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, type ComandaSoExtras,
+  marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, linhasConferemComValor,
+  descricaoLinhasAgrupadas, type ComandaSoExtras,
 } from '@shared/comanda';
 import {
   calcularDesconto, resumoComanda, montarPagamentos, parseValorBR, diffItensComanda,
@@ -62,7 +63,9 @@ import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
 import {
   montarPayloadFechamento, montarPayloadEdicao, fecharComandaNoBanco, editarComandaNoBanco,
-  ErroGravacaoComanda,
+  ErroGravacaoComanda, mensagemFalhaGravacao, ehComandaJaFechada, AVISO_COMANDA_JA_FECHADA,
+  assinaturaGravacao, chaveDaTentativa, tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_COMANDA_JA_GRAVADA,
+  type TentativaSemResposta,
 } from '@shared/comanda-gravacao';
 
 const C = {
@@ -173,19 +176,6 @@ function avatarHue(nome: string) {
 let uidCount = 0;
 function uid() { return `tmp_${++uidCount}`; }
 
-/**
- * M7: as linhas de `agendamento_servicos` só valem como itens da comanda reaberta quando somam o
- * valor gravado do atendimento (centavos). Linha tirada da comanda no fechamento (o web tira por
- * linha) não é regravada e manteria o valor antigo: reabrir todas somaria um serviço que não foi
- * cobrado ao salvar a edição. Sem conferir, o atendimento reabre como uma linha só (valor gravado).
- */
-function linhasConferemComValor(ag: { valor: number | string | null; agendamento_servicos?: { valor: number | string }[] | null }): boolean {
-  const linhas = ag.agendamento_servicos ?? [];
-  if (linhas.length === 0) return false;
-  const soma = linhas.reduce((s, l) => s + Math.round(Number(l.valor) * 100), 0);
-  return soma === Math.round(Number(ag.valor ?? 0) * 100);
-}
-
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 type Etapa = 'lista' | 'comanda' | 'sucesso';
@@ -262,6 +252,9 @@ export default function NovaComandaScreen() {
   const [config, setConfig] = useState<ConfigCartoes>(() => configIndisponivel());
   // Falha ao ler a configuração de cartões: avisa uma vez por sessão da tela, não a cada recarga do dia.
   const avisoCartoesRef = useRef(false);
+  // Vira true no primeiro sucesso: uma falha passageira na recarga do dia (que roda depois de todo
+  // fechamento) não troca a config boa por configIndisponivel() — igual à tela de Vendas.
+  const configCarregadaRef = useRef(false);
   const [fechando, setFechando] = useState(false);
   const [sucessoData, setSucessoData] = useState<{
     nome: string; valor: number; telefone?: string;
@@ -277,10 +270,12 @@ export default function NovaComandaScreen() {
   // Comandas só com extras criadas que falharam numa etapa seguinte (cliente → comanda_id):
   // bloqueiam um novo fechamento da mesma cliente nesta tela (ver falharAposCriar).
   const [comandasParciais, setComandasParciais] = useState<Record<string, string>>({});
-  // `comanda_id` do fechamento pela função (090): um por comanda aberta, reenviado na nova
-  // tentativa depois de "sem resposta" (se a 1ª gravou, o banco devolve a comanda sem duplicar).
-  // Só troca depois do sucesso ou quando se abre outra comanda.
-  const chaveComandaRef = useRef<string>(novoUuid());
+  // Fechamentos pela função (090) que ficaram "sem resposta" (podem ter gravado), por cartão do dia
+  // (`cartaoDoFechamento`). Só aí a chave (`comanda_id`) é reaproveitada, e só com o MESMO conteúdo
+  // (chaveDaTentativa); sem pendente cada tentativa usa chave nova. Abrir de novo o cartão mantém a
+  // pendência. Resolvido no sucesso, em erro definitivo ou no "Recarregar" (tentativaFoiGravada).
+  const [pendentes, setPendentes] = useState<Record<string, TentativaSemResposta>>({});
+  const [conferindoPendente, setConferindoPendente] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -332,7 +327,8 @@ export default function NovaComandaScreen() {
         return;
       }
       setErroDia(null);
-      setConfig(rCartoes.config);
+      if (!rCartoes.erro) { configCarregadaRef.current = true; setConfig(rCartoes.config); }
+      else if (!configCarregadaRef.current) setConfig(rCartoes.config);
       if (rCartoes.erro && !avisoCartoesRef.current) {
         avisoCartoesRef.current = true;
         Alert.alert('Cartões', rCartoes.erro);
@@ -543,7 +539,6 @@ export default function NovaComandaScreen() {
     setClienteSel(cliente);
     setComandaExistenteId(null);
     aberturaRef.current++;
-    chaveComandaRef.current = novoUuid();
     setCargaFalhou(false);
     setCarregandoComanda(false);
     setItensOriginais([]);
@@ -605,7 +600,6 @@ export default function NovaComandaScreen() {
     const comandaId = cliente.comandaId;
     if (!comandaId || !empresaId) { abrirComanda(cliente); return; }
 
-    chaveComandaRef.current = novoUuid();
     setClienteSel(cliente);
     setComandaExistenteId(comandaId);
     // Zera tudo ANTES de ler: nada da comanda anterior pode vazar para esta.
@@ -635,7 +629,7 @@ export default function NovaComandaScreen() {
         }));
       }
       return [{
-        uid: uid(), tipo: 'agendamento' as const, descricao: ag.servico?.nome ?? 'Serviço',
+        uid: uid(), tipo: 'agendamento' as const, descricao: descricaoLinhasAgrupadas(linhas, ag.servico),
         profissional: ag.profissional?.nome, valor: Number(ag.valor), quantidade: 1,
         agendamento_id: ag.id, servico_id: ag.servico?.id, profissional_id: ag.profissional?.id,
       }];
@@ -771,8 +765,13 @@ export default function NovaComandaScreen() {
     const v = parseValorBR(texto);
     setItens(prev => prev.map(i => i.uid === u ? { ...i, valor: v } : i));
   }
+  /** ± na quantidade; pacote é vendido por unidade (inteiro, mínimo 1 — o banco recusa fração). */
   function atualizarQtd(u: string, delta: number) {
-    setItens(prev => prev.map(i => i.uid === u ? { ...i, quantidade: Math.max(1, i.quantidade + delta) } : i));
+    setItens(prev => prev.map(i => {
+      if (i.uid !== u) return i;
+      const q = Math.max(1, i.quantidade + delta);
+      return { ...i, quantidade: i.tipo === 'pacote' ? Math.max(1, Math.round(q)) : q };
+    }));
   }
   function atualizarProfissional(u: string, profId: string) {
     const m = membros.find(x => x.id === profId);
@@ -1039,18 +1038,60 @@ export default function NovaComandaScreen() {
 
   /**
    * Erro de `fechar_comanda`/`editar_comanda` (090): nada foi gravado (a transação desfaz tudo),
-   * exceto "sem resposta", em que pode ter gravado — a chave (comanda_id / item_id) continua a
-   * mesma, então a nova tentativa não duplica. Mensagens da função já vêm em português.
-   * Recarrega o dia (ex.: "Este atendimento já teve a comanda fechada." vindo de outro aparelho).
+   * exceto "sem resposta", em que pode ter gravado (o fechamento guarda a tentativa: a próxima, igual,
+   * repete a chave). Mesmo texto do web (mensagemFalhaGravacao); o título não repete a mensagem.
+   * Relê o dia só quando outro aparelho já fechou a comanda do atendimento (igual ao web).
    */
   function avisarErroFuncao(e: unknown, acao: string) {
     setFechando(false);
-    if (e instanceof ErroGravacaoComanda) {
-      Alert.alert(e.semResposta ? 'Sem resposta do servidor' : 'Erro', e.message);
-    } else {
-      Alert.alert('Erro', e instanceof Error && e.message ? e.message : `Não foi possível ${acao}.`);
+    const semResposta = e instanceof ErroGravacaoComanda && e.semResposta;
+    Alert.alert(semResposta ? 'Atenção' : 'Erro', mensagemFalhaGravacao(e, acao));
+    if (ehComandaJaFechada(e)) carregarDia();
+  }
+
+  /** Cartão do fechamento para a tentativa pendente: dia exibido + cartão (`cliente|aberta` se repete entre dias). */
+  function cartaoDoFechamento(c: ClienteComanda): string {
+    return `${chaveDiaExibido(dataComanda)}|${c.chave}`;
+  }
+
+  /** Tira a tentativa pendente do cartão (resolvida: gravou, erro definitivo ou conferida). */
+  function resolverPendente(cartao: string) {
+    setPendentes(prev => {
+      if (!(cartao in prev)) return prev;
+      const { [cartao]: _resolvida, ...resto } = prev;
+      return resto;
+    });
+  }
+
+  /**
+   * "Recarregar" da tentativa que ficou sem resposta: confere no banco (só leitura) se a comanda
+   * daquela chave existe. Gravou → relê o dia, volta para a lista e avisa; não gravou → libera (a
+   * próxima tentativa usa chave nova). Erro na conferência mantém a pendência. Igual ao web.
+   */
+  async function conferirTentativaPendente() {
+    if (!clienteSel || conferindoPendente) return;
+    const cartao = cartaoDoFechamento(clienteSel);
+    const p = pendentes[cartao];
+    if (!p) return;
+    setConferindoPendente(true);
+    try {
+      const gravou = await tentativaFoiGravada(supabase, 'comandas', p.chave);
+      resolverPendente(cartao);
+      if (gravou) {
+        invalidarFinanceiro(qc);
+        invalidarEstoque();
+        carregarBacklog();
+        carregarDia();
+        setClienteSel(null);
+        setComandaExistenteId(null);
+        voltarParaLista();
+        Alert.alert('Comanda', AVISO_COMANDA_JA_GRAVADA);
+      }
+    } catch (e) {
+      Alert.alert('Erro', e instanceof Error && e.message ? e.message : 'Não foi possível conferir a comanda.');
+    } finally {
+      setConferindoPendente(false);
     }
-    carregarDia();
   }
 
   /**
@@ -1121,25 +1162,41 @@ export default function NovaComandaScreen() {
     // 0. Caminho principal: `fechar_comanda` (090) grava tudo numa transação — comanda, atendimentos,
     //    itens, venda de produtos/pacotes, baixa de estoque e pagamentos; qualquer erro desfaz tudo.
     //    O banco confere a duplicidade (UPDATE ... WHERE comanda_id IS NULL), então a conferência
-    //    abaixo só roda no caminho antigo: na nova tentativa depois de "sem resposta", o mesmo
-    //    comanda_id (chaveComandaRef) faz a função devolver a comanda já gravada sem duplicar.
+    //    abaixo só roda no caminho antigo. Chave (comanda_id) nova a cada tentativa; só depois de
+    //    "sem resposta" e com o MESMO conteúdo reaproveita a da tentativa pendente (se a 1ª gravou, a
+    //    função devolve a mesma comanda). Conteúdo alterado com pendente: bloqueia e manda conferir
+    //    (Recarregar) — a mesma chave devolveria a gravação antiga como sucesso. Igual ao web.
     //    Taxa do cartão vem da configuração carregada (configIndisponivel = sem taxa, nunca inventada).
     const gruposFuncao = agruparValoresPorAgendamento(itens, pacoteLinks);
     const agIdsFuncao = [...new Set(itens.filter(i => i.agendamento_id).map(i => i.agendamento_id!))];
+    const cartao = cartaoDoFechamento(clienteSel);
+    const payload = montarPayloadFechamento({
+      comandaId: '', empresaId, clienteId: clienteSel.id, desconto: descontoN,
+      itens, pacoteLinks, splits: splitsNumericos, config,
+    });
+    const assinatura = assinaturaGravacao(payload);
+    const chave = chaveDaTentativa(pendentes[cartao] ?? null, cartao, assinatura);
+    if (!chave) {
+      setFechando(false);
+      Alert.alert('Atenção', AVISO_REPETIR_ALTERADO);
+      return;
+    }
     let resultadoFechamento: Awaited<ReturnType<typeof fecharComandaNoBanco>>;
     try {
-      resultadoFechamento = await fecharComandaNoBanco(supabase, montarPayloadFechamento({
-        comandaId: chaveComandaRef.current, empresaId, clienteId: clienteSel.id, desconto: descontoN,
-        itens, pacoteLinks, splits: splitsNumericos, config,
-      }));
+      resultadoFechamento = await fecharComandaNoBanco(supabase, { ...payload, comanda_id: chave });
     } catch (e) {
+      // "Sem resposta": pode ter gravado — guarda a tentativa. Erro definitivo: nada gravado com ela.
+      if (e instanceof ErroGravacaoComanda && e.semResposta) {
+        setPendentes(prev => ({ ...prev, [cartao]: { chave, assinatura, cartao } }));
+      } else {
+        resolverPendente(cartao);
+      }
       avisarErroFuncao(e, 'fechar a comanda');
       return;
     }
+    resolverPendente(cartao);
     if (resultadoFechamento.via === 'funcao') {
-      const comandaFechada = chaveComandaRef.current;
-      chaveComandaRef.current = novoUuid();
-      concluirFechamento(comandaFechada, gruposFuncao, agIdsFuncao);
+      concluirFechamento(chave, gruposFuncao, agIdsFuncao);
       return;
     }
 
@@ -1153,8 +1210,10 @@ export default function NovaComandaScreen() {
         .select('id').in('id', agIdsNaComanda).not('comanda_id', 'is', null);
       if (errCheck) { falharFechamento('conferir comanda existente', errCheck); return; }
       if (jaFechados && jaFechados.length > 0) {
-        Alert.alert('Comanda já fechada', 'Este atendimento já teve a comanda fechada. Volte e abra a tela de novo para ver a comanda existente.');
-        setFechando(false); return;
+        Alert.alert('Atenção', AVISO_COMANDA_JA_FECHADA);
+        setFechando(false);
+        carregarDia();
+        return;
       }
     }
 
@@ -2024,6 +2083,19 @@ export default function NovaComandaScreen() {
                 style={{ marginTop: 4, opacity: recarregandoTaxas ? 0.5 : 1 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
                   {recarregandoTaxas ? 'Carregando...' : 'Tentar de novo'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {!emEdicao && clienteSel && pendentes[cartaoDoFechamento(clienteSel)] && (
+            <View style={{ alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber, textAlign: 'center' }}>
+                A tentativa anterior ficou sem resposta e pode ter fechado a comanda. Repita sem mudar nada, ou confira antes.
+              </Text>
+              <TouchableOpacity onPress={conferirTentativaPendente} disabled={conferindoPendente} activeOpacity={0.7}
+                style={{ marginTop: 4, opacity: conferindoPendente ? 0.5 : 1 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                  {conferindoPendente ? 'Conferindo...' : 'Recarregar'}
                 </Text>
               </TouchableOpacity>
             </View>

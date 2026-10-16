@@ -8,7 +8,7 @@ import { montarPagamentos, resumoComanda, type SplitPagamento } from './comanda-
 import { mensagemErroBanco } from './erros';
 import type { ClienteDb } from './kpis-financeiros-consultas';
 import type { ConfigCartoes } from './taxas-cartao';
-import { novoUuid } from './uuid';
+import { assinaturaGravacao } from './comanda-gravacao';
 
 /** Cliente do banco para a venda: tabelas (caminho antigo) e `rpc` (função da 087). Estrutural. */
 export type ClienteDbVenda = ClienteDb & {
@@ -69,11 +69,12 @@ export type DadosVenda = {
   empresaId: string; clienteId: string | null; itens: ItemVenda[]; desconto: number;
   splits: SplitPagamento[]; config: ConfigCartoes;
   /**
-   * Chave da venda (`p_venda_id` da v2, migration 090): a tela gera UMA vez por carrinho (novoUuid)
-   * e reaproveita na nova tentativa — se a 1ª chegou a gravar, o banco devolve a mesma venda em vez
-   * de registrar outra. Ausente = um id novo por chamada (sem essa proteção).
+   * Chave da venda (`p_venda_id` da v2, migration 090), obrigatória: a tela usa
+   * `chaveDaTentativa` (shared/comanda-gravacao.ts) — chave nova, ou a da tentativa que ficou sem
+   * resposta com o MESMO conteúdo (`assinaturaVenda`): se a 1ª chegou a gravar, o banco devolve a
+   * mesma venda em vez de registrar outra.
    */
-  vendaId?: string;
+  vendaId: string;
 };
 
 /** Venda gravada. `avisoEstoque` preenchido = venda e pagamentos ok, mas a baixa do estoque falhou. */
@@ -88,10 +89,34 @@ export type EtapaVenda = 'venda' | 'itens' | 'pagamentos';
  * mandar conferir no Financeiro); null = nada ficou gravado, pode tentar de novo.
  */
 export class ErroVenda extends Error {
-  constructor(readonly etapa: EtapaVenda, mensagem: string, readonly vendaId: string | null) {
+  /** `semResposta` = a rede caiu na chamada da função: a venda PODE ter sido gravada com a chave. */
+  constructor(readonly etapa: EtapaVenda, mensagem: string, readonly vendaId: string | null, readonly semResposta = false) {
     super(`${etapa}: ${mensagem}`);
     this.name = 'ErroVenda';
   }
+}
+
+/** Argumentos das funções de venda (sem a chave): o que o banco grava. */
+function argumentosVenda(d: DadosVenda, total: number) {
+  const pagamentos = montarPagamentos(d.splits, { empresaId: d.empresaId, config: d.config, total })
+    .map(({ empresa_id: _e, comanda_id: _c, venda_id: _v, ...resto }) => resto);
+  return {
+    p_empresa: d.empresaId,
+    p_cliente: d.clienteId || null,
+    p_desconto: centavos(d.desconto),
+    p_itens: d.itens.map(i => ({ produto_id: i.produtoId, quantidade: i.quantidade, preco_unitario: i.precoUnitario })),
+    p_pagamentos: pagamentos,
+  };
+}
+
+/**
+ * O que a venda enviaria ao banco, sem a chave (`assinaturaGravacao`): a nova tentativa depois de
+ * "sem resposta" só reaproveita a chave quando a venda é a MESMA (`chaveDaTentativa`).
+ */
+export function assinaturaVenda(d: Omit<DadosVenda, 'vendaId'>): string {
+  const subtotal = subtotalVenda(d.itens);
+  const resumo = resumoComanda({ subtotal, desconto: centavos(d.desconto), descontoReserva: 0, splits: d.splits });
+  return assinaturaGravacao(argumentosVenda({ ...d, vendaId: '' }, resumo.total));
 }
 
 /**
@@ -114,19 +139,11 @@ export async function gravarVenda(db: ClienteDbVenda, d: DadosVenda): Promise<Re
   if (!resumo.podeFechar) throw new ErroVenda('venda', resumo.motivo ?? 'Pagamento não cobre o total.', null);
 
   // 0. Tudo ou nada pela função do banco. O total é o recalculado aqui (e de novo na função).
-  const pagamentosRpc = montarPagamentos(d.splits, { empresaId: d.empresaId, config: d.config, total: resumo.total })
-    .map(({ empresa_id: _e, comanda_id: _c, venda_id: _v, ...resto }) => resto);
-  const argsRpc = {
-    p_empresa: d.empresaId,
-    p_cliente: d.clienteId || null,
-    p_desconto: desconto,
-    p_itens: d.itens.map(i => ({ produto_id: i.produtoId, quantidade: i.quantidade, preco_unitario: i.precoUnitario })),
-    p_pagamentos: pagamentosRpc,
-  };
+  const argsRpc = argumentosVenda(d, resumo.total);
   // 0a. v2 (090): mesma função da 087 com a chave `p_venda_id` — a nova tentativa com o MESMO id
   //     devolve a venda já gravada em vez de registrar outra. 0b. sem a 090: v1 (087).
   const tentativas: [string, Record<string, unknown>][] = [
-    ['registrar_venda_avulsa_v2', { p_venda_id: d.vendaId || novoUuid(), ...argsRpc }],
+    ['registrar_venda_avulsa_v2', { p_venda_id: d.vendaId, ...argsRpc }],
     ['registrar_venda_avulsa', argsRpc],
   ];
   for (const [fn, args] of tentativas) {
@@ -135,7 +152,7 @@ export async function gravarVenda(db: ClienteDbVenda, d: DadosVenda): Promise<Re
     // Erro SEM código = a chamada nem chegou a uma resposta do Postgres/PostgREST (rede caiu): o
     // servidor pode ter gravado a venda. Não libera "tentar de novo" às cegas: manda conferir no Histórico.
     if (eRpc && !eRpc.code) {
-      throw new ErroVenda('venda', 'Sem resposta do servidor: a venda pode ter sido registrada. Confira no Histórico antes de tentar de novo.', null);
+      throw new ErroVenda('venda', 'Sem resposta do servidor: a venda pode ter sido registrada. Confira no Histórico antes de tentar de novo.', null, true);
     }
     if (eRpc || typeof idRpc !== 'string' || !idRpc) {
       throw new ErroVenda('venda', mensagemErroBanco(eRpc, 'registrar a venda'), null);

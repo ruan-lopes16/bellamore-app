@@ -14,8 +14,9 @@
  * - gravação vendas → venda_itens → estoque_movimentos → pagamentos = gravarVenda
  *   (estoque_atual decrementado pelo trigger trg_atualizar_estoque)
  * - venda gravada pela metade (ErroVenda com vendaId) trava um novo "Finalizar" deste carrinho.
- * - chave da venda (vendaIdRef, novoUuid): uma por carrinho, reenviada na nova tentativa para a
- *   registrar_venda_avulsa_v2 (090) não registrar duas vezes; troca só no sucesso ou em "Nova venda".
+ * - chave da venda (registrar_venda_avulsa_v2, 090): nova a cada tentativa; depois de "sem resposta"
+ *   tudo trava (itens, cliente, desconto, pagamentos, "Limpar") e só a MESMA venda repete a chave
+ *   (chaveDaTentativa) — "Recarregar" e "Nova venda" conferem no banco antes (tentativaFoiGravada).
  */
 import { useState, useMemo, useCallback, useRef } from 'react';
 import {
@@ -48,15 +49,17 @@ import { calcularDesconto, resumoComanda, parseValorBR, type ModoDesconto } from
 import { configIndisponivel, AVISO_CARTOES_SEM_TAXA, nomeBandeira, type ConfigCartoes } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import {
-  adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda,
+  adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, assinaturaVenda,
   type ItemVenda, type ProdutoVenda,
 } from '@shared/venda';
+import {
+  chaveDaTentativa, tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_VENDA_JA_GRAVADA, type TentativaSemResposta,
+} from '@shared/comanda-gravacao';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { limitesDias, chaveDiaExibido, horaBRT, rotuloDiaExtenso } from '@shared/periodos';
-import { novoUuid } from '@shared/uuid';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -151,10 +154,11 @@ export default function VendasScreen() {
   const [vendaIncompleta, setVendaIncompleta] = useState<string | null>(null);
   // Trava de duplo toque (o estado `finalizando` só vale no próximo render)
   const gravandoRef = useRef(false);
-  // Chave da venda (registrar_venda_avulsa_v2, migration 090): uma por carrinho. A nova tentativa
-  // depois de "sem resposta" reenvia a mesma — se a 1ª gravou, o banco devolve a venda sem duplicar.
-  // Só troca no sucesso ou em "Nova venda" (limparVenda).
-  const vendaIdRef = useRef<string>(novoUuid());
+  // Venda que ficou "sem resposta" (registrar_venda_avulsa_v2, migration 090): pode ter sido gravada
+  // com aquela chave. Tudo trava; a nova tentativa só reaproveita a chave com o MESMO conteúdo
+  // (chaveDaTentativa). Sem pendente, cada tentativa usa chave nova. Igual ao web.
+  const [pendente, setPendente] = useState<TentativaSemResposta | null>(null);
+  const [conferindo, setConferindo] = useState(false);
   const [sucesso, setSucesso] = useState<Sucesso | null>(null);
 
   // Histórico
@@ -263,13 +267,46 @@ export default function VendasScreen() {
   const splitsNumericos = splits.map(s => ({ ...s, valor: parseValorBR(s.valor) }));
   const resumo = resumoComanda({ subtotal, desconto: descontoN, erroDesconto, descontoReserva: 0, splits: splitsNumericos });
   const { total, recebido, falta, troco } = resumo;
-  const travada = !!vendaIncompleta;
-  const botaoDesabilitado = finalizando || cart.length === 0 || !empresaId || !resumo.podeFechar || travada;
+  // Trava completa (itens, cliente, desconto, pagamentos, "Limpar"): venda pela metade ou sem resposta.
+  const travada = !!vendaIncompleta || !!pendente;
+  // Com pendente o Finalizar continua liberado: repetir a MESMA venda reenvia a mesma chave.
+  const botaoDesabilitado = finalizando || conferindo || cart.length === 0 || !empresaId || !resumo.podeFechar || !!vendaIncompleta;
 
   function limparVenda() {
     setCart([]); setClienteId(''); setBuscaCliente(''); setDescontoEntrada(''); setSplits([]);
-    setVendaIncompleta(null); setErro('');
-    vendaIdRef.current = novoUuid();
+    setVendaIncompleta(null); setPendente(null); setErro('');
+  }
+
+  /**
+   * Confere no banco (só leitura) a venda que ficou sem resposta. Gravou → limpa, avisa e recarrega
+   * estoque e histórico; não gravou → `limparSeNaoGravou` decide: "Nova venda" limpa, "Recarregar"
+   * só libera o carrinho (a próxima tentativa usa chave nova). Erro na conferência mantém a trava.
+   */
+  async function conferirPendente(limparSeNaoGravou: boolean) {
+    if (!pendente || conferindo) return;
+    setConferindo(true);
+    try {
+      const gravou = await tentativaFoiGravada(supabase, 'vendas', pendente.chave);
+      if (gravou || limparSeNaoGravou) limparVenda();
+      else { setPendente(null); setErro(''); }
+      if (gravou) {
+        invalidarFinanceiro(qc);
+        invalidarEstoque();
+        carregar();
+        carregarVendas();
+        Alert.alert('Venda', `${AVISO_VENDA_JA_GRAVADA} Confira no Histórico.`);
+      }
+    } catch (e) {
+      setErro(e instanceof Error && e.message ? e.message : 'Não foi possível conferir a venda.');
+    } finally {
+      setConferindo(false);
+    }
+  }
+
+  /** "Nova venda": com venda sem resposta, confere antes de limpar. */
+  function novaVenda() {
+    if (pendente) { conferirPendente(true); return; }
+    limparVenda();
   }
 
   // ── Finalizar venda
@@ -280,13 +317,15 @@ export default function VendasScreen() {
     // Mesma regra do botão: total coberto (troco permitido; R$0 = cortesia) e desconto ≤ subtotal.
     if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível finalizar a venda.'); return; }
 
+    const dados = { empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN, splits: splitsNumericos, config };
+    const assinatura = assinaturaVenda(dados);
+    const chave = chaveDaTentativa(pendente, 'venda', assinatura);
+    if (!chave) { setErro(AVISO_REPETIR_ALTERADO); return; }
+
     gravandoRef.current = true;
     setFinalizando(true); setErro('');
     try {
-      const r = await gravarVenda(supabase, {
-        empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN,
-        splits: splitsNumericos, config, vendaId: vendaIdRef.current,
-      });
+      const r = await gravarVenda(supabase, { ...dados, vendaId: chave });
       const lancados = splits.filter(s => parseValorBR(s.valor) > 0);
       setSucesso({
         total, desconto: descontoN, dataIso: new Date().toISOString(),
@@ -308,6 +347,9 @@ export default function VendasScreen() {
           invalidarFinanceiro(qc); // a venda existe e já conta no faturamento
           invalidarEstoque();
         }
+        // Sem resposta: pode ter gravado com esta chave — trava e guarda a tentativa. Erro
+        // definitivo: nada foi gravado com ela — a próxima tentativa usa chave nova.
+        setPendente(e.semResposta ? { chave, assinatura, cartao: 'venda' } : null);
         carregar();
         setErro(e.message);
       } else {
@@ -554,6 +596,7 @@ export default function VendasScreen() {
               {/* ── Cliente (opcional) ── */}
               <View>
                 <Text style={{ fontFamily: fonte('700'), fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Cliente (opcional)</Text>
+                <View pointerEvents={travada ? 'none' : 'auto'} style={{ opacity: travada ? 0.6 : 1 }}>
                 {clienteSel ? (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14, height: 48 }}>
                     <User size={16} color={C.text3} />
@@ -585,11 +628,12 @@ export default function VendasScreen() {
                     )}
                   </>
                 )}
+                </View>
               </View>
 
               {/* ── Desconto (mesma permissão da comanda: comanda.desconto) ── */}
               {podeDesconto && (
-              <View pointerEvents={travada ? 'none' : 'auto'}>
+              <View pointerEvents={travada ? 'none' : 'auto'} style={{ opacity: travada ? 0.6 : 1 }}>
                 <Text style={{ fontFamily: fonte('700'), fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Desconto</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: erroDesconto ? C.red : C.border }}>
                   <Tag size={16} color={C.text3} />
@@ -652,11 +696,29 @@ export default function VendasScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.redSoft, borderRadius: 12, padding: 12 }}>
                   <AlertCircle size={15} color={C.red} />
                   <Text style={{ flex: 1, fontFamily: fonte('500'), fontSize: 13, color: C.red }}>{erro}</Text>
-                  {travada && (
-                    <TouchableOpacity onPress={limparVenda}>
+                </View>
+              )}
+
+              {/* Carrinho travado: venda sem resposta (confere antes) ou gravada pela metade — igual ao web */}
+              {travada && (
+                <View style={{ backgroundColor: C.amberSoft, borderRadius: 12, padding: 12, gap: 8 }}>
+                  <Text style={{ fontFamily: fonte('500'), fontSize: 13, color: C.amber }}>
+                    {pendente
+                      ? 'A venda anterior ficou sem resposta e pode ter sido registrada. Repita sem mudar nada, ou confira antes.'
+                      : 'Esta venda já foi registrada. Confira em Financeiro.'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 16 }}>
+                    {pendente && (
+                      <TouchableOpacity onPress={() => conferirPendente(false)} disabled={conferindo} style={{ opacity: conferindo ? 0.5 : 1 }}>
+                        <Text style={{ fontFamily: fonte('700'), fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                          {conferindo ? 'Conferindo...' : 'Recarregar'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity onPress={novaVenda} disabled={conferindo} style={{ opacity: conferindo ? 0.5 : 1 }}>
                       <Text style={{ fontFamily: fonte('700'), fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>Nova venda</Text>
                     </TouchableOpacity>
-                  )}
+                  </View>
                 </View>
               )}
             </ScrollView>

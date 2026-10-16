@@ -43,13 +43,15 @@ import {
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import { calcularDesconto, resumoComanda, taxaDoSplit, parseValorBR, type ModoDesconto } from '@shared/comanda-fechamento';
-import { adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, type ItemVenda } from '@shared/venda';
+import { adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, assinaturaVenda, type ItemVenda } from '@shared/venda';
+import {
+  chaveDaTentativa, tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_VENDA_JA_GRAVADA, type TentativaSemResposta,
+} from '@shared/comanda-gravacao';
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { hojeBRT, somarDias, limitesDias, rotuloDiaExtenso, rotuloDataHoraBRT } from '@shared/periodos';
-import { novoUuid } from '@shared/uuid';
 
 const supabase = createClient();
 
@@ -149,14 +151,14 @@ export default function VendasPage() {
   const [vendaIncompleta, setVendaIncompleta] = useState<string | null>(null);
   // Trava de duplo clique (o estado `finalizando` só vale no próximo render)
   const gravandoRef = useRef(false);
-  // Chave da venda (`p_venda_id` da registrar_venda_avulsa_v2, migration 090): uma por carrinho,
-  // reaproveitada na nova tentativa (se a 1ª gravou, o banco devolve a mesma venda). Trocada só no
-  // sucesso ou em "Nova venda" (limparVenda).
-  const vendaIdRef = useRef<string>(novoUuid());
-  // "Sem resposta do servidor": a venda pode ter sido gravada com esta chave. O carrinho trava (a
-  // nova tentativa tem que ser a MESMA venda); para outra venda, "Nova venda" troca a chave.
-  const [semResposta, setSemResposta] = useState(false);
-  const carrinhoTravado = !!vendaIncompleta || semResposta;
+  // Venda que ficou "sem resposta" (registrar_venda_avulsa_v2, migration 090): pode ter sido gravada
+  // com aquela chave. Tudo trava (itens, cliente, desconto, pagamentos, "Limpar"): a nova tentativa
+  // só reaproveita a chave com o MESMO conteúdo (chaveDaTentativa). "Recarregar" e "Nova venda"
+  // conferem no banco (tentativaFoiGravada) antes de liberar. Sem pendente, cada tentativa usa chave nova.
+  const [pendente, setPendente] = useState<TentativaSemResposta | null>(null);
+  const [conferindo, setConferindo] = useState(false);
+  const [aviso, setAviso] = useState('');
+  const carrinhoTravado = !!vendaIncompleta || !!pendente;
 
   // Histórico: vendas do dia escolhido (chave 'yyyy-MM-dd' em Brasília)
   const [diaHist,       setDiaHist]       = useState<string>(() => hojeBRT());
@@ -297,8 +299,37 @@ export default function VendasPage() {
 
   function limparVenda() {
     setCart([]); setClienteId(''); setDescontoEntrada(''); setSplits([]);
-    setVendaIncompleta(null); setSemResposta(false); setErro('');
-    vendaIdRef.current = novoUuid();
+    setVendaIncompleta(null); setPendente(null); setErro('');
+  }
+
+  /**
+   * Confere no banco (só leitura) a venda que ficou sem resposta. Gravou → limpa, avisa e recarrega
+   * estoque e histórico; não gravou → `limparSeNaoGravou` decide: "Nova venda" limpa, "Recarregar"
+   * só libera o carrinho (a próxima tentativa usa chave nova). Erro na conferência mantém a trava.
+   */
+  async function conferirPendente(limparSeNaoGravou: boolean) {
+    if (!pendente || conferindo) return;
+    setConferindo(true);
+    try {
+      const gravou = await tentativaFoiGravada(supabase, 'vendas', pendente.chave);
+      if (gravou || limparSeNaoGravou) limparVenda();
+      else { setPendente(null); setErro(''); }
+      if (gravou) {
+        setAviso(AVISO_VENDA_JA_GRAVADA);
+        if (empresaId) { carregar(empresaId); carregarVendas(empresaId, diaHist); }
+      }
+    } catch (e) {
+      setErro(e instanceof Error && e.message ? e.message : 'Não foi possível conferir a venda.');
+    } finally {
+      setConferindo(false);
+    }
+  }
+
+  /** "Nova venda": com venda sem resposta, confere antes de limpar. */
+  function novaVenda() {
+    setAviso('');
+    if (pendente) { conferirPendente(true); return; }
+    limparVenda();
   }
 
   // ── Finalizar venda
@@ -310,13 +341,15 @@ export default function VendasPage() {
     if (!resumo.podeFechar) { setErro(resumo.motivo ?? 'Não foi possível finalizar a venda.'); return; }
     if (!configPronta) { setErro('Aguarde: carregando as taxas dos cartões.'); return; }
 
+    const dados = { empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN, splits: splitsNumericos, config };
+    const assinatura = assinaturaVenda(dados);
+    const chave = chaveDaTentativa(pendente, 'venda', assinatura);
+    if (!chave) { setErro(AVISO_REPETIR_ALTERADO); return; }
+
     gravandoRef.current = true;
-    setFinalizando(true); setErro('');
+    setFinalizando(true); setErro(''); setAviso('');
     try {
-      const r = await gravarVenda(supabase, {
-        empresaId, clienteId: clienteId || null, itens: cart, desconto: descontoN,
-        splits: splitsNumericos, config, vendaId: vendaIdRef.current,
-      });
+      const r = await gravarVenda(supabase, { ...dados, vendaId: chave });
       const lancados = splits.filter(sp => parseValorBR(sp.valor) > 0);
       setSucesso({
         total, desconto: descontoN, dataIso: new Date().toISOString(),
@@ -334,7 +367,9 @@ export default function VendasPage() {
         if (e.vendaId) {
           setVendaIncompleta(e.vendaId);
         }
-        if (e.message.includes('Sem resposta do servidor')) setSemResposta(true);
+        // Sem resposta: pode ter gravado com esta chave — trava e guarda a tentativa. Erro
+        // definitivo: nada foi gravado com ela — a próxima tentativa usa chave nova.
+        setPendente(e.semResposta ? { chave, assinatura, cartao: 'venda' } : null);
         carregar(empresaId);
         setErro(e.message);
       } else {
@@ -426,7 +461,7 @@ export default function VendasPage() {
                 <Share2 size={16}/> Enviar recibo por WhatsApp
               </button>
             )}
-            <button onClick={() => setSucesso(null)}
+            <button onClick={() => { setSucesso(null); setAviso(''); }}
               className="w-full h-12 rounded-2xl text-sm font-bold border border-border text-text-2 hover:bg-bg transition">
               Nova venda
             </button>
@@ -558,7 +593,8 @@ export default function VendasPage() {
               )}
             </div>
 
-            {/* Cliente + Desconto (desconto só com comanda.desconto, igual à comanda) */}
+            {/* Cliente + Desconto (desconto só com comanda.desconto, igual à comanda). Travados com o carrinho. */}
+            <fieldset disabled={carrinhoTravado} className={`min-w-0 m-0 p-0 border-0 ${carrinhoTravado ? 'opacity-60' : ''}`}>
             <div className="bg-surface border border-border rounded-2xl p-4">
               <div className={`grid grid-cols-1 gap-3 ${podeDesconto ? 'sm:grid-cols-2' : ''}`}>
                 <div>
@@ -599,8 +635,10 @@ export default function VendasPage() {
                 )}
               </div>
             </div>
+            </fieldset>
 
-            {/* Pagamento */}
+            {/* Pagamento (travado com o carrinho: chips, valores, maquininha, bandeira, parcelas, remover) */}
+            <fieldset disabled={carrinhoTravado} className="min-w-0 m-0 p-0 border-0">
             <div className="bg-surface border border-border rounded-2xl p-4 flex flex-col gap-4">
               <h3 className="font-semibold text-text">Pagamento</h3>
 
@@ -608,7 +646,7 @@ export default function VendasPage() {
               <div className="flex gap-2 flex-wrap">
                 {METODOS_PAG.filter(m => podeDesconto || m.id !== 'cortesia').map(({ id, label, icon: Icon }) => (
                   <button key={id} onClick={() => adicionarSplit(id)}
-                    disabled={!!vendaIncompleta}
+                    disabled={carrinhoTravado}
                     className="flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold border transition bg-surface border-border text-text-2 hover:border-accent/60 disabled:opacity-40">
                     <Icon size={12}/> {label}
                   </button>
@@ -749,6 +787,7 @@ export default function VendasPage() {
                 )}
               </div>
             </div>
+            </fieldset>
 
             {erroCarga && (
               <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
@@ -762,12 +801,35 @@ export default function VendasPage() {
               <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">
                 <AlertCircle size={14} className="text-red flex-shrink-0"/>
                 <p className="text-sm text-red flex-1">{erro}</p>
-                {carrinhoTravado && (
-                  <button onClick={limparVenda}
-                    className="text-xs font-bold text-primary underline flex-shrink-0">
-                    Nova venda
+              </div>
+            )}
+
+            {/* Venda já registrada (conferida no "Recarregar"/"Nova venda") */}
+            {aviso && (
+              <div className="flex items-center gap-2 bg-green/10 rounded-xl px-3 py-2.5 border border-green/30">
+                <Check size={14} className="text-green flex-shrink-0"/>
+                <p className="text-sm text-green flex-1">{aviso} Confira no Histórico.</p>
+              </div>
+            )}
+
+            {/* Carrinho travado: venda sem resposta (confere antes) ou gravada pela metade */}
+            {carrinhoTravado && (
+              <div className="flex items-center gap-3 flex-wrap bg-amber/10 rounded-xl px-3 py-2.5 border border-amber/30">
+                <p className="text-sm text-amber flex-1 min-w-[12rem]">
+                  {pendente
+                    ? 'A venda anterior ficou sem resposta e pode ter sido registrada. Repita sem mudar nada, ou confira antes.'
+                    : 'Esta venda já foi registrada. Confira em Financeiro.'}
+                </p>
+                {pendente && (
+                  <button onClick={() => conferirPendente(false)} disabled={conferindo}
+                    className="text-xs font-bold text-primary underline flex-shrink-0 disabled:opacity-50">
+                    {conferindo ? 'Conferindo...' : 'Recarregar'}
                   </button>
                 )}
+                <button onClick={novaVenda} disabled={conferindo}
+                  className="text-xs font-bold text-primary underline flex-shrink-0 disabled:opacity-50">
+                  Nova venda
+                </button>
               </div>
             )}
 
