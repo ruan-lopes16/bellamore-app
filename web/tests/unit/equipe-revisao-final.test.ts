@@ -123,7 +123,7 @@ describe('I4: desfazer do vínculo em Pacotes', () => {
       expect(src).toContain("select('id, data_hora_inicio, servico_id, pacote_cliente_id, servico:servicos(nome)')");
       expect(src).toMatch(/type AgConcluido = \{[\s\S]*?pacote_cliente_id: string \| null;/);
       expect(src).toContain('desfazerVinculoPacote(supabase, empresaId, ag.id, ag.pacote_cliente_id ?? null)');
-      expect(src).toContain('setErro(falhaDesfazer ?? e1.message)');
+      expect(src).toContain('setErro(falhaDesfazer ?? falhaSessao)'); // 093: erro já em português (erroEscritaPacoteUso)
       // o desfazer cego (grava null sem conferir) não existe mais
       expect(src).not.toContain(".update({ pacote_cliente_id: null }).eq('id', ag.id)");
     });

@@ -82,6 +82,19 @@ export function pode(u: PermissoesUsuario, a: Acesso): boolean {
   return u.chaves.includes(a);
 }
 
+/** Aviso do Financeiro e dos Relatórios para quem só enxerga as próprias comandas. */
+export const AVISO_EXTRAS_SO_PROPRIAS = 'Os serviços extras mostrados são só das suas comandas.';
+
+/**
+ * Os serviços extras vêm de `comanda_itens`, que a RLS só mostra por inteiro à dona, à gestora e a
+ * quem tem "agenda.gerenciar_outras"; as demais veem só os itens das próprias comandas. Para elas
+ * as telas de números (web e app) mostram AVISO_EXTRAS_SO_PROPRIAS; para as outras, `null`.
+ */
+export function avisoExtrasSoProprias(u: PermissoesUsuario): string | null {
+  if (u.isOwner || u.papel === 'gestor' || u.chaves.includes('agenda.gerenciar_outras')) return null;
+  return AVISO_EXTRAS_SO_PROPRIAS;
+}
+
 // ── Ações que o banco confere com mais de uma chave ────────────
 // (matriz docs/superpowers/notes/2026-10-14-matriz-permissoes.md). A tela usa estas funções
 // para nunca oferecer uma ação que o banco recusaria.

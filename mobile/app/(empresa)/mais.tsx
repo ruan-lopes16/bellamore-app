@@ -116,7 +116,9 @@ export default function Mais() {
   }
 
   // Badge do menu = TODAS as pendentes (mesma regra do alerta do Dashboard e do badge da Sidebar web).
-  const { data: pendentes } = useResumoComissoesPendentes(pode('comissoes.ver_todas'));
+  // Consulta com erro não mostra número (nem o antigo guardado no cache).
+  const pendentesQ = useResumoComissoesPendentes(pode('comissoes.ver_todas'));
+  const pendentes = pendentesQ.isError ? undefined : pendentesQ.data;
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,

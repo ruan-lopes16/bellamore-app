@@ -33,6 +33,7 @@ const sqlPermissoes = migrations
   .map(f => ler(`supabase/migrations/${f}`))
   .join('\n');
 const sql089 = ler('supabase/migrations/089_permissoes_alinhamento.sql');
+const sql093 = ler('supabase/migrations/093_alinhamentos_finais.sql');
 const matriz = ler('docs/superpowers/notes/2026-10-14-matriz-permissoes.md');
 
 /**
@@ -114,8 +115,6 @@ describe('matriz de permissões — UPDATE/DELETE sempre com .select (sem sucess
     'web/app/(app)/notificacoes/page.tsx notificacoes.update': 'notificações da própria pessoa',
     'web/app/(app)/pacotes/page.tsx pacote_servicos.delete': 'remover 0 serviços é legítimo; mesma chave da tela (pacotes.gerenciar)',
     'web/app/(app)/pacotes/page.tsx pacote_servicos.upsert': 'mesma chave da tela (pacotes.gerenciar); erro conferido',
-    'web/app/(app)/pacotes/page.tsx pacote_uso.update': 'pacote_uso liberado a todo membro (F7)',
-    'web/app/(app)/pacotes/page.tsx pacote_uso.delete': 'pacote_uso liberado a todo membro (F7)',
     'web/app/(app)/pacotes/page.tsx agendamentos.update': 'excluir venda: desvincular 0 atendimentos é legítimo; o DELETE seguinte confere',
     'web/app/(app)/pacotes/page.tsx pacote_clientes.delete': 'pacote_clientes liberado a todo membro (F7)',
     'web/app/(app)/pacotes/page.tsx pacote_clientes.update': 'pacote_clientes liberado a todo membro (F7)',
@@ -130,8 +129,6 @@ describe('matriz de permissões — UPDATE/DELETE sempre com .select (sem sucess
     'web/app/api/push/subscribe/route.ts web_push_subscriptions.upsert': 'assinatura de push da própria pessoa',
     'mobile/app/(empresa)/configuracoes.tsx users.update': 'perfil da própria pessoa',
     'mobile/app/(empresa)/editar-pacote/[id].tsx pacote_servicos.delete': 'remover 0 serviços é legítimo; erro conferido',
-    'mobile/app/(empresa)/pacotes.tsx pacote_uso.update': 'pacote_uso liberado a todo membro (F7)',
-    'mobile/app/(empresa)/pacotes.tsx pacote_uso.delete': 'pacote_uso liberado a todo membro (F7)',
     'mobile/app/(empresa)/pacotes.tsx agendamentos.update': 'excluir venda: desvincular 0 atendimentos é legítimo; o DELETE seguinte confere',
     'mobile/app/(empresa)/pacotes.tsx pacote_clientes.delete': 'pacote_clientes liberado a todo membro (F7)',
     'mobile/app/(empresa)/pacotes.tsx pacote_clientes.update': 'pacote_clientes liberado a todo membro (F7)',
@@ -214,6 +211,77 @@ describe('matriz de permissões — correções de tela', () => {
     const src = tela('web/app/(app)/servicos/page.tsx');
     expect(src).toContain('async function sincronizarInsumos(servicoId: string): Promise<string | null>');
     expect(src).toMatch(/const errIns = await sincronizarInsumos/);
+  });
+});
+
+describe('matriz de permissões — migration 093 (F7, F10)', () => {
+  /** Corpo de uma policy criada na 093 (até o próximo drop/notify). */
+  const policy = (nome: string, tabela: string) => {
+    const i = sql093.indexOf(`create policy "${nome}" on public.${tabela}`);
+    expect(i, nome).toBeGreaterThan(-1);
+    expect(sql093).toContain(`drop policy if exists "${nome}" on public.${tabela};`);
+    const fim = sql093.indexOf('drop policy', i);
+    return sql093.slice(i, fim === -1 ? sql093.indexOf('notify pgrst', i) : fim);
+  };
+
+  it('pacote_uso: sem "membro gerencia"; leitura para membro; escrita com pacotes.vender ou atendimento dela (F7)', () => {
+    expect(sql093).toContain('drop policy if exists "pacote_uso: membro gerencia" on public.pacote_uso;');
+    expect(sql093).not.toMatch(/^create policy "pacote_uso: membro gerencia"/m); // só no rollback (comentário)
+    const ver = policy('pacote_uso: membro ve', 'pacote_uso');
+    expect(ver).toContain('for select');
+    for (const [nome, cmd] of [['pacote_uso: registra', 'insert'], ['pacote_uso: altera', 'update'], ['pacote_uso: exclui', 'delete']]) {
+      const pol = policy(nome, 'pacote_uso');
+      expect(pol, nome).toContain(`for ${cmd}`);
+      expect(pol, nome).toContain("tem_permissao(empresa_id, 'pacotes.vender')");
+      expect(pol, nome).toContain("tem_permissao(empresa_id, 'agenda.gerenciar_outras')");
+      expect(pol, nome).toContain('a.profissional_id = auth.uid()');
+      expect(pol, nome).not.toMatch(/\busing \(true\)|with check \(true\)/);
+    }
+  });
+
+  it('pagamentos e comanda_itens: INSERT só na comanda dela, com a chave ou gestora (F7)', () => {
+    expect(sql093).toContain('drop policy if exists "pagamentos: membro insere" on public.pagamentos;');
+    expect(sql093).toContain('drop policy if exists "comanda_itens: membro insere" on public.comanda_itens;');
+    const pag = policy('pagamentos: quem fecha insere', 'pagamentos');
+    const itens = policy('comanda_itens: quem fecha insere', 'comanda_itens');
+    for (const pol of [pag, itens]) {
+      expect(pol).toContain('for insert');
+      expect(pol).toContain('comanda_pertence_ao_profissional(comanda_id)');
+      expect(pol).toContain("tem_permissao(empresa_id, 'agenda.gerenciar_outras')");
+      expect(pol).toContain('is_gestor_ou_owner(empresa_id)');
+    }
+    // pagamento de venda avulsa: vendas.acessar (ou gestora/dona)
+    expect(pag).toContain("tem_permissao(empresa_id, 'vendas.acessar')");
+  });
+
+  it('vendas e venda_itens: sem "membro gerencia"; ler com financeiro.ver/gestora; mudar só gestora (F7)', () => {
+    for (const t of ['vendas', 'venda_itens']) {
+      expect(sql093).toContain(`drop policy if exists "${t}: membro gerencia" on public.${t};`);
+      expect(policy(`${t}: membro insere`, t)).toContain('empresa_id in (select minha_empresas())');
+      const ver = policy(`${t}: financeiro ou gestor ve`, t);
+      expect(ver).toContain("tem_permissao(empresa_id, 'financeiro.ver')");
+      expect(ver).toContain('is_gestor_ou_owner(empresa_id)');
+      for (const p of [`${t}: gestor ou owner atualiza`, `${t}: gestor ou owner deleta`]) {
+        const pol = policy(p, t);
+        expect(pol, p).toContain('is_gestor_ou_owner(empresa_id)');
+        expect(pol, p).not.toContain('minha_empresas');
+      }
+    }
+  });
+
+  it('quem fechou a comanda só mantém acesso com vínculo ativo (F10)', () => {
+    const corpo = sql093.slice(sql093.indexOf('function public.comanda_pertence_ao_profissional'));
+    expect(corpo.slice(0, corpo.indexOf('$$;'))).toMatch(/m\.user_id = auth\.uid\(\)\s+and m\.ativo = true/);
+    for (const nome of ['comandas: profissional ou gestor ve', 'comandas: profissional ou gestor atualiza', 'comandas: profissional ou gestor deleta']) {
+      const pol = policy(nome, 'comandas');
+      expect(pol, nome).toContain('comanda_pertence_ao_profissional(id)');
+      expect(pol, nome).not.toMatch(/profissional_id = auth\.uid\(\)/);
+    }
+  });
+
+  it('a matriz registra as regras da 093', () => {
+    expect(matriz).toMatch(/\| F7 \|[^\n]*093[^\n]*pacotes\.vender/);
+    expect(matriz).toMatch(/\| F10 \|[^\n]*093[^\n]*ativo/);
   });
 });
 

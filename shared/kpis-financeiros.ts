@@ -47,7 +47,7 @@
  */
 import {
   type Limites, contemInstante, contemData, chaveMesBRT, mesesDoIntervalo, mesesInteirosDoIntervalo,
-  limitesDias, limitesMes, chaveDiaBRT, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto,
+  limitesDias, limitesMes, chaveDiaBRT, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto, rotuloMesAno,
 } from './periodos';
 import { type FinanceiroFechamentoRow, getFechamentoForMonth } from './fechamentos-mensais';
 import {
@@ -164,7 +164,23 @@ export type KpisFinanceiros = {
   pctComparecimento: number;
   /** Meses ('yyyy-MM') em que o fechamento importado substituiu o cálculo ao vivo. */
   mesesComFechamento: string[];
+  /**
+   * Extras, vendas e taxas avulsas SÓ dos meses calculados ao vivo — o que as telas mostram
+   * como linha/cartão próprio. Nos meses com fechamento importado esses valores já estão
+   * dentro do bruto importado (ver notaAvulsasNoFechamento).
+   */
+  avulsasForaDoFechamento: ReceitasAvulsas;
 };
+
+/** Receitas que as telas mostram à parte dos atendimentos. */
+export type ReceitasAvulsas = {
+  servicosExtras: number;
+  vendas: number;
+  taxasCancelamento: number;
+  taxasReserva: number;
+};
+
+const AVULSAS_ZERADAS: ReceitasAvulsas = { servicosExtras: 0, vendas: 0, taxasCancelamento: 0, taxasReserva: 0 };
 
 export const KPIS_ZERADOS: KpisFinanceiros = {
   receitaServicos: 0, receitaServicosExtras: 0, receitaVendas: 0, receitaTaxasCancelamento: 0, receitaTaxasReserva: 0,
@@ -172,6 +188,7 @@ export const KPIS_ZERADOS: KpisFinanceiros = {
   despesas: 0, lucro: 0, atendimentos: 0, atendimentosFaturaveis: 0, ticketMedio: 0,
   totalAgendamentos: 0, cancelados: 0, faltas: 0, perdidos: 0,
   pctCancelamento: 0, pctComparecimento: 0, mesesComFechamento: [],
+  avulsasForaDoFechamento: AVULSAS_ZERADAS,
 };
 
 // ── Utilitários ────────────────────────────────────────────────────
@@ -295,11 +312,18 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   const receitaMes: Record<string, number> = {};
   const comissaoMes: Record<string, number> = {};
   const cartaoMes: Record<string, number> = {};
+  const extrasMes: Record<string, number> = {};
+  const vendasMes: Record<string, number> = {};
+  const cancMes: Record<string, number> = {};
+  const reservaMes: Record<string, number> = {};
   faturaveis.forEach(a => somarEm(receitaMes, chaveMesBRT(a.data_hora_inicio), valorAtendimentoReceita(a)));
-  d.vendas.forEach(v => somarEm(receitaMes, chaveMesBRT(v.created_at), num(v.valor_final)));
-  d.servicosExtras.forEach(x => somarEm(receitaMes, chaveMesBRT(x.fechada_at), valorServicoExtra(x)));
-  d.taxasCancelamento.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
-  d.taxasReserva.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), valorTaxaReservaReceita(t)));
+  d.vendas.forEach(v => somarEm(vendasMes, chaveMesBRT(v.created_at), num(v.valor_final)));
+  d.servicosExtras.forEach(x => somarEm(extrasMes, chaveMesBRT(x.fechada_at), valorServicoExtra(x)));
+  d.taxasCancelamento.forEach(t => somarEm(cancMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
+  d.taxasReserva.forEach(t => somarEm(reservaMes, chaveMesBRT(t.paga_em as string), valorTaxaReservaReceita(t)));
+  for (const m of [vendasMes, extrasMes, cancMes, reservaMes]) {
+    for (const [k, v] of Object.entries(m)) somarEm(receitaMes, k, v);
+  }
   d.comissoes.forEach(c => somarEm(comissaoMes, chaveMesBRT(c.created_at), num(c.valor_comissao)));
   d.pagamentos.forEach(p => somarEm(cartaoMes, chaveMesBRT(p.created_at), taxaDeCartao(p)));
 
@@ -308,6 +332,7 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   let comissoes = 0;
   let taxasCartao = 0;
   const mesesComFechamento: string[] = [];
+  const avulsas = { ...AVULSAS_ZERADAS };
   for (const k of mesesDoIntervalo(l)) {
     const fechamento = inteiros.has(k) ? getFechamentoForMonth(d.fechamentos, k) : null;
     if (fechamento) {
@@ -319,6 +344,10 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
     bruto += receitaMes[k] ?? 0;
     comissoes += comissaoMes[k] ?? 0;
     taxasCartao += cartaoMes[k] ?? 0;
+    avulsas.servicosExtras += extrasMes[k] ?? 0;
+    avulsas.vendas += vendasMes[k] ?? 0;
+    avulsas.taxasCancelamento += cancMes[k] ?? 0;
+    avulsas.taxasReserva += reservaMes[k] ?? 0;
   }
 
   const despesas = d.despesas.reduce((s, x) => s + num(x.valor), 0);
@@ -359,7 +388,47 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
     pctCancelamento: totalAgendamentos > 0 ? (perdidos / totalAgendamentos) * 100 : 0,
     pctComparecimento: baseComparecimento > 0 ? (concluidos.length / baseComparecimento) * 100 : 0,
     mesesComFechamento,
+    avulsasForaDoFechamento: {
+      servicosExtras: arredondar(avulsas.servicosExtras),
+      vendas: arredondar(avulsas.vendas),
+      taxasCancelamento: arredondar(avulsas.taxasCancelamento),
+      taxasReserva: arredondar(avulsas.taxasReserva),
+    },
   };
+}
+
+// ── Mês com fechamento importado ───────────────────────────────────
+
+/**
+ * Nota única (web e app, Financeiro e Relatórios) quando o período cobre um mês importado
+ * inteiro: os extras, vendas e taxas desse mês não aparecem como linha própria — já estão no
+ * bruto importado. `null` sem mês importado.
+ */
+export function notaAvulsasNoFechamento(k: Pick<KpisFinanceiros, 'mesesComFechamento'>): string | null {
+  if (k.mesesComFechamento.length === 0) return null;
+  const meses = k.mesesComFechamento.map(rotuloMesAno).join(', ');
+  return `Serviços extras, vendas e taxas de ${meses} estão incluídos no fechamento importado.`;
+}
+
+export type CartaoReceitaAvulsa = {
+  id: 'servicosExtras' | 'taxasCancelamento' | 'taxasReserva';
+  rotulo: string;
+  valor: number;
+  sub: string | null;
+};
+
+/**
+ * Cartões de receita avulsa do Financeiro (web e app): serviços extras e taxas, só os de valor
+ * positivo e só dos meses ao vivo (mês importado inteiro → incluídos no fechamento).
+ */
+export function cartoesReceitasAvulsas(k: Pick<KpisFinanceiros, 'avulsasForaDoFechamento'>): CartaoReceitaAvulsa[] {
+  const a = k.avulsasForaDoFechamento;
+  const lista: CartaoReceitaAvulsa[] = [
+    { id: 'servicosExtras', rotulo: 'Serviços extras', valor: a.servicosExtras, sub: null },
+    { id: 'taxasCancelamento', rotulo: 'Taxas de cancelamento', valor: a.taxasCancelamento, sub: null },
+    { id: 'taxasReserva', rotulo: 'Taxas de reserva', valor: a.taxasReserva, sub: 'fora das comandas' },
+  ];
+  return lista.filter(c => c.valor > 0);
 }
 
 /**

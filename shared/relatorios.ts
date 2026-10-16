@@ -7,7 +7,7 @@
 import {
   arredondar, num, valorAtendimentoReceita, valorServicoExtra, variacaoPercentual, type DadosFinanceiros, type KpisFinanceiros, type Valor,
 } from './kpis-financeiros';
-import { ROTULO_COMPARACAO, instanteMs, type PeriodoRelatorio } from './periodos';
+import { ROTULO_COMPARACAO, chaveMesBRT, instanteMs, type PeriodoRelatorio } from './periodos';
 
 export type AbaRelatorio = 'financeiro' | 'servicos' | 'equipe' | 'clientes' | 'estoque' | 'comissoes' | 'avaliacoes';
 
@@ -122,9 +122,11 @@ export type CartaoKpiRelatorio = {
 
 /** Subtítulo do cartão "Faturamento bruto": o que além dos atendimentos entrou (vendas, serviços extras). */
 function subBruto(k: KpisFinanceiros, fmt: (v: number) => string): string | null {
+  // Só os meses ao vivo: num mês importado inteiro as avulsas já estão no bruto importado.
+  const a = k.avulsasForaDoFechamento;
   const partes: string[] = [];
-  if (k.receitaVendas > 0) partes.push(`${fmt(k.receitaVendas)} em vendas`);
-  if (k.receitaServicosExtras > 0) partes.push(`${fmt(k.receitaServicosExtras)} em serviços extras`);
+  if (a.vendas > 0) partes.push(`${fmt(a.vendas)} em vendas`);
+  if (a.servicosExtras > 0) partes.push(`${fmt(a.servicosExtras)} em serviços extras`);
   return partes.length > 0 ? `inc. ${partes.join(' + ')}` : null;
 }
 
@@ -157,9 +159,10 @@ export function cartoesKpiRelatorio(
   lista.push({ ...base, id: 'cancelamento', rotulo: 'Taxa de cancelamento',
     valor: k.totalAgendamentos > 0 ? `${k.pctCancelamento.toFixed(1)}%` : '—',
     sub: k.perdidos > 0 ? `${k.perdidos} perdido(s)` : null, negativo: true });
-  const taxas = arredondar(k.receitaTaxasCancelamento + k.receitaTaxasReserva);
+  const av = k.avulsasForaDoFechamento;
+  const taxas = arredondar(av.taxasCancelamento + av.taxasReserva);
   if (taxas > 0) lista.push({ ...base, id: 'taxas', rotulo: 'Taxas (cancel. + reserva)', valor: fmt(taxas),
-    sub: k.receitaTaxasReserva > 0 ? 'reserva fora das comandas' : null });
+    sub: av.taxasReserva > 0 ? 'reserva fora das comandas' : null });
   lista.push({ ...base, id: 'comissoes', rotulo: 'Total comissões', valor: fmt(k.comissoes),
     sub: k.comissoesPendentes > 0 ? `${fmt(k.comissoesPendentes)} pendentes` : 'Em dia' });
   return lista;
@@ -172,16 +175,21 @@ export type LinhaResumoFinanceiro = {
   tipo: 'entrada' | 'total' | 'saida' | 'resultado';
 };
 
-/** Linhas do bloco "Resumo financeiro" (aba Financeiro) — mesma ordem e textos. */
+/**
+ * Linhas do bloco "Resumo financeiro" (aba Financeiro) — mesma ordem e textos. Extras, vendas e
+ * taxas só dos meses ao vivo: num mês importado inteiro elas estão no fechamento (a tela mostra
+ * notaAvulsasNoFechamento).
+ */
 export function linhasResumoFinanceiro(
   k: KpisFinanceiros, o: { isOwner: boolean; retiradasPeriodo: number },
 ): LinhaResumoFinanceiro[] {
+  const a = k.avulsasForaDoFechamento;
   const l: LinhaResumoFinanceiro[] = [{ id: 'servicos', rotulo: 'Serviços concluídos', valor: k.receitaServicos, tipo: 'entrada' }];
-  if (k.receitaServicosExtras > 0) {
-    l.push({ id: 'servicosExtras', rotulo: 'Serviços extras', valor: k.receitaServicosExtras, tipo: 'entrada' });
+  if (a.servicosExtras > 0) {
+    l.push({ id: 'servicosExtras', rotulo: 'Serviços extras', valor: a.servicosExtras, tipo: 'entrada' });
   }
-  if (k.receitaVendas > 0) l.push({ id: 'vendas', rotulo: 'Vendas avulsas', valor: k.receitaVendas, tipo: 'entrada' });
-  const taxas = arredondar(k.receitaTaxasCancelamento + k.receitaTaxasReserva);
+  if (a.vendas > 0) l.push({ id: 'vendas', rotulo: 'Vendas avulsas', valor: a.vendas, tipo: 'entrada' });
+  const taxas = arredondar(a.taxasCancelamento + a.taxasReserva);
   if (taxas > 0) l.push({ id: 'taxas', rotulo: 'Taxas (cancel. + reserva fora das comandas)', valor: taxas, tipo: 'entrada' });
   l.push(
     { id: 'bruto', rotulo: '= Faturamento bruto', valor: k.bruto, tipo: 'total' },
@@ -207,16 +215,19 @@ export const STATUS_SERVICO_EXTRA = 'Serviço extra';
  * atendimentos concluídos + os serviços extras da comanda (receita desde
  * 2026-10-08, data = fechamento da comanda), em ordem cronológica. Valor = o que
  * entrou na receita (com a parte do desconto da comanda já tirada, migration 090).
- * `d` já recortado ao período (recortarDados).
+ * `d` já recortado ao período (recortarDados). Extras de mês com fechamento importado
+ * (`mesesComFechamento`, de calcularKpisFinanceiros) ficam de fora: estão no fechamento.
  */
 export function linhasAtendimentosRelatorio(
   d: Pick<DadosFinanceiros, 'agendamentos' | 'servicosExtras'>,
+  mesesComFechamento: string[] = [],
 ): { inicio: string; cliente: string | null; servico: string | null; valor: number; status: string }[] {
+  const importados = new Set(mesesComFechamento);
   const ags = d.agendamentos.filter(a => a.status === 'concluido').map(a => ({
     inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null,
     valor: arredondar(valorAtendimentoReceita(a)), status: a.status,
   }));
-  const extras = d.servicosExtras.map(x => ({
+  const extras = d.servicosExtras.filter(x => !importados.has(chaveMesBRT(x.fechada_at))).map(x => ({
     inicio: x.fechada_at, cliente: x.cliente?.nome ?? null, servico: x.servico?.nome ?? x.descricao ?? null,
     valor: arredondar(valorServicoExtra(x)), status: STATUS_SERVICO_EXTRA,
   }));

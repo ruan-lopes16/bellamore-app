@@ -211,3 +211,12 @@ export async function gravarVenda(db: ClienteDbVenda, d: DadosVenda): Promise<Re
   }
   return { vendaId, avisoEstoque };
 }
+
+/**
+ * Spinner do histórico de vendas (web e app): só na 1ª carga de cada dia. Recarregar o MESMO dia
+ * (voltar à tela, depois de uma venda) mantém a lista na tela enquanto busca.
+ * `diaJaCarregado` = último dia carregado com sucesso (null se nenhum ou se a última carga falhou).
+ */
+export function mostrarSpinnerHistorico(diaJaCarregado: string | null, dia: string): boolean {
+  return diaJaCarregado !== dia;
+}

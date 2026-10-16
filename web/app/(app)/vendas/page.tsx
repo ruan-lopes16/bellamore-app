@@ -43,7 +43,7 @@ import {
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import { calcularDesconto, resumoComanda, taxaDoSplit, parseValorBR, type ModoDesconto } from '@shared/comanda-fechamento';
-import { adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, assinaturaVenda, type ItemVenda } from '@shared/venda';
+import { adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, assinaturaVenda, mostrarSpinnerHistorico, type ItemVenda } from '@shared/venda';
 import {
   chaveDaTentativa, tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_VENDA_JA_GRAVADA, type TentativaSemResposta,
 } from '@shared/comanda-gravacao';
@@ -167,6 +167,8 @@ export default function VendasPage() {
   const [erroVendas,    setErroVendas]    = useState<string | null>(null);
   // Contador de requisição: troca rápida de dia nunca mostra as vendas de outro dia
   const reqVendasRef = useRef(0);
+  // Último dia carregado com sucesso: recarregar o mesmo dia não mostra o spinner de novo.
+  const diaVendasCarregadoRef = useRef<string | null>(null);
 
   // ── Carregar empresa
   useEffect(() => {
@@ -222,7 +224,7 @@ export default function VendasPage() {
   const carregarVendas = useCallback(async (empId: string, dia: string) => {
     const req = ++reqVendasRef.current;
     const { startIso, endIso } = limitesDias(dia, dia);
-    setLoadingVendas(true);
+    if (mostrarSpinnerHistorico(diaVendasCarregadoRef.current, dia)) setLoadingVendas(true);
     const { data, error } = await supabase
       .from('vendas')
       .select(`
@@ -235,8 +237,8 @@ export default function VendasPage() {
       .gte('created_at', startIso).lte('created_at', endIso)
       .order('created_at', { ascending: false });
     if (req !== reqVendasRef.current) return; // resposta de um dia que já não está na tela
-    if (error) { setErroVendas(mensagemErroBanco(error, 'carregar as vendas')); setVendas([]); }
-    else { setErroVendas(null); setVendas((data ?? []) as unknown as VendaHistorico[]); }
+    if (error) { setErroVendas(mensagemErroBanco(error, 'carregar as vendas')); setVendas([]); diaVendasCarregadoRef.current = null; }
+    else { setErroVendas(null); setVendas((data ?? []) as unknown as VendaHistorico[]); diaVendasCarregadoRef.current = dia; }
     setLoadingVendas(false);
   }, []);
 

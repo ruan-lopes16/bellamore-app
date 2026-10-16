@@ -162,3 +162,20 @@ export function cartoesKpiDashboard(
   }
   return lista;
 }
+
+// ── Badges ─────────────────────────────────────────────────────────
+
+/**
+ * Número de um badge a partir de uma contagem (`{ count: 'exact', head: true }`): com erro devolve
+ * `null` — a tela nunca mostra número falso (0 ou parcial) por causa de uma consulta que falhou.
+ */
+export function contagemBadge(r: { count: number | null; error?: unknown }): number | null {
+  if (r.error) return null;
+  return r.count ?? 0;
+}
+
+/** Soma de badges; qualquer parte `null` (erro) → `null` (a tela mantém o número anterior). */
+export function somarBadges(partes: (number | null)[]): number | null {
+  if (partes.some(p => p === null)) return null;
+  return (partes as number[]).reduce((s, p) => s + p, 0);
+}

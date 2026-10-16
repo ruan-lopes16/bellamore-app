@@ -35,12 +35,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { rotuloMesCurto, somarMeses } from '@shared/periodos';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { variacaoPercentual } from '@shared/kpis-financeiros';
-import { textoRecorrentesPendentes } from '@shared/despesas';
+import { textoLancamentoRecorrentes, textoRecorrentesPendentes } from '@shared/despesas';
 import { CalendarioMesFinanceiro } from '@/components/CalendarioMesFinanceiro';
 
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import { usePermissoes } from '@/lib/permissions';
+import { avisoExtrasSoProprias } from '@shared/permissoes';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
 import {
@@ -1356,8 +1357,11 @@ function ModalEditarDespesa({
 
 export default function Financeiro() {
   const insets = useSafeAreaInsets();
-  const { pode } = usePermissoes();
+  const permissoes = usePermissoes();
+  const { pode } = permissoes;
   const podeDespesas = pode('despesas.gerenciar');
+  // Quem só vê as próprias comandas vê só os próprios serviços extras (RLS de comanda_itens).
+  const avisoExtras = permissoes.permissoesCarregadas ? avisoExtrasSoProprias(permissoes) : null;
   const podeMarcarTaxas = pode('taxas.marcar_pagas');
   const ehDona = pode('dona');
   const [mesRef, setMesRef] = useState(new Date());
@@ -1563,8 +1567,7 @@ export default function Financeiro() {
                   const { inseridas, jaExistiam } = await lancarRecorrentes();
                   Alert.alert(
                     'Despesas recorrentes',
-                    `${inseridas} despesa${inseridas !== 1 ? 's' : ''} lançada${inseridas !== 1 ? 's' : ''}.`
-                      + (jaExistiam > 0 ? ` ${jaExistiam} já estava${jaExistiam !== 1 ? 'm' : ''} lançada${jaExistiam !== 1 ? 's' : ''}.` : ''),
+                    textoLancamentoRecorrentes({ inseridas, jaExistiam }),
                   );
                 } catch (e) { Alert.alert('Erro ao lançar as despesas recorrentes', (e as Error).message); }
               }}
@@ -1675,14 +1678,10 @@ export default function Financeiro() {
           ))}
         </View>
         )}
-        {((resumo?.servicosExtras ?? 0) > 0 || (resumo?.taxasCancelamento ?? 0) > 0 || (resumo?.taxasReserva ?? 0) > 0) && (
+        {(resumo?.receitasAvulsas.length ?? 0) > 0 && (
           <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {[
-              // Serviços extras da comanda (já incluídos no faturamento bruto), como no web.
-              { label: 'Serviços extras',       value: resumo?.servicosExtras ?? 0, sub: null as string | null },
-              { label: 'Taxas de cancelamento', value: resumo?.taxasCancelamento ?? 0, sub: null },
-              { label: 'Taxas de reserva',      value: resumo?.taxasReserva ?? 0, sub: 'fora das comandas' },
-            ].filter(t => t.value > 0).map(t => (
+            {/* Serviços extras e taxas (já incluídos no faturamento bruto) — mesma lista do web. */}
+            {(resumo?.receitasAvulsas ?? []).map(c => ({ label: c.rotulo, value: c.valor, sub: c.sub })).map(t => (
               <View key={t.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{t.label}</Text>
                 <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.accent }}>{formatarMoeda(t.value)}</SecretText>
@@ -1690,6 +1689,16 @@ export default function Financeiro() {
               </View>
             ))}
           </View>
+        )}
+        {resumo?.notaFechamento && (
+          <Text style={{ marginHorizontal: 24, marginBottom: 12, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+            {resumo.notaFechamento}
+          </Text>
+        )}
+        {resumo && avisoExtras && (
+          <Text style={{ marginHorizontal: 24, marginBottom: 12, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+            {avisoExtras}
+          </Text>
         )}
 
         {/* ── Evolução mensal ── */}

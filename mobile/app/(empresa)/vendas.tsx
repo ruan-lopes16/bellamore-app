@@ -49,7 +49,7 @@ import { calcularDesconto, resumoComanda, parseValorBR, type ModoDesconto } from
 import { configIndisponivel, AVISO_CARTOES_SEM_TAXA, nomeBandeira, type ConfigCartoes } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import {
-  adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, assinaturaVenda,
+  adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, assinaturaVenda, mostrarSpinnerHistorico,
   type ItemVenda, type ProdutoVenda,
 } from '@shared/venda';
 import {
@@ -168,6 +168,10 @@ export default function VendasScreen() {
   const [erroVendas, setErroVendas] = useState<string | null>(null);
   // Contador de requisição: troca rápida de dia nunca mostra as vendas de outro dia
   const reqVendasRef = useRef(0);
+  // Último dia carregado com sucesso: recarregar o mesmo dia não mostra o spinner de novo.
+  const diaVendasCarregadoRef = useRef<string | null>(null);
+  // Contador de requisição do catálogo: só a resposta mais recente atualiza a tela.
+  const reqCarregarRef = useRef(0);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -177,6 +181,7 @@ export default function VendasScreen() {
   // ── Produtos de venda + clientes + configuração de cartões (mesma consulta do web)
   const carregar = useCallback(async () => {
     if (!empresaId) return;
+    const req = ++reqCarregarRef.current;
     const [rProdutos, rClientes, rCartoes] = await Promise.all([
       supabase.from('produtos')
         .select('id, nome, categoria, preco_venda, estoque_atual, unidade')
@@ -200,6 +205,7 @@ export default function VendasScreen() {
         }),
       ),
     ]);
+    if (req !== reqCarregarRef.current) return; // uma carga mais nova já está a caminho
     if (rProdutos.error) setErroCarga(mensagemErroBanco(rProdutos.error, 'carregar os produtos'));
     else if (rClientes.error) setErroCarga(mensagemErroBanco(rClientes.error, 'carregar as clientes'));
     else setErroCarga(null);
@@ -223,7 +229,7 @@ export default function VendasScreen() {
     const req = ++reqVendasRef.current;
     const chave = chaveDiaExibido(dia);
     const { startIso, endIso } = limitesDias(chave, chave);
-    setLoadingVendas(true);
+    if (mostrarSpinnerHistorico(diaVendasCarregadoRef.current, chave)) setLoadingVendas(true);
     const { data, error } = await supabase
       .from('vendas')
       .select(`
@@ -236,8 +242,8 @@ export default function VendasScreen() {
       .gte('created_at', startIso).lte('created_at', endIso)
       .order('created_at', { ascending: false });
     if (req !== reqVendasRef.current) return; // resposta de um dia que já não está na tela
-    if (error) { setErroVendas(mensagemErroBanco(error, 'carregar as vendas')); setVendas([]); }
-    else { setErroVendas(null); setVendas((data ?? []) as unknown as VendaHistorico[]); }
+    if (error) { setErroVendas(mensagemErroBanco(error, 'carregar as vendas')); setVendas([]); diaVendasCarregadoRef.current = null; }
+    else { setErroVendas(null); setVendas((data ?? []) as unknown as VendaHistorico[]); diaVendasCarregadoRef.current = chave; }
     setLoadingVendas(false);
   }, [empresaId, dia]);
 

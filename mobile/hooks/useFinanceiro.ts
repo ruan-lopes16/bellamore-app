@@ -16,7 +16,7 @@ import { limitesMes, somarMeses, uniaoLimites, chaveDoMesExibido } from '@shared
 import {
   calcularKpisFinanceiros, recortarDados, evolucaoMensal, rankingAtendimentos,
   resumoMetodosPagamento, retiradasDoPeriodo, listarRetiradasDoPeriodo, resultadoAposRetiradas,
-  DADOS_VAZIOS,
+  DADOS_VAZIOS, cartoesReceitasAvulsas, notaAvulsasNoFechamento, type CartaoReceitaAvulsa,
 } from '@shared/kpis-financeiros';
 import {
   carregarDadosFinanceiros, carregarRetiradas, filtroDespesasDoMes,
@@ -38,10 +38,10 @@ export interface ResumoMes {
   lucro: number;
   /** Lucro − retiradas da dona no mês (só faz sentido para a dona). */
   aposRetiradas: number;
-  taxasCancelamento: number;
-  taxasReserva: number;
-  /** Serviços extras da comanda (já incluídos em `receita`). */
-  servicosExtras: number;
+  /** Serviços extras e taxas (já incluídos em `receita`), só dos meses ao vivo — mesma lista do web. */
+  receitasAvulsas: CartaoReceitaAvulsa[];
+  /** Nota quando o mês tem fechamento importado (avulsas incluídas nele); null sem fechamento. */
+  notaFechamento: string | null;
   mesesComFechamento: string[];
 }
 
@@ -214,9 +214,8 @@ export function useFinanceiro(mesRef: Date) {
     gastosAnterior: kpisAnt.despesas,
     lucro: kpis.lucro,
     aposRetiradas: resultadoAposRetiradas(kpis.lucro, retiradasPeriodo),
-    taxasCancelamento: kpis.receitaTaxasCancelamento,
-    taxasReserva: kpis.receitaTaxasReserva,
-    servicosExtras: kpis.receitaServicosExtras,
+    receitasAvulsas: cartoesReceitasAvulsas(kpis),
+    notaFechamento: notaAvulsasNoFechamento(kpis),
     mesesComFechamento: kpis.mesesComFechamento,
   } : undefined;
 

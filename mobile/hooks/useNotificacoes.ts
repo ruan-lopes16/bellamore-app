@@ -66,7 +66,8 @@ export function useNotificacoes() {
 
   const todas       = lista.data ?? [];
   const naoLidas    = todas.filter((n) => !n.lida);
-  const countNaoLidas = naoLidas.length;
+  // Badge do sino: com a consulta em erro, nenhum número (nem o antigo guardado no cache).
+  const countNaoLidas = lista.isError ? 0 : naoLidas.length;
 
   return {
     notificacoes: todas,

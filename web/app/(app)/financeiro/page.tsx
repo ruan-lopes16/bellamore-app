@@ -26,7 +26,7 @@ import { avancarComEnter } from '@/lib/formNav';
 import { KpisFinanceiroSkeleton, GraficosDespesasSkeleton } from './FinanceiroSkeleton';
 import { format, addMonths, subMonths, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra, recorrentesParaLancarNoMes, montarLancamentosRecorrentes, textoRecorrentesPendentes, type DespesaRecorrenteTemplate } from '@shared/despesas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra, recorrentesParaLancarNoMes, montarLancamentosRecorrentes, textoRecorrentesPendentes, textoLancamentoRecorrentes, type DespesaRecorrenteTemplate } from '@shared/despesas';
 import { carregarHistoricoRecorrentesMensais, lancarRecorrentesMensais } from '@shared/despesas-consultas';
 import {
   somaDevolucoesPorRetirada, saldoEmprestimo, saldoDevedorTotal,
@@ -38,7 +38,7 @@ import {
 import {
   calcularKpisFinanceiros, recortarDados, evolucaoMensal, rankingAtendimentos,
   resumoMetodosPagamento, variacaoPercentual, resultadoAposRetiradas, retiradasDoPeriodo,
-  listarRetiradasDoPeriodo, KPIS_ZERADOS, type KpisFinanceiros,
+  listarRetiradasDoPeriodo, KPIS_ZERADOS, cartoesReceitasAvulsas, notaAvulsasNoFechamento, type KpisFinanceiros,
 } from '@shared/kpis-financeiros';
 import {
   carregarDadosFinanceiros, carregarRetiradas, filtroDespesasDoMes,
@@ -50,6 +50,7 @@ import type {
 } from '@/types';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { avisoExtrasSoProprias } from '@shared/permissoes';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { colunaCobrarTaxaExiste } from '@shared/taxas-atendimento';
 import { mensagemErroBanco } from '@shared/erros';
@@ -1012,8 +1013,11 @@ export default function FinanceiroPage() {
   const [mesRef,   setMesRef]   = useState(new Date());
   const [empresaId,setEmpresaId]= useState<string | null>(null);
   // As permissões já vêm resolvidas do servidor (contexto), então a 1ª carga não precisa esperar.
-  const { pode } = usePermissoes();
+  const permissoes = usePermissoes();
+  const { pode } = permissoes;
   const isOwner = pode('dona');
+  // Quem só vê as próprias comandas vê só os próprios serviços extras (RLS de comanda_itens).
+  const avisoExtras = avisoExtrasSoProprias(permissoes);
   const podeDespesas = pode('despesas.gerenciar');
   const podeMarcarTaxas = pode('taxas.marcar_pagas');
   // "Dispensar" só existe com a migration 091 (coluna agendamentos.cobrar_taxa_cancelamento), igual ao app.
@@ -1165,8 +1169,7 @@ export default function FinanceiroPage() {
     try {
       // Reconsulta o mês antes de inserir e descarta as que já existem (toque duplo / app em paralelo).
       const { inseridas, jaExistiam } = await lancarRecorrentesMensais(supabase, empresaId, chaveMes, linhas);
-      alert(`${inseridas} despesa${inseridas !== 1 ? 's' : ''} lançada${inseridas !== 1 ? 's' : ''}.`
-        + (jaExistiam > 0 ? ` ${jaExistiam} já estava${jaExistiam !== 1 ? 'm' : ''} lançada${jaExistiam !== 1 ? 's' : ''}.` : ''));
+      alert(textoLancamentoRecorrentes({ inseridas, jaExistiam }));
     } catch (e) {
       alert(`Erro ao lançar as despesas recorrentes: ${(e as Error).message}`);
     }
@@ -1240,9 +1243,9 @@ export default function FinanceiroPage() {
   const comissoes              = kpis.comissoes;
   const gastos                 = kpis.despesas;
   const lucro                  = kpis.lucro;
-  const taxasCancelamentoPagas = kpis.receitaTaxasCancelamento;
-  const taxasReservaPagas      = kpis.receitaTaxasReserva;
-  const servicosExtras         = kpis.receitaServicosExtras;
+  // Extras e taxas avulsas: só dos meses ao vivo (mês importado inteiro → incluídos no fechamento).
+  const receitasAvulsas        = cartoesReceitasAvulsas(kpis);
+  const notaFechamento         = notaAvulsasNoFechamento(kpis);
   const dReceita   = variacaoPercentual(kpis.bruto,     kpisAnt.bruto);
   const dComissoes = variacaoPercentual(kpis.comissoes, kpisAnt.comissoes);
   const dGastos    = variacaoPercentual(kpis.despesas,  kpisAnt.despesas);
@@ -1308,18 +1311,14 @@ export default function FinanceiroPage() {
           { label: 'Gastos Operacionais', value: gastos,           d: dGastos,    cor: 'text-rose',    invertDelta: true,  sub: null },
           { label: 'Lucro Real',          value: lucro,            d: null,       cor: lucro >= 0 ? 'text-primary' : 'text-red', invertDelta: false,
             sub: isOwner && retiradasMes > 0 ? `Após retiradas ${fmtBRL(aposRetiradas)}` : null },
-          // Serviços extras da comanda (já incluídos no Faturamento Bruto), como no app.
-          ...(servicosExtras > 0
-            ? [{ label: 'Serviços Extras', value: servicosExtras, d: null, cor: 'text-green', invertDelta: false, sub: null }]
-            : []),
-          ...(taxasCancelamentoPagas > 0
-            ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false, sub: null }]
-            : []),
-          ...(taxasReservaPagas > 0
-            ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false, sub: 'fora das comandas' }]
-            : []),
+          // Serviços extras e taxas (já incluídos no Faturamento Bruto) — mesma lista do app.
+          ...receitasAvulsas.map(c => ({
+            label: c.rotulo, value: c.valor, d: null, invertDelta: false, sub: c.sub,
+            cor: c.id === 'servicosExtras' ? 'text-green' : c.id === 'taxasCancelamento' ? 'text-rose' : 'text-accent',
+          })),
         ];
         return (
+        <>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
           {kpisFinanceiro.map(({ label, value, d, cor, invertDelta, sub }, i, arr) => (
             <div key={label}
@@ -1345,6 +1344,9 @@ export default function FinanceiroPage() {
             </div>
           ))}
         </div>
+        {notaFechamento && <p className="text-xs text-text-3 -mt-3 mb-6">{notaFechamento}</p>}
+        {avisoExtras && <p className="text-xs text-text-3 -mt-3 mb-6">{avisoExtras}</p>}
+        </>
         );
       })()}
 
