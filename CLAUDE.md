@@ -1258,6 +1258,40 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-15/16 — Pendências registradas (090–093)
+
+*Escopo: os itens "registrados, não corrigidos" das fases anteriores, em 4 entregas via subagent-driven-development,*
+*com revisão por task e revisão final por entrega (opus). Specs e planos em `docs/superpowers/{specs,plans}/2026-10-15-*`.*
+*(E1) Comanda e venda "tudo ou nada" (090): `fechar_comanda`/`editar_comanda`/`registrar_venda_avulsa_v2` numa transação, com chave*
+*contra repetição, desconto da comanda inteira rateado em centavos (receita e comissão sobre o valor com desconto), baixa de*
+*estoque da profissional, reserva sem contar em dobro (−R$ 279 confirmados em produção). (E2) Taxas por atendimento (091): switch*
+*"Cobrar taxa de reserva neste atendimento", pergunta "Cobrar taxa de cancelamento de R$ X?" e "Dispensar" no Financeiro.*
+*(E3) Convite com aceite e histórico da Equipe (092): conta existente nunca é vinculada sem aceite; banner de aceite, convites*
+*pendentes e histórico; troca de login registrada. (E4) Alinhamentos (093): vínculo ativo no pertencimento da comanda, conferência*
+*de empresa nas funções, policies amplas de produção (vendas, pacote_uso, pagamentos, comanda_itens) fechadas; taxa 0%, "0.xxx",*
+*mensagens das funções, TZ fixo nos testes, mês importado sem linhas avulsas, `expo-crypto`, avisos e ajustes de tela.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 1937/1937; mobile com os mesmos 8 erros pré-existentes |
+| UX / Padrões    | 9.0  | Mesmos textos e regras nas duas plataformas, constantes em shared (`MENSAGEM_CONVITE_PENDENTE`, `podeCancelarConvite`, `perguntaTaxaCancelamento`) |
+| Segurança       | 9.5  | Fechadas: vínculo sem aceite (inclusive pela policy de INSERT de `empresa_membros`, derrubada na 092), policies amplas de produção, desativada com acesso às comandas, funções sem conferência de empresa |
+| Documentação    | 9.0  | 4 specs, 4 planos, contratos (comanda, convites), inventário de gravações, ordem de deploy com conferências |
+| Arquitetura     | 9.5  | Gravação atômica única para web e app; teste encadeado 090→093 em PGlite; 093 se recusa a rodar sem a 090 |
+| Performance     | 9.0  | 1 chamada por fechamento/venda em vez de vários passos |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Todas as pendências da lista tratadas; empresa ativa no web e "Reativar" sem aceite ficam registrados |
+| **Proatividade**| 9.5  | Revisões acharam: policy de INSERT de `empresa_membros` que contornava o aceite; 093 que quebraria todo fechamento se rodasse antes da 090; taxa 0% ainda `null` pela função; "Dispensar" sem a 091; aceite em `/criar-empresa` que deixava a convidada no formulário |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Pendências para produção:** seguir `docs/superpowers/notes/2026-10-16-ordem-deploy-pendencias.md` (091 → 092 → deploy → esperar PWAs → 090 → 093; build nativo com `npx expo install expo-crypto`).
+
+**Registrados, não corrigidos:** web sem seletor de empresa ativa (aceitar convite tendo outra empresa mostra aviso, não troca); "Reativar" da Equipe reativa sem novo aceite; 087 (v1) sem conferência de empresa; badge com erro mostra 0 no app e mantém o número no web; histórico da equipe pagina por offset; `pacote_uso` UPDATE e `pagamentos` com `comanda_id`+`venda_id` juntos sem conferência completa; detecção de texto próprio em `mensagemErroBanco` é heurística.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
