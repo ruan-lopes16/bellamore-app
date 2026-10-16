@@ -23,4 +23,4 @@ pendências menores da Fase 2B.
 Um teste por linha da tabela (regra pura, SQL por texto ou varredura de tela, conforme o caso).
 
 ## Produção
-Rodar a 093 (ordem livre).
+Rodar a 093 logo depois da 090 (ela se recusa a rodar sem a 090). Ordem completa da branch: `docs/superpowers/notes/2026-10-16-ordem-deploy-pendencias.md`.

@@ -103,8 +103,14 @@ describe('item 10 — funções conferem cliente, maquininha e profissional cont
   it.each(nomes)('%s: corpo da 090 preservado (só ganha a conferência)', nome => {
     // Tirando a declaração de v_erro e o bloco novo (de `v_erro := ...` até o `end if;` do raise),
     // o corpo é o da 090 linha a linha.
-    const novo = funcao(corpo, nome).split('\n');
-    const velho = funcao(corpo090, nome).split('\n');
+    // Item 7 (taxa 0%): as únicas linhas do corpo da 090 que mudam de propósito; o comentário
+    // `-- 093:` no fim da linha nova sai antes de comparar.
+    const item7 = (l: string) => l
+      .replace("then nullif((x.j->>'taxa_perc')::numeric, 0) end as taxa_perc,", "then (x.j->>'taxa_perc')::numeric end as taxa_perc,")
+      .replace('case when coalesce(case when o.id is not null then o.taxa_perc else n.taxa_perc end, 0) > 0',
+        'case when (case when o.id is not null then o.taxa_perc else n.taxa_perc end) is not null');
+    const novo = funcao(corpo, nome).split('\n').map(l => l.replace(/\s+-- 093:.*$/, ''));
+    const velho = funcao(corpo090, nome).split('\n').map(item7);
     const semNovas: string[] = [];
     for (let i = 0; i < novo.length; i++) {
       if (/^\s+v_erro\s+text;$/.test(novo[i])) continue;
@@ -218,5 +224,16 @@ describe('item 16 — pacote_uso, pagamentos e comanda_itens', () => {
 
   it('não recria o trigger de uso de pacote (security definer da 078 fica)', () => {
     expect(corpo).not.toMatch(/function (public\.)?fn_registrar_uso_pacote/);
+  });
+});
+
+describe('item 7 — taxa de cartão 0% pela função', () => {
+  it('fechar_comanda e editar_comanda não trocam mais 0 por null; null continua "sem taxa"', () => {
+    for (const nome of ['fechar_comanda', 'editar_comanda']) {
+      const f = funcao(corpo, nome);
+      expect(f).not.toContain("nullif((x.j->>'taxa_perc')::numeric, 0)");
+      expect(f).toContain("then (x.j->>'taxa_perc')::numeric end as taxa_perc");
+    }
+    expect(funcao(corpo, 'editar_comanda')).not.toMatch(/coalesce\(case when o\.id is not null then o\.taxa_perc else n\.taxa_perc end, 0\) > 0/);
   });
 });

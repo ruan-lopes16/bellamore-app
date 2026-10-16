@@ -1,13 +1,15 @@
 -- ============================================================
 -- MIGRATION 093 — Alinhamentos finais: vínculo ativo, empresa conferida nas funções e policies amplas
--- Spec: docs/superpowers/specs/2026-10-15-correcoes-pontuais-design.md (itens 9, 10, 11 e 16)
+-- Spec: docs/superpowers/specs/2026-10-15-correcoes-pontuais-design.md (itens 7, 9, 10, 11 e 16)
 -- Plano: docs/superpowers/plans/2026-10-15-correcoes-pontuais.md (Task 1)
 --
 -- EXECUTE NO SUPABASE SQL EDITOR (migrations manuais; NÃO usar `supabase db push`).
 -- Idempotente: `create or replace function` e `drop policy if exists` + `create policy` com o
 -- MESMO nome. Requer 083 (tem_permissao), 086 (cartao_maquininhas e policies de vendas), 089 e 090.
--- Ordem de deploy livre: nenhuma tela muda; as telas sem a 090 (caminho em passos) continuam
--- passando nas policies novas (conferido caller a caller, ver cada parte).
+-- Ordem: SEMPRE depois da 090 (a seção 0 recusa rodar sem ela). Em relação ao deploy é livre:
+-- nenhuma tela muda; as telas em passos (JS antigo/PWA em cache) continuam passando nas policies
+-- novas (conferido caller a caller, ver cada parte). Ordem completa:
+-- docs/superpowers/notes/2026-10-16-ordem-deploy-pendencias.md.
 --
 -- POR QUE CADA PARTE
 --
@@ -65,6 +67,12 @@
 --    - comanda_itens "membro insere" → comanda que pertence a ela, agenda.gerenciar_outras ou
 --      gestora, na mesma empresa (mesmas regras do UPDATE/DELETE da 089).
 --
+-- 5) Item 7 — taxa de cartão 0%: fechar_comanda e editar_comanda gravavam `nullif(taxa_perc, 0)`,
+--    então o 0% configurado (que shared/comanda-fechamento.ts#montarPagamentos agora manda como 0)
+--    virava null ("taxa não cadastrada" ao reabrir). Agora 0 grava 0 e valor_liquido = valor; null
+--    continua sendo "sem taxa cadastrada". registrar_venda_avulsa_v2 já gravava o que a tela manda.
+--    Telas antigas mandam null para 0% (como antes), então nada muda para elas.
+--
 -- Rollback (volta ao estado anterior; os dados não mudam):
 --   comanda_pertence_ao_profissional: recriar como na 089.
 --   comandas: recriar "... ve"/"... atualiza" como na 089 e "... deleta" como na 073 (com o ramo
@@ -80,6 +88,22 @@
 --   pagamentos / comanda_itens: drop "... quem fecha insere" e recriar "... membro insere" como na 075.
 --   notify pgrst, 'reload schema';
 -- ============================================================
+
+-- ── 0. Pré-requisito: a 090 ───────────────────────────────────
+-- O corpo das funções de plpgsql não é conferido ao criar: sem esta trava a 093 rodaria sem a 090,
+-- criaria fechar_comanda/editar_comanda/registrar_venda_avulsa_v2 sem as colunas e funções da 090
+-- (desconto_rateado, ratear_desconto_centavos, estoque_movimentos.comanda_id), e as telas, que
+-- usam a função quando ela existe, passariam a falhar em todo fechamento.
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'agendamentos' and column_name = 'desconto_rateado')
+     or not exists (select 1 from information_schema.columns
+                     where table_schema = 'public' and table_name = 'estoque_movimentos' and column_name = 'comanda_id')
+     or to_regprocedure('public.ratear_desconto_centavos(bigint, bigint[])') is null then
+    raise exception 'Rode a migration 090 antes da 093.';
+  end if;
+end $$;
 
 -- ── 1. Item 9: pertencer à comanda exige vínculo ativo ────────
 create or replace function public.comanda_pertence_ao_profissional(p_comanda_id uuid)
@@ -647,7 +671,7 @@ begin
                x.j->>'metodo' as metodo,
                case when x.j->>'metodo' in ('credito', 'debito') then nullif(btrim(x.j->>'bandeira'), '') end as bandeira,
                case when x.j->>'metodo' = 'credito' then coalesce((x.j->>'parcelas')::int, 1) else 1 end as parcelas,
-               case when x.j->>'metodo' in ('credito', 'debito') then nullif((x.j->>'taxa_perc')::numeric, 0) end as taxa_perc,
+               case when x.j->>'metodo' in ('credito', 'debito') then (x.j->>'taxa_perc')::numeric end as taxa_perc,  -- 093: 0% grava 0
                case when x.j->>'metodo' in ('credito', 'debito') then nullif(x.j->>'maquininha_id', '')::uuid end as maquininha_id,
                x.ord
           from jsonb_array_elements(v_pags) with ordinality as x(j, ord)
@@ -1200,7 +1224,7 @@ begin
       (id, empresa_id, comanda_id, valor, metodo, bandeira, parcelas, taxa_perc, valor_liquido, maquininha_id, status, created_at)
     select coalesce(o.id, gen_random_uuid()), v_empresa, v_comanda, n.valor, n.metodo::pagamento_metodo, n.bandeira, n.parcelas,
            case when o.id is not null then o.taxa_perc else n.taxa_perc end,
-           case when coalesce(case when o.id is not null then o.taxa_perc else n.taxa_perc end, 0) > 0
+           case when (case when o.id is not null then o.taxa_perc else n.taxa_perc end) is not null  -- 093: 0% → líquido = valor
                 then round(n.valor * (1 - (case when o.id is not null then o.taxa_perc else n.taxa_perc end)), 2) end,
            case when o.id is not null then o.maquininha_id else n.maquininha_id end,
            'pago',
@@ -1211,7 +1235,7 @@ begin
                x.j->>'metodo' as metodo,
                case when x.j->>'metodo' in ('credito', 'debito') then nullif(btrim(x.j->>'bandeira'), '') end as bandeira,
                case when x.j->>'metodo' = 'credito' then coalesce((x.j->>'parcelas')::int, 1) else 1 end as parcelas,
-               case when x.j->>'metodo' in ('credito', 'debito') then nullif((x.j->>'taxa_perc')::numeric, 0) end as taxa_perc,
+               case when x.j->>'metodo' in ('credito', 'debito') then (x.j->>'taxa_perc')::numeric end as taxa_perc,  -- 093: 0% grava 0
                case when x.j->>'metodo' in ('credito', 'debito') then nullif(x.j->>'maquininha_id', '')::uuid end as maquininha_id,
                x.ord
           from jsonb_array_elements(v_pags) with ordinality as x(j, ord)
