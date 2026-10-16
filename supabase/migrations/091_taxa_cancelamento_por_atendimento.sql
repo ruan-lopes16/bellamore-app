@@ -15,14 +15,38 @@
 -- cobrar_taxa_cancelamento mudou") e o bloco de dispensa.
 -- O trigger já era "after update" (qualquer coluna, desde a 048); é recriado igual, só para
 -- deixar explícito que reage também à coluna nova.
+-- A dispensa vale só para o episódio de cancelamento: o BEFORE UPDATE resetar_cobrar_taxa_cancelamento
+-- volta cobrar_taxa_cancelamento para true quando o status SAI de cancelado/faltou (reagendamento).
+-- Sem isso, um atendimento dispensado, reagendado e cancelado de novo por um caminho que envia só
+-- `status` (tela antiga/PWA em cache) ficaria sem taxa em silêncio.
 -- Sem a 091 as telas não enviam a coluna (detecção em shared/taxas-atendimento.ts) e tudo
 -- funciona como antes. Idempotente.
 --
 -- Rollback:
 --   1. Rodar de novo o create or replace function de 052_taxa_cancelamento_reativa_apos_revert.sql
 --      (antes do drop column, porque a função nova lê a coluna).
---   2. alter table public.agendamentos drop column if exists cobrar_taxa_cancelamento;
---   3. notify pgrst, 'reload schema';
+--   2. drop trigger if exists trg_resetar_cobrar_taxa_cancelamento on public.agendamentos;
+--      drop function if exists public.resetar_cobrar_taxa_cancelamento();
+--   3. alter table public.agendamentos drop column if exists cobrar_taxa_cancelamento;
+--   4. -- Sair de cancelado/faltou encerra o episódio: a dispensa não vale para um cancelamento futuro.
+create or replace function public.resetar_cobrar_taxa_cancelamento()
+returns trigger as $$
+begin
+  if old.status in ('cancelado', 'faltou') and new.status not in ('cancelado', 'faltou') then
+    new.cobrar_taxa_cancelamento := true;
+  end if;
+  return new;
+end;
+$$ language plpgsql set search_path = public;
+
+drop trigger if exists trg_resetar_cobrar_taxa_cancelamento on public.agendamentos;
+
+create trigger trg_resetar_cobrar_taxa_cancelamento
+  before update on public.agendamentos
+  for each row
+  execute function public.resetar_cobrar_taxa_cancelamento();
+
+notify pgrst, 'reload schema';
 -- ============================================================
 
 alter table public.agendamentos

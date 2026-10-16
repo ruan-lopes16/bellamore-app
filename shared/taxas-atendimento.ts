@@ -35,6 +35,8 @@ function contaTaxa(modo: ModoTaxa, valorCfg: number, base: number): number {
   const v = modo === 'fixo' ? num(valorCfg) : round2(Math.max(num(base), 0) * num(valorCfg) / 100);
   return v > 0 ? v : 0;
 }
+// Obs.: o trigger gerar_taxa_cancelamento não zera valor negativo (percentual de valor negativo
+// geraria taxa negativa) e insere taxa de R$ 0 desde a 052; aqui nada disso vira pergunta ao usuário.
 
 /**
  * Valor sugerido da taxa de reserva ao criar um agendamento. Chave desligada → 0.
@@ -105,20 +107,25 @@ export async function carregarConfigTaxas(db: ClienteDb, empresaId: string): Pro
 }
 
 let cacheColunaCobrar: boolean | null = null;
+let cacheColunaCobrarEm = 0;
+/** O `false` expira: se a 091 for aplicada com o app aberto, a coluna passa a ser usada sem recarregar. */
+const VALIDADE_FALSE_MS = 5 * 60 * 1000;
 
 /**
  * A migration 091 já foi aplicada (`agendamentos.cobrar_taxa_cancelamento` existe)?
- * Resultado definitivo (sucesso, ou erro de coluna inexistente) fica em cache até recarregar o app;
+ * `true` fica em cache até recarregar o app; `false` (coluna inexistente) expira em 5 minutos;
  * qualquer outro erro (rede) devolve false sem guardar, para tentar de novo na próxima vez.
  * Sem a coluna, as telas não perguntam nem enviam o campo (comportamento de antes da 091).
  */
 export async function colunaCobrarTaxaExiste(db: ClienteDb): Promise<boolean> {
-  if (cacheColunaCobrar !== null) return cacheColunaCobrar;
+  if (cacheColunaCobrar === true) return true;
+  if (cacheColunaCobrar === false && Date.now() - cacheColunaCobrarEm < VALIDADE_FALSE_MS) return false;
   const { error } = await db.from('agendamentos').select('cobrar_taxa_cancelamento').limit(1);
   if (!error) {
     cacheColunaCobrar = true;
   } else if (error.code === '42703' || (error.message ?? '').includes('cobrar_taxa_cancelamento')) {
     cacheColunaCobrar = false;
+    cacheColunaCobrarEm = Date.now();
   } else {
     return false;
   }
@@ -128,4 +135,5 @@ export async function colunaCobrarTaxaExiste(db: ClienteDb): Promise<boolean> {
 /** Só para testes: esquece o resultado guardado por `colunaCobrarTaxaExiste`. */
 export function _limparCacheColunaCobrarTaxa(): void {
   cacheColunaCobrar = null;
+  cacheColunaCobrarEm = 0;
 }
