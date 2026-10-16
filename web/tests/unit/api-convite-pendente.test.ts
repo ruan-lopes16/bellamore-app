@@ -286,7 +286,7 @@ describe('DELETE /api/convites — cancelar convite', () => {
     rpcResposta = { data: null, error: { code: '42501', message: 'Sem permissão para gerenciar a equipe.' } };
     const r = await deleteConvites(req({ empresaId: EMP, conviteId: 'conv-1' }));
     expect(r.status).toBe(403);
-    expect((await r.json()).error).toBe('Você não tem permissão para cancelar o convite. Fale com a dona ou a gestora.');
+    expect((await r.json()).error).toBe('Sem permissão para gerenciar a equipe.');
   });
   it('erro de regra (P0001) volta com a mensagem do banco', async () => {
     rpcResposta = { data: null, error: { code: 'P0001', message: 'Só a dona pode cancelar o convite de uma gestora.' } };

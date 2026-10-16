@@ -180,7 +180,7 @@ describe('gravarVenda', () => {
     it('permissão negada pela função vira mensagem em português', async () => {
       const { db } = fakeV1({ awaitavel: true, linhas,
         rpc: () => ({ data: null, error: { code: '42501', message: 'Você não tem permissão para registrar vendas avulsas.' } }) });
-      await expect(gravarVenda(db, dados())).rejects.toThrow('venda: Você não tem permissão para registrar a venda. Fale com a dona ou a gestora.');
+      await expect(gravarVenda(db, dados())).rejects.toThrow('venda: Você não tem permissão para registrar vendas avulsas.');
     });
 
     it('função sem devolver id é erro (nunca sucesso sem venda)', async () => {

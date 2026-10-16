@@ -204,3 +204,48 @@ describe('montarPagamentos — maquininha', () => {
     expect(taxaDoSplit({ metodo: 'pix' }, cfg)).toBe(0);
   });
 });
+
+describe('taxa 0% e "0.xxx" (correções pontuais)', () => {
+  const cfg0: ConfigCartoes = {
+    legado: false, indisponivel: false,
+    bandeiras: [],
+    maquininhas: [{
+      id: 'm1', nome: 'M', padrao: true, ativa: true, ordem: 0, maxParcelas: 3,
+      taxas: [
+        { bandeiraId: null, modalidade: 'debito', parcelas: 1, taxa: 0 },
+        { bandeiraId: null, modalidade: 'credito', parcelas: 1, taxa: 0.0499 },
+      ],
+    }],
+  };
+  const ctx0 = { empresaId: 'e', comandaId: 'c', config: cfg0, total: 200 };
+
+  it('cartão com taxa 0% configurada grava taxa_perc 0 e líquido = bruto', () => {
+    const [l] = montarPagamentos([{ metodo: 'debito', valor: 100, bandeira: 'visa' }], ctx0);
+    expect(l.taxa_perc).toBe(0);
+    expect(l.valor_liquido).toBe(100);
+  });
+  it('cartão sem taxa cadastrada continua null; pix continua null', () => {
+    const [sem] = montarPagamentos([{ metodo: 'credito', valor: 100, parcelas: 2 }], ctx0);
+    expect(sem.taxa_perc).toBeNull();
+    expect(sem.valor_liquido).toBeNull();
+    const [pix] = montarPagamentos([{ metodo: 'pix', valor: 100 }], ctx0);
+    expect(pix.taxa_perc).toBeNull();
+  });
+  it('pagamento gravado com taxa 0 reabre como 0% e é regravado como 0', () => {
+    const split = { metodo: 'debito', valor: 100, taxaGravada: 0, metodoGravado: 'debito', parcelasGravadas: 1 };
+    expect(taxaDoSplit(split, cfg0)).toBe(0);
+    const [l] = montarPagamentos([split], ctx0);
+    expect(l.taxa_perc).toBe(0);
+    expect(l.valor_liquido).toBe(100);
+  });
+  it('parseValorBR: "0.xxx" é decimal; milhar e vírgula não mudam', () => {
+    expect(parseValorBR('0.250')).toBe(0.25);
+    expect(parseValorBR('0.5')).toBe(0.5);
+    expect(parseValorBR('R$ 0.75')).toBe(0.75);
+    expect(parseValorBR('-0.5')).toBe(0);
+    expect(parseValorBR('1.234')).toBe(1234);
+    expect(parseValorBR('1.234,56')).toBe(1234.56);
+    expect(parseValorBR('0,25')).toBe(0.25);
+    expect(parseValorBR('10.50')).toBe(10.5);
+  });
+});

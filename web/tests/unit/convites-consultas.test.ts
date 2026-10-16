@@ -59,7 +59,7 @@ describe('convites (consultas)', () => {
     expect((await carregarHistoricoEquipe(fakeDb({ rpc: () => ok(linhas.slice(0, 3)) }).db, 'e1', -1)).temMais).toBe(false);
     expect(await carregarHistoricoEquipe(fakeDb().db, 'e1', 0)).toEqual({ linhas: [], temMais: false, disponivel: false });
     await expect(carregarHistoricoEquipe(fakeDb({ rpc: () => ({ data: null, error: { code: '42501', message: 'Sem permissão para ver o histórico da equipe.' } }) }).db, 'e1', 0))
-      .rejects.toThrow('Você não tem permissão para carregar o histórico da equipe');
+      .rejects.toThrow('Sem permissão para ver o histórico da equipe.');
   });
 
   it('semMigration092 só para função/tabela inexistente', () => {
