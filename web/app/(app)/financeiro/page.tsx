@@ -1290,7 +1290,7 @@ export default function FinanceiroPage() {
             ? [{ label: 'Taxas de Cancelamento', value: taxasCancelamentoPagas, d: null, cor: 'text-rose', invertDelta: false, sub: null }]
             : []),
           ...(taxasReservaPagas > 0
-            ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false, sub: null }]
+            ? [{ label: 'Taxas de Reserva', value: taxasReservaPagas, d: null, cor: 'text-accent', invertDelta: false, sub: 'fora das comandas' }]
             : []),
         ];
         return (

@@ -33,6 +33,7 @@ import {
   type DetalheAtendimento,
 } from '@shared/atendimento-detalhe';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 
 const supabase = createClient();
 
@@ -591,19 +592,20 @@ export default function ClientePerfilPage() {
       const [{ data: clienteData }, rFicha, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
         supabase.from('anamnese_fichas').select('respostas').eq('cliente_id', id).maybeSingle(),
-        buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null;
+        buscarTodasPaginas<{ valor: number | null; desconto_rateado?: number | string | null; data_hora_inicio: string; servico: { nome: string } | null;
           agendamento_servicos: { ordem: number; servico: { nome: string } | null }[] | null }>((from, to) =>
           supabase.from('agendamentos')
-            .select('valor, data_hora_inicio, servico:servicos(nome), agendamento_servicos(ordem, servico:servicos(nome))')
+            // `*` traz desconto_rateado quando a 090 existe (sem quebrar antes dela)
+            .select('*, servico:servicos(nome), agendamento_servicos(ordem, servico:servicos(nome))')
             .eq('cliente_id', id)
             .eq('status', 'concluido')
             .order('data_hora_inicio', { ascending: false })
             .range(from, to)
         ),
         // Serviços lançados direto na comanda (sem agendamento prévio) também contam como visita
-        buscarTodasPaginas<{ valor_unit: number; quantidade: number; created_at: string; servico: { nome: string } | null; comanda: { fechada_at: string | null } | null }>((from, to) =>
+        buscarTodasPaginas<{ valor_unit: number; quantidade: number; desconto_rateado?: number | string | null; created_at: string; servico: { nome: string } | null; comanda: { fechada_at: string | null } | null }>((from, to) =>
           supabase.from('comanda_itens')
-            .select('valor_unit, quantidade, created_at, servico:servicos(nome), comanda:comandas!inner(fechada_at)')
+            .select('*, servico:servicos(nome), comanda:comandas!inner(fechada_at)')
             .eq('tipo', 'servico')
             .eq('comanda.clientes_id', id)
             .order('created_at', { ascending: false })
@@ -623,13 +625,15 @@ export default function ClientePerfilPage() {
         ...agsStats,
         ...comSvcsStats.map(cs => ({
           valor: cs.valor_unit * cs.quantidade,
+          desconto_rateado: cs.desconto_rateado,
           data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
           servico: cs.servico,
           agendamento_servicos: null,   // extra de comanda nunca e multi-servico
         })),
       ].sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
       const totalVisitas = rows.length;
-      const totalGasto = rows.reduce((s, a) => s + Number(a.valor ?? 0), 0);
+      // Valor cobrado (com a parte do desconto da comanda, 090), igual ao Financeiro.
+      const totalGasto = rows.reduce((s, a) => s + valorCobradoAtendimento(a), 0);
       const ultimaVisita = rows[0]?.data_hora_inicio ?? null;
       // Um atendimento multi-servico conta uma vez para CADA servico feito —
       // contar so o servico legado subestimava todos os demais.

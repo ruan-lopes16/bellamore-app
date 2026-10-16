@@ -9,7 +9,8 @@
  * - Faturamento bruto = atendimentos 'concluido' SEM sessão de pacote
  *   (agendamentos.valor − desconto_rateado, data = data_hora_inicio) + vendas
  *   avulsas (valor_final, created_at) + taxas de cancelamento pagas (paga_em)
- *   + taxas de reserva RETIDAS com paga_em + serviços extras lançados na
+ *   + taxas de reserva com paga_em (só a parte NÃO descontada numa comanda)
+ *   + serviços extras lançados na
  *   comanda (comanda_itens tipo 'servico' de comanda 'fechada', valor_unit ×
  *   quantidade − desconto_rateado, data = comandas.fechada_at — decisão do
  *   dono, 2026-10-08).
@@ -19,11 +20,16 @@
  *   por `vendas` (valor_final já com a parte do desconto) — nunca somar os
  *   extras desses tipos aqui, senão o desconto sai duas vezes. Sem a 090 (ou
  *   em comanda antiga) a coluna vale 0.
- * - Taxa de reserva pelo dia do serviço: o atendimento concluído conta
- *   inteiro (a comanda descontou a reserva já paga, então o dinheiro dela está
- *   dentro do valor do atendimento) e a taxa NÃO conta à parte. Só a taxa
- *   'retida' (atendimento cancelado/faltou depois de pagar) conta sozinha,
- *   por paga_em.
+ * - Taxa de reserva sem contar duas vezes e sem perder dinheiro (decisão do
+ *   dono, 2026-10-15): o atendimento concluído conta como sempre (valor −
+ *   desconto_rateado, pela data do serviço) e toda taxa com paga_em conta pela
+ *   paga_em, mas só a parte que a comanda NÃO descontou. A comanda grava
+ *   `comandas.desconto_reserva` (total descontado da reserva dos atendimentos
+ *   dela); esse total é distribuído entre as taxas pagas dos atendimentos da
+ *   comanda (ordem paga_em, id) — ver parteReservaNaoDescontada. Taxa sem
+ *   comanda (retida, atendimento ainda não fechado) conta inteira; sessão de
+ *   pacote (desconto aplicado 0) e comanda de antes de 13/08
+ *   (desconto_reserva 0) também; excesso sobre o total conta só o resto.
  *   `pagamentos` NÃO é receita: só taxa de cartão e formas de pagamento.
  * - Taxa de cartão = Σ (pagamentos.valor − valor_liquido) quando há valor_liquido.
  * - Comissões = tabela `comissoes` (valor gerado), datada por created_at.
@@ -70,8 +76,19 @@ export type AgendamentoFinRow = {
 };
 export type VendaFinRow = { id: string; valor_final: Valor; created_at: string };
 export type TaxaPagaFinRow = { id: string; valor: Valor; paga_em: string | null };
-/** Taxa de reserva: só a 'retida' é receita (ver regras no topo). */
-export type TaxaReservaFinRow = TaxaPagaFinRow & { status: string };
+/**
+ * Taxa de reserva paga (paga_em preenchido). `valor_receita` = parte NÃO descontada numa comanda,
+ * calculada pela consulta (parteReservaNaoDescontada); ausente = a taxa inteira.
+ */
+export type TaxaReservaFinRow = TaxaPagaFinRow & {
+  status: string;
+  agendamento_id?: string | null;
+  valor_receita?: Valor;
+};
+/** Taxa de reserva paga com a comanda do atendimento dela (null = atendimento não fechado por comanda). */
+export type TaxaReservaComandaRow = { id: string; valor: Valor; paga_em: string | null; comanda_id: string | null };
+/** O que a comanda descontou de reserva (comandas.desconto_reserva, migration 057). */
+export type ComandaReservaRow = { id: string; desconto_reserva: Valor };
 export type PagamentoFinRow = { id: string; metodo: string; valor: Valor; valor_liquido: Valor; created_at: string };
 export type ComissaoFinRow = { id: string; profissional_id: string; valor_comissao: Valor; status: string; created_at: string };
 export type DespesaFinRow = { id: string; valor: Valor; categoria: string | null; status: string; data_pagamento: string | null };
@@ -173,9 +190,18 @@ export function ehAtendimentoFaturavel(a: Pick<AgendamentoFinRow, 'status' | 'pa
   return a.status === 'concluido' && !a.pacote_cliente_id;
 }
 
+/**
+ * Valor cobrado de um atendimento: valor − desconto_rateado (a parte do desconto da comanda,
+ * migration 090). Coluna ausente (antes da 090) ou nula vale 0; nunca negativo. Use em toda soma
+ * de valor de atendimento fora dos KPIs (total gasto da cliente, total do dia, previsões).
+ */
+export function valorCobradoAtendimento(a: { valor?: Valor; desconto_rateado?: Valor }): number {
+  return Math.max(num(a.valor) - num(a.desconto_rateado), 0);
+}
+
 /** Receita de um atendimento: valor − desconto_rateado (a parte do desconto da comanda; 0 antes da 090). */
 export function valorAtendimentoReceita(a: Pick<AgendamentoFinRow, 'valor' | 'desconto_rateado'>): number {
-  return Math.max(num(a.valor) - num(a.desconto_rateado), 0);
+  return valorCobradoAtendimento(a);
 }
 
 /** Receita de um serviço extra da comanda: valor_unit × quantidade − desconto_rateado (0 antes da 090). */
@@ -183,9 +209,48 @@ export function valorServicoExtra(x: Pick<ServicoExtraFinRow, 'valor_unit' | 'qu
   return Math.max(num(x.valor_unit) * num(x.quantidade) - num(x.desconto_rateado), 0);
 }
 
-/** Taxa de reserva que é receita à parte: retida (o atendimento não aconteceu) e paga. */
+/** Taxa de reserva que entra na receita: paga (paga_em preenchido) e não cancelada. */
 export function ehTaxaReservaReceita(t: Pick<TaxaReservaFinRow, 'status' | 'paga_em'>): boolean {
-  return t.status === 'retida' && !!t.paga_em;
+  return !!t.paga_em && t.status !== 'cancelada';
+}
+
+/** Receita de uma taxa de reserva: a parte não descontada em comanda (`valor_receita`), ou a taxa inteira. */
+export function valorTaxaReservaReceita(t: Pick<TaxaReservaFinRow, 'valor' | 'valor_receita'>): number {
+  return t.valor_receita == null ? num(t.valor) : Math.max(num(t.valor_receita), 0);
+}
+
+const centavos = (v: Valor) => Math.round(num(v) * 100);
+
+/**
+ * Parte de cada taxa de reserva paga que NÃO foi descontada numa comanda (em reais, por id).
+ * O `desconto_reserva` de cada comanda é distribuído entre as taxas dos atendimentos dela em
+ * ordem estável (paga_em, depois id): cada taxa recebe min(valor, o que ainda resta do desconto).
+ * Taxa sem comanda (ou com comanda desconhecida) → parte descontada 0 → conta inteira.
+ * Passe TODAS as taxas de cada comanda envolvida (mesmo as pagas fora do período), senão a
+ * distribuição sai errada. Conta em centavos inteiros.
+ */
+export function parteReservaNaoDescontada(
+  taxas: TaxaReservaComandaRow[], comandas: ComandaReservaRow[],
+): Map<string, number> {
+  const restante = new Map<string, number>();
+  for (const c of comandas) restante.set(c.id, Math.max(centavos(c.desconto_reserva), 0));
+  const ordenadas = [...taxas].sort((a, b) => {
+    const pa = a.paga_em ?? '', pb = b.paga_em ?? '';
+    if (pa !== pb) return pa < pb ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  const out = new Map<string, number>();
+  for (const t of ordenadas) {
+    const valor = Math.max(centavos(t.valor), 0);
+    let descontado = 0;
+    if (t.comanda_id && restante.has(t.comanda_id)) {
+      const resta = restante.get(t.comanda_id)!;
+      descontado = Math.min(valor, resta);
+      restante.set(t.comanda_id, resta - descontado);
+    }
+    out.set(t.id, (valor - descontado) / 100);
+  }
+  return out;
 }
 
 /** Mantém só as linhas dentro dos limites (e só despesas pagas). */
@@ -224,7 +289,7 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   const receitaServicosExtras = d.servicosExtras.reduce((s, x) => s + valorServicoExtra(x), 0);
   const receitaVendas = d.vendas.reduce((s, v) => s + num(v.valor_final), 0);
   const receitaTaxasCancelamento = d.taxasCancelamento.reduce((s, t) => s + num(t.valor), 0);
-  const receitaTaxasReserva = d.taxasReserva.reduce((s, t) => s + num(t.valor), 0);
+  const receitaTaxasReserva = d.taxasReserva.reduce((s, t) => s + valorTaxaReservaReceita(t), 0);
 
   // Mês a mês (Brasília), para aplicar o fechamento importado onde houver.
   const receitaMes: Record<string, number> = {};
@@ -234,7 +299,7 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   d.vendas.forEach(v => somarEm(receitaMes, chaveMesBRT(v.created_at), num(v.valor_final)));
   d.servicosExtras.forEach(x => somarEm(receitaMes, chaveMesBRT(x.fechada_at), valorServicoExtra(x)));
   d.taxasCancelamento.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
-  d.taxasReserva.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
+  d.taxasReserva.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), valorTaxaReservaReceita(t)));
   d.comissoes.forEach(c => somarEm(comissaoMes, chaveMesBRT(c.created_at), num(c.valor_comissao)));
   d.pagamentos.forEach(p => somarEm(cartaoMes, chaveMesBRT(p.created_at), taxaDeCartao(p)));
 

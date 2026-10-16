@@ -3,7 +3,7 @@
  * Consultas ÚNICAS de comissões (web e mobile). Lançam erro na leitura; o
  * pagamento devolve o que o banco confirmou (RLS pode aceitar 0 linhas).
  */
-import { buscarTodasOuLancar, type ClienteDb } from './kpis-financeiros-consultas';
+import { buscarTodasOuLancar, erroSemDescontoRateado, type ClienteDb } from './kpis-financeiros-consultas';
 import type { Limites } from './periodos';
 import type { ComissaoDetalheRow } from './comissoes';
 
@@ -14,9 +14,16 @@ export const COLUNAS_COMISSAO_DETALHE_LEGADO = `id, profissional_id, agendamento
     servico:servicos(nome, categoria, categoria_id),
     cliente:clientes!agendamentos_cliente_id_fkey(nome))`;
 
-/** Colunas atuais: + comissão de serviço extra (comanda_item_id → item → comanda → cliente). */
-export const COLUNAS_COMISSAO_DETALHE = `${COLUNAS_COMISSAO_DETALHE_LEGADO}, comanda_item_id,
+/** Colunas da 085 sem `agendamento.desconto_rateado` (antes da 090). */
+export const COLUNAS_COMISSAO_DETALHE_SEM_DESCONTO = `${COLUNAS_COMISSAO_DETALHE_LEGADO}, comanda_item_id,
   item:comanda_itens(descricao, comanda:comandas(fechada_at, cliente:clientes!comandas_clientes_id_fkey(nome)))`;
+
+/**
+ * Colunas atuais: + comissão de serviço extra (comanda_item_id → item → comanda → cliente) e o
+ * `desconto_rateado` do atendimento (090), para mostrar o valor cobrado ao lado da comissão.
+ */
+export const COLUNAS_COMISSAO_DETALHE = COLUNAS_COMISSAO_DETALHE_SEM_DESCONTO
+  .replace('agendamento:agendamentos(data_hora_inicio, valor,', 'agendamento:agendamentos(data_hora_inicio, valor, desconto_rateado,');
 
 /** Comissões geradas no período (created_at), mais recentes primeiro. `profissionalId` = tela da profissional. */
 export async function carregarComissoesDoPeriodo(
@@ -29,11 +36,19 @@ export async function carregarComissoesDoPeriodo(
     if (opcoes.profissionalId) q = q.eq('profissional_id', opcoes.profissionalId);
     return q.order('created_at', { ascending: false }).order('id').range(de, ate);
   });
+  // Banco sem a migration 085: coluna/relação de comanda_item_id não existe.
+  const sem085 = (e: unknown) => e instanceof Error && /comanda_item/.test(e.message);
   try {
     return await buscar(COLUNAS_COMISSAO_DETALHE);
   } catch (e) {
-    // Banco sem a migration 085: coluna/relação de comanda_item_id não existe.
-    if (e instanceof Error && /comanda_item/.test(e.message)) return buscar(COLUNAS_COMISSAO_DETALHE_LEGADO);
+    if (sem085(e)) return buscar(COLUNAS_COMISSAO_DETALHE_LEGADO);
+    if (!erroSemDescontoRateado(e)) throw e;
+  }
+  // Sem a 090 (sem desconto_rateado): valor do atendimento sem desconto.
+  try {
+    return await buscar(COLUNAS_COMISSAO_DETALHE_SEM_DESCONTO);
+  } catch (e) {
+    if (sem085(e)) return buscar(COLUNAS_COMISSAO_DETALHE_LEGADO);
     throw e;
   }
 }

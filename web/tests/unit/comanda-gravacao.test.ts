@@ -116,6 +116,17 @@ describe('montarPayloadFechamento — casos do inventário §1.3', () => {
     ]);
   });
 
+  it('quantidade de pacote fracionada é arredondada para inteiro (mínimo 1), como o caminho antigo', () => {
+    const p = montarPayloadFechamento(estado({
+      itens: [
+        { tipo: 'pacote', descricao: 'P', pacote_id: 'PK1', quantidade: 1.6, valor: 100 },
+        { tipo: 'pacote', descricao: 'P', pacote_id: 'PK2', quantidade: 0.2, valor: 100 },
+        { tipo: 'produto', descricao: 'Óleo', produto_id: 'PR1', quantidade: 1.5, valor: 10 },
+      ],
+    }));
+    expect(p.itens.map(i => i.quantidade)).toEqual([2, 1, 1.5]);
+  });
+
   it('profissional vazio ("Profissional (opcional)") vira null', () => {
     const p = montarPayloadFechamento(estado({
       itens: [{ tipo: 'servico', descricao: 'Escova', servico_id: 'SV2', profissional_id: '', quantidade: 1, valor: 40 }],
@@ -258,6 +269,21 @@ describe('fecharComandaNoBanco / editarComandaNoBanco', () => {
     const { db } = fakeDb({ rpc: () => ({ data: null, error: { code: '42501', message: 'new row violates row-level security policy for table "comandas"' } }) });
     await expect(fecharComandaNoBanco(db, payload)).rejects.toThrow('Você não tem permissão para fechar a comanda. Fale com a dona ou a gestora.');
     await expect(editarComandaNoBanco(db, payloadEd)).rejects.toThrow('Você não tem permissão para editar a comanda. Fale com a dona ou a gestora.');
+  });
+
+  it('22P02, 23505 e 57014 (em inglês) viram mensagem em português', async () => {
+    const casos: [string, string][] = [
+      ['22P02', 'Dado inválido enviado ao banco.'],
+      ['23505', 'Registro duplicado.'],
+      ['57014', 'O banco demorou demais para responder. Confira antes de repetir.'],
+    ];
+    for (const [code, texto] of casos) {
+      const { db } = fakeDb({ rpc: () => ({ data: null, error: { code, message: 'some english message' } }) });
+      const e = await fecharComandaNoBanco(db, payload).catch(x => x) as ErroGravacaoComanda;
+      expect(e.message).toBe(texto);
+      expect(e.code).toBe(code);
+      await expect(editarComandaNoBanco(db, payloadEd)).rejects.toThrow(texto);
+    }
   });
 
   it('fechar sem devolver o id é erro (nunca sucesso sem comanda)', async () => {

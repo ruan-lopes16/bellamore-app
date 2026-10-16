@@ -1639,13 +1639,14 @@ export default function Financeiro() {
           <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {[
               // Serviços extras da comanda (já incluídos no faturamento bruto), como no web.
-              { label: 'Serviços extras',       value: resumo?.servicosExtras ?? 0 },
-              { label: 'Taxas de cancelamento', value: resumo?.taxasCancelamento ?? 0 },
-              { label: 'Taxas de reserva',      value: resumo?.taxasReserva ?? 0 },
+              { label: 'Serviços extras',       value: resumo?.servicosExtras ?? 0, sub: null as string | null },
+              { label: 'Taxas de cancelamento', value: resumo?.taxasCancelamento ?? 0, sub: null },
+              { label: 'Taxas de reserva',      value: resumo?.taxasReserva ?? 0, sub: 'fora das comandas' },
             ].filter(t => t.value > 0).map(t => (
               <View key={t.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{t.label}</Text>
                 <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.accent }}>{formatarMoeda(t.value)}</SecretText>
+                {t.sub && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 4 }}>{t.sub}</Text>}
               </View>
             ))}
           </View>

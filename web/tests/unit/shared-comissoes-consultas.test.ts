@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { limitesMes } from '@shared/periodos';
-import { carregarComissoesDoPeriodo, pagarComissoes, COLUNAS_COMISSAO_DETALHE, COLUNAS_COMISSAO_DETALHE_LEGADO } from '@shared/comissoes-consultas';
+import {
+  carregarComissoesDoPeriodo, pagarComissoes, COLUNAS_COMISSAO_DETALHE, COLUNAS_COMISSAO_DETALHE_LEGADO,
+  COLUNAS_COMISSAO_DETALHE_SEM_DESCONTO,
+} from '@shared/comissoes-consultas';
 import { carregarComissoesPendentes } from '@shared/kpis-financeiros-consultas';
 import { fakeDb, opsDe } from './fixtures/fake-db';
 
@@ -23,6 +26,14 @@ describe('carregarComissoesDoPeriodo', () => {
     await carregarComissoesDoPeriodo(db, 'emp', SET);
     const selects = opsDe(chamadas, 'comissoes').map(ops => ops.find(([m]) => m === 'select')?.[1][0]);
     expect(selects).toEqual([COLUNAS_COMISSAO_DETALHE, COLUNAS_COMISSAO_DETALHE_LEGADO]);
+  });
+  it('pede o desconto_rateado do atendimento; sem a 090 refaz sem ele', async () => {
+    expect(COLUNAS_COMISSAO_DETALHE).toContain('agendamentos(data_hora_inicio, valor, desconto_rateado,');
+    expect(COLUNAS_COMISSAO_DETALHE_SEM_DESCONTO).not.toContain('desconto_rateado');
+    const { db, chamadas } = fakeDb({ erroQuandoSelectContem: { comissoes: 'desconto_rateado' } });
+    await carregarComissoesDoPeriodo(db, 'emp', SET);
+    const selects = opsDe(chamadas, 'comissoes').map(ops => ops.find(([m]) => m === 'select')?.[1][0]);
+    expect(selects).toEqual([COLUNAS_COMISSAO_DETALHE, COLUNAS_COMISSAO_DETALHE_SEM_DESCONTO]);
   });
   it('profissional: filtra pelo próprio id', async () => {
     const { db, chamadas } = fakeDb();

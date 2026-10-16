@@ -123,7 +123,8 @@ function montarItem(i: ItemComandaTela): PayloadItem {
   return {
     tipo,
     descricao: i.descricao,
-    quantidade: i.quantidade,
+    // Pacote é vendido por unidade: arredonda como o caminho antigo (Math.max(1, Math.round(q))).
+    quantidade: tipo === 'pacote' ? Math.max(1, Math.round(i.quantidade)) : i.quantidade,
     valor_unit: centavos(i.valor),
     servico_id: tipo === 'servico' ? uuidOuNull(i.servico_id) : null,
     profissional_id: tipo === 'servico' ? uuidOuNull(i.profissional_id) : null,
@@ -197,12 +198,21 @@ export type ResultadoGravacaoComanda = { via: 'funcao' } | { via: 'antigo' };
 
 type ErroRpc = { code?: string | null; message?: string | null } | null | undefined;
 
+/** Erros do Postgres que chegam em inglês: tradução fixa (a mensagem original não vai para a tela). */
+const MENSAGENS_CODIGO: Record<string, string> = {
+  '22P02': 'Dado inválido enviado ao banco.',
+  '23505': 'Registro duplicado.',
+  '57014': 'O banco demorou demais para responder. Confira antes de repetir.',
+};
+
 /**
  * Converte o erro da função: as mensagens de regra (P0001) e de permissão (42501) da 090 já vêm em
  * português, prontas para a tela; uma recusa de RLS em inglês vira o aviso padrão de permissão.
  */
 function erroDaFuncao(e: NonNullable<ErroRpc>, acao: string, semRespostaMsg: string): ErroGravacaoComanda {
   if (!e.code) return new ErroGravacaoComanda(semRespostaMsg, null, true);
+  const traduzida = MENSAGENS_CODIGO[e.code];
+  if (traduzida) return new ErroGravacaoComanda(traduzida, e.code, false);
   const msg = e.message ?? '';
   const texto = /row-level security/i.test(msg) || !msg ? mensagemErroBanco(e, acao) : msg;
   return new ErroGravacaoComanda(texto, e.code, false);

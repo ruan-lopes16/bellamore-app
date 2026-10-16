@@ -21,7 +21,9 @@ import type { Limites } from './periodos';
 import type {
   AgendamentoFinRow, ComissaoFinRow, DadosFinanceiros, DespesaFinRow,
   PagamentoFinRow, ServicoExtraFinRow, TaxaPagaFinRow, TaxaReservaFinRow, VendaFinRow,
+  ComandaReservaRow, TaxaReservaComandaRow,
 } from './kpis-financeiros';
+import { parteReservaNaoDescontada } from './kpis-financeiros';
 import type { FinanceiroFechamentoRow } from './fechamentos-mensais';
 import type { RetiradaSociaDevolucaoRow, RetiradaSociaRow } from './retiradas-socia';
 
@@ -123,6 +125,78 @@ export async function carregarServicosExtras(db: ClienteDb, empresaId: string, l
     }));
 }
 
+/** Busca paginada em lotes de ids (`.in()`), sem N+1; lança o erro do banco. */
+async function buscarEmLotes<T>(
+  ids: string[], montar: (lote: string[]) => (de: number, ate: number) => PromiseLike<RespostaDb<T>>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += LOTE_IDS) {
+    out.push(...await buscarTodasOuLancar<T>(montar(ids.slice(i, i + LOTE_IDS))));
+  }
+  return out;
+}
+
+const COLUNAS_TAXA_RESERVA_FIN = 'id, valor, paga_em, status, agendamento_id';
+type AgComandaRow = { id: string; comanda_id: string | null };
+
+/**
+ * Taxas de reserva pagas (paga_em) dentro de `l`, cada uma com `valor_receita` = a parte que a
+ * comanda NÃO descontou (regra no topo de kpis-financeiros.ts). Para a distribuição do
+ * `comandas.desconto_reserva` sair certa, carrega TODAS as taxas pagas das comandas envolvidas,
+ * mesmo as pagas fora do período. Atendimento ou comanda que o RLS esconde vira "sem comanda"
+ * (a taxa conta inteira).
+ */
+export async function carregarTaxasReservaReceita(db: ClienteDb, empresaId: string, l: Limites): Promise<TaxaReservaFinRow[]> {
+  const doPeriodo = await buscarTodasOuLancar<TaxaReservaFinRow>((de, ate) => db.from('taxas_reserva')
+    .select(COLUNAS_TAXA_RESERVA_FIN)
+    .eq('empresa_id', empresaId).neq('status', 'cancelada').not('paga_em', 'is', null)
+    .gte('paga_em', l.startIso).lte('paga_em', l.endIso)
+    .order('paga_em').order('id')
+    .range(de, ate));
+  const agIds = [...new Set(doPeriodo.map(t => t.agendamento_id).filter((x): x is string => !!x))];
+  if (agIds.length === 0) return doPeriodo;
+
+  const ags = await buscarEmLotes<AgComandaRow>(agIds, lote => (de, ate) => db.from('agendamentos')
+    .select('id, comanda_id')
+    .eq('empresa_id', empresaId).in('id', lote)
+    .order('id')
+    .range(de, ate));
+  const comandaIds = [...new Set(ags.map(a => a.comanda_id).filter((x): x is string => !!x))];
+  if (comandaIds.length === 0) return doPeriodo;
+
+  const [comandas, agsDasComandas] = await Promise.all([
+    buscarEmLotes<ComandaReservaRow>(comandaIds, lote => (de, ate) => db.from('comandas')
+      .select('id, desconto_reserva')
+      .eq('empresa_id', empresaId).in('id', lote)
+      .order('id')
+      .range(de, ate)),
+    buscarEmLotes<AgComandaRow>(comandaIds, lote => (de, ate) => db.from('agendamentos')
+      .select('id, comanda_id')
+      .eq('empresa_id', empresaId).in('comanda_id', lote)
+      .order('id')
+      .range(de, ate)),
+  ]);
+  const comandaDoAg = new Map<string, string>();
+  for (const a of [...ags, ...agsDasComandas]) if (a.comanda_id) comandaDoAg.set(a.id, a.comanda_id);
+
+  // Taxas pagas de todos os atendimentos dessas comandas (inclusive pagas fora do período).
+  const taxasDasComandas = await buscarEmLotes<TaxaReservaFinRow>([...comandaDoAg.keys()], lote => (de, ate) => db.from('taxas_reserva')
+    .select(COLUNAS_TAXA_RESERVA_FIN)
+    .eq('empresa_id', empresaId).neq('status', 'cancelada').not('paga_em', 'is', null)
+    .in('agendamento_id', lote)
+    .order('id')
+    .range(de, ate));
+
+  const porId = new Map<string, TaxaReservaFinRow>();
+  for (const t of [...doPeriodo, ...taxasDasComandas]) porId.set(t.id, t);
+  const taxas: TaxaReservaComandaRow[] = [...porId.values()].map(t => ({
+    id: t.id, valor: t.valor, paga_em: t.paga_em,
+    comanda_id: t.agendamento_id ? comandaDoAg.get(t.agendamento_id) ?? null : null,
+  }));
+  const parte = parteReservaNaoDescontada(taxas, comandas);
+  return doPeriodo.map(t => ({ ...t, valor_receita: parte.get(t.id) ?? t.valor }));
+}
+
 export const COLUNAS_RETIRADA =
   'id,empresa_id,tipo,valor,data,descricao,metodo,parcelado,total_parcelas,valor_parcela,primeira_parcela_em,convertido_em,created_at';
 
@@ -153,13 +227,7 @@ export async function carregarDadosFinanceiros(db: ClienteDb, empresaId: string,
         .gte('paga_em', l.startIso).lte('paga_em', l.endIso)
         .order('paga_em').order('id')
         .range(de, ate)),
-      // Só a retida é receita à parte (a paga de atendimento concluído já está no valor dele).
-      buscarTodasOuLancar<TaxaReservaFinRow>((de, ate) => db.from('taxas_reserva')
-        .select('id, valor, paga_em, status')
-        .eq('empresa_id', empresaId).eq('status', 'retida').not('paga_em', 'is', null)
-        .gte('paga_em', l.startIso).lte('paga_em', l.endIso)
-        .order('paga_em').order('id')
-        .range(de, ate)),
+      carregarTaxasReservaReceita(db, empresaId, l),
       buscarTodasOuLancar<PagamentoFinRow>((de, ate) => db.from('pagamentos')
         .select('id, metodo, valor, valor_liquido, created_at')
         .eq('empresa_id', empresaId).eq('status', 'pago')

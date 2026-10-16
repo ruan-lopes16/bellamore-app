@@ -158,7 +158,8 @@ export function cartoesKpiRelatorio(
     valor: k.totalAgendamentos > 0 ? `${k.pctCancelamento.toFixed(1)}%` : '—',
     sub: k.perdidos > 0 ? `${k.perdidos} perdido(s)` : null, negativo: true });
   const taxas = arredondar(k.receitaTaxasCancelamento + k.receitaTaxasReserva);
-  if (taxas > 0) lista.push({ ...base, id: 'taxas', rotulo: 'Taxas (cancel. + reserva)', valor: fmt(taxas) });
+  if (taxas > 0) lista.push({ ...base, id: 'taxas', rotulo: 'Taxas (cancel. + reserva)', valor: fmt(taxas),
+    sub: k.receitaTaxasReserva > 0 ? 'reserva fora das comandas' : null });
   lista.push({ ...base, id: 'comissoes', rotulo: 'Total comissões', valor: fmt(k.comissoes),
     sub: k.comissoesPendentes > 0 ? `${fmt(k.comissoesPendentes)} pendentes` : 'Em dia' });
   return lista;
@@ -181,7 +182,7 @@ export function linhasResumoFinanceiro(
   }
   if (k.receitaVendas > 0) l.push({ id: 'vendas', rotulo: 'Vendas avulsas', valor: k.receitaVendas, tipo: 'entrada' });
   const taxas = arredondar(k.receitaTaxasCancelamento + k.receitaTaxasReserva);
-  if (taxas > 0) l.push({ id: 'taxas', rotulo: 'Taxas (cancel. + reserva)', valor: taxas, tipo: 'entrada' });
+  if (taxas > 0) l.push({ id: 'taxas', rotulo: 'Taxas (cancel. + reserva fora das comandas)', valor: taxas, tipo: 'entrada' });
   l.push(
     { id: 'bruto', rotulo: '= Faturamento bruto', valor: k.bruto, tipo: 'total' },
     { id: 'cartao', rotulo: '(−) Taxas de cartão', valor: k.taxasCartao, tipo: 'saida' },

@@ -25,6 +25,10 @@ describe('normalização (strings do numeric, nomes ausentes)', () => {
     expect(itens[2]).toMatchObject({ profissionalNome: 'Profissional', servicoNome: 'Serviço', clienteNome: '—',
       dataAtendimento: null, valorAtendimento: null });
   });
+  it('valor do atendimento sai com o desconto rateado da comanda (090)', () => {
+    const [c] = normalizarComissoes([{ ...ROWS[0], agendamento: { ...ROWS[0].agendamento!, valor: '120', desconto_rateado: '20.00' } }]);
+    expect(c.valorAtendimento).toBe(100);
+  });
 });
 
 describe('resumo, filtros e cards por profissional', () => {

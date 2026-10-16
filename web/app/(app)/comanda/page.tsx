@@ -72,6 +72,7 @@ import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pac
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 
 const supabase = createClient();
 
@@ -86,6 +87,8 @@ type AgDia = {
   data_hora_fim: string;
   status: string;
   valor: number;
+  /** Parte do desconto da comanda (090); ausente antes da 090 = 0. */
+  desconto_rateado?: number | string | null;
   comanda_id: string | null;
   pacote_cliente_id: string | null;
   cliente:      { id: string; nome: string; telefone?: string } | null;
@@ -325,7 +328,7 @@ export default function ComandaPage() {
     Promise.all([
       // Agendamentos do dia (exceto cancelados)
       supabase.from('agendamentos')
-        .select(`id, data_hora_inicio, data_hora_fim, status, valor, comanda_id, pacote_cliente_id,
+        .select(`*,
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
           servico:servicos(id, nome, preco),
@@ -482,7 +485,7 @@ export default function ComandaPage() {
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) no dia selecionado */
   const totalDia = useMemo(
-    () => agDia.filter(ag => ag.status === 'concluido').reduce((s, ag) => s + ag.valor, 0),
+    () => agDia.filter(ag => ag.status === 'concluido').reduce((s, ag) => s + valorCobradoAtendimento(ag), 0),
     [agDia],
   );
 

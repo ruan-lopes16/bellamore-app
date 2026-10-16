@@ -53,6 +53,7 @@ import {
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import { formatarMoeda } from '@shared/moeda';
+import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 import {
   carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens,
 } from '@shared/comanda-consultas';
@@ -85,6 +86,8 @@ type AgDia = {
   data_hora_inicio: string;
   status: string;
   valor: number;
+  /** Parte do desconto da comanda (090); ausente antes da 090 = 0. */
+  desconto_rateado?: number | string | null;
   comanda_id: string | null;
   pacote_cliente_id: string | null;
   cliente:      { id: string; nome: string; telefone?: string } | null;
@@ -265,7 +268,7 @@ export default function NovaComandaScreen() {
     const req = ++reqDiaRef.current;
     await Promise.all([
       supabase.from('agendamentos')
-        .select(`id, data_hora_inicio, status, valor, comanda_id, pacote_cliente_id,
+        .select(`*,
           cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
           profissional:users!agendamentos_profissional_id_fkey(id, nome),
           servico:servicos(id, nome, preco),
@@ -472,7 +475,7 @@ export default function NovaComandaScreen() {
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) hoje */
   const totalDia = useMemo(
-    () => agDia.filter(ag => ag.status === 'concluido').reduce((s, ag) => s + ag.valor, 0),
+    () => agDia.filter(ag => ag.status === 'concluido').reduce((s, ag) => s + valorCobradoAtendimento(ag), 0),
     [agDia],
   );
 
