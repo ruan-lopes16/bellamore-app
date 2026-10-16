@@ -17,8 +17,20 @@ describe('mensagemErroBanco', () => {
       .toBe('Você não tem permissão para editar cliente. Fale com a dona ou a gestora.');
   });
 
-  it('mantém a mensagem original para outros erros', () => {
-    expect(mensagemErroBanco({ code: '23505', message: 'duplicate key' }, 'cadastrar cliente')).toBe('duplicate key');
+  it('mantém a mensagem das regras das migrations (P0001, 22023) e dos erros sem código', () => {
+    expect(mensagemErroBanco({ code: 'P0001', message: 'Estoque insuficiente: Óleo' }, 'vender')).toBe('Estoque insuficiente: Óleo');
+    expect(mensagemErroBanco({ code: '22023', message: 'Valor inválido.' }, 'salvar')).toBe('Valor inválido.');
+    expect(mensagemErroBanco({ message: 'Não foi possível ler as clientes.' }, 'carregar')).toBe('Não foi possível ler as clientes.');
+  });
+
+  it('M8: códigos conhecidos com tradução fixa (sessão expirada = PGRST301)', () => {
+    expect(mensagemErroBanco({ code: 'PGRST301', message: 'JWT expired' }, 'cadastrar cliente')).toBe('Sua sessão expirou. Entre de novo.');
+    expect(mensagemErroBanco({ code: '23505', message: 'duplicate key' }, 'cadastrar cliente')).toBe('Registro duplicado.');
+  });
+
+  it('M8: código desconhecido vira mensagem genérica em português (texto técnico só no console)', () => {
+    const r = mensagemErroBanco({ code: 'XX000', message: 'internal error in english' }, 'cadastrar cliente');
+    expect(r).toBe('Não foi possível cadastrar cliente. Tente de novo; se continuar, fale com o suporte.');
   });
 
   it('sem erro nenhum devolve mensagem genérica', () => {

@@ -3,6 +3,8 @@ import { AppState } from 'react-native';
 import { Stack, router, SplashScreen } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
+import * as Crypto from 'expo-crypto';
+import { registrarGeradorUuid } from '@shared/uuid';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
@@ -10,6 +12,10 @@ import { registrarPushToken, rotaParaNotificacao } from '@/lib/notifications';
 import { TapSpark } from '@/components/TapSpark';
 
 SplashScreen.preventAutoHideAsync();
+
+// Ids gerados no app (vendas, comandas, agendamentos) com UUID criptográfico: o Hermes não
+// tem crypto.randomUUID e, sem isto, shared/uuid.ts cairia em Math.random.
+registrarGeradorUuid(() => Crypto.randomUUID());
 
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -7,13 +7,25 @@
 
 type CryptoMinimo = { randomUUID?: () => string; getRandomValues?: <T extends Uint8Array>(a: T) => T };
 
+let geradorRegistrado: (() => string) | null = null;
+
 /**
- * UUID v4 (RFC 4122). Usa `crypto.randomUUID` (navegador) ou `crypto.getRandomValues` quando
- * existem. O Hermes do app (Expo 51) não tem nenhum dos dois e o projeto não tem `expo-crypto`:
- * aí cai em `Math.random`. Não é segredo (só chave primária); uma colisão, improvável, viraria
- * erro de chave duplicada no INSERT, que a tela já confere.
+ * Registra o gerador de UUID da plataforma (o app registra o `randomUUID` do `expo-crypto` no
+ * layout raiz, porque o Hermes não tem `crypto.randomUUID`). `null` volta ao comportamento
+ * padrão. O web não registra nada: usa o `crypto.randomUUID` do navegador.
+ */
+export function registrarGeradorUuid(gerador: (() => string) | null): void {
+  geradorRegistrado = gerador;
+}
+
+/**
+ * UUID v4 (RFC 4122). Ordem: gerador registrado (`registrarGeradorUuid`), `crypto.randomUUID`
+ * (navegador), `crypto.getRandomValues` e, por último, `Math.random` (só se nada existir — o app
+ * registra o expo-crypto na inicialização). Não é segredo (só chave primária); uma colisão,
+ * improvável, viraria erro de chave duplicada no INSERT, que a tela já confere.
  */
 export function novoUuid(): string {
+  if (geradorRegistrado) return geradorRegistrado();
   const c = (globalThis as { crypto?: CryptoMinimo }).crypto;
   if (c?.randomUUID) return c.randomUUID();
   const bytes = new Uint8Array(16);

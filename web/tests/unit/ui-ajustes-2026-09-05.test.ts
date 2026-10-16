@@ -86,22 +86,36 @@ describe('Timeline (web) — bloco mostra início–fim', () => {
 
 // ── 4. Taxa de reserva — opt-in por agendamento ─────────────
 
-const fluxosNovoAgendamento: Array<[string, string, string]> = [
-  ['web — Agenda (modal Novo)',        'app/(app)/agenda/page.tsx',        'if (aplicarTaxaReserva) {'],
-  ['web — perfil da cliente',          'app/(app)/clientes/[id]/page.tsx', 'if (aplicarTaxaReserva) {'],
-  ['mobile — novo-agendamento',        '../mobile/app/(empresa)/novo-agendamento.tsx', 'if (novoAg && aplicarTaxaReserva) {'],
+// Desde a Entrega 2 (taxas por atendimento) o switch "Cobrar taxa de reserva neste atendimento"
+// nasce LIGADO; o insert continua condicionado a ele.
+const fluxosNovoAgendamentoWeb: Array<[string, string]> = [
+  ['web — Agenda (modal Novo)', 'app/(app)/agenda/page.tsx'],
+  ['web — perfil da cliente',   'app/(app)/clientes/[id]/page.tsx'],
 ];
 
-describe.each(fluxosNovoAgendamento)('Taxa de reserva opt-in — %s', (_nome, arquivo, guardaInsert) => {
+describe.each(fluxosNovoAgendamentoWeb)('Taxa de reserva por atendimento — %s', (_nome, arquivo) => {
   const src = read(arquivo);
-  it('tem o estado aplicarTaxaReserva, default desmarcado', () => {
-    expect(src).toMatch(/const \[aplicarTaxaReserva, setAplicarTaxaReserva\] = useState\(false\)/);
+  it('tem o estado aplicarTaxaReserva, default ligado', () => {
+    expect(src).toMatch(/const \[aplicarTaxaReserva, setAplicarTaxaReserva\] = useState\(true\)/);
   });
-  it('o insert em taxas_reserva só roda quando o toggle está marcado', () => {
-    expect(src).toContain(guardaInsert);
+  it('o insert em taxas_reserva só roda quando o switch está ligado', () => {
+    expect(src).toContain('if (aplicarTaxaReserva) {');
   });
-  it('o toggle "Aplicar taxa de reserva" está na UI', () => {
-    expect(src).toContain('Aplicar taxa de reserva');
+  it('o switch "Cobrar taxa de reserva neste atendimento" está na UI', () => {
+    expect(src).toContain('Cobrar taxa de reserva neste atendimento');
+  });
+});
+
+describe('Taxa de reserva por atendimento — mobile — novo-agendamento', () => {
+  const src = read('../mobile/app/(empresa)/novo-agendamento.tsx');
+  it('tem o estado cobrarTaxaReserva, default ligado', () => {
+    expect(src).toMatch(/const \[cobrarTaxaReserva, setCobrarTaxaReserva\] = useState\(true\)/);
+  });
+  it('o insert em taxas_reserva só roda quando o switch está ligado', () => {
+    expect(src).toContain('if (novoAg && taxaReservaAtiva && cobrarTaxaReserva) {');
+  });
+  it('o switch "Cobrar taxa de reserva neste atendimento" está na UI', () => {
+    expect(src).toContain('Cobrar taxa de reserva neste atendimento');
   });
 });
 

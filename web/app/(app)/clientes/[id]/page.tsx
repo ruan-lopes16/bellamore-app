@@ -16,6 +16,7 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { mensagemErroBanco } from '@shared/erros';
 import { novoUuid } from '@shared/uuid';
@@ -33,6 +34,7 @@ import {
   type DetalheAtendimento,
 } from '@shared/atendimento-detalhe';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 
 const supabase = createClient();
 
@@ -139,10 +141,10 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   const [erro,       setErro]       = useState('');
 
   // Taxa de reserva (configurada pela empresa, pré-preenchida ao escolher o serviço).
-  // `aplicarTaxaReserva` é opt-in explícito e nasce desmarcado: sem ele nenhuma
-  // linha de `taxas_reserva` é criada (nem 'pendente').
+  // `aplicarTaxaReserva` é o switch "Cobrar taxa de reserva neste atendimento": nasce ligado
+  // (a chave geral da empresa é o padrão) e, desligado, nenhuma linha de `taxas_reserva` é criada.
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
-  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(false);
+  const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(true);
   const [taxaReserva,        setTaxaReserva]        = useState('0');
   const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
@@ -189,9 +191,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     const s = servicos.find(sv => sv.id === id);
     if (s) { setDuracao(s.duracao_minutos); setValor(String(s.preco)); }
     if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
-      const sugerido = taxaReservaCfg.modo === 'fixo'
-        ? taxaReservaCfg.valor
-        : Math.round((s.preco * taxaReservaCfg.valor / 100) * 100) / 100;
+      const sugerido = valorTaxaReservaSugerida(taxaReservaCfg, s.preco);
       setTaxaReserva(String(sugerido).replace('.', ','));
     }
   }
@@ -213,12 +213,12 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     });
     if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
 
-    // Só cria a linha quando o usuário marcou "Aplicar taxa de reserva".
+    // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
     if (aplicarTaxaReserva) {
       const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
       const taxaReservaPayload = buildTaxaReservaInsert({
         empresaId, agendamentoId: ag.id, clienteId, valor: taxaReservaValorNum,
-        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo,
+        jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo, cobrar: aplicarTaxaReserva,
       }, new Date().toISOString());
       if (taxaReservaPayload) {
         const { error: erroReserva } = await supabase.from('taxas_reserva').insert(taxaReservaPayload);
@@ -293,7 +293,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
                   onChange={e => setAplicarTaxaReserva(e.target.checked)}
                   className="w-4 h-4 rounded border-border accent-primary"
                 />
-                <span className="text-xs font-semibold text-text-2 uppercase tracking-wide">Aplicar taxa de reserva</span>
+                <span className="text-xs font-semibold text-text-2 uppercase tracking-wide">Cobrar taxa de reserva neste atendimento</span>
               </label>
               {aplicarTaxaReserva && (
                 <div className="mt-2">
@@ -591,19 +591,20 @@ export default function ClientePerfilPage() {
       const [{ data: clienteData }, rFicha, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
         supabase.from('anamnese_fichas').select('respostas').eq('cliente_id', id).maybeSingle(),
-        buscarTodasPaginas<{ valor: number | null; data_hora_inicio: string; servico: { nome: string } | null;
+        buscarTodasPaginas<{ valor: number | null; desconto_rateado?: number | string | null; data_hora_inicio: string; servico: { nome: string } | null;
           agendamento_servicos: { ordem: number; servico: { nome: string } | null }[] | null }>((from, to) =>
           supabase.from('agendamentos')
-            .select('valor, data_hora_inicio, servico:servicos(nome), agendamento_servicos(ordem, servico:servicos(nome))')
+            // `*` traz desconto_rateado quando a 090 existe (sem quebrar antes dela)
+            .select('*, servico:servicos(nome), agendamento_servicos(ordem, servico:servicos(nome))')
             .eq('cliente_id', id)
             .eq('status', 'concluido')
             .order('data_hora_inicio', { ascending: false })
             .range(from, to)
         ),
         // Serviços lançados direto na comanda (sem agendamento prévio) também contam como visita
-        buscarTodasPaginas<{ valor_unit: number; quantidade: number; created_at: string; servico: { nome: string } | null; comanda: { fechada_at: string | null } | null }>((from, to) =>
+        buscarTodasPaginas<{ valor_unit: number; quantidade: number; desconto_rateado?: number | string | null; created_at: string; servico: { nome: string } | null; comanda: { fechada_at: string | null } | null }>((from, to) =>
           supabase.from('comanda_itens')
-            .select('valor_unit, quantidade, created_at, servico:servicos(nome), comanda:comandas!inner(fechada_at)')
+            .select('*, servico:servicos(nome), comanda:comandas!inner(fechada_at)')
             .eq('tipo', 'servico')
             .eq('comanda.clientes_id', id)
             .order('created_at', { ascending: false })
@@ -623,13 +624,15 @@ export default function ClientePerfilPage() {
         ...agsStats,
         ...comSvcsStats.map(cs => ({
           valor: cs.valor_unit * cs.quantidade,
+          desconto_rateado: cs.desconto_rateado,
           data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
           servico: cs.servico,
           agendamento_servicos: null,   // extra de comanda nunca e multi-servico
         })),
       ].sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
       const totalVisitas = rows.length;
-      const totalGasto = rows.reduce((s, a) => s + Number(a.valor ?? 0), 0);
+      // Valor cobrado (com a parte do desconto da comanda, 090), igual ao Financeiro.
+      const totalGasto = rows.reduce((s, a) => s + valorCobradoAtendimento(a), 0);
       const ultimaVisita = rows[0]?.data_hora_inicio ?? null;
       // Um atendimento multi-servico conta uma vez para CADA servico feito —
       // contar so o servico legado subestimava todos os demais.

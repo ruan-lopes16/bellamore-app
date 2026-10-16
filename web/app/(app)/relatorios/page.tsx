@@ -41,7 +41,7 @@ import {
 import {
   calcularKpisFinanceiros, recortarDados, serieFaturamento, rankingAtendimentos, metricasRetorno,
   clientesAtendidosNoPeriodo, retiradasDoPeriodo, clientesSumidas, DADOS_VAZIOS,
-  type DadosFinanceiros, type ItemRanking,
+  notaAvulsasNoFechamento, type DadosFinanceiros, type ItemRanking,
 } from '@shared/kpis-financeiros';
 import {
   carregarDadosFinanceiros, carregarClientesComHistoricoAntes, carregarRetiradas,
@@ -61,6 +61,7 @@ import { datasDasUltimasVisitas } from '@shared/dashboard';
 import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { usePermissoes } from '@/components/PermissoesProvider';
+import { avisoExtrasSoProprias } from '@shared/permissoes';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
 const supabase = createClient();
@@ -204,7 +205,10 @@ function ChartBar({ label, value, maxValue }: { label: string; value: number; ma
 
 export default function RelatoriosPage() {
   // O UPDATE de `comissoes` no banco exige `comissoes.pagar` (igual ao app e às outras telas de pagar).
-  const podePagarComissoes = usePermissoes().pode('comissoes.pagar');
+  const permissoes = usePermissoes();
+  const podePagarComissoes = permissoes.pode('comissoes.pagar');
+  // Quem só vê as próprias comandas vê só os próprios serviços extras (RLS de comanda_itens).
+  const avisoExtras = avisoExtrasSoProprias(permissoes);
 
 
   // ── Estado
@@ -399,7 +403,7 @@ export default function RelatoriosPage() {
   const kpis    = useMemo(() => calcularKpisFinanceiros(dados, atual),    [dados, atual]);
   const kpisAnt = useMemo(() => calcularKpisFinanceiros(dados, anterior), [dados, anterior]);
   // Concluídos + serviços extras da comanda (linha padrão da exportação da aba Financeiro, igual ao app).
-  const linhasAtendimentos = useMemo(() => linhasAtendimentosRelatorio(dadosPeriodo), [dadosPeriodo]);
+  const linhasAtendimentos = useMemo(() => linhasAtendimentosRelatorio(dadosPeriodo, kpis.mesesComFechamento), [dadosPeriodo, kpis.mesesComFechamento]);
 
   const bruto = kpis.bruto;
   const comTot = kpis.comissoes;
@@ -628,6 +632,7 @@ export default function RelatoriosPage() {
             cor={c.negativo ? '#DC2626' : COR_KPI[c.id]} loading={loading} />
         ))}
       </div>}
+      {!erroCarga && avisoExtras && <p className="text-xs text-text-3 -mt-3 mb-6">{avisoExtras}</p>}
 
       {/* ── Abas ── */}
       <SmoothTabs
@@ -685,7 +690,7 @@ export default function RelatoriosPage() {
                         </span>
                       </div>
                       {l.id === 'bruto' && kpis.mesesComFechamento.length > 0 && (
-                        <p className="text-xs text-text-3 py-1.5">Inclui fechamento importado de {kpis.mesesComFechamento.join(', ')}.</p>
+                        <p className="text-xs text-text-3 py-1.5">{notaAvulsasNoFechamento(kpis)}</p>
                       )}
                     </div>
                   ))}

@@ -146,8 +146,8 @@ describe('serviços extras da comanda no faturamento (decisão do dono, 2026-10-
     const TELAS: Record<string, string[]> = {
       'web/app/(app)/relatorios/page.tsx': ['dadosPeriodo.servicosExtras', 'linhasAtendimentosRelatorio('],
       'mobile/hooks/useRelatorios.ts': ['doPeriodo.servicosExtras', 'linhasAtendimentosRelatorio('],
-      'web/app/(app)/financeiro/page.tsx': ['doMes.servicosExtras', 'receitaServicosExtras'],
-      'mobile/hooks/useFinanceiro.ts': ['doMes.servicosExtras', 'receitaServicosExtras'],
+      'web/app/(app)/financeiro/page.tsx': ['doMes.servicosExtras', 'cartoesReceitasAvulsas(kpis)'],
+      'mobile/hooks/useFinanceiro.ts': ['doMes.servicosExtras', 'cartoesReceitasAvulsas(kpis)'],
       'web/app/(app)/equipe/page.tsx': ['carregarEquipe('],
       'mobile/app/(empresa)/equipe.tsx': ['carregarEquipe('],
     };

@@ -123,7 +123,8 @@ describe('unidades visíveis', () => {
   });
   it('coluna ausente (42703) lança e não esconde o ajuste', async () => {
     const { db } = fakeDb({ awaitavel: true, erroTabelasCodigo: { estoque_unidades_empresa: { code: '42703', message: 'column unidades does not exist' } } });
-    await expect(carregarUnidadesVisiveis(db, 'e1')).rejects.toThrow('column unidades does not exist');
+    // Lança (não trata como "tabela ausente"); o texto técnico em inglês fica só no console (M8).
+    await expect(carregarUnidadesVisiveis(db, 'e1')).rejects.toThrow('Não foi possível carregar as unidades de medida.');
   });
   it('tabela ausente detectada só pelo code PGRST205, com mensagem qualquer', async () => {
     const { db } = fakeDb({ awaitavel: true, erroTabelasCodigo: { estoque_unidades_empresa: { code: 'PGRST205', message: 'qualquer coisa' } } });

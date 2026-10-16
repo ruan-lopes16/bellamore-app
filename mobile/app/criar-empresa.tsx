@@ -20,6 +20,7 @@ import { maskPhone } from '@shared/mascaras';
 
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { BannerConvites } from '@/components/BannerConvites';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -207,6 +208,7 @@ export default function CriarEmpresa() {
           </Text>
         </MotiView>
       </ScrollView>
+      <BannerConvites />
     </KeyboardAvoidingView>
   );
 }

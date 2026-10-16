@@ -66,7 +66,7 @@ describe('I1 — agenda e comanda escondem ações em atendimento de outra profi
   });
   it('web mudarStatus confere linhas afetadas e reverte', () => {
     const corpo = agenda.slice(agenda.indexOf('async function mudarStatus'), agenda.indexOf('async function deletarBloqueio'));
-    expect(corpo).toMatch(/\.update\(\{ status \}\)[\s\S]*\.select\('id'\)/);
+    expect(corpo).toMatch(/\.update\(cobrarTaxaCancelamento === undefined \? \{ status \}[\s\S]*\.select\('id'\)/);
     expect(corpo).toMatch(/rows\.length === 0/);
     expect(corpo).toContain("mensagemErroBanco(");
   });

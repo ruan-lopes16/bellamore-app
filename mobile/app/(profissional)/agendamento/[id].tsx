@@ -30,6 +30,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import type { AgendamentoStatus } from '@/types';
 import { formatarMoeda } from '@shared/moeda';
+import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -130,11 +131,17 @@ export default function AgendamentoProfissional() {
   const comissao = ag.valor; // simplificado — o cálculo real está em useProfissional
 
   async function atualizarStatus(novoStatus: AgendamentoStatus) {
+    // Cancelado/faltou: com a 091, pergunta (ou envia true) o campo cobrar_taxa_cancelamento.
+    const { continuar, extra } = await escolherCobrancaCancelamento({
+      empresaId: empresaAtiva?.id, novoStatus,
+      clienteId: ag.cliente_id ?? ag.cliente?.id, valorAtendimento: Number(ag.valor),
+    });
+    if (!continuar) return;
     setAtualizando(true);
     // .select('id'): RLS recusando o UPDATE devolve 0 linhas sem erro (sucesso falso).
     const { data: atualizados, error } = await supabase
       .from('agendamentos')
-      .update({ status: novoStatus })
+      .update({ status: novoStatus, ...extra })
       .eq('id', id)
       .select('id');
     setAtualizando(false);

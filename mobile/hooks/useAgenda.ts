@@ -6,6 +6,7 @@ import { usePermissoes } from '@/lib/permissions';
 import type { Agendamento } from '@/types';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bloqueios';
+import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -144,7 +145,8 @@ export function useAgendamentoDia(dia: Date, profissionalFiltro?: string) {
 
 export function useResumoDia(agendamentos: AgendamentoCompleto[]): ResumoDia {
   const total        = agendamentos.length;
-  const receita      = agendamentos.reduce((s, a) => s + Number(a.valor), 0);
+  // Valor cobrado (com a parte do desconto da comanda, 090); `*` já traz a coluna quando existe.
+  const receita      = agendamentos.reduce((s, a) => s + valorCobradoAtendimento(a as { valor?: number; desconto_rateado?: number | string | null }), 0);
   const pendentes    = agendamentos.filter((a) => a.status === 'agendado').length;
   const profIds      = new Set(agendamentos.map((a) => a.profissional_id));
 

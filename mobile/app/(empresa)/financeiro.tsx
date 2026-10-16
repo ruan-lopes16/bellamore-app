@@ -35,12 +35,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { rotuloMesCurto, somarMeses } from '@shared/periodos';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { variacaoPercentual } from '@shared/kpis-financeiros';
-import { textoRecorrentesPendentes } from '@shared/despesas';
+import { textoLancamentoRecorrentes, textoRecorrentesPendentes } from '@shared/despesas';
 import { CalendarioMesFinanceiro } from '@/components/CalendarioMesFinanceiro';
 
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
 import { supabase } from '@/lib/supabase';
 import { usePermissoes } from '@/lib/permissions';
+import { avisoExtrasSoProprias } from '@shared/permissoes';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
 import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra } from '@shared/despesas';
 import {
@@ -52,6 +53,9 @@ import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoDespesas } from '@shared/exportacao/financeiro';
 import type { OcorrenciaHistorico } from '@shared/despesas';
 import { formatarMoeda } from '@shared/moeda';
+import { colunaCobrarTaxaExiste } from '@shared/taxas-atendimento';
+import { mensagemErroBanco } from '@shared/erros';
+import { useAuthStore } from '@/stores/authStore';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -312,10 +316,12 @@ function DespesaRow({
 // ── Taxa de cancelamento row ─────────────────────────────────
 
 function TaxaCancelamentoRow({
-  item, isLast, onMarcarPago, podeMarcar,
+  item, isLast, onMarcarPago, podeMarcar, onDispensar,
 }: {
   /** 'taxas.marcar_pagas': sem ela a linha é só leitura. */
   podeMarcar: boolean;
+  /** Dispensar a taxa pendente (só com 'taxas.marcar_pagas' e a migration 091). */
+  onDispensar?: (item: TaxaCancelamento) => void;
   item: TaxaCancelamento & { cliente: { nome: string } | null };
   isLast: boolean;
   onMarcarPago: (item: TaxaCancelamento & { cliente: { nome: string } | null }) => void;
@@ -370,6 +376,11 @@ function TaxaCancelamentoRow({
             {pago ? 'Paga' : podeMarcar ? 'Toque p/ pagar' : 'Pendente'}
           </Text>
         </View>
+        {!pago && podeMarcar && onDispensar && (
+          <TouchableOpacity onPress={() => onDispensar(item)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={{ marginTop: 6 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.text3 }}>Dispensar</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -1346,8 +1357,11 @@ function ModalEditarDespesa({
 
 export default function Financeiro() {
   const insets = useSafeAreaInsets();
-  const { pode } = usePermissoes();
+  const permissoes = usePermissoes();
+  const { pode } = permissoes;
   const podeDespesas = pode('despesas.gerenciar');
+  // Quem só vê as próprias comandas vê só os próprios serviços extras (RLS de comanda_itens).
+  const avisoExtras = permissoes.permissoesCarregadas ? avisoExtrasSoProprias(permissoes) : null;
   const podeMarcarTaxas = pode('taxas.marcar_pagas');
   const ehDona = pode('dona');
   const [mesRef, setMesRef] = useState(new Date());
@@ -1362,6 +1376,10 @@ export default function Financeiro() {
   const [excluirDe,    setExcluirDe]    = useState<RetiradaSociaRow | null>(null);
 
   const qc = useQueryClient();
+  const { empresaAtiva } = useAuthStore();
+  // "Dispensar" só existe com a migration 091 (coluna agendamentos.cobrar_taxa_cancelamento).
+  const [temColunaCobrar, setTemColunaCobrar] = useState(false);
+  useEffect(() => { colunaCobrarTaxaExiste(supabase).then(setTemColunaCobrar).catch(() => setTemColunaCobrar(false)); }, []);
   const {
     resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, isError, erroKpis, refetch,
     recorrentesParaLancar, lancarRecorrentes, lancandoRecorrentes,
@@ -1394,6 +1412,32 @@ export default function Financeiro() {
     }
     setConfirmarTaxaCanc(null);
     invalidarFinanceiro(qc);   // receita/KPIs mudam ao pagar a taxa
+  }
+
+  /** Dispensa a taxa de cancelamento pendente: o trigger (091) encerra a taxa como 'cancelada'. */
+  async function dispensarTaxaCancelamento(item: TaxaCancelamento) {
+    Alert.alert('Dispensar taxa', `Dispensar a taxa de cancelamento de ${formatarMoeda(item.valor)}?`, [
+      { text: 'Voltar', style: 'cancel' },
+      {
+        text: 'Dispensar',
+        style: 'destructive',
+        onPress: async () => {
+          // .select('id') + conferência: RLS recusando o UPDATE devolve sucesso com 0 linhas.
+          const { data, error } = await supabase
+            .from('agendamentos')
+            .update({ cobrar_taxa_cancelamento: false })
+            .eq('id', item.agendamento_id)
+            .eq('empresa_id', empresaAtiva?.id ?? '')
+            .select('id');
+          if (error) { Alert.alert('Erro', mensagemErroBanco(error, 'dispensar a taxa')); return; }
+          if (!data || data.length === 0) {
+            Alert.alert('Sem permissão', 'Você não tem permissão para dispensar esta taxa.');
+            return;
+          }
+          invalidarFinanceiro(qc);   // a taxa sai da lista e dos KPIs
+        },
+      },
+    ]);
   }
 
   async function marcarReservaPaga(item: TaxaReserva, metodo: PagamentoMetodo | null) {
@@ -1523,8 +1567,7 @@ export default function Financeiro() {
                   const { inseridas, jaExistiam } = await lancarRecorrentes();
                   Alert.alert(
                     'Despesas recorrentes',
-                    `${inseridas} despesa${inseridas !== 1 ? 's' : ''} lançada${inseridas !== 1 ? 's' : ''}.`
-                      + (jaExistiam > 0 ? ` ${jaExistiam} já estava${jaExistiam !== 1 ? 'm' : ''} lançada${jaExistiam !== 1 ? 's' : ''}.` : ''),
+                    textoLancamentoRecorrentes({ inseridas, jaExistiam }),
                   );
                 } catch (e) { Alert.alert('Erro ao lançar as despesas recorrentes', (e as Error).message); }
               }}
@@ -1635,20 +1678,27 @@ export default function Financeiro() {
           ))}
         </View>
         )}
-        {((resumo?.servicosExtras ?? 0) > 0 || (resumo?.taxasCancelamento ?? 0) > 0 || (resumo?.taxasReserva ?? 0) > 0) && (
+        {(resumo?.receitasAvulsas.length ?? 0) > 0 && (
           <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {[
-              // Serviços extras da comanda (já incluídos no faturamento bruto), como no web.
-              { label: 'Serviços extras',       value: resumo?.servicosExtras ?? 0 },
-              { label: 'Taxas de cancelamento', value: resumo?.taxasCancelamento ?? 0 },
-              { label: 'Taxas de reserva',      value: resumo?.taxasReserva ?? 0 },
-            ].filter(t => t.value > 0).map(t => (
+            {/* Serviços extras e taxas (já incluídos no faturamento bruto) — mesma lista do web. */}
+            {(resumo?.receitasAvulsas ?? []).map(c => ({ label: c.rotulo, value: c.valor, sub: c.sub })).map(t => (
               <View key={t.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{t.label}</Text>
                 <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.accent }}>{formatarMoeda(t.value)}</SecretText>
+                {t.sub && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 4 }}>{t.sub}</Text>}
               </View>
             ))}
           </View>
+        )}
+        {resumo?.notaFechamento && (
+          <Text style={{ marginHorizontal: 24, marginBottom: 12, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+            {resumo.notaFechamento}
+          </Text>
+        )}
+        {resumo && avisoExtras && (
+          <Text style={{ marginHorizontal: 24, marginBottom: 12, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+            {avisoExtras}
+          </Text>
         )}
 
         {/* ── Evolução mensal ── */}
@@ -1889,6 +1939,7 @@ export default function Financeiro() {
                   isLast={i === arr.length - 1}
                   onMarcarPago={setConfirmarTaxaCanc}
                   podeMarcar={podeMarcarTaxas}
+                  onDispensar={temColunaCobrar ? dispensarTaxaCancelamento : undefined}
                 />
               ))}
             </View>

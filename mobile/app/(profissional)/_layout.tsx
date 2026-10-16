@@ -1,7 +1,10 @@
+import { View } from 'react-native';
 import { Tabs } from 'expo-router';
+import { BannerConvites } from '@/components/BannerConvites';
 
 export default function ProfissionalLayout() {
   return (
+    <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -19,5 +22,7 @@ export default function ProfissionalLayout() {
       {/* Rota que não é aba */}
       <Tabs.Screen name="agendamento/[id]" options={{ href: null }} />
     </Tabs>
+    <BannerConvites />
+    </View>
   );
 }

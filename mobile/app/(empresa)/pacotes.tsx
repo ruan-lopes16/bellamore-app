@@ -35,7 +35,7 @@ import { CategoriaIcon } from '@/components/CategoriaIcon';
 import { resolverCategoria } from '@/hooks/useAgenda';
 import type { CategoriaServico } from '@/components/CategoriaIcon';
 import { formatarMoeda } from '@shared/moeda';
-import { desfazerVinculoPacote } from '@shared/pacotes-consultas';
+import { desfazerVinculoPacote, erroEscritaPacoteUso } from '@shared/pacotes-consultas';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -397,15 +397,16 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
     const iso = dataParaBanco(novaData);
     if (!iso) { setErro('Data inválida. Use DD/MM/AAAA.'); return; }
     setBusy(true); setErro('');
-    const { error } = await supabase.from('pacote_uso').insert({
+    const rAvulsa = await supabase.from('pacote_uso').insert({
       empresa_id: empresaId,
       pacote_cliente_id: pc.id,
       servico_id: novoServ || servUnicoId || null,
       observacao: novaObs.trim() || null,
       created_at: `${iso}T12:00:00`,
-    });
+    }).select('id');
     setBusy(false);
-    if (error) { setErro(error.message); return; }
+    const falhaAvulsa = erroEscritaPacoteUso(rAvulsa, 'lançar a sessão');
+    if (falhaAvulsa) { setErro(falhaAvulsa); return; }
     setAddOpen(false); setNovaObs(''); setNovoServ(servUnicoId); setNovaData(hojeMascara());
     refresh();
   }
@@ -422,18 +423,19 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
       .update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId).select('id');
     if (e0) { setBusy(false); setErro(e0.message); return; }
     if (!vinculados || vinculados.length === 0) { setBusy(false); setErro('Você não tem permissão para alterar este atendimento.'); return; }
-    const { error: e1 } = await supabase.from('pacote_uso').insert({
+    const rSessao = await supabase.from('pacote_uso').insert({
       empresa_id:        empresaId,
       pacote_cliente_id: pc.id,
       servico_id:        ag.servico_id,
       agendamento_id:    ag.id,
       created_at:        ag.data_hora_inicio,
-    });
-    if (e1) {
+    }).select('id');
+    const falhaSessao = erroEscritaPacoteUso(rSessao, 'lançar a sessão');
+    if (falhaSessao) {
       // Desfaz o vínculo voltando ao pacote ANTERIOR (null tiraria um atendimento de combo do combo e o
       // faria contar como faturamento); se nem o desfazer passar, avisa para conferir o atendimento.
       const falhaDesfazer = await desfazerVinculoPacote(supabase, empresaId, ag.id, ag.pacote_cliente_id ?? null);
-      setBusy(false); setErro(falhaDesfazer ?? e1.message);
+      setBusy(false); setErro(falhaDesfazer ?? falhaSessao);
       return;
     }
     setBusy(false); setVincOpen(false); setVincAg('');
@@ -452,13 +454,14 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
     const iso = dataParaBanco(edData);
     if (!iso) { setErro('Data inválida. Use DD/MM/AAAA.'); return; }
     setBusy(true); setErro('');
-    const { error } = await supabase.from('pacote_uso').update({
+    const rEdicao = await supabase.from('pacote_uso').update({
       servico_id: edServ || null,
       observacao: edObs.trim() || null,
       created_at: `${iso}T12:00:00`,
-    }).eq('id', editId);
+    }).eq('id', editId).select('id');
     setBusy(false);
-    if (error) { setErro(error.message); return; }
+    const falhaEdicao = erroEscritaPacoteUso(rEdicao, 'editar a sessão');
+    if (falhaEdicao) { setErro(falhaEdicao); return; }
     setEditId(null);
     refresh();
   }
@@ -471,9 +474,10 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
         {
           text: 'Excluir', style: 'destructive', onPress: async () => {
             setBusy(true); setErro('');
-            const { error } = await supabase.from('pacote_uso').delete().eq('id', id);
+            const rExclusao = await supabase.from('pacote_uso').delete().eq('id', id).select('id');
             setBusy(false);
-            if (error) { setErro(error.message); return; }
+            const falhaExclusao = erroEscritaPacoteUso(rExclusao, 'excluir a sessão');
+            if (falhaExclusao) { setErro(falhaExclusao); return; }
             refresh();
           },
         },

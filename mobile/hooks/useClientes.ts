@@ -3,6 +3,7 @@ import { subDays, startOfDay } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { buscarTodasPaginas } from '@shared/paginacao';
+import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 import type { Cliente, AnamneseFicha, Agendamento, TaxaCancelamento, TaxaReserva } from '@/types';
 
 // ── Tipos ────────────────────────────────────────────────────
@@ -223,7 +224,7 @@ export function useClienteDetalhe(clienteId: string) {
         buscarTodasPaginas<any>((from, to) =>
           supabase
             .from('comanda_itens')
-            .select(`id, comanda_id, descricao, valor_unit, quantidade, created_at,
+            .select(`*,
               servico:servicos(nome),
               profissional:users(nome),
               comanda:comandas!inner(fechada_at, clientes_id)`)
@@ -274,7 +275,8 @@ export function useClienteDetalhe(clienteId: string) {
         .sort((a: any, b: any) => String(b.data_hora_inicio).localeCompare(String(a.data_hora_inicio)));
 
       const linhasDeVisita = historicoCompleto.filter((a: any) => a.status === 'concluido');
-      const totalGasto = linhasDeVisita.reduce((acc: number, a: any) => acc + Number(a.valor ?? 0), 0);
+      // Valor cobrado (com a parte do desconto da comanda, 090), igual ao Financeiro.
+      const totalGasto = linhasDeVisita.reduce((acc: number, a: any) => acc + valorCobradoAtendimento(a), 0);
       const ultimaVisita = linhasDeVisita[0]?.data_hora_inicio ?? null;
 
       return {

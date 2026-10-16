@@ -6,7 +6,7 @@
  *   Brasília. Nunca recalcular pelo percentual atual da profissional.
  * - "Pagar" = só as pendentes do período exibido (decisão do dono, 2026-10-01).
  */
-import { arredondar, num, type Valor } from './kpis-financeiros';
+import { arredondar, num, valorCobradoAtendimento, type Valor } from './kpis-financeiros';
 import {
   chaveDiaBRT, chaveMesBRT, contemInstante, instanteMs, rotuloDiaCurto, rotuloMesAno,
   type Limites, type PeriodoComissao,
@@ -28,6 +28,8 @@ export type ComissaoDetalheRow = {
   agendamento?: {
     data_hora_inicio: string | null;
     valor?: Valor;
+    /** Parte do desconto da comanda (090); ausente antes da 090 = 0. */
+    desconto_rateado?: Valor;
     servico?: { nome: string | null; categoria?: string | null; categoria_id?: string | null } | null;
     cliente?: { nome: string | null } | null;
   } | null;
@@ -75,7 +77,7 @@ export function normalizarComissao(r: ComissaoDetalheRow): ComissaoItem {
     status: r.status === 'pago' ? 'pago' : 'pendente',
     criadaEm: r.created_at,
     dataAtendimento: ag?.data_hora_inicio ?? extra?.comanda?.fechada_at ?? (ehExtra ? r.created_at : null),
-    valorAtendimento: ag && ag.valor != null ? num(ag.valor) : ehExtra ? num(r.valor_servico) : null,
+    valorAtendimento: ag && ag.valor != null ? valorCobradoAtendimento(ag) : ehExtra ? num(r.valor_servico) : null,
     servicoNome: ehExtra ? `${extra?.descricao || 'Serviço'} (extra)` : ag?.servico?.nome || 'Serviço',
     servicoCategoria: ag?.servico?.categoria ?? null,
     servicoCategoriaId: ag?.servico?.categoria_id ?? null,

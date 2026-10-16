@@ -144,7 +144,7 @@ export function useRelatorios(periodo: PeriodoRelatorio, opcoes: OpcoesPeriodo, 
       cliente_id: c.chave, nome: c.nome, visitas: c.quantidade, total: c.receita, percentual: c.percentual,
     }));
     // Concluídos + serviços extras da comanda (linha padrão da exportação da aba Financeiro, igual ao web).
-    const concluidos = linhasAtendimentosRelatorio(doPeriodo);
+    const concluidos = linhasAtendimentosRelatorio(doPeriodo, k.mesesComFechamento);
     return {
       kpis: k, kpisAnt: ka, resumo, retorno, servicos, profissionais, topClientes, concluidos,
       serie: serieFaturamento(dados, atual).map(p => ({ rotulo: p.rotulo, valor: p.valor })),

@@ -14,13 +14,16 @@ const ERRO_DESCONTO = 'O desconto não pode ser maior que o subtotal';
 /**
  * Valor digitado → número. Aceita '1.234,56', '12,5', 'R$ 10,00' e também ponto como
  * decimal ('10.50' → 10.5; o input de valor é texto livre). Ponto só é milhar quando
- * todos os grupos depois dele têm 3 dígitos e não há vírgula ('1.234' → 1234).
+ * todos os grupos depois dele têm 3 dígitos e não há vírgula ('1.234' → 1234); '0.xxx' é sempre
+ * decimal ('0.250' → 0,25).
  * Vazio, inválido ou negativo → 0.
  */
 export function parseValorBR(s: string): number {
   const limpo = s.replace(/R\$/gi, '').replace(/\s/g, '');
   let normal: string;
-  if (limpo.includes(',')) normal = limpo.replace(/\./g, '').replace(',', '.');
+  // "0.250" é decimal (um grupo inicial "0" nunca é milhar), igual a parseQuantidadeBR.
+  if (/^-?0\.\d+$/.test(limpo)) normal = limpo;
+  else if (limpo.includes(',')) normal = limpo.replace(/\./g, '').replace(',', '.');
   else if (/^\d{1,3}(\.\d{3})+$/.test(limpo)) normal = limpo.replace(/\./g, '');
   else normal = limpo;
   const n = Number(normal);
@@ -32,6 +35,45 @@ export function calcularDesconto(subtotal: number, entrada: number, modo: ModoDe
   const bruto = Math.max(0, modo === 'percentual' ? centavos((subtotal * entrada) / 100) : centavos(entrada));
   if (bruto > subtotal + 0.001) return { valor: centavos(subtotal), erro: ERRO_DESCONTO };
   return { valor: bruto, erro: null };
+}
+
+/**
+ * Espelho de `public.ratear_desconto_centavos` (migration 090) — o rateio de verdade é feito só no
+ * banco (fonte única); esta cópia serve para testes e prévia. Tudo em CENTAVOS inteiros.
+ * Cota de cada parte = piso(desconto × peso ÷ soma). O resto de centavos vai para a MAIOR parte
+ * (peso maior; empate → a que veio primeiro), sem nunca passar do peso dela; o que não cabe passa
+ * para a próxima maior. Peso 0 (sessão de pacote) recebe 0. Mesmos erros do banco.
+ * @param partes pesos em centavos, na ordem do payload (atendimentos, linhas, itens)
+ * @param desconto desconto manual em centavos
+ */
+export function ratearDescontoCentavos(partes: number[], desconto: number): number[] {
+  if (!Number.isSafeInteger(desconto) || desconto < 0) throw new Error('Desconto inválido.');
+  if (partes.length === 0) {
+    if (desconto > 0) throw new Error(ERRO_DESCONTO + '.');
+    return [];
+  }
+  let soma = 0;
+  for (const p of partes) {
+    if (!Number.isSafeInteger(p) || p < 0) throw new Error('Valor inválido no rateio do desconto.');
+    soma += p;
+  }
+  if (desconto > soma) throw new Error(ERRO_DESCONTO + '.');
+  // Piso exato em inteiros (desconto × peso cabe em 2^53 até ~R$ 900 mil por comanda): o resto da
+  // divisão é tirado antes de dividir, sem depender do arredondamento do ponto flutuante.
+  const piso = (a: number, b: number) => (a - (a % b)) / b;
+  const cotas = partes.map(p => (soma === 0 ? 0 : piso(desconto * p, soma)));
+  let resto = desconto - cotas.reduce((s, c) => s + c, 0);
+  const ordem = partes.map((p, i) => i).sort((a, b) => partes[b] - partes[a] || a - b);
+  for (const i of ordem) {
+    if (resto <= 0) break;
+    const folga = partes[i] - cotas[i];
+    if (folga > 0) {
+      const extra = Math.min(folga, resto);
+      cotas[i] += extra;
+      resto -= extra;
+    }
+  }
+  return cotas;
 }
 
 /**
@@ -53,6 +95,11 @@ export type SplitPagamento = {
   maquininhaGravada?: string | null;
   /** `bandeira` gravada no split reaberto. */
   bandeiraGravada?: string | null;
+  /**
+   * `pagamentos.id` do split reaberto na edição. Vai como `pagamento_id` para `editar_comanda`
+   * (090), que mantém id, taxa, maquininha e data quando método/parcelas/bandeira/maquininha não mudaram.
+   */
+  pagamentoId?: string | null;
 };
 
 export type ResumoComanda = {
@@ -125,7 +172,7 @@ export function taxaDoSplit(
 
 /**
  * Linhas de `pagamentos`: cartão com maquininha/bandeira/parcelas/taxa/líquido; total zero sem
- * splits = cortesia R$0. Taxa por `taxaDoSplit` (null ou 0 → grava sem taxa). `maquininha_id`: no
+ * splits = cortesia R$0. Taxa por `taxaDoSplit` (cartão com 0% grava 0; null, ou fora do cartão, grava sem taxa). `maquininha_id`: no
  * cartão a escolhida ou a padrão, fora do cartão null; no legado (sem a 086) a chave é omitida;
  * com a configuração indisponível, omitida quando null (ver colunaMaquininha).
  * Grava só `comanda_id` (comanda) ou só `venda_id` (venda avulsa), conforme o ctx.
@@ -158,11 +205,13 @@ export function montarPagamentos(
     const cartao = s.metodo === 'credito' || s.metodo === 'debito';
     const parcelas = s.metodo === 'credito' ? (s.parcelas ?? 1) : 1;
     const taxa = taxaDoSplit(s, ctx.config);
-    const comTaxa = taxa !== null && taxa > 0;
+    // Cartão com taxa 0% configurada grava 0 (líquido = bruto); null só quando não há taxa cadastrada.
+    // Pix/dinheiro não têm taxa: null.
+    const comTaxa = taxa !== null && (cartao || taxa > 0);
     const linha: LinhaPagamento = {
       empresa_id: ctx.empresaId, ...vinculo(), valor: centavos(s.valor), metodo: s.metodo,
       bandeira: cartao ? (s.bandeira ?? null) : null, parcelas,
-      taxa_perc: comTaxa ? taxa : null, valor_liquido: comTaxa ? valorLiquido(s.valor, taxa) : null,
+      taxa_perc: comTaxa ? taxa : null, valor_liquido: comTaxa ? valorLiquido(s.valor, taxa as number) : null,
       ...colunaMaquininha(cartao ? maquininhaDaLinha(s, parcelas) : null),
       status: 'pago',
     };

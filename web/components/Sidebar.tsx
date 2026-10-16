@@ -11,6 +11,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { hojeBRT } from '@shared/periodos';
 import { aplicarFiltroComandasNaoFechadas, aplicarFiltroDespesasVencendo } from '@shared/dashboard-consultas';
+import { contagemBadge, somarBadges } from '@shared/dashboard';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
@@ -111,12 +112,17 @@ export default function Sidebar({
           : Promise.resolve({ count: 0 } as { count: number | null }),
       ]);
 
-      const comCount = comissoes.count ?? 0;
-      const comandasCount = comandas.count ?? 0;
-      setComissoesCount(comCount);
-      setComandasAbertasCount(comandasCount);
-      const total = (estoque.count ?? 0) + (despesas.count ?? 0) + (comCount > 0 ? 1 : 0) + (comandasCount > 0 ? 1 : 0);
-      setAlertCount(total);
+      // Consulta com erro não vira número (0 ou total parcial): o badge mantém o valor anterior.
+      const comCount = contagemBadge(comissoes);
+      const comandasCount = contagemBadge(comandas);
+      if (comCount !== null) setComissoesCount(comCount);
+      if (comandasCount !== null) setComandasAbertasCount(comandasCount);
+      const total = somarBadges([
+        contagemBadge(estoque), contagemBadge(despesas),
+        comCount === null ? null : (comCount > 0 ? 1 : 0),
+        comandasCount === null ? null : (comandasCount > 0 ? 1 : 0),
+      ]);
+      if (total !== null) setAlertCount(total);
     })();
   }, [empresaId, podeVerEstoque, podeFecharComanda]);
 

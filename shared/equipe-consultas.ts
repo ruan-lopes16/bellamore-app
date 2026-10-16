@@ -1,5 +1,5 @@
 /** Acesso ao banco da Equipe (web e app). Toda consulta lança erro em vez de devolver lista vazia. */
-import { buscarTodasOuLancar, carregarComissoesPendentes, carregarServicosExtras, type ClienteDb } from './kpis-financeiros-consultas';
+import { buscarComDescontoRateado, carregarComissoesPendentes, carregarServicosExtras, type ClienteDb } from './kpis-financeiros-consultas';
 import { receitaExtrasPorProfissional } from './kpis-financeiros';
 import { pendentesPorProfissional } from './comissoes';
 import { limitesMes } from './periodos';
@@ -28,8 +28,10 @@ export async function carregarEquipe(db: ClienteDb, empresaId: string, mesChave:
       db.from('empresa_membros').select(COLUNAS_MEMBRO)
         .eq('empresa_id', empresaId).in('role', ['owner', 'gestor', 'profissional'])
         .order('ativo', { ascending: false }).order('created_at').order('id'),
-      buscarTodasOuLancar<{ profissional_id: string | null; valor: number | string | null; pacote_cliente_id: string | null }>((de, ate) =>
-        db.from('agendamentos').select('id, profissional_id, valor, pacote_cliente_id')
+      // desconto_rateado só existe com a 090: sem ela, refaz sem a coluna (vale 0).
+      buscarComDescontoRateado<{ profissional_id: string | null; valor: number | string | null; desconto_rateado?: number | string | null; pacote_cliente_id: string | null }>(
+        'id, profissional_id, valor, desconto_rateado, pacote_cliente_id', 'id, profissional_id, valor, pacote_cliente_id',
+        colunas => (de, ate) => db.from('agendamentos').select(colunas)
           .eq('empresa_id', empresaId).eq('status', 'concluido')
           .gte('data_hora_inicio', mes.startIso).lte('data_hora_inicio', mes.endIso)
           .order('id').range(de, ate)),

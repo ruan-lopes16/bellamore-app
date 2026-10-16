@@ -26,6 +26,7 @@ import { supabase } from '@/lib/supabase';
 import { podeAtribuirRole } from '@/lib/permissions';
 import { maskPhone } from '@shared/mascaras';
 import { rotuloContrato, type TipoContrato } from '@shared/equipe';
+import { MENSAGEM_CONVITE_PENDENTE } from '@shared/convites-consultas';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -160,19 +161,30 @@ export default function ConvidarProfissional() {
     setEnviando(false);
 
     if (!resposta.ok) {
-      Alert.alert('Erro', resultado.error ?? 'Não foi possível salvar.');
+      // Mensagens da API chegam em português (403 "Só a dona pode alterar o convite de uma gestora.",
+      // 409 convite mudou); o 503 é a migration 092 ainda não aplicada no banco.
+      Alert.alert('Erro', resultado.error
+        ?? (resposta.status === 503
+          ? 'Atualização do banco pendente: peça para rodar a migration 092.'
+          : 'Não foi possível salvar.'));
       return;
     }
 
     qc.invalidateQueries({ queryKey: ['equipe'] });
     qc.invalidateQueries({ queryKey: ['profissionais'] });
+    qc.invalidateQueries({ queryKey: ['convites-pendentes'] });
+    qc.invalidateQueries({ queryKey: ['equipe-historico'] });
 
     if (!usarConvite && resultado.status === 'criado') {
       setCredenciais({ email: email.toLowerCase().trim(), senha });
       return;
     }
 
-    if (resultado.status === 'adicionado') {
+    if (resultado.status === 'convite_pendente') {
+      Alert.alert('Convite enviado!', MENSAGEM_CONVITE_PENDENTE, [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } else if (resultado.status === 'adicionado') {
       Alert.alert('Profissional adicionada!', `${nome} já tinha conta e foi adicionada à sua equipe.`, [
         { text: 'OK', onPress: () => router.back() },
       ]);
@@ -258,7 +270,7 @@ export default function ConvidarProfissional() {
               Como funciona
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text2, lineHeight: 18 }}>
-              Se a profissional já tem conta no app, ela será adicionada imediatamente. Se não tiver, escolha abaixo como ela vai acessar.
+              Se a profissional já tem conta no app, ela recebe um convite e só entra na equipe depois de aceitar. Se não tiver, escolha abaixo como ela vai acessar.
             </Text>
           </View>
 

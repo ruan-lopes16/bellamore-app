@@ -7,12 +7,29 @@
  *
  * Regras (decisões do dono, 2026-09-30):
  * - Faturamento bruto = atendimentos 'concluido' SEM sessão de pacote
- *   (agendamentos.valor, data = data_hora_inicio) + vendas avulsas
- *   (valor_final, created_at) + taxas de cancelamento pagas (paga_em) + taxas
- *   de reserva com paga_em (inclui as retidas depois de pagas) + serviços
- *   extras lançados na comanda (comanda_itens tipo 'servico' de comanda
- *   'fechada', valor_unit × quantidade, data = comandas.fechada_at — decisão
- *   do dono, 2026-10-08).
+ *   (agendamentos.valor − desconto_rateado, data = data_hora_inicio) + vendas
+ *   avulsas (valor_final, created_at) + taxas de cancelamento pagas (paga_em)
+ *   + taxas de reserva com paga_em (só a parte NÃO descontada numa comanda)
+ *   + serviços extras lançados na
+ *   comanda (comanda_itens tipo 'servico' de comanda 'fechada', valor_unit ×
+ *   quantidade − desconto_rateado, data = comandas.fechada_at — decisão do
+ *   dono, 2026-10-08).
+ * - Desde a migration 090 (decisões do dono, 2026-10-15): o desconto manual
+ *   da comanda é rateado e gravado em `desconto_rateado` (atendimento, linha
+ *   e extra), e sai da receita. Produto e pacote vendidos na comanda entram
+ *   por `vendas` (valor_final já com a parte do desconto) — nunca somar os
+ *   extras desses tipos aqui, senão o desconto sai duas vezes. Sem a 090 (ou
+ *   em comanda antiga) a coluna vale 0.
+ * - Taxa de reserva sem contar duas vezes e sem perder dinheiro (decisão do
+ *   dono, 2026-10-15): o atendimento concluído conta como sempre (valor −
+ *   desconto_rateado, pela data do serviço) e toda taxa com paga_em conta pela
+ *   paga_em, mas só a parte que a comanda NÃO descontou. A comanda grava
+ *   `comandas.desconto_reserva` (total descontado da reserva dos atendimentos
+ *   dela); esse total é distribuído entre as taxas pagas dos atendimentos da
+ *   comanda (ordem paga_em, id) — ver parteReservaNaoDescontada. Taxa sem
+ *   comanda (retida, atendimento ainda não fechado) conta inteira; sessão de
+ *   pacote (desconto aplicado 0) e comanda de antes de 13/08
+ *   (desconto_reserva 0) também; excesso sobre o total conta só o resto.
  *   `pagamentos` NÃO é receita: só taxa de cartão e formas de pagamento.
  * - Taxa de cartão = Σ (pagamentos.valor − valor_liquido) quando há valor_liquido.
  * - Comissões = tabela `comissoes` (valor gerado), datada por created_at.
@@ -30,7 +47,7 @@
  */
 import {
   type Limites, contemInstante, contemData, chaveMesBRT, mesesDoIntervalo, mesesInteirosDoIntervalo,
-  limitesDias, limitesMes, chaveDiaBRT, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto,
+  limitesDias, limitesMes, chaveDiaBRT, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto, rotuloMesAno,
 } from './periodos';
 import { type FinanceiroFechamentoRow, getFechamentoForMonth } from './fechamentos-mensais';
 import {
@@ -51,24 +68,41 @@ export type AgendamentoFinRow = {
   cliente_id: string | null;
   profissional_id: string | null;
   servico_id: string | null;
+  /** Parte do desconto da comanda (090). Ausente/nula (antes da 090) = 0. */
+  desconto_rateado?: Valor;
   servico?: { nome: string; categoria?: string | null } | null;
   profissional?: { nome: string; foto_url?: string | null } | null;
   cliente?: { nome: string } | null;
 };
 export type VendaFinRow = { id: string; valor_final: Valor; created_at: string };
 export type TaxaPagaFinRow = { id: string; valor: Valor; paga_em: string | null };
+/**
+ * Taxa de reserva paga (paga_em preenchido). `valor_receita` = parte NÃO descontada numa comanda,
+ * calculada pela consulta (parteReservaNaoDescontada); ausente = a taxa inteira.
+ */
+export type TaxaReservaFinRow = TaxaPagaFinRow & {
+  status: string;
+  agendamento_id?: string | null;
+  valor_receita?: Valor;
+};
+/** Taxa de reserva paga com a comanda do atendimento dela (null = atendimento não fechado por comanda). */
+export type TaxaReservaComandaRow = { id: string; valor: Valor; paga_em: string | null; comanda_id: string | null };
+/** O que a comanda descontou de reserva (comandas.desconto_reserva, migration 057). */
+export type ComandaReservaRow = { id: string; desconto_reserva: Valor };
 export type PagamentoFinRow = { id: string; metodo: string; valor: Valor; valor_liquido: Valor; created_at: string };
 export type ComissaoFinRow = { id: string; profissional_id: string; valor_comissao: Valor; status: string; created_at: string };
 export type DespesaFinRow = { id: string; valor: Valor; categoria: string | null; status: string; data_pagamento: string | null };
 /**
  * Serviço extra cobrado na comanda (comanda_itens tipo 'servico' de comanda
  * 'fechada'), já achatado pela consulta: `fechada_at`/`cliente_id` vêm da comanda.
- * Receita = valor_unit × quantidade, datada por `fechada_at`.
+ * Receita = valor_unit × quantidade − desconto_rateado, datada por `fechada_at`.
  */
 export type ServicoExtraFinRow = {
   id: string;
   valor_unit: Valor;
   quantidade: Valor;
+  /** Parte do desconto da comanda (090). Ausente/nula (antes da 090) = 0. */
+  desconto_rateado?: Valor;
   profissional_id: string | null;
   servico_id: string | null;
   descricao?: string | null;
@@ -83,7 +117,8 @@ export type DadosFinanceiros = {
   agendamentos: AgendamentoFinRow[];
   vendas: VendaFinRow[];
   taxasCancelamento: TaxaPagaFinRow[];
-  taxasReserva: TaxaPagaFinRow[];
+  /** Só as 'retida' contam (a consulta já filtra; recortarDados confere de novo). */
+  taxasReserva: TaxaReservaFinRow[];
   pagamentos: PagamentoFinRow[];
   comissoes: ComissaoFinRow[];
   despesas: DespesaFinRow[];
@@ -99,7 +134,7 @@ export const DADOS_VAZIOS: DadosFinanceiros = {
 
 export type KpisFinanceiros = {
   receitaServicos: number;
-  /** Serviços extras lançados na comanda (valor_unit × quantidade, por comandas.fechada_at). */
+  /** Serviços extras lançados na comanda (valor_unit × quantidade − desconto rateado, por comandas.fechada_at). */
   receitaServicosExtras: number;
   receitaVendas: number;
   receitaTaxasCancelamento: number;
@@ -129,7 +164,23 @@ export type KpisFinanceiros = {
   pctComparecimento: number;
   /** Meses ('yyyy-MM') em que o fechamento importado substituiu o cálculo ao vivo. */
   mesesComFechamento: string[];
+  /**
+   * Extras, vendas e taxas avulsas SÓ dos meses calculados ao vivo — o que as telas mostram
+   * como linha/cartão próprio. Nos meses com fechamento importado esses valores já estão
+   * dentro do bruto importado (ver notaAvulsasNoFechamento).
+   */
+  avulsasForaDoFechamento: ReceitasAvulsas;
 };
+
+/** Receitas que as telas mostram à parte dos atendimentos. */
+export type ReceitasAvulsas = {
+  servicosExtras: number;
+  vendas: number;
+  taxasCancelamento: number;
+  taxasReserva: number;
+};
+
+const AVULSAS_ZERADAS: ReceitasAvulsas = { servicosExtras: 0, vendas: 0, taxasCancelamento: 0, taxasReserva: 0 };
 
 export const KPIS_ZERADOS: KpisFinanceiros = {
   receitaServicos: 0, receitaServicosExtras: 0, receitaVendas: 0, receitaTaxasCancelamento: 0, receitaTaxasReserva: 0,
@@ -137,6 +188,7 @@ export const KPIS_ZERADOS: KpisFinanceiros = {
   despesas: 0, lucro: 0, atendimentos: 0, atendimentosFaturaveis: 0, ticketMedio: 0,
   totalAgendamentos: 0, cancelados: 0, faltas: 0, perdidos: 0,
   pctCancelamento: 0, pctComparecimento: 0, mesesComFechamento: [],
+  avulsasForaDoFechamento: AVULSAS_ZERADAS,
 };
 
 // ── Utilitários ────────────────────────────────────────────────────
@@ -155,9 +207,67 @@ export function ehAtendimentoFaturavel(a: Pick<AgendamentoFinRow, 'status' | 'pa
   return a.status === 'concluido' && !a.pacote_cliente_id;
 }
 
-/** Receita de um serviço extra da comanda: valor_unit × quantidade. */
-export function valorServicoExtra(x: Pick<ServicoExtraFinRow, 'valor_unit' | 'quantidade'>): number {
-  return num(x.valor_unit) * num(x.quantidade);
+/**
+ * Valor cobrado de um atendimento: valor − desconto_rateado (a parte do desconto da comanda,
+ * migration 090). Coluna ausente (antes da 090) ou nula vale 0; nunca negativo. Use em toda soma
+ * de valor de atendimento fora dos KPIs (total gasto da cliente, total do dia, previsões).
+ */
+export function valorCobradoAtendimento(a: { valor?: Valor; desconto_rateado?: Valor }): number {
+  return Math.max(num(a.valor) - num(a.desconto_rateado), 0);
+}
+
+/** Receita de um atendimento: valor − desconto_rateado (a parte do desconto da comanda; 0 antes da 090). */
+export function valorAtendimentoReceita(a: Pick<AgendamentoFinRow, 'valor' | 'desconto_rateado'>): number {
+  return valorCobradoAtendimento(a);
+}
+
+/** Receita de um serviço extra da comanda: valor_unit × quantidade − desconto_rateado (0 antes da 090). */
+export function valorServicoExtra(x: Pick<ServicoExtraFinRow, 'valor_unit' | 'quantidade' | 'desconto_rateado'>): number {
+  return Math.max(num(x.valor_unit) * num(x.quantidade) - num(x.desconto_rateado), 0);
+}
+
+/** Taxa de reserva que entra na receita: paga (paga_em preenchido) e não cancelada. */
+export function ehTaxaReservaReceita(t: Pick<TaxaReservaFinRow, 'status' | 'paga_em'>): boolean {
+  return !!t.paga_em && t.status !== 'cancelada';
+}
+
+/** Receita de uma taxa de reserva: a parte não descontada em comanda (`valor_receita`), ou a taxa inteira. */
+export function valorTaxaReservaReceita(t: Pick<TaxaReservaFinRow, 'valor' | 'valor_receita'>): number {
+  return t.valor_receita == null ? num(t.valor) : Math.max(num(t.valor_receita), 0);
+}
+
+const centavos = (v: Valor) => Math.round(num(v) * 100);
+
+/**
+ * Parte de cada taxa de reserva paga que NÃO foi descontada numa comanda (em reais, por id).
+ * O `desconto_reserva` de cada comanda é distribuído entre as taxas dos atendimentos dela em
+ * ordem estável (paga_em, depois id): cada taxa recebe min(valor, o que ainda resta do desconto).
+ * Taxa sem comanda (ou com comanda desconhecida) → parte descontada 0 → conta inteira.
+ * Passe TODAS as taxas de cada comanda envolvida (mesmo as pagas fora do período), senão a
+ * distribuição sai errada. Conta em centavos inteiros.
+ */
+export function parteReservaNaoDescontada(
+  taxas: TaxaReservaComandaRow[], comandas: ComandaReservaRow[],
+): Map<string, number> {
+  const restante = new Map<string, number>();
+  for (const c of comandas) restante.set(c.id, Math.max(centavos(c.desconto_reserva), 0));
+  const ordenadas = [...taxas].sort((a, b) => {
+    const pa = a.paga_em ?? '', pb = b.paga_em ?? '';
+    if (pa !== pb) return pa < pb ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  const out = new Map<string, number>();
+  for (const t of ordenadas) {
+    const valor = Math.max(centavos(t.valor), 0);
+    let descontado = 0;
+    if (t.comanda_id && restante.has(t.comanda_id)) {
+      const resta = restante.get(t.comanda_id)!;
+      descontado = Math.min(valor, resta);
+      restante.set(t.comanda_id, resta - descontado);
+    }
+    out.set(t.id, (valor - descontado) / 100);
+  }
+  return out;
 }
 
 /** Mantém só as linhas dentro dos limites (e só despesas pagas). */
@@ -166,7 +276,7 @@ export function recortarDados(d: DadosFinanceiros, l: Limites): DadosFinanceiros
     agendamentos: d.agendamentos.filter(a => contemInstante(l, a.data_hora_inicio)),
     vendas: d.vendas.filter(v => contemInstante(l, v.created_at)),
     taxasCancelamento: d.taxasCancelamento.filter(t => contemInstante(l, t.paga_em)),
-    taxasReserva: d.taxasReserva.filter(t => contemInstante(l, t.paga_em)),
+    taxasReserva: d.taxasReserva.filter(t => ehTaxaReservaReceita(t) && contemInstante(l, t.paga_em)),
     pagamentos: d.pagamentos.filter(p => contemInstante(l, p.created_at)),
     comissoes: d.comissoes.filter(c => contemInstante(l, c.created_at)),
     despesas: d.despesas.filter(x => x.status === 'pago' && contemData(l, x.data_pagamento)),
@@ -192,21 +302,28 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   const faltas = d.agendamentos.filter(a => a.status === 'faltou').length;
   const cancelados = d.agendamentos.filter(a => a.status === 'cancelado').length;
 
-  const receitaServicos = faturaveis.reduce((s, a) => s + num(a.valor), 0);
+  const receitaServicos = faturaveis.reduce((s, a) => s + valorAtendimentoReceita(a), 0);
   const receitaServicosExtras = d.servicosExtras.reduce((s, x) => s + valorServicoExtra(x), 0);
   const receitaVendas = d.vendas.reduce((s, v) => s + num(v.valor_final), 0);
   const receitaTaxasCancelamento = d.taxasCancelamento.reduce((s, t) => s + num(t.valor), 0);
-  const receitaTaxasReserva = d.taxasReserva.reduce((s, t) => s + num(t.valor), 0);
+  const receitaTaxasReserva = d.taxasReserva.reduce((s, t) => s + valorTaxaReservaReceita(t), 0);
 
   // Mês a mês (Brasília), para aplicar o fechamento importado onde houver.
   const receitaMes: Record<string, number> = {};
   const comissaoMes: Record<string, number> = {};
   const cartaoMes: Record<string, number> = {};
-  faturaveis.forEach(a => somarEm(receitaMes, chaveMesBRT(a.data_hora_inicio), num(a.valor)));
-  d.vendas.forEach(v => somarEm(receitaMes, chaveMesBRT(v.created_at), num(v.valor_final)));
-  d.servicosExtras.forEach(x => somarEm(receitaMes, chaveMesBRT(x.fechada_at), valorServicoExtra(x)));
-  d.taxasCancelamento.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
-  d.taxasReserva.forEach(t => somarEm(receitaMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
+  const extrasMes: Record<string, number> = {};
+  const vendasMes: Record<string, number> = {};
+  const cancMes: Record<string, number> = {};
+  const reservaMes: Record<string, number> = {};
+  faturaveis.forEach(a => somarEm(receitaMes, chaveMesBRT(a.data_hora_inicio), valorAtendimentoReceita(a)));
+  d.vendas.forEach(v => somarEm(vendasMes, chaveMesBRT(v.created_at), num(v.valor_final)));
+  d.servicosExtras.forEach(x => somarEm(extrasMes, chaveMesBRT(x.fechada_at), valorServicoExtra(x)));
+  d.taxasCancelamento.forEach(t => somarEm(cancMes, chaveMesBRT(t.paga_em as string), num(t.valor)));
+  d.taxasReserva.forEach(t => somarEm(reservaMes, chaveMesBRT(t.paga_em as string), valorTaxaReservaReceita(t)));
+  for (const m of [vendasMes, extrasMes, cancMes, reservaMes]) {
+    for (const [k, v] of Object.entries(m)) somarEm(receitaMes, k, v);
+  }
   d.comissoes.forEach(c => somarEm(comissaoMes, chaveMesBRT(c.created_at), num(c.valor_comissao)));
   d.pagamentos.forEach(p => somarEm(cartaoMes, chaveMesBRT(p.created_at), taxaDeCartao(p)));
 
@@ -215,6 +332,7 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
   let comissoes = 0;
   let taxasCartao = 0;
   const mesesComFechamento: string[] = [];
+  const avulsas = { ...AVULSAS_ZERADAS };
   for (const k of mesesDoIntervalo(l)) {
     const fechamento = inteiros.has(k) ? getFechamentoForMonth(d.fechamentos, k) : null;
     if (fechamento) {
@@ -226,6 +344,10 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
     bruto += receitaMes[k] ?? 0;
     comissoes += comissaoMes[k] ?? 0;
     taxasCartao += cartaoMes[k] ?? 0;
+    avulsas.servicosExtras += extrasMes[k] ?? 0;
+    avulsas.vendas += vendasMes[k] ?? 0;
+    avulsas.taxasCancelamento += cancMes[k] ?? 0;
+    avulsas.taxasReserva += reservaMes[k] ?? 0;
   }
 
   const despesas = d.despesas.reduce((s, x) => s + num(x.valor), 0);
@@ -266,7 +388,47 @@ export function calcularKpisFinanceiros(dados: DadosFinanceiros, l: Limites): Kp
     pctCancelamento: totalAgendamentos > 0 ? (perdidos / totalAgendamentos) * 100 : 0,
     pctComparecimento: baseComparecimento > 0 ? (concluidos.length / baseComparecimento) * 100 : 0,
     mesesComFechamento,
+    avulsasForaDoFechamento: {
+      servicosExtras: arredondar(avulsas.servicosExtras),
+      vendas: arredondar(avulsas.vendas),
+      taxasCancelamento: arredondar(avulsas.taxasCancelamento),
+      taxasReserva: arredondar(avulsas.taxasReserva),
+    },
   };
+}
+
+// ── Mês com fechamento importado ───────────────────────────────────
+
+/**
+ * Nota única (web e app, Financeiro e Relatórios) quando o período cobre um mês importado
+ * inteiro: os extras, vendas e taxas desse mês não aparecem como linha própria — já estão no
+ * bruto importado. `null` sem mês importado.
+ */
+export function notaAvulsasNoFechamento(k: Pick<KpisFinanceiros, 'mesesComFechamento'>): string | null {
+  if (k.mesesComFechamento.length === 0) return null;
+  const meses = k.mesesComFechamento.map(rotuloMesAno).join(', ');
+  return `Serviços extras, vendas e taxas de ${meses} estão incluídos no fechamento importado.`;
+}
+
+export type CartaoReceitaAvulsa = {
+  id: 'servicosExtras' | 'taxasCancelamento' | 'taxasReserva';
+  rotulo: string;
+  valor: number;
+  sub: string | null;
+};
+
+/**
+ * Cartões de receita avulsa do Financeiro (web e app): serviços extras e taxas, só os de valor
+ * positivo e só dos meses ao vivo (mês importado inteiro → incluídos no fechamento).
+ */
+export function cartoesReceitasAvulsas(k: Pick<KpisFinanceiros, 'avulsasForaDoFechamento'>): CartaoReceitaAvulsa[] {
+  const a = k.avulsasForaDoFechamento;
+  const lista: CartaoReceitaAvulsa[] = [
+    { id: 'servicosExtras', rotulo: 'Serviços extras', valor: a.servicosExtras, sub: null },
+    { id: 'taxasCancelamento', rotulo: 'Taxas de cancelamento', valor: a.taxasCancelamento, sub: null },
+    { id: 'taxasReserva', rotulo: 'Taxas de reserva', valor: a.taxasReserva, sub: 'fora das comandas' },
+  ];
+  return lista.filter(c => c.valor > 0);
 }
 
 /**
@@ -406,7 +568,7 @@ export function rankingAtendimentos(
       ?? NOME_PADRAO[por];
     const item = mapa.get(chave) ?? { nome, quantidade: 0, receita: 0 };
     item.quantidade += 1;
-    if (!a.pacote_cliente_id) item.receita += num(a.valor);
+    if (!a.pacote_cliente_id) item.receita += valorAtendimentoReceita(a);
     mapa.set(chave, item);
   }
   for (const x of extras) {
@@ -429,7 +591,7 @@ export function rankingAtendimentos(
  * Receita de serviços extras da comanda por profissional (comanda_itens.profissional_id),
  * para somar ao faturado de cada uma (Equipe). Extra sem profissional não é atribuído.
  */
-export function receitaExtrasPorProfissional(extras: Pick<ServicoExtraFinRow, 'profissional_id' | 'valor_unit' | 'quantidade'>[]): Record<string, number> {
+export function receitaExtrasPorProfissional(extras: Pick<ServicoExtraFinRow, 'profissional_id' | 'valor_unit' | 'quantidade' | 'desconto_rateado'>[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const x of extras) {
     if (!x.profissional_id) continue;

@@ -354,3 +354,14 @@ export function textoRecorrentesPendentes(n: number): string {
   const s = n !== 1 ? 's' : '';
   return `${n} despesa${s} recorrente${s} do mês anterior não ${n !== 1 ? 'foram lançadas' : 'foi lançada'}.`;
 }
+
+/** Mensagem quando o lançamento não inseriu nada porque todas já existiam no mês. */
+export const TODAS_RECORRENTES_LANCADAS = 'Todas as recorrentes deste mês já estavam lançadas.';
+
+/** Resultado do lançamento de recorrentes (web e app), a partir de lancarRecorrentesMensais. */
+export function textoLancamentoRecorrentes(r: { inseridas: number; jaExistiam: number }): string {
+  const { inseridas, jaExistiam } = r;
+  if (inseridas === 0) return TODAS_RECORRENTES_LANCADAS;
+  return `${inseridas} despesa${inseridas !== 1 ? 's' : ''} lançada${inseridas !== 1 ? 's' : ''}.`
+    + (jaExistiam > 0 ? ` ${jaExistiam} já estava${jaExistiam !== 1 ? 'm' : ''} lançada${jaExistiam !== 1 ? 's' : ''}.` : '');
+}

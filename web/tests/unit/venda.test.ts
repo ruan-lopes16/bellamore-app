@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda,
+  adicionarAoCarrinho, alterarQuantidade, subtotalVenda, gravarVenda, ErroVenda, assinaturaVenda,
   type ItemVenda, type ProdutoVenda, type DadosVenda,
 } from '@shared/venda';
 import { configLegada, type ConfigCartoes } from '@shared/taxas-cartao';
@@ -48,22 +48,94 @@ describe('gravarVenda', () => {
     maquininhas: configLegada(null).maquininhas.map(m => ({ ...m, id: 'maq1' })) };
   const itens = alterarQuantidade(adicionarAoCarrinho([], oleo), 'p2', 2); // 10,10
   const dados = (extra: Partial<DadosVenda> = {}): DadosVenda => ({
-    empresaId: 'e1', clienteId: 'c1', itens, desconto: 0.1, config,
+    empresaId: 'e1', clienteId: 'c1', itens, desconto: 0.1, config, vendaId: 'V0',
     splits: [{ metodo: 'credito', valor: 10, bandeira: 'visa', parcelas: 2 }], ...extra,
   });
   const linhas = { vendas: [{ id: 'v1' }] };
 
-  describe('pela função registrar_venda_avulsa (087)', () => {
+  const PGRST202 = (fn: string) => ({ data: null, error: { code: 'PGRST202', message: `Could not find the function public.${fn}` } });
+  /** Banco com a 087 e sem a 090: a v2 não existe (PGRST202); as demais respostas vêm de `rpc`. */
+  const fakeV1 = (o: Parameters<typeof fakeDb>[0] = {}) => {
+    const rpc = o.rpc;
+    return fakeDb({ ...o, rpc: (fn, args) => (fn === 'registrar_venda_avulsa_v2' || !rpc ? PGRST202(fn) : rpc(fn, args)) });
+  };
+
+  describe('pela função registrar_venda_avulsa_v2 (090), com chave contra repetição', () => {
+    const v2 = (r: () => { data: unknown; error: { code?: string; message: string } | null }) =>
+      (fn: string) => (fn === 'registrar_venda_avulsa_v2' ? r() : { data: 'v1-nao-devia', error: null });
+
+    it('manda o vendaId da tela e os mesmos itens/pagamentos da 087; não chama a v1 nem tabela', async () => {
+      const { db, chamadas, rpcs } = fakeDb({ awaitavel: true, linhas, rpc: v2(() => ({ data: 'V1', error: null })) });
+      const r = await gravarVenda(db, { ...dados(), vendaId: 'V1' });
+      expect(r).toEqual({ vendaId: 'V1', avisoEstoque: null });
+      expect(chamadas).toHaveLength(0);
+      expect(rpcs.map(x => x.fn)).toEqual(['registrar_venda_avulsa_v2']);
+      const a = rpcs[0].args;
+      expect(a.p_venda_id).toBe('V1');
+      expect(a.p_empresa).toBe('e1');
+      expect(a.p_cliente).toBe('c1');
+      expect(a.p_desconto).toBe(0.1);
+      expect(a.p_itens).toEqual([{ produto_id: 'p2', quantidade: 2, preco_unitario: 5.05 }]);
+      expect((a.p_pagamentos as unknown[])[0]).toMatchObject({ metodo: 'credito', bandeira: 'visa', parcelas: 2, maquininha_id: 'maq1', valor: 10 });
+    });
+
+    it('nova tentativa depois de "sem resposta" reenvia o MESMO vendaId (o banco devolve a venda já gravada)', async () => {
+      let n = 0;
+      const { db, rpcs } = fakeDb({ awaitavel: true, linhas, rpc: v2(() => (++n === 1
+        ? { data: null, error: { code: '', message: 'TypeError: Failed to fetch' } }
+        : { data: 'V1', error: null })) });
+      const e = await gravarVenda(db, { ...dados(), vendaId: 'V1' }).catch(x => x);
+      expect(e).toBeInstanceOf(ErroVenda);
+      expect(e.message).toMatch(/^venda: Sem resposta do servidor/);
+      expect(e.semResposta).toBe(true);
+      const r = await gravarVenda(db, { ...dados(), vendaId: 'V1' });
+      expect(r.vendaId).toBe('V1');
+      expect(rpcs.map(x => [x.fn, x.args.p_venda_id])).toEqual([
+        ['registrar_venda_avulsa_v2', 'V1'], ['registrar_venda_avulsa_v2', 'V1'],
+      ]);
+    });
+
+    it('erro da v2 vira ErroVenda e não cai na v1 nem no caminho antigo', async () => {
+      const { db, chamadas, rpcs } = fakeDb({ awaitavel: true, linhas,
+        rpc: v2(() => ({ data: null, error: { code: 'P0001', message: 'Estoque insuficiente: Óleo (restam 1)' } })) });
+      const e = await gravarVenda(db, { ...dados(), vendaId: 'V1' }).catch(x => x);
+      expect(e.message).toBe('venda: Estoque insuficiente: Óleo (restam 1)');
+      expect(e.semResposta).toBe(false);
+      expect(rpcs).toHaveLength(1);
+      expect(chamadas).toHaveLength(0);
+    });
+
+    it('assinaturaVenda: o que vai ao banco sem a chave — igual para a mesma venda, diferente com qualquer mudança', () => {
+      const { vendaId: _v, ...base } = dados();
+      expect(assinaturaVenda(base)).toBe(assinaturaVenda({ ...base }));
+      expect(assinaturaVenda(base)).not.toContain('V0');
+      expect(assinaturaVenda({ ...base, desconto: 0.2 })).not.toBe(assinaturaVenda(base));
+      expect(assinaturaVenda({ ...base, clienteId: null })).not.toBe(assinaturaVenda(base));
+      expect(assinaturaVenda({ ...base, itens: alterarQuantidade(itens, 'p2', 1) })).not.toBe(assinaturaVenda(base));
+      expect(assinaturaVenda({ ...base, splits: [{ metodo: 'pix', valor: 10 }] })).not.toBe(assinaturaVenda(base));
+    });
+
+    it('sem a 090 cai na v1 (087) e, sem a 087, no caminho antigo', async () => {
+      const { db, rpcs, chamadas } = fakeDb({ awaitavel: true, linhas });
+      const r = await gravarVenda(db, { ...dados(), vendaId: 'V1' });
+      expect(rpcs.map(x => x.fn)).toEqual(['registrar_venda_avulsa_v2', 'registrar_venda_avulsa']);
+      expect(rpcs[1].args).not.toHaveProperty('p_venda_id');
+      expect(r.vendaId).toBe('v1');
+      expect(chamadas.map(c => c.tabela)).toEqual(['vendas', 'venda_itens', 'estoque_movimentos', 'pagamentos']);
+    });
+  });
+
+  describe('pela função registrar_venda_avulsa (087), sem a 090', () => {
     const ok = () => ({ data: 'v9', error: null });
 
     it('chama a função uma vez, com itens, desconto e pagamentos, e não grava tabela nenhuma direto', async () => {
-      const { db, chamadas, rpcs } = fakeDb({ awaitavel: true, linhas, rpc: ok });
+      const { db, chamadas, rpcs } = fakeV1({ awaitavel: true, linhas, rpc: ok });
       const r = await gravarVenda(db, dados());
       expect(r).toEqual({ vendaId: 'v9', avisoEstoque: null });
       expect(chamadas).toHaveLength(0);
-      expect(rpcs).toHaveLength(1);
-      expect(rpcs[0].fn).toBe('registrar_venda_avulsa');
-      const a = rpcs[0].args;
+      expect(rpcs).toHaveLength(2);
+      expect(rpcs[1].fn).toBe('registrar_venda_avulsa');
+      const a = rpcs[1].args;
       expect(a.p_empresa).toBe('e1');
       expect(a.p_cliente).toBe('c1');
       expect(a.p_desconto).toBe(0.1);
@@ -77,14 +149,14 @@ describe('gravarVenda', () => {
     });
 
     it('cliente opcional vira null; total zero sem pagamento manda a Cortesia R$ 0', async () => {
-      const { db, rpcs } = fakeDb({ awaitavel: true, linhas, rpc: ok });
+      const { db, rpcs } = fakeV1({ awaitavel: true, linhas, rpc: ok });
       await gravarVenda(db, dados({ clienteId: null, desconto: 10.1, splits: [] }));
-      expect(rpcs[0].args.p_cliente).toBeNull();
-      expect(rpcs[0].args.p_pagamentos).toEqual([expect.objectContaining({ metodo: 'cortesia', valor: 0 })]);
+      expect(rpcs[1].args.p_cliente).toBeNull();
+      expect(rpcs[1].args.p_pagamentos).toEqual([expect.objectContaining({ metodo: 'cortesia', valor: 0 })]);
     });
 
     it('erro sem code (rede caiu): não libera nova tentativa e manda conferir no Histórico', async () => {
-      const { db, chamadas } = fakeDb({ awaitavel: true, linhas,
+      const { db, chamadas } = fakeV1({ awaitavel: true, linhas,
         rpc: () => ({ data: null, error: { code: '', message: 'TypeError: Failed to fetch' } }) });
       const e = await gravarVenda(db, dados()).catch(x => x);
       expect(e).toBeInstanceOf(ErroVenda);
@@ -95,7 +167,7 @@ describe('gravarVenda', () => {
     });
 
     it('erro da função (ex.: estoque insuficiente) vira ErroVenda sem vendaId e não tenta o caminho antigo', async () => {
-      const { db, chamadas } = fakeDb({ awaitavel: true, linhas,
+      const { db, chamadas } = fakeV1({ awaitavel: true, linhas,
         rpc: () => ({ data: null, error: { code: 'P0001', message: 'Estoque insuficiente: Óleo (restam 1)' } }) });
       const e = await gravarVenda(db, dados()).catch(x => x);
       expect(e).toBeInstanceOf(ErroVenda);
@@ -106,20 +178,20 @@ describe('gravarVenda', () => {
     });
 
     it('permissão negada pela função vira mensagem em português', async () => {
-      const { db } = fakeDb({ awaitavel: true, linhas,
+      const { db } = fakeV1({ awaitavel: true, linhas,
         rpc: () => ({ data: null, error: { code: '42501', message: 'Você não tem permissão para registrar vendas avulsas.' } }) });
-      await expect(gravarVenda(db, dados())).rejects.toThrow('venda: Você não tem permissão para registrar a venda. Fale com a dona ou a gestora.');
+      await expect(gravarVenda(db, dados())).rejects.toThrow('venda: Você não tem permissão para registrar vendas avulsas.');
     });
 
     it('função sem devolver id é erro (nunca sucesso sem venda)', async () => {
-      const { db } = fakeDb({ awaitavel: true, linhas, rpc: () => ({ data: null, error: null }) });
+      const { db } = fakeV1({ awaitavel: true, linhas, rpc: () => ({ data: null, error: null }) });
       const e = await gravarVenda(db, dados()).catch(x => x);
       expect(e).toBeInstanceOf(ErroVenda);
       expect(e.vendaId).toBeNull();
     });
 
     it('42883 (algo dentro da função falta) é erro, não cai no caminho antigo', async () => {
-      const { db, chamadas } = fakeDb({ awaitavel: true, linhas,
+      const { db, chamadas } = fakeV1({ awaitavel: true, linhas,
         rpc: () => ({ data: null, error: { code: '42883', message: 'function trim_scale(numeric) does not exist' } }) });
       const e = await gravarVenda(db, dados()).catch(x => x);
       expect(e).toBeInstanceOf(ErroVenda);
@@ -128,15 +200,15 @@ describe('gravarVenda', () => {
     });
 
     it('sem a 087 (PGRST202) usa o caminho antigo em 4 passos', async () => {
-      const { db, chamadas, rpcs } = fakeDb({ awaitavel: true, linhas }); // sem `rpc` = PGRST202
+      const { db, chamadas, rpcs } = fakeV1({ awaitavel: true, linhas }); // sem `rpc` = PGRST202
       const r = await gravarVenda(db, dados());
-      expect(rpcs).toHaveLength(1);
+      expect(rpcs).toHaveLength(2);
       expect(r).toEqual({ vendaId: 'v1', avisoEstoque: null });
       expect(chamadas.map(c => c.tabela)).toEqual(['vendas', 'venda_itens', 'estoque_movimentos', 'pagamentos']);
     });
 
     it('validação local continua antes da função (total não coberto não chama nada)', async () => {
-      const { db, chamadas, rpcs } = fakeDb({ awaitavel: true, linhas, rpc: ok });
+      const { db, chamadas, rpcs } = fakeV1({ awaitavel: true, linhas, rpc: ok });
       await expect(gravarVenda(db, dados({ splits: [{ metodo: 'pix', valor: 5 }] }))).rejects.toThrow('venda: Ainda faltam R$ 5,00 para cobrir o total');
       expect(rpcs).toHaveLength(0);
       expect(chamadas).toHaveLength(0);

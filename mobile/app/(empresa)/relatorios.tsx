@@ -24,6 +24,7 @@ import {
 
 import { useRelatorios } from '@/hooks/useRelatorios';
 import { usePermissoes } from '@/lib/permissions';
+import { avisoExtrasSoProprias } from '@shared/permissoes';
 import {
   PERIODOS_RELATORIO, ROTULO_COMPARACAO, rotuloDoPeriodo, hojeBRT, rotuloDataBR, chaveDiaBRT, type PeriodoRelatorio,
 } from '@shared/periodos';
@@ -31,7 +32,7 @@ import {
   ABAS_RELATORIO, cartoesKpiRelatorio, linhasResumoFinanceiro, type AbaRelatorio, type CartaoKpiRelatorio,
 } from '@shared/relatorios';
 import { textoConfirmarPagamento, type ComissoesDaProfissional } from '@shared/comissoes';
-import { variacaoPercentual } from '@shared/kpis-financeiros';
+import { notaAvulsasNoFechamento, variacaoPercentual } from '@shared/kpis-financeiros';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { BotaoExportar } from '@/components/BotaoExportar';
@@ -270,8 +271,11 @@ export default function Relatorios() {
   const [aba, setAba] = useState<AbaRelatorio>('financeiro');
   const r = useRelatorios(periodo, opcoes, aba);
   const { resumo, clientes, servicos, profissionais, mesesComFechamento, atual, isLoading, isError, refetch } = r;
-  const { pode } = usePermissoes();
+  const permissoes = usePermissoes();
+  const { pode } = permissoes;
   const podePagar = pode('comissoes.pagar');
+  // Quem só vê as próprias comandas vê só os próprios serviços extras (RLS de comanda_itens).
+  const avisoExtras = permissoes.permissoesCarregadas ? avisoExtrasSoProprias(permissoes) : null;
   const rotuloAtual = rotuloDoPeriodo(periodo, atual);
 
   const [fontsLoaded] = useFonts({
@@ -515,6 +519,11 @@ export default function Relatorios() {
                 .filter(c => c.id !== 'bruto')
                 .map(c => <CartaoKpi key={c.id} c={c} />)}
             </View>
+            {avisoExtras && (
+              <Text style={{ marginHorizontal: 24, marginTop: -12, marginBottom: 16, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+                {avisoExtras}
+              </Text>
+            )}
 
             <Secao titulo="Evolução de faturamento">
               {r.serie.length === 0 || r.serie.every(p => p.valor === 0)
@@ -543,7 +552,7 @@ export default function Relatorios() {
                     </View>
                     {l.id === 'bruto' && mesesComFechamento.length > 0 && (
                       <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, paddingVertical: 6 }}>
-                        Inclui fechamento importado de {mesesComFechamento.join(', ')}.
+                        {notaAvulsasNoFechamento({ mesesComFechamento })}
                       </Text>
                     )}
                   </View>

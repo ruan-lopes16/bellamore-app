@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createAdmin } from '@supabase/supabase-js';
 import { podeAtribuirRole, pode } from '@/lib/permissions';
-import { quemChama } from '@/lib/auth/quem-chama';
+import { quemChama, clienteComoQuemChama } from '@/lib/auth/quem-chama';
 import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
 import { podeGerenciarMembro } from '@shared/permissoes';
 import { emailValido, vinculoParaGravar, type TipoContrato } from '@shared/equipe';
+import { gravarConvitePendente, faltaMigration092, ERRO_SEM_MIGRATION_092 } from '@/lib/equipe/convite-pendente';
+import { mensagemErroBanco } from '@shared/erros';
 
 function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -19,10 +21,15 @@ function createAdminClient() {
   });
 }
 
+const ERRO_GERENCIAR_MEMBRO = 'Você só pode editar profissionais da equipe (não a dona, outra gestora ou você mesma).';
+
 /**
- * Convida alguém para a equipe (web e app). Conta nova recebe o e-mail de convite; conta existente só é
- * vinculada. Vínculo existente nunca tem comissão/contrato zerados: só troca o que veio no corpo
- * (`vinculoParaGravar`).
+ * Convida alguém para a equipe (web e app). Conta nova recebe o e-mail de convite do Supabase e o vínculo
+ * na hora (`status: 'convite_enviado'`). Conta que já existe:
+ * - com vínculo ATIVO nesta empresa → atualiza o vínculo como antes (`status: 'adicionado'`);
+ * - sem vínculo ou com vínculo inativo → nunca vincula sem aceite: grava o convite pendente (092) e
+ *   responde `{ status: 'convite_pendente', convite }`; sem a 092, 503.
+ * Vínculo existente nunca tem comissão/contrato zerados: só troca o que veio no corpo (`vinculoParaGravar`).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -101,7 +108,7 @@ export async function POST(req: NextRequest) {
     // 3. Garante o vínculo com a empresa: preserva papel, comissão e contrato de quem já era da equipe.
     const { data: membroAtual, error: errAtual } = await adminClient
       .from('empresa_membros')
-      .select('id, role, percentual_comissao, tipo_contrato')
+      .select('id, role, percentual_comissao, tipo_contrato, ativo')
       .eq('empresa_id', empresaId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -109,19 +116,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Não foi possível ler o vínculo atual. Tente de novo.' }, { status: 500 });
     }
 
-    const atual = membroAtual as { role: string; percentual_comissao: number; tipo_contrato: TipoContrato | null } | null;
-    if (atual) {
-      // Já é da equipe: mesma regra do PATCH (a gestora não mexe na dona, em outra gestora nem em si mesma,
-      // e não reativa quem não pode gerenciar).
+    const atual = membroAtual as { role: string; percentual_comissao: number; tipo_contrato: TipoContrato | null; ativo: boolean } | null;
+    const contaExistente = status === 'adicionado';
+    if (atual || contaExistente) {
+      // Mesma regra do PATCH (a gestora não mexe na dona, em outra gestora nem em si mesma, e não
+      // reativa nem convida de novo quem não pode gerenciar) — vale também para vínculo inativo.
       const { data: emp, error: errEmp } = await adminClient.from('empresas').select('owner_id').eq('id', empresaId).maybeSingle();
       if (errEmp) return NextResponse.json({ error: 'Erro interno. Tente de novo.' }, { status: 500 });
-      const roleAlvo = (emp as { owner_id?: string } | null)?.owner_id === userId ? 'owner' : atual.role;
+      const roleAlvo = (emp as { owner_id?: string } | null)?.owner_id === userId ? 'owner' : (atual?.role ?? roleSolicitado);
       if (!podeGerenciarMembro({ isOwner: permsReq.isOwner, userId: requesterId }, true, { role: roleAlvo, userId })) {
-        return NextResponse.json({ error: 'Você só pode editar profissionais da equipe (não a dona, outra gestora ou você mesma).' }, { status: 403 });
+        return NextResponse.json({ error: ERRO_GERENCIAR_MEMBRO }, { status: 403 });
       }
     }
     const v = vinculoParaGravar(atual, { percentual_comissao, tipo_contrato });
     if ('erro' in v) return NextResponse.json({ error: v.erro }, { status: 400 });
+
+    // 4. Conta que já existia sem vínculo ATIVO nesta empresa: nunca vincula (nem reativa) sem aceite —
+    //    só grava o convite pendente (092). Ela aceita no app ou no site.
+    if (contaExistente && !atual?.ativo) {
+      const roleConvite = atual ? atual.role : roleSolicitado;
+      if (roleConvite !== 'gestor' && roleConvite !== 'profissional') {
+        return NextResponse.json({ error: ERRO_GERENCIAR_MEMBRO }, { status: 403 });
+      }
+      const r = await gravarConvitePendente(adminClient, {
+        empresaId, userId, email: emailFinal, nome: nome.trim(), role: roleConvite,
+        percentual_comissao: v.valores.percentual_comissao, tipo_contrato: v.valores.tipo_contrato,
+        convidadoPor: requesterId, quemConvidaEhDona: permsReq.isOwner,
+      });
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+      return NextResponse.json({ status: 'convite_pendente', convite: r.convite });
+    }
 
     const { data: membro, error: membroError } = await adminClient
       .from('empresa_membros')
@@ -141,6 +165,39 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ status, membro });
+  } catch {
+    return NextResponse.json({ error: 'Erro interno. Tente de novo.' }, { status: 500 });
+  }
+}
+
+/**
+ * Cancela um convite pendente (web e app via Bearer). Corpo: `{ empresaId, conviteId }`. Chama
+ * `cancelar_convite` (092) COMO quem chama — a função confere `equipe.gerenciar` e que convite de gestora
+ * só a dona cancela. Sem a 092, 503. Erros do banco voltam em português (`mensagemErroBanco`).
+ */
+export async function DELETE(req: NextRequest) {
+  try {
+    const corpo = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    const empresaId = corpo?.empresaId;
+    const conviteId = corpo?.conviteId;
+    if (!empresaId || typeof empresaId !== 'string' || !conviteId || typeof conviteId !== 'string') {
+      return NextResponse.json({ error: 'Empresa e convite são obrigatórios.' }, { status: 400 });
+    }
+
+    const adminClient = createAdminClient();
+    const requesterId = await quemChama(req, adminClient);
+    if (!requesterId) return NextResponse.json({ error: 'Sessão expirada. Entre de novo.' }, { status: 401 });
+
+    const db = await clienteComoQuemChama(req);
+    const { error } = await db.rpc('cancelar_convite', { p_empresa: empresaId, p_convite: conviteId });
+    if (error) {
+      if (faltaMigration092(error)) return NextResponse.json({ error: ERRO_SEM_MIGRATION_092 }, { status: 503 });
+      return NextResponse.json(
+        { error: mensagemErroBanco(error, 'cancelar o convite') },
+        { status: error.code === '42501' ? 403 : 400 },
+      );
+    }
+    return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: 'Erro interno. Tente de novo.' }, { status: 500 });
   }

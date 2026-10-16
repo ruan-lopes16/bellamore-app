@@ -1,6 +1,7 @@
 import { getAppContext } from '@/lib/auth/server-context';
 import Sidebar from '@/components/Sidebar';
 import { PermissoesProvider } from '@/components/PermissoesProvider';
+import ConvitesRecebidosBanner from '@/components/ConvitesRecebidosBanner';
 import { PrivacyProvider, PRIVACY_NOFLASH_SCRIPT } from '@/components/privacy';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           rolar por conta própria, a altura sempre acompanha o conteúdo. */}
       <main className="flex-1 lg:ml-60 pt-[var(--bm-mobile-content-top)] lg:pt-8 pb-[var(--bm-mobile-content-bottom)] lg:pb-10 px-4 lg:px-8 bm-page overflow-x-hidden overflow-y-visible min-w-0">
         <PermissoesProvider value={permissoes}>
+          <ConvitesRecebidosBanner />
           <PrivacyProvider>{children}</PrivacyProvider>
         </PermissoesProvider>
       </main>
