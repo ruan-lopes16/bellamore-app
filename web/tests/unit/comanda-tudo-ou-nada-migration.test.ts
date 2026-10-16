@@ -148,6 +148,14 @@ describe('migration 090 — fechar_comanda', () => {
     expect(vendas[0]).toBeLessThan(pos(c, 'pg_advisory_xact_lock'));
     expect(vendas[1]).toBeGreaterThan(pos(c, 'insert into public.estoque_movimentos'));
   });
+  it('M4: valor_pago do pacote com a cota do desconto, dividido em centavos entre as unidades', () => {
+    const c = f();
+    const ins = c.slice(pos(c, 'insert into public.pacote_clientes'), pos(c, "order by g.ix, u.n;"));
+    expect(ins).toContain('(round(i_valor[g.ix] * i_qtd[g.ix], 2) * 100)::bigint - i_cota[g.ix] as liquido');
+    expect(ins).toContain('((pl.liquido / pl.q) + case when u.n <= pl.liquido % pl.q then 1 else 0 end)::numeric / 100');
+    expect(ins).toContain('generate_series(1, pl.q)');
+    expect(ins).not.toMatch(/i_valor\[g\.ix\], 'ativo'/);
+  });
   it('trava do estoque com a mesma chave da 087/088, por produto e em ordem de id; saldo não bloqueia', () => {
     const c = f();
     expect(c).toContain("hashtextextended('venda_estoque:' || r.produto_id::text, 0)");

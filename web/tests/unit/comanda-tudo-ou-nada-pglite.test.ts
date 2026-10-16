@@ -132,6 +132,8 @@ describe('fechar_comanda', () => {
       { observacao: 'Pacote(s) via comanda', valor_total: '200.00', desconto: '14.83' },
       { observacao: 'Via comanda', valor_total: '30.00', desconto: '2.22' },
     ]);
+    // M4: valor pago do pacote com a parte do desconto rateado (200 − 14,83), igual à venda.
+    expect(await admin(`select valor_pago from pacote_clientes where pacote_id = $1`, [PK])).toEqual([{ valor_pago: '185.17' }]);
     expect((await admin<{ e: string }>(`select estoque_atual e from produtos where id = $1`, [PR1]))[0].e).toBe('-1.000');
     expect(await admin(`select metodo::text, valor_liquido, maquininha_id from pagamentos where comanda_id = $1 order by metodo`, [C])).toEqual([
       { metodo: 'credito', valor_liquido: '91.27', maquininha_id: null },

@@ -83,7 +83,9 @@ caminho antigo em passos. **Nunca mudar estas assinaturas**: mudança futura = f
 - Venda dos produtos: `vendas` (`observacao = 'Via comanda'`, `valor_total` = Σ dos produtos, `desconto` = Σ das
   cotas dos produtos) + `venda_itens` (`preco_unitario = valor_unit`).
 - Venda dos pacotes: `pacote_clientes` por unidade (`data_inicio` = hoje em Brasília, `data_validade` = início +
-  `validade_dias` ou `null`, `valor_pago = valor_unit`, `status = 'ativo'`) + uma `vendas`
+  `validade_dias` ou `null`, `valor_pago` = o pago de fato por unidade: `(valor_unit × quantidade − cota do desconto)`
+  dividido em centavos entre as unidades, o resto de 1 centavo nas primeiras — soma = `valor_final` da venda dos pacotes;
+  `status = 'ativo'`) + uma `vendas`
   (`observacao = 'Pacote(s) via comanda'`, `valor_total` = Σ, `desconto` = Σ das cotas dos pacotes) quando Σ > 0.
 - Baixa: `estoque_movimentos` saída por item de produto, com `comanda_id`, `agendamento_id` = 1º atendimento
   do payload (ou `null`) e trava `venda_estoque:<produto>` em ordem de id antes do 1º INSERT.

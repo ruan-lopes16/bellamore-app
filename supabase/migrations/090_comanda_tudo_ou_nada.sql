@@ -638,16 +638,24 @@ begin
   end if;
 
   -- (5) Pacotes vendidos: um pacote_clientes por unidade; venda com o desconto rateado deles.
+  --     valor_pago = o que a cliente pagou de fato por unidade: (valor × qtd − cota do desconto) do
+  --     item, dividido em centavos entre as unidades (o resto, 1 centavo cada, vai nas primeiras) —
+  --     a soma bate com vendas.valor_final dos pacotes (relatório de Pacotes = Financeiro).
   if v_tem_pacote then
     v_hoje := (now() at time zone 'America/Sao_Paulo')::date;
     insert into public.pacote_clientes
       (empresa_id, pacote_id, cliente_id, data_inicio, data_validade, valor_pago, status)
     select v_empresa, i_pacote[g.ix], v_cliente, v_hoje,
            case when pk.validade_dias is not null then v_hoje + pk.validade_dias end,
-           i_valor[g.ix], 'ativo'
+           ((pl.liquido / pl.q) + case when u.n <= pl.liquido % pl.q then 1 else 0 end)::numeric / 100,
+           'ativo'
       from generate_subscripts(i_id, 1) as g(ix)
       join public.pacotes pk on pk.id = i_pacote[g.ix]
-      cross join lateral generate_series(1, greatest(1, round(i_qtd[g.ix])::int)) as u(n)
+      cross join lateral (
+        select greatest(1, round(i_qtd[g.ix])::int) as q,
+               (round(i_valor[g.ix] * i_qtd[g.ix], 2) * 100)::bigint - i_cota[g.ix] as liquido
+      ) as pl
+      cross join lateral generate_series(1, pl.q) as u(n)
      where i_tipo[g.ix] = 'pacote'
      order by g.ix, u.n;
     if v_tot_pacotes > 0 then

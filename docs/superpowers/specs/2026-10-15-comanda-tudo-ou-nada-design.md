@@ -10,9 +10,10 @@ Inventário das gravações atuais: `docs/superpowers/notes/2026-10-15-inventari
    extras (serviço, produto, pacote vendido); cada comissão sai sobre o valor **com desconto**. A taxa de reserva paga
    **não** entra no rateio (é pagamento adiantado, não desconto).
 3. Item incluído ao editar comanda de outro mês: comissão e receita no **mês do fechamento** (`comandas.fechada_at`).
-4. **Taxa de reserva no faturamento = pelo dia do serviço (opção b):** atendimento concluído conta inteiro
-   (`valor − desconto_rateado`) na data do atendimento e a taxa de reserva **não** conta à parte; a taxa só conta sozinha
-   quando o atendimento não aconteceu (taxa `retida`), pela `paga_em`.
+4. **Taxa de reserva no faturamento (regra final, fa8b6d8):** atendimento concluído conta inteiro
+   (`valor − desconto_rateado`) na data do atendimento. **A parte da reserva descontada na comanda não conta de novo;
+   o resto conta pela `paga_em`** (`parteReservaNaoDescontada`, que distribui `comandas.desconto_reserva` entre as
+   taxas pagas da comanda). Reserva sem comanda (atendimento que não aconteceu, taxa `retida`) conta inteira pela `paga_em`.
 5. Venda avulsa ganha chave contra repetição (queda de rede depois do commit não duplica).
 
 ## Problemas que resolve
@@ -82,7 +83,7 @@ venda já existe, devolve o id sem gravar. A tela gera o id uma vez por carrinho
 ### 2. Receita (`shared/kpis-financeiros.ts` e consultas)
 - Serviços = `Σ (agendamentos.valor − desconto_rateado)` dos concluídos sem pacote (linhas de multi-serviço idem).
 - Extras = `Σ (valor_unit × quantidade − desconto_rateado)`.
-- Taxas de reserva: só as `retida` (atendimento não aconteceu), por `paga_em`. Concluídas não contam à parte.
+- Taxas de reserva: a parte descontada na comanda (`comandas.desconto_reserva`) não conta de novo; o resto conta pela `paga_em`.
 - Mesma função em Financeiro, Dashboard, Relatórios e exportações (web e app) — já é única desde a 2A.
 - Histórico: atendimentos antigos têm `desconto_rateado = 0` (sem backfill; o desconto antigo nunca entrou na receita —
   registrar no PR).
@@ -105,7 +106,7 @@ venda já existe, devolve o id sem gravar. A tela gera o id uma vez por carrinho
 - `shared/comanda-gravacao.ts` com `fakeDb`: payload certo nos casos do inventário (simples, multi-serviço, pacote,
   combo, extras com profissional, produto, reserva, cortesia, só extras, avulso), `PGRST202` → caminho antigo, erros.
 - Rateio: feito só no banco (fonte única); teste do SQL confere a regra de centavos (resto na maior parte) e uma função pura espelho `ratearDescontoCentavos` em `shared/comanda-fechamento.ts` documenta e testa os casos (usada só em testes e no aviso de prévia, se houver).
-- Receita: fixture com reserva paga + atendimento concluído conta uma vez; retida conta; desconto rateado sai da receita.
+- Receita: fixture com reserva paga + atendimento concluído conta uma vez (a parte descontada na comanda não conta de novo; o resto conta pela `paga_em`); desconto rateado sai da receita.
 
 ## Produção
 Rodar a 090 no SQL Editor (ordem livre: sem ela as telas usam o caminho atual). Depois: fechar uma comanda com

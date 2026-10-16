@@ -34,7 +34,7 @@
   1. Tudo ou nada.
   2. Desconto da comanda inteira rateado proporcionalmente (atendimentos, linhas de multi-serviço e extras); comissões sobre o valor com desconto; a taxa de reserva NÃO entra no rateio.
   3. Item incluído na edição conta comissão e receita no mês de `comandas.fechada_at`.
-  4. Taxa de reserva pelo dia do serviço: atendimento concluído conta inteiro e a taxa não conta à parte; só a taxa `retida` conta, por `paga_em`.
+  4. Taxa de reserva pelo dia do serviço: atendimento concluído conta inteiro; a parte da reserva descontada na comanda não conta de novo; o resto conta pela `paga_em` (regra final, fa8b6d8).
   5. Venda avulsa com chave contra repetição.
 
 ---
@@ -102,8 +102,8 @@
   - `montarPayloadFechamento(estado): object` e `montarPayloadEdicao(estado): object`, com tipos de estado documentados a partir do que as duas telas têm;
   - `fecharComandaNoBanco(db, payload): Promise<{ via: 'funcao' } | { via: 'antigo' }>` e `editarComandaNoBanco(db, payload)`: `PGRST202` → `{ via: 'antigo' }` (a tela segue pelo caminho atual); outros erros → `Error` em português; erro sem `code` → "Sem resposta do servidor: a comanda pode ter sido fechada. Confira antes de repetir.";
   - `gravarVenda(db, dados & { vendaId: string })`.
-- **Receita:** serviços = `valor − desconto_rateado`, incluindo multi-serviço. Extras = `valor_unit × quantidade − desconto_rateado`. Taxas de reserva só `retida`, por `paga_em`. As colunas novas ausentes (antes da 090) valem 0. Confira nas consultas que o select não quebra sem a coluna: use o padrão de detecção já usado no projeto para colunas novas, ou ler com `*`.
-- **Testes:** os casos do inventário para o payload; reserva paga + atendimento concluído conta uma vez; retida conta; desconto rateado sai da receita; `PGRST202`; sem resposta; idempotência da venda (mesmo `vendaId` na nova tentativa).
+- **Receita:** serviços = `valor − desconto_rateado`, incluindo multi-serviço. Extras = `valor_unit × quantidade − desconto_rateado`. Taxas de reserva: a parte descontada na comanda não conta de novo; o resto conta pela `paga_em`. As colunas novas ausentes (antes da 090) valem 0. Confira nas consultas que o select não quebra sem a coluna: use o padrão de detecção já usado no projeto para colunas novas, ou ler com `*`.
+- **Testes:** os casos do inventário para o payload; reserva paga + atendimento concluído conta uma vez (a parte descontada na comanda não conta de novo; o resto conta pela `paga_em`); desconto rateado sai da receita; `PGRST202`; sem resposta; idempotência da venda (mesmo `vendaId` na nova tentativa).
 
 - [ ] Steps: testes falhando → implementação → `cd web && npx vitest run` (tudo PASS, ajustando testes antigos que fixavam a receita velha, com explicação) → `cd web && npx tsc --noEmit` → commit `feat(shared): gravacao da comanda pela funcao, rateio e receita sem reserva em dobro`.
 
