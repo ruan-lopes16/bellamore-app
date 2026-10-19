@@ -30,6 +30,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import type { AgendamentoStatus } from '@/types';
 import { formatarMoeda } from '@shared/moeda';
+import { podeMexerNoAgendamento } from '@shared/agendamentos';
 import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -98,7 +99,7 @@ export default function AgendamentoProfissional() {
   const { id }  = useLocalSearchParams<{ id: string }>();
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, user } = useAuthStore();
 
   const [atualizando, setAtualizando] = useState(false);
   const { data: ag, isLoading }       = useAgendamento(id);
@@ -166,6 +167,9 @@ export default function AgendamentoProfissional() {
   const estaCancelado = ag.status === 'cancelado';
   const estaFaltou    = ag.status === 'faltou';
   const ativo         = !estaConcluido && !estaCancelado && !estaFaltou;
+  // A consulta já filtra por profissional_id = eu; a checagem fica explícita por segurança.
+  const podeEditar    = podeMexerNoAgendamento(ag.profissional_id, user?.id ?? '', false)
+    && !(ag.status === 'concluido' && ag.comanda_id);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -349,6 +353,21 @@ export default function AgendamentoProfissional() {
               </View>
             </LinearGradient>
           </MotiView>
+        )}
+
+        {/* ── Editar: só quem pode mexer; atendimento concluído com comanda é editado pela comanda ── */}
+        {podeEditar && (
+          <TouchableOpacity
+            onPress={() => router.push(`/(profissional)/novo-agendamento?id=${id}` as any)}
+            style={{
+              marginHorizontal: 24, marginBottom: 14, paddingVertical: 14, borderRadius: 14,
+              backgroundColor: C.primarySoft, alignItems: 'center',
+            }}
+          >
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>
+              Editar atendimento
+            </Text>
+          </TouchableOpacity>
         )}
 
         {/* ── Ações de status ── */}

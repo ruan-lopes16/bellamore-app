@@ -448,6 +448,7 @@ export default function AgendamentoDetalhe() {
   const podeAlterar = podeMexerNoAgendamento(
     ag.profissional_id ?? ag.profissional?.id, user?.id ?? '', pode('agenda.gerenciar_outras'),
   );
+  const podeEditar = podeAlterar && !(ag.status === 'concluido' && ag.comanda_id);
   const podeConfirmar  = ag.status === 'agendado';
   const podeConcluir   = ag.status === 'agendado' || ag.status === 'confirmado';
   const podeFaltou     = ag.status === 'agendado' || ag.status === 'confirmado';
@@ -623,6 +624,21 @@ export default function AgendamentoDetalhe() {
 
         {/* ── Comanda: o que foi feito, fechamento e pagamento ── */}
         <SecoesComanda detalhe={detalhe} />
+
+        {/* ── Editar: só quem pode mexer; atendimento concluído com comanda é editado pela comanda ── */}
+        {podeEditar && (
+          <TouchableOpacity
+            onPress={() => router.push(`/(empresa)/novo-agendamento?id=${id}` as any)}
+            style={{
+              marginHorizontal: 24, marginBottom: 14, paddingVertical: 14, borderRadius: 14,
+              backgroundColor: C.primarySoft, alignItems: 'center',
+            }}
+          >
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>
+              Editar atendimento
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* ── Ações de status ── */}
         {podeAlterar && !estaConcluido && !estaCancelado && (

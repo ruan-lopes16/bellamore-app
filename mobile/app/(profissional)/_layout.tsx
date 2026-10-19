@@ -21,6 +21,8 @@ export default function ProfissionalLayout() {
       <Tabs.Screen name="configuracoes" options={{ title: 'Ajustes',      tabBarIcon: () => null }} />
       {/* Rota que não é aba */}
       <Tabs.Screen name="agendamento/[id]" options={{ href: null }} />
+      {/* Exceção à decisão de 02/10 (sem telas novas aqui): só o botão do horário vazio e o "Editar" chegam nela. */}
+      <Tabs.Screen name="novo-agendamento" options={{ href: null }} />
     </Tabs>
     <BannerConvites />
     </View>

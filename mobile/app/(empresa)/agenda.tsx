@@ -173,12 +173,11 @@ function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number
 // ── Slot vazio ───────────────────────────────────────────────
 
 function SlotVazio({ hora, dia, bloqueado }: { hora: number; dia: Date; bloqueado?: boolean }) {
-  const horaISO = format(new Date(dia.setHours(hora, 0, 0, 0)), "yyyy-MM-dd'T'HH:mm");
   if (bloqueado) return null;
 
   return (
     <TouchableOpacity
-      onPress={() => router.push(`/(empresa)/novo-agendamento?hora=${horaISO}` as any)}
+      onPress={() => router.push(`/(empresa)/novo-agendamento?data=${format(dia, 'yyyy-MM-dd')}&hora=${String(hora).padStart(2, '0')}:00` as any)}
       style={{
         height: 48, borderRadius: 10,
         borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C4BAD4',

@@ -134,13 +134,13 @@ function AgendamentoCard({ ag, index }: {
 
 // ── Slot vazio ───────────────────────────────────────────────
 
-function SlotVazio({ hora, dia, bloqueado }: { hora: number; dia: Date; bloqueado?: boolean }) {
+function SlotVazio({ hora, dia, profissionalId, bloqueado }: { hora: number; dia: Date; profissionalId: string; bloqueado?: boolean }) {
   // Hora coberta por bloqueio (aprovado ou pendente) não oferece slot de agendar.
   if (bloqueado) return null;
 
   return (
     <TouchableOpacity
-      onPress={() => router.push(`/(profissional)/novo-agendamento?hora=${hora}` as any)}
+      onPress={() => router.push(`/(profissional)/novo-agendamento?data=${format(dia, 'yyyy-MM-dd')}&hora=${String(hora).padStart(2, '0')}:00&profissional=${profissionalId}` as any)}
       style={{
         height: 48, borderRadius: 10,
         borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C4BAD4',
@@ -402,6 +402,7 @@ export default function AgendaProfissional() {
                         <SlotVazio
                           hora={hora}
                           dia={diaSelecionado}
+                          profissionalId={user?.id ?? ''}
                           bloqueado={!!bloqueioNoInstante(
                             bloqueios,
                             user?.id ?? '',
