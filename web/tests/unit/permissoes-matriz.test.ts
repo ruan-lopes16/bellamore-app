@@ -127,6 +127,7 @@ describe('matriz de permissões — UPDATE/DELETE sempre com .select (sem sucess
     'web/app/api/profissionais/route.ts users.update': 'service role',
     'web/app/api/profissionais/route.ts empresa_membros.update': 'service role',
     'web/app/api/push/subscribe/route.ts web_push_subscriptions.upsert': 'assinatura de push da própria pessoa',
+    'mobile/app/(empresa)/novo-agendamento.tsx agendamento_servicos.delete': 'apagar 0 linhas é legítimo (atendimento sem linhas); erro conferido (igual ao web)',
     'mobile/app/(empresa)/configuracoes.tsx users.update': 'perfil da própria pessoa',
     'mobile/app/(empresa)/editar-pacote/[id].tsx pacote_servicos.delete': 'remover 0 serviços é legítimo; erro conferido',
     'mobile/app/(empresa)/pacotes.tsx agendamentos.update': 'excluir venda: desvincular 0 atendimentos é legítimo; o DELETE seguinte confere',

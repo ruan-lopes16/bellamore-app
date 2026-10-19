@@ -168,11 +168,14 @@ export function useProfissionais() {
         .from('empresa_membros')
         .select('user:users(id, nome, foto_url)')
         .eq('empresa_id', empresaId!)
-        .eq('role', 'profissional')
+        .in('role', ['owner', 'gestor', 'profissional'])
         .eq('ativo', true);
 
       if (error) throw error;
-      return (data ?? []).map((m: any) => m.user as ProfissionalAgenda);
+      // Todos os membros ativos que atendem (dona, gestora e profissional), igual ao web.
+      return (data ?? [])
+        .map((m: any) => m.user as ProfissionalAgenda | null)
+        .filter((u): u is ProfissionalAgenda => !!u?.id && !!u?.nome);
     },
   });
 }
