@@ -45,6 +45,8 @@ import {
   resolverCategoriaServico, bgDaCor,
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { linhasIniciaisEdicao, montarAgendamento } from '@shared/agenda';
+import { salvarAvaliacao } from '@shared/agenda-consultas';
 import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -376,7 +378,7 @@ function NovoAgModal({
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
   const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(true);
   const [taxaReserva,        setTaxaReserva]        = useState('0');
-  const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+  const [taxaEditadaManual, setTaxaEditadaManual] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
   const [taxaReservaMetodo,  setTaxaReservaMetodo]  = useState<MetodoPagTaxa | null>(null);
 
@@ -397,10 +399,20 @@ function NovoAgModal({
   const [clienteCriadoFlash,  setClienteCriadoFlash]  = useState('');
 
   const [linhas, setLinhas] = useState<ServicoLinha[]>(() => {
-    if (agEditar && (agEditar.agendamento_servicos ?? []).length > 0) {
-      return [...(agEditar.agendamento_servicos ?? [])]
+    if (agEditar) {
+      const salvas = [...(agEditar.agendamento_servicos ?? [])]
         .sort((a, b) => a.ordem - b.ordem)
-        .map(s => ({ uid: crypto.randomUUID(), servico_id: s.servico_id, duracao: s.duracao_minutos, valor: s.valor }));
+        .map(s => ({ servico_id: s.servico_id, profissional_id: agEditar.profissional?.id ?? '', valor: s.valor, duracao_min: s.duracao_minutos }));
+      // Atendimento antigo (sem linhas em agendamento_servicos) começa com o serviço principal.
+      const duracaoAg = agEditar.servico?.duracao_minutos
+        ?? Math.round((new Date(agEditar.data_hora_fim).getTime() - new Date(agEditar.data_hora_inicio).getTime()) / 60000);
+      const iniciais = linhasIniciaisEdicao(
+        { servico_id: agEditar.servico?.id ?? null, profissional_id: agEditar.profissional?.id ?? '', valor: agEditar.valor, duracao_min: duracaoAg },
+        salvas,
+      );
+      if (iniciais.length > 0) {
+        return iniciais.map(l => ({ uid: crypto.randomUUID(), servico_id: l.servico_id, duracao: l.duracao_min, valor: l.valor }));
+      }
     }
     return [{ uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 }];
   });
@@ -413,7 +425,20 @@ function NovoAgModal({
   const [pendFim,    setPendFim]    = useState<Date | null>(null);
 
   const totalDuracao = linhas.reduce((s, l) => s + (l.duracao || 0), 0);
-  const totalValor   = linhas.reduce((s, l) => s + (l.valor  || 0), 0);
+  // Total pelas mesmas regras do app ("0" = cortesia). O campo é numérico, então o texto é sempre válido.
+  const { valorTotal } = montarAgendamento({
+    linhas: linhas.filter(l => l.servico_id).map(l => ({
+      servico_id: l.servico_id, profissional_id: '', valor: String(l.valor ?? 0), duracao_min: l.duracao || 0, preco: 0,
+    })),
+    inicioIso: new Date().toISOString(),
+  });
+  const totalValor = valorTotal;
+
+  // Taxa de reserva sugerida sobre o total; recalcula quando o total muda, até a pessoa digitar a taxa.
+  useEffect(() => {
+    if (!taxaReservaCfg.ativa || taxaEditadaManual) return;
+    setTaxaReserva(String(valorTaxaReservaSugerida(taxaReservaCfg, valorTotal)).replace('.', ','));
+  }, [taxaReservaCfg, taxaEditadaManual, valorTotal]);
 
   useEffect(() => {
     Promise.all([
@@ -504,10 +529,6 @@ function NovoAgModal({
         ? { ...l, servico_id: id, duracao: s?.duracao_minutos ?? 60, valor: s?.preco ?? 0 }
         : l
     ));
-    if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
-      const sugerido = valorTaxaReservaSugerida(taxaReservaCfg, s.preco);
-      setTaxaReserva(String(sugerido).replace('.', ','));
-    }
   }
 
   /** Preenche as linhas de serviço com os serviços inclusos num pacote (sem duplicar já adicionados) */
@@ -575,6 +596,10 @@ function NovoAgModal({
   async function executarSalvar(inicio: Date, fim: Date) {
     setSalvando(true);
     const filled = linhas.filter(l => l.servico_id);
+    const { valorTotal } = montarAgendamento({
+      linhas: filled.map(l => ({ servico_id: l.servico_id, profissional_id: profId, valor: String(l.valor ?? 0), duracao_min: l.duracao, preco: 0 })),
+      inicioIso: inicio.toISOString(),
+    });
     let agId = '';
 
     // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo
@@ -617,7 +642,7 @@ function NovoAgModal({
         servico_id:        filled[0]?.servico_id ?? null,
         data_hora_inicio:  inicio.toISOString(),
         data_hora_fim:     fim.toISOString(),
-        valor:             filled.reduce((s, l) => s + l.valor, 0),
+        valor:             valorTotal,
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       }).eq('id', agEditar.id).select('id');
@@ -645,7 +670,7 @@ function NovoAgModal({
         data_hora_inicio:  inicio.toISOString(),
         data_hora_fim:     fim.toISOString(),
         status:            'agendado',
-        valor:             filled.reduce((s, l) => s + l.valor, 0),
+        valor:             valorTotal,
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       });
@@ -1099,7 +1124,7 @@ function NovoAgModal({
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
                     <input
                       value={taxaReserva}
-                      onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
+                      onChange={e => { setTaxaReserva(e.target.value); setTaxaEditadaManual(true); }}
                       inputMode="decimal" placeholder="0,00"
                       className={`${inputClass} pl-9`}
                     />
@@ -2044,7 +2069,8 @@ export default function AgendaPage() {
   const [modalParams, setModalParams] = useState<{ hora?: string; profId?: string }>({});
   const [agEditar,   setAgEditar]  = useState<Ag | null>(null);
   const [toastErro,    setToastErro]   = useState('');
-  const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string; profissionalId: string | null } | null>(null);
+  const [erroDia,      setErroDia]     = useState('');
+  const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string } | null>(null);
   const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
   // Profissionais da empresa — base das colunas da timeline (independe de haver
   // agendamento no dia; sem isso a timeline e os bloqueios só apareciam em dias
@@ -2128,7 +2154,7 @@ export default function AgendaPage() {
       .order('data_hora_inicio');
     if (profFiltro) queryAgs = queryAgs.eq('profissional_id', profFiltro);
 
-    const [{ data: rows }, { data: blRows }] = await Promise.all([
+    const [{ data: rows, error: errAgs }, { data: blRows, error: errBloq }] = await Promise.all([
       queryAgs,
       supabase
         .from('agenda_bloqueios')
@@ -2138,6 +2164,13 @@ export default function AgendaPage() {
         .gte('data_fim',    iniDia),
     ]);
 
+    if (errAgs || errBloq) {
+      // Mantém o que já estava na tela: lista vazia aqui pareceria "dia sem atendimentos".
+      setErroDia(mensagemErroBanco(errAgs ?? errBloq, 'carregar a agenda do dia'));
+      setLoading(false);
+      return;
+    }
+    setErroDia('');
     setAgs((rows ?? []) as unknown as Ag[]);
     setBloqueios((blRows ?? []) as Bloqueio[]);
     setLoading(false);
@@ -2287,7 +2320,6 @@ export default function AgendaPage() {
         agId: id,
         clienteNome: ag.cliente.nome,
         clienteId: ag.cliente.id,
-        profissionalId: ag.profissional?.id ?? null,
       });
     }
   }
@@ -2342,6 +2374,12 @@ export default function AgendaPage() {
       {toastErro && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-red text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none">
           {toastErro}
+        </div>
+      )}
+
+      {erroDia && (
+        <div role="alert" className="mb-4 rounded-xl bg-red-soft text-red text-sm font-semibold px-4 py-3">
+          {erroDia} Os dados abaixo podem estar desatualizados.
         </div>
       )}
 
@@ -2571,13 +2609,9 @@ export default function AgendaPage() {
           clienteNome={avaliacaoAg.clienteNome}
           onClose={() => setAvaliacaoAg(null)}
           onSalvar={async (nota, comentario) => {
-            await supabase.from('avaliacoes').insert({
-              empresa_id:      empresaId,
-              agendamento_id:  avaliacaoAg.agId,
-              cliente_id:      avaliacaoAg.clienteId,
-              profissional_id: avaliacaoAg.profissionalId,
-              nota,
-              comentario: comentario || null,
+            // O banco preenche a profissional a partir do atendimento; o erro volta para o modal.
+            await salvarAvaliacao(supabase as unknown as Parameters<typeof salvarAvaliacao>[0], {
+              empresaId, agendamentoId: avaliacaoAg.agId, clienteId: avaliacaoAg.clienteId, nota, comentario,
             });
             setAvaliacaoAg(null);
           }}
@@ -2600,10 +2634,17 @@ function AvaliacaoModal({ clienteNome, onClose, onSalvar }: {
   const [comentario, setComentario] = useState('');
   const [salvando,   setSalvando]   = useState(false);
 
+  const [erro, setErro] = useState('');
+
   async function salvar() {
     if (nota === 0) return;
-    setSalvando(true);
-    await onSalvar(nota, comentario);
+    setSalvando(true); setErro('');
+    try {
+      await onSalvar(nota, comentario);
+    } catch (e) {
+      setErro((e as Error).message || 'Não foi possível salvar a avaliação.');
+      setSalvando(false);
+    }
   }
 
   const estrelaAtiva = hover || nota;
@@ -2655,6 +2696,8 @@ function AvaliacaoModal({ clienteNome, onClose, onSalvar }: {
             />
           </div>
         )}
+
+        {erro && <p className="text-xs font-semibold text-red text-center">{erro}</p>}
 
         <div className="flex gap-3">
           <button onClick={onClose}

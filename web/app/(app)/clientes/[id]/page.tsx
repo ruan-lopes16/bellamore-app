@@ -16,6 +16,7 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import { montarAgendamento } from '@shared/agenda';
 import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { mensagemErroBanco } from '@shared/erros';
@@ -146,7 +147,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
   const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(true);
   const [taxaReserva,        setTaxaReserva]        = useState('0');
-  const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+  const [taxaEditadaManual, setTaxaEditadaManual] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
   const [taxaReservaMetodo,  setTaxaReservaMetodo]  = useState<MetodoPagTaxa | null>(null);
 
@@ -190,11 +191,17 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
     setServicoId(id);
     const s = servicos.find(sv => sv.id === id);
     if (s) { setDuracao(s.duracao_minutos); setValor(String(s.preco)); }
-    if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
-      const sugerido = valorTaxaReservaSugerida(taxaReservaCfg, s.preco);
-      setTaxaReserva(String(sugerido).replace('.', ','));
-    }
   }
+
+  // Taxa sugerida sobre o valor total do atendimento; recalcula quando o valor muda, até a pessoa digitar a taxa.
+  const { valorTotal } = montarAgendamento({
+    linhas: servicoId ? [{ servico_id: servicoId, profissional_id: profId, valor: valor.trim() === '' ? '0' : valor, duracao_min: duracao, preco: 0 }] : [],
+    inicioIso: new Date().toISOString(),
+  });
+  useEffect(() => {
+    if (!taxaReservaCfg.ativa || taxaEditadaManual) return;
+    setTaxaReserva(String(valorTaxaReservaSugerida(taxaReservaCfg, valorTotal)).replace('.', ','));
+  }, [taxaReservaCfg, taxaEditadaManual, valorTotal]);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro(''); setSalvando(true);
@@ -301,7 +308,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
                     <input
                       value={taxaReserva}
-                      onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
+                      onChange={e => { setTaxaReserva(e.target.value); setTaxaEditadaManual(true); }}
                       inputMode="decimal" placeholder="0,00"
                       className={`${inputCls} pl-9`}
                     />
