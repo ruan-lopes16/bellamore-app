@@ -721,11 +721,13 @@ export function resumoComissoesProfissional(
 /**
  * "Fat. hoje" da profissional: valor previsto do dia, sem cancelados, faltas nem sessões de pacote.
  * É previsão da agenda: serviço extra só existe depois que a comanda fecha, então não entra aqui.
+ * Cada atendimento vale o valor cobrado (`valorCobradoAtendimento`: valor − desconto_rateado da
+ * comanda, 090); sem a coluna (`desconto_rateado` ausente) é o próprio `valor`.
  */
 export function faturamentoPrevistoDia(
-  ags: { valor: Valor; status: string; pacote_cliente_id: string | null }[],
+  ags: { valor: Valor; status: string; pacote_cliente_id: string | null; desconto_rateado?: Valor }[],
 ): number {
   return arredondar(ags
     .filter(a => a.status !== 'cancelado' && a.status !== 'faltou' && !a.pacote_cliente_id)
-    .reduce((s, a) => s + num(a.valor), 0));
+    .reduce((s, a) => s + valorCobradoAtendimento(a), 0));
 }

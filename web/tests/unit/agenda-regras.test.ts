@@ -169,6 +169,14 @@ describe('resumoDoDia', () => {
     ]);
     expect(r).toEqual({ total: 5, receitaPrevista: 150.5, profissionais: 3, pendentes: 2 });
   });
+  it('receita prevista desconta o desconto rateado da comanda (igual ao app e ao Financeiro)', () => {
+    const r = resumoDoDia([
+      { status: 'concluido', profissional_id: 'a', valor: 100, desconto_rateado: 15 },
+      { status: 'agendado', profissional_id: 'a', valor: 60 },
+      { status: 'faltou', profissional_id: 'b', valor: 40, desconto_rateado: 0 },
+    ]);
+    expect(r.receitaPrevista).toBe(145);
+  });
   it('vazio', () => {
     expect(resumoDoDia([])).toEqual({ total: 0, receitaPrevista: 0, profissionais: 0, pendentes: 0 });
   });

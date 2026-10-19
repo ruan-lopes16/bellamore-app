@@ -152,14 +152,20 @@ export function colunasPorProfissional<T extends { profissional_id: string }>(
 
 /**
  * Resumo do dia: total de atendimentos, receita prevista (`faturamentoPrevistoDia`: sem cancelados,
- * faltas e sessões de pacote), nº de profissionais e pendentes (status agendado).
+ * faltas e sessões de pacote, cada um pelo valor cobrado — valor − desconto_rateado da comanda),
+ * nº de profissionais e pendentes (status agendado).
  */
 export function resumoDoDia(
-  ags: { status: string; profissional_id: string; valor: number | null; pacote_cliente_id?: string | null }[],
+  ags: {
+    status: string; profissional_id: string; valor: number | null; pacote_cliente_id?: string | null;
+    desconto_rateado?: number | string | null;
+  }[],
 ): { total: number; receitaPrevista: number; profissionais: number; pendentes: number } {
   return {
     total: ags.length,
-    receitaPrevista: faturamentoPrevistoDia(ags.map((a) => ({ valor: a.valor, status: a.status, pacote_cliente_id: a.pacote_cliente_id ?? null }))),
+    receitaPrevista: faturamentoPrevistoDia(ags.map((a) => ({
+      valor: a.valor, status: a.status, pacote_cliente_id: a.pacote_cliente_id ?? null, desconto_rateado: a.desconto_rateado ?? null,
+    }))),
     profissionais: new Set(ags.map((a) => a.profissional_id)).size,
     pendentes: ags.filter((a) => a.status === 'agendado').length,
   };
