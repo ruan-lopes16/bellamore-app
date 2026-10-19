@@ -30,7 +30,7 @@ describe('app: agendar e editar (novo-agendamento)', () => {
       'instanteNoPassado(', 'linhasIniciaisEdicao(', 'msgConflito(', 'MSG_HORARIO_PASSADO',
     ]) expect(tudo).toContain(fn);
     expect(tudo).toContain('bloqueioEmConflito(');
-    expect(tudo).toContain('Horário bloqueado na agenda (');
+    expect(tudo).toContain('msgBloqueio(');
   });
 
   it('aceita ?id= (edição), ?data=, ?hora= e ?profissional=', () => {

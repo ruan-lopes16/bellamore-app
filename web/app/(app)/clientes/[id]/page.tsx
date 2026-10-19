@@ -16,7 +16,8 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
-import { montarAgendamento } from '@shared/agenda';
+import { montarAgendamento, valorDigitadoValido } from '@shared/agenda';
+import { parseValorBR } from '@shared/comanda-fechamento';
 import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { mensagemErroBanco } from '@shared/erros';
@@ -190,12 +191,15 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   function onServicoChange(id: string) {
     setServicoId(id);
     const s = servicos.find(sv => sv.id === id);
-    if (s) { setDuracao(s.duracao_minutos); setValor(String(s.preco)); }
+    if (s) { setDuracao(s.duracao_minutos); setValor(s.preco.toFixed(2).replace('.', ',')); }
   }
 
-  // Taxa sugerida sobre o valor total do atendimento; recalcula quando o valor muda, até a pessoa digitar a taxa.
+  // Valor pela regra única (vazio = preço do serviço, "0" = cortesia). A taxa sugerida é sobre esse
+  // total e recalcula quando ele muda, até a pessoa digitar a taxa.
+  const precoServico = servicos.find(sv => sv.id === servicoId)?.preco ?? 0;
+  const valorOk = valorDigitadoValido(valor);
   const { valorTotal } = montarAgendamento({
-    linhas: servicoId ? [{ servico_id: servicoId, profissional_id: profId, valor: valor.trim() === '' ? '0' : valor, duracao_min: duracao, preco: 0 }] : [],
+    linhas: servicoId ? [{ servico_id: servicoId, profissional_id: profId, valor, duracao_min: duracao, preco: precoServico }] : [],
     inicioIso: new Date().toISOString(),
   });
   useEffect(() => {
@@ -204,7 +208,10 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   }, [taxaReservaCfg, taxaEditadaManual, valorTotal]);
 
   async function salvar(e: React.FormEvent) {
-    e.preventDefault(); setErro(''); setSalvando(true);
+    e.preventDefault(); setErro('');
+    if (!valorOk) { setErro('Corrija o valor do serviço (use 0 para cortesia).'); return; }
+    if (aplicarTaxaReserva && taxaReservaCfg.ativa && !valorDigitadoValido(taxaReserva)) { setErro('Corrija o valor da taxa de reserva.'); return; }
+    setSalvando(true);
     const [h, m] = hora.split(':').map(Number);
     const inicio = new Date(`${data}T00:00:00`); inicio.setHours(h, m, 0, 0);
     const fim    = addMinutes(inicio, duracao);
@@ -216,13 +223,13 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
       empresa_id: empresaId, cliente_id: clienteId, profissional_id: profId,
       servico_id: servicoId, data_hora_inicio: inicio.toISOString(),
       data_hora_fim: fim.toISOString(), status: 'agendado',
-      valor: parseFloat(valor) || 0, observacao: obs.trim() || null,
+      valor: valorTotal, observacao: obs.trim() || null,
     });
     if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
 
     // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
     if (aplicarTaxaReserva) {
-      const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+      const taxaReservaValorNum = parseValorBR(taxaReserva);
       const taxaReservaPayload = buildTaxaReservaInsert({
         empresaId, agendamentoId: ag.id, clienteId, valor: taxaReservaValorNum,
         jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo, cobrar: aplicarTaxaReserva,
@@ -288,7 +295,10 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
             </div>
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Valor (R$)</label>
-              <input type="number" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" step="0.01" min="0" className={inputCls}/>
+              <input type="text" inputMode="decimal" value={valor} onChange={e => setValor(e.target.value)}
+                placeholder={precoServico.toFixed(2).replace('.', ',')} aria-invalid={!valorOk}
+                className={`${inputCls} ${valorOk ? '' : 'border-red'}`}/>
+              {!valorOk && <p className="text-[10px] text-red mt-0.5">Valor inválido (use 0 para cortesia)</p>}
             </div>
           </div>
           {taxaReservaCfg.ativa && (
@@ -313,7 +323,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
                       className={`${inputCls} pl-9`}
                     />
                   </div>
-                  {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+                  {parseValorBR(taxaReserva) > 0 && (
                     <>
                       <label className="flex items-center gap-2 mt-2 cursor-pointer">
                         <input

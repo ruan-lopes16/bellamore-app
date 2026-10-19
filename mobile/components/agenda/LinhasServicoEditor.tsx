@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, FlatList } from 'react-native';
 import { Plus, Trash2, ChevronDown, X } from 'lucide-react-native';
 import { parseValorBR } from '@shared/comanda-fechamento';
+import { valorDigitadoValido } from '@shared/agenda';
 import { formatarMoeda } from '@shared/moeda';
 
 const C = {
@@ -43,18 +44,6 @@ export function linhaVazia(): LinhaServicoForm {
 /** Valor em reais no formato do campo ("150,00"). */
 export function valorParaCampo(n: number): string {
   return n.toFixed(2).replace('.', ',');
-}
-
-/**
- * O texto do valor é aceitável? Vazio (usa o preço), um número positivo ou zero escrito
- * ("0", "0,00", "R$ 0") — cortesia. `parseValorBR` devolve 0 para texto inválido, então
- * sem esta checagem um erro de digitação viraria cortesia sem aviso.
- */
-export function valorDigitadoValido(texto: string): boolean {
-  const t = texto.trim();
-  if (t === '') return true;
-  if (/^(R\$\s*)?0+([.,]0+)?$/i.test(t)) return true;
-  return parseValorBR(t) > 0;
 }
 
 /** Duração digitada em minutos inteiros positivos, ou null. */

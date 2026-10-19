@@ -11,7 +11,7 @@ const cliente = ler('web/app/(app)/clientes/[id]/page.tsx');
 
 describe('edição de atendimento antigo', () => {
   it('monta as linhas iniciais com linhasIniciaisEdicao', () => {
-    expect(agenda).toContain("import { linhasIniciaisEdicao, montarAgendamento } from '@shared/agenda'");
+    expect(agenda).toMatch(/import \{[^}]*linhasIniciaisEdicao[^}]*montarAgendamento[^}]*\} from '@shared\/agenda'/);
     expect(agenda).toContain('linhasIniciaisEdicao(');
   });
 });
@@ -38,7 +38,7 @@ describe('cortesia', () => {
     expect(montarAgendamento({ linhas: [{ ...base, valor: '' }], inicioIso: '2026-10-19T12:00:00.000Z' }).valorTotal).toBe(100);
   });
   it('agenda grava o valor de montarAgendamento', () => {
-    expect(agenda).toContain('valor:             valorTotal');
+    expect(agenda).toContain('valor:             montado.valorTotal');
     expect(agenda).toContain('valor:           l.valor,');
   });
 });

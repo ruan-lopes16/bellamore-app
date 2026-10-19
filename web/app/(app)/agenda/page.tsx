@@ -45,7 +45,11 @@ import {
   resolverCategoriaServico, bgDaCor,
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
-import { linhasIniciaisEdicao, montarAgendamento } from '@shared/agenda';
+import {
+  linhasIniciaisEdicao, montarAgendamento, instanteNoPassado, msgConflito, msgBloqueio,
+  valorDigitadoValido, MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA,
+} from '@shared/agenda';
+import { parseValorBR } from '@shared/comanda-fechamento';
 import { salvarAvaliacao } from '@shared/agenda-consultas';
 import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
@@ -71,6 +75,7 @@ type Ag = {
   id: string; data_hora_inicio: string; data_hora_fim: string;
   status: string; valor: number; observacao?: string;
   pacote_cliente_id?: string | null;
+  comanda_id?: string | null;
   cliente: { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico: (AgServicoRef & { duracao_minutos: number }) | null;
@@ -297,7 +302,10 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
 
 // ── Modal de novo agendamento ─────────────────────────────────
 
-type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: number };
+/** `valor` fica como texto digitado: vazio = preço do serviço; "0" = cortesia (regra de `montarAgendamento`). */
+type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: string };
+/** Valor em reais no formato do campo ("150,00"). */
+const valorCampo = (n: number) => n.toFixed(2).replace('.', ',');
 type ConflitoDet  = { inicio: string; fim: string; cliente: string; servico: string };
 
 function NovoAgModal({
@@ -411,10 +419,10 @@ function NovoAgModal({
         salvas,
       );
       if (iniciais.length > 0) {
-        return iniciais.map(l => ({ uid: crypto.randomUUID(), servico_id: l.servico_id, duracao: l.duracao_min, valor: l.valor }));
+        return iniciais.map(l => ({ uid: crypto.randomUUID(), servico_id: l.servico_id, duracao: l.duracao_min, valor: valorCampo(l.valor) }));
       }
     }
-    return [{ uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 }];
+    return [{ uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: '' }];
   });
 
   // Conflito de horário detectado
@@ -423,16 +431,28 @@ function NovoAgModal({
   const [bloqueiosDia, setBloqueiosDia] = useState<Bloqueio[]>([]);
   const [pendInicio, setPendInicio] = useState<Date | null>(null);
   const [pendFim,    setPendFim]    = useState<Date | null>(null);
+  const [msgConflitoAtual, setMsgConflitoAtual] = useState('');
+  // Horário passado: pergunta MSG_HORARIO_PASSADO antes de gravar.
+  const [perguntaPassado, setPerguntaPassado] = useState<{ inicio: Date; fim: Date } | null>(null);
+  // Criação que gravou o agendamento mas falhou nos serviços: a nova tentativa só regrava as linhas
+  // guardadas desse id (nunca cria um segundo agendamento, uma segunda taxa nem vende o pacote 2x).
+  const [idCriado, setIdCriado] = useState<{ id: string; linhas: ReturnType<typeof montarAgendamento>['linhas']; inicio: Date; fim: Date } | null>(null);
+  const pacoteVendidoRef = useRef<string | null>(null);
+  // Atendimento já fechado na comanda: valor e serviços só mudam pela comanda (igual ao app).
+  const edicaoTravada = !!agEditar?.comanda_id;
 
   const totalDuracao = linhas.reduce((s, l) => s + (l.duracao || 0), 0);
-  // Total pelas mesmas regras do app ("0" = cortesia). O campo é numérico, então o texto é sempre válido.
-  const { valorTotal } = montarAgendamento({
+  const precoDe = (id: string) => servicos.find(x => x.id === id)?.preco ?? 0;
+  // Total pelas mesmas regras do app: vazio = preço do serviço, "0" = cortesia.
+  const montado = montarAgendamento({
     linhas: linhas.filter(l => l.servico_id).map(l => ({
-      servico_id: l.servico_id, profissional_id: '', valor: String(l.valor ?? 0), duracao_min: l.duracao || 0, preco: 0,
+      servico_id: l.servico_id, profissional_id: profId, valor: l.valor, duracao_min: l.duracao || 0, preco: precoDe(l.servico_id),
     })),
     inicioIso: new Date().toISOString(),
   });
+  const valorTotal = montado.valorTotal;
   const totalValor = valorTotal;
+  const valoresOk = linhas.filter(l => l.servico_id).every(l => valorDigitadoValido(l.valor));
 
   // Taxa de reserva sugerida sobre o total; recalcula quando o total muda, até a pessoa digitar a taxa.
   useEffect(() => {
@@ -526,7 +546,7 @@ function NovoAgModal({
     const s = servicos.find(x => x.id === id);
     setLinhas(prev => prev.map(l =>
       l.uid === uid
-        ? { ...l, servico_id: id, duracao: s?.duracao_minutos ?? 60, valor: s?.preco ?? 0 }
+        ? { ...l, servico_id: id, duracao: s?.duracao_minutos ?? 60, valor: s ? valorCampo(s.preco) : '' }
         : l
     ));
   }
@@ -539,7 +559,7 @@ function NovoAgModal({
         .filter(s => !jaTem.has(s.servico_id))
         .map(s => {
           const info = servicos.find(x => x.id === s.servico_id);
-          return { uid: crypto.randomUUID(), servico_id: s.servico_id, duracao: info?.duracao_minutos ?? 60, valor: info?.preco ?? 0 };
+          return { uid: crypto.randomUUID(), servico_id: s.servico_id, duracao: info?.duracao_minutos ?? 60, valor: info ? valorCampo(info.preco) : '' };
         });
       if (novas.length === 0) return prev;
       const base = prev.filter(l => l.servico_id); // descarta a linha em branco inicial
@@ -586,7 +606,7 @@ function NovoAgModal({
   }
 
   function addLinha() {
-    setLinhas(prev => [...prev, { uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 }]);
+    setLinhas(prev => [...prev, { uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: '' }]);
   }
 
   function removeLinha(uid: string) {
@@ -596,15 +616,25 @@ function NovoAgModal({
   async function executarSalvar(inicio: Date, fim: Date) {
     setSalvando(true);
     const filled = linhas.filter(l => l.servico_id);
-    const { valorTotal } = montarAgendamento({
-      linhas: filled.map(l => ({ servico_id: l.servico_id, profissional_id: profId, valor: String(l.valor ?? 0), duracao_min: l.duracao, preco: 0 })),
-      inicioIso: inicio.toISOString(),
-    });
     let agId = '';
+    let linhasGravar = montado.linhas;
 
-    // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo
+    if (idCriado) {
+      // Nova tentativa: o agendamento existe; apaga o que tiver sobrado e regrava só as linhas.
+      const { error: errDelLinhas } = await supabase.from('agendamento_servicos').delete().eq('agendamento_id', idCriado.id);
+      if (errDelLinhas) {
+        setSalvando(false); setErro(mensagemErroBanco(errDelLinhas, 'salvar os serviços do agendamento')); return;
+      }
+      agId = idCriado.id;
+      linhasGravar = idCriado.linhas;
+    } else {
+
+    // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo (uma vez só,
+    // mesmo que a gravação do agendamento falhe e a pessoa tente de novo).
     let pacoteClienteIdFinal = pacoteClienteId || null;
-    if (pacoteVenderId) {
+    if (pacoteVenderId && pacoteVendidoRef.current) {
+      pacoteClienteIdFinal = pacoteVendidoRef.current;
+    } else if (pacoteVenderId) {
       const pacote = pacotesCatalogo.find(p => p.id === pacoteVenderId);
       if (pacote) {
         const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
@@ -618,8 +648,9 @@ function NovoAgModal({
           valor_pago:    pacote.preco,
           status:        'ativo',
         }).select('id').single();
-        if (errVenda || !novaVenda) { setSalvando(false); setErro(errVenda?.message ?? 'Erro ao vender pacote'); return; }
+        if (errVenda || !novaVenda) { setSalvando(false); setErro(mensagemErroBanco(errVenda, 'vender o pacote')); return; }
         pacoteClienteIdFinal = novaVenda.id;
+        pacoteVendidoRef.current = novaVenda.id;
 
         // Registra a venda do pacote como faturamento (uma vez, no ato). As
         // sessões consumidas depois não contam como receita.
@@ -642,7 +673,7 @@ function NovoAgModal({
         servico_id:        filled[0]?.servico_id ?? null,
         data_hora_inicio:  inicio.toISOString(),
         data_hora_fim:     fim.toISOString(),
-        valor:             valorTotal,
+        valor:             montado.valorTotal,
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       }).eq('id', agEditar.id).select('id');
@@ -670,16 +701,17 @@ function NovoAgModal({
         data_hora_inicio:  inicio.toISOString(),
         data_hora_fim:     fim.toISOString(),
         status:            'agendado',
-        valor:             valorTotal,
+        valor:             montado.valorTotal,
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       });
       if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
       agId = novoId;
+      pacoteVendidoRef.current = null;
 
       // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
       if (aplicarTaxaReserva) {
-        const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+        const taxaReservaValorNum = parseValorBR(taxaReserva);
         const taxaReservaPayload = buildTaxaReservaInsert({
           empresaId, agendamentoId: agId, clienteId, valor: taxaReservaValorNum,
           jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo, cobrar: aplicarTaxaReserva,
@@ -694,17 +726,20 @@ function NovoAgModal({
       }
     }
 
+    }
+
     const { error: errLinhas } = await supabase.from('agendamento_servicos').insert(
-      filled.map((l, i) => ({
+      linhasGravar.map((l, i) => ({
         agendamento_id:  agId,
         servico_id:      l.servico_id,
         valor:           l.valor,
-        duracao_minutos: l.duracao,
+        duracao_minutos: l.duracao_min,
         ordem:           i,
         empresa_id:      empresaId,
       }))
     );
     if (errLinhas) {
+      if (!agEditar) setIdCriado({ id: agId, linhas: linhasGravar, inicio, fim });
       setSalvando(false);
       setErro(`O agendamento foi salvo, mas os serviços não: ${mensagemErroBanco(errLinhas, 'salvar os serviços do agendamento')}`);
       return;
@@ -728,14 +763,21 @@ function NovoAgModal({
     e.preventDefault();
     setErro('');
     setConflitos([]);
+    setPerguntaPassado(null);
+    if (edicaoTravada) { setErro(MSG_CONCLUIDO_COM_COMANDA); return; }
+    if (idCriado) { await executarSalvar(idCriado.inicio, idCriado.fim); return; }
     if (bloqueioConflitante) {
-      setErro(`Horário bloqueado (${motivoBloqueioLabel(bloqueioConflitante.motivo)}). Remova o bloqueio para agendar nesse horário.`);
+      setErro(msgBloqueio(bloqueioConflitante.motivo));
       return;
     }
     const filled = linhas.filter(l => l.servico_id);
     if (!clienteId || filled.length === 0 || !profId) {
       setErro('Preencha cliente, pelo menos um serviço e profissional.');
       return;
+    }
+    if (!valoresOk) { setErro('Corrija o valor do serviço (use 0 para cortesia).'); return; }
+    if (aplicarTaxaReserva && taxaReservaCfg.ativa && !agEditar && !valorDigitadoValido(taxaReserva)) {
+      setErro('Corrija o valor da taxa de reserva.'); return;
     }
     const [h, m] = hora.split(':').map(Number);
     const inicio = new Date(dataSel); inicio.setHours(h, m, 0, 0);
@@ -752,17 +794,30 @@ function NovoAgModal({
       .lt('data_hora_inicio', fim.toISOString())
       .gt('data_hora_fim', inicio.toISOString());
     if (agEditar) confQuery = confQuery.neq('id', agEditar.id);
-    const { data: conf } = await confQuery;
+    const { data: conf, error: errConf } = await confQuery;
+    if (errConf) { setErro(mensagemErroBanco(errConf, 'conferir a agenda')); return; }
 
     if (conf && conf.length > 0) {
       setPendInicio(inicio);
       setPendFim(fim);
+      setMsgConflitoAtual(msgConflito(profissionais.find(p => p.id === profId)?.nome ?? 'Profissional', format(parseISO(conf[0].data_hora_inicio), 'HH:mm')));
       setConflitos(conf.map((c: any) => ({
         inicio:  format(parseISO(c.data_hora_inicio), 'HH:mm'),
         fim:     format(parseISO(c.data_hora_fim),    'HH:mm'),
         cliente: c.cliente?.nome ?? '—',
         servico: c.servico?.nome  ?? '—',
       })));
+      return;
+    }
+    await seguirAposConflito(inicio, fim);
+  }
+
+  /** Depois do conflito (ou sem conflito): horário passado pede confirmação; senão grava. */
+  async function seguirAposConflito(inicio: Date, fim: Date) {
+    setConflitos([]);
+    const mudouInicio = !agEditar || inicio.getTime() !== parseISO(agEditar.data_hora_inicio).getTime();
+    if (mudouInicio && instanteNoPassado(inicio.toISOString(), Date.now())) {
+      setPerguntaPassado({ inicio, fim });
       return;
     }
     await executarSalvar(inicio, fim);
@@ -871,7 +926,7 @@ function NovoAgModal({
               <AlertTriangle size={15} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
               <p className="text-sm font-bold text-amber">Conflito de horário</p>
             </div>
-            <p className="text-xs text-text-2 px-4 pb-2">Este profissional já tem agendamento(s) nesse intervalo:</p>
+            <p className="text-xs text-text-2 px-4 pb-2">{msgConflitoAtual}</p>
             <div className="px-4 pb-3 flex flex-col gap-1">
               {conflitos.map((c, i) => (
                 <p key={i} className="text-xs text-text-2">• {c.inicio}–{c.fim} · {c.cliente} ({c.servico})</p>
@@ -883,12 +938,46 @@ function NovoAgModal({
                 Cancelar
               </button>
               <button type="button" disabled={salvando}
-                onClick={() => pendInicio && pendFim && executarSalvar(pendInicio, pendFim)}
+                onClick={() => pendInicio && pendFim && seguirAposConflito(pendInicio, pendFim)}
                 className="flex-1 h-9 rounded-xl text-white text-xs font-bold transition disabled:opacity-60"
                 style={{ background: 'var(--color-amber)' }}>
                 {salvando ? 'Salvando...' : agEditar ? 'Salvar assim mesmo' : 'Agendar mesmo assim'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Horário passado: confirma antes de gravar */}
+        {perguntaPassado && (
+          <div className="mx-5 mt-5 rounded-2xl overflow-hidden border border-amber/30" style={{ background: 'var(--color-amber-soft)' }}>
+            <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+              <AlertTriangle size={15} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
+              <p className="text-sm font-bold text-amber">{MSG_HORARIO_PASSADO}</p>
+            </div>
+            <div className="flex gap-2 px-4 pb-4">
+              <button type="button" onClick={() => setPerguntaPassado(null)}
+                className="flex-1 h-9 rounded-xl border border-border text-xs font-semibold text-text-2 hover:bg-bg transition bg-surface">
+                Voltar
+              </button>
+              <button type="button" disabled={salvando}
+                onClick={() => { const p = perguntaPassado; setPerguntaPassado(null); executarSalvar(p.inicio, p.fim); }}
+                className="flex-1 h-9 rounded-xl text-white text-xs font-bold transition disabled:opacity-60"
+                style={{ background: 'var(--color-amber)' }}>
+                {salvando ? 'Salvando...' : 'Registrar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Comanda fechada / serviços pendentes de uma criação anterior */}
+        {edicaoTravada && (
+          <div role="alert" className="mx-5 mt-5 rounded-xl bg-red-soft text-red text-xs font-semibold px-4 py-3">
+            {MSG_CONCLUIDO_COM_COMANDA}
+          </div>
+        )}
+        {idCriado && (
+          <div role="alert" className="mx-5 mt-5 rounded-xl bg-red-soft text-red text-xs font-semibold px-4 py-3">
+            O agendamento já foi criado, mas os serviços não foram gravados. Clique em &quot;Salvar serviços&quot; para tentar de novo.
           </div>
         )}
 
@@ -1063,9 +1152,13 @@ function NovoAgModal({
                       </div>
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1">Valor (R$)</p>
-                        <input type="number" value={l.valor} min={0} step={0.01} placeholder="0,00"
-                          onChange={e => setLinhas(prev => prev.map(x => x.uid === l.uid ? { ...x, valor: Number(e.target.value) } : x))}
-                          className={inputClass} />
+                        <input type="text" inputMode="decimal" value={l.valor} placeholder={valorCampo(precoDe(l.servico_id))}
+                          onChange={e => setLinhas(prev => prev.map(x => x.uid === l.uid ? { ...x, valor: e.target.value } : x))}
+                          aria-invalid={!valorDigitadoValido(l.valor)}
+                          className={`${inputClass} ${valorDigitadoValido(l.valor) ? '' : 'border-red'}`} />
+                        {!valorDigitadoValido(l.valor) && (
+                          <p className="text-[10px] text-red mt-0.5">Valor inválido (use 0 para cortesia)</p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1129,7 +1222,7 @@ function NovoAgModal({
                       className={`${inputClass} pl-9`}
                     />
                   </div>
-                  {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+                  {parseValorBR(taxaReserva) > 0 && (
                     <>
                       <label className="flex items-center gap-2 mt-2 cursor-pointer">
                         <input
@@ -1181,8 +1274,8 @@ function NovoAgModal({
               <span className="text-xs text-text-4" title={motivoBloqueioExcluir}>Não pode excluir</span>
             )}
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
-            <button type="submit" disabled={salvando || !!bloqueioConflitante} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
-              {salvando ? 'Salvando...' : agEditar ? 'Salvar alterações' : 'Agendar'}
+            <button type="submit" disabled={salvando || (!!bloqueioConflitante && !idCriado) || edicaoTravada || !valoresOk} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
+              {salvando ? 'Salvando...' : idCriado ? 'Salvar serviços' : agEditar ? 'Salvar alterações' : 'Agendar'}
             </button>
           </div>
         </form>
@@ -1703,7 +1796,7 @@ function TimelineView({
                     instante.setHours(hh, mm, 0, 0);
                     const bl = bloqueioNoInstante(bloqueios, prof.id, instante.toISOString());
                     if (bl) {
-                      onAvisoBloqueio(`Horário bloqueado (${motivoBloqueioLabel(bl.motivo)}). Remova o bloqueio para agendar aqui.`);
+                      onAvisoBloqueio(msgBloqueio(bl.motivo));
                       return;
                     }
                     onNovo({ hora: horaStr, profId: prof.id });
@@ -2142,7 +2235,7 @@ export default function AgendaPage() {
 
     let queryAgs = supabase
       .from('agendamentos')
-      .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,
+      .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,comanda_id,
         cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
         profissional:users!agendamentos_profissional_id_fkey(id,nome),
         servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),

@@ -5,6 +5,7 @@
 import { chaveDiaBRT, diaDaSemana, horaBRT, instanteMs, somarDias } from './periodos';
 import { parseValorBR } from './comanda-fechamento';
 import { faturamentoPrevistoDia } from './kpis-financeiros';
+import { MOTIVOS_BLOQUEIO } from './bloqueios';
 
 /** Janela visível da timeline, em horas inteiras (0..24). */
 export type Janela = { ini: number; fim: number };
@@ -61,6 +62,27 @@ export const MSG_REABRIR = 'Reabrir este atendimento?';
 /** Aviso de conflito de horário da mesma profissional. */
 export function msgConflito(nome: string, hhmm: string): string {
   return `Já existe atendimento de ${nome} às ${hhmm}. Agendar mesmo assim?`;
+}
+
+/**
+ * Mensagem de horário bloqueado: mesmo texto do trigger 074 (`check_agendamento_bloqueio`),
+ * com o rótulo do motivo ("Folga") em vez da chave crua. Sem motivo → "bloqueio".
+ */
+export function msgBloqueio(motivo: string | null | undefined): string {
+  const rotulo = !motivo ? 'bloqueio' : (MOTIVOS_BLOQUEIO.find((m) => m.key === motivo)?.label ?? motivo);
+  return `Horário bloqueado na agenda (${rotulo}). Remova o bloqueio para agendar nesse período.`;
+}
+
+/**
+ * O texto do valor de uma linha é aceitável? Vazio (usa o preço), zero escrito ("0", "0,00",
+ * "R$ 0" — cortesia) ou um número positivo. `parseValorBR` devolve 0 para texto inválido, então
+ * sem esta checagem um erro de digitação viraria cortesia sem aviso.
+ */
+export function valorDigitadoValido(texto: string): boolean {
+  const t = texto.trim();
+  if (t === '') return true;
+  if (/^(R\$\s*)?0+([.,]0+)?$/i.test(t)) return true;
+  return parseValorBR(t) > 0;
 }
 
 /** Status para os quais o atendimento pode ir, conforme o atual e se a comanda já foi fechada. */

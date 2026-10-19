@@ -32,16 +32,16 @@ import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import SuccessCheck from '@/components/SuccessCheck';
 import LinhasServicoEditor, {
-  linhaVazia, novaChaveLinha, valorParaCampo, valorDigitadoValido, duracaoDigitada,
+  linhaVazia, novaChaveLinha, valorParaCampo, duracaoDigitada,
   type LinhaServicoForm,
 } from '@/components/agenda/LinhasServicoEditor';
 import SeletorHorario, { horaValida } from '@/components/agenda/SeletorHorario';
 import {
   montarAgendamento, horariosDoDia, janelaDoDia, conflitosDeHorario, instanteNoPassado,
   linhasIniciaisEdicao, msgConflito, diasDaSemana, semanaVizinha,
-  MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA,
+  MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, msgBloqueio, valorDigitadoValido,
 } from '@shared/agenda';
-import { bloqueioEmConflito, motivoBloqueioLabel, type BlocoParaChecagem } from '@shared/bloqueios';
+import { bloqueioEmConflito, type BlocoParaChecagem } from '@shared/bloqueios';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
 import {
   chaveDiaBRT, horaBRT, hojeBRT, instanteMs, limitesDias, diaDaSemana,
@@ -102,10 +102,6 @@ function fmtSessaoData(iso: string | null): string {
 /** Instante ISO (UTC) de um dia 'AAAA-MM-DD' e hora 'HH:MM' de Brasília. */
 function instanteBRT(dia: string, hhmm: string): string {
   return new Date(instanteMs(`${dia}T${hhmm}:00-03:00`)).toISOString();
-}
-/** Mesma mensagem do trigger 074 (`check_agendamento_bloqueio`). */
-function msgBloqueio(motivo: string | null | undefined): string {
-  return `Horário bloqueado na agenda (${motivo ? motivoBloqueioLabel(motivo) : 'bloqueio'}). Remova o bloqueio para agendar nesse período.`;
 }
 /** Pergunta Sim/Voltar; resolve true só se a pessoa confirmar. */
 function confirmarAlerta(titulo: string, mensagem: string, confirmar: string): Promise<boolean> {
