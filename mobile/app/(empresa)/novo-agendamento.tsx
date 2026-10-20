@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StatusBar, Alert, ActivityIndicator, Modal, FlatList, Switch,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useSegments } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -172,7 +172,9 @@ export default function NovoAgendamento() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user } = useAuthStore();
   const { pode } = usePermissoes();
-  const podeOutras = pode('agenda.gerenciar_outras');
+  // Entrando pela área da profissional a tela fica travada nela mesma, mesmo com 'agenda.gerenciar_outras'.
+  const naAreaProfissional = useSegments()[0] === '(profissional)';
+  const podeOutras = pode('agenda.gerenciar_outras') && !naAreaProfissional;
   const podeCadastrarCliente = pode('clientes.cadastrar');
   const podeVenderPacote = pode('pacotes.vender');
   const params = useLocalSearchParams<{ id?: string; clienteId?: string; data?: string; hora?: string; profissional?: string }>();

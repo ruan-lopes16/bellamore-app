@@ -25,6 +25,11 @@ describe('app: agendar pela área da profissional e editar pelo detalhe', () => 
   it('a agenda da profissional trava o agendamento nela mesma', () => {
     expect(ler('app/(profissional)/agenda.tsx')).toContain('&profissional=${');
   });
+  it('na área da profissional o seletor de profissional fica travado nela, mesmo com gerenciar_outras', () => {
+    const s = ler('app/(empresa)/novo-agendamento.tsx');
+    expect(s).toContain("useSegments()[0] === '(profissional)'");
+    expect(s).toMatch(/podeOutras\s*=\s*pode\('agenda\.gerenciar_outras'\)\s*&&\s*!naAreaProfissional/);
+  });
   it('os dois detalhes têm o botão Editar para quem pode mexer, escondido com comanda fechada', () => {
     for (const [arq, rota] of [
       ['app/(empresa)/agendamento/[id].tsx', '/(empresa)/novo-agendamento?id='],
