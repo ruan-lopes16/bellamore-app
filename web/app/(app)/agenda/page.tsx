@@ -1709,10 +1709,15 @@ function TimelineView({
       <div className="flex gap-4 items-start min-w-0">
 
       {/* ── Grid de timeline ── */}
-      <div className="flex-1 border border-border rounded-2xl overflow-x-auto bg-surface min-w-0 w-full">
+      <div className="flex-1 border border-border rounded-2xl overflow-hidden bg-surface min-w-0 w-full">
 
-        {/* Cabeçalho com nomes dos profissionais */}
-        <div className="flex border-b border-border bg-bg">
+        {/* Área scrollável (nos dois sentidos). Cabeçalho e colunas ficam no mesmo container: em
+            "Todas", a rolagem horizontal move os nomes junto com as colunas. */}
+        <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: '62dvh' }}>
+          <div style={{ minWidth: 'max-content' }}>
+
+        {/* Cabeçalho com nomes dos profissionais — sticky top-0 na rolagem vertical */}
+        <div className="sticky top-0 z-40 flex border-b border-border bg-bg">
           <div className="w-10 md:w-12 flex-shrink-0 border-r border-border" />
           {profissionais.map(prof => {
             return (
@@ -1725,8 +1730,6 @@ function TimelineView({
           })}
         </div>
 
-        {/* Área scrollável */}
-        <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: '62dvh' }}>
           <div className="flex">
 
             {/* Coluna de horas */}
@@ -1916,6 +1919,7 @@ function TimelineView({
             })}
 
           </div>
+          </div>
         </div>
       </div>
 
@@ -2077,6 +2081,8 @@ export default function AgendaPage() {
   const [agEditar,   setAgEditar]  = useState<Ag | null>(null);
   const [toastErro,    setToastErro]   = useState('');
   const [erroDia,      setErroDia]     = useState('');
+  /** Erro da carga do calendário do mês — aviso fixo no calendário (sem ele, dias sem marca pareceriam vazios). */
+  const [erroMes, setErroMes] = useState('');
   const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string } | null>(null);
   const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
   // Profissionais da empresa — base das colunas da timeline (independe de haver
@@ -2227,11 +2233,12 @@ export default function AgendaPage() {
         const k = chaveDiaBRT(r.data_hora_inicio);
         map.set(k, (map.get(k) ?? 0) + 1);
       });
+      setErroMes('');
       setAgsMes(map);
       setBloqueiosMes(blRows as Bloqueio[]);
     } catch (e) {
       if (req !== reqMes.current) return;
-      showErro(mensagemErroBanco(e as { message?: string; code?: string }, 'carregar o calendário do mês'));
+      setErroMes(mensagemErroBanco(e as { message?: string; code?: string }, 'carregar o calendário do mês'));
     }
   }, [filtro]);
 
@@ -2383,6 +2390,11 @@ export default function AgendaPage() {
     }
   }
 
+  /** Recarrega as marcas de bloqueio do calendário (só na visão Mês) depois de mexer num bloqueio. */
+  function recarregarMes() {
+    if (empresaId && view === 'mes') fetchMes(dataSel, empresaId);
+  }
+
   /** Remove um bloqueio. `.select('id')` + guarda de zero linhas transforma um bloqueio de RLS em mensagem visível, restaurando a lista otimista. */
   async function deletarBloqueio(id: string) {
     const anterior = bloqueios;
@@ -2395,6 +2407,7 @@ export default function AgendaPage() {
       return;
     }
     setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
+    recarregarMes();
   }
 
   /** Aprova um pedido de bloqueio pendente. `.select('id')` + guarda de zero linhas para não engolir bloqueio de RLS. */
@@ -2410,6 +2423,7 @@ export default function AgendaPage() {
     }
     setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
     if (empresaId) fetchDia(dataSel, empresaId);
+    recarregarMes();
   }
 
   /** Recusa um pedido de bloqueio pendente apagando a linha. Mesma guarda de zero linhas do aprovar. */
@@ -2425,6 +2439,7 @@ export default function AgendaPage() {
     }
     setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
     if (empresaId) fetchDia(dataSel, empresaId);
+    recarregarMes();
   }
 
   return (
@@ -2579,6 +2594,11 @@ export default function AgendaPage() {
                 <ChevronRight size={16}/>
               </button>
             </div>
+            {erroMes && (
+              <div role="alert" className="mb-3 rounded-xl bg-red-soft text-red text-xs font-semibold px-3 py-2">
+                {erroMes} As marcas do calendário podem estar incompletas.
+              </div>
+            )}
             <MesView mes={dataSel} agsPorDia={agsMes} diasBloqueados={diasBloqueadosMes} diaSel={dataSel} onDiaClick={selecionarDia}/>
           </div>
           </div>
@@ -2658,6 +2678,7 @@ export default function AgendaPage() {
           onSalvo={b => {
             setBloqueios(prev => [...prev, b]);
             setModalBloq(false);
+            recarregarMes();
             if (b.situacao === 'pendente') showErro('Pedido de bloqueio enviado para aprovação.');
           }}
         />

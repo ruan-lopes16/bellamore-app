@@ -189,6 +189,32 @@ describe('página: seletor, carga e bloqueios em Semana e Mês', () => {
   });
 });
 
+describe('revisão da Task 7', () => {
+  it('Timeline: cabeçalho dos nomes dentro da mesma área rolável das colunas (rolagem horizontal alinhada em "Todas")', () => {
+    const i = agenda.indexOf('ref={scrollRef}');
+    const cab = agenda.indexOf('Cabeçalho com nomes dos profissionais');
+    expect(i).toBeGreaterThan(0);
+    expect(cab).toBeGreaterThan(i);
+    // cabeçalho fixo no topo da rolagem vertical e conteúdo com a largura das colunas
+    expect(agenda).toMatch(/sticky top-0[^\n]*Cabeçalho|Cabeçalho[\s\S]{0,200}sticky top-0/);
+    expect(agenda).toContain("minWidth: 'max-content'");
+  });
+  it('erro na carga do mês fica na tela como aviso (nunca calendário vazio em silêncio)', () => {
+    expect(agenda).toMatch(/const \[erroMes, setErroMes\] = useState\(''\)/);
+    expect(agenda).toContain('setErroMes(mensagemErroBanco(');
+    expect(agenda).toMatch(/\{erroMes && \(/);
+    expect(agenda).not.toContain("showErro(mensagemErroBanco(e as { message?: string; code?: string }, 'carregar o calendário do mês'))");
+  });
+  it('criar, remover, aprovar ou recusar bloqueio recarrega as marcas do mês', () => {
+    expect(agenda).toContain('function recarregarMes()');
+    const corpo = (nome: string) => agenda.slice(agenda.indexOf(nome), agenda.indexOf(nome) + 1200);
+    expect(corpo('async function deletarBloqueio')).toContain('recarregarMes()');
+    expect(corpo('async function aprovarBloqueio')).toContain('recarregarMes()');
+    expect(corpo('async function recusarBloqueio')).toContain('recarregarMes()');
+    expect(agenda.slice(agenda.indexOf('onSalvo={b =>'), agenda.indexOf('onSalvo={b =>') + 300)).toContain('recarregarMes()');
+  });
+});
+
 describe('buscarPaginas', () => {
   it('pede páginas até vir uma incompleta e junta tudo', async () => {
     const pedidos: [number, number][] = [];
