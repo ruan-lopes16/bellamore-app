@@ -48,7 +48,8 @@ describe('A6 — timeline sempre visível + bloqueios em dia sem agendamento', (
   const src = read('app/(app)/agenda/page.tsx');
   it('as colunas vêm dos profissionais da empresa, não só dos agendamentos', () => {
     expect(src).toContain('profissionaisEmpresa');
-    expect(src).toContain("for (const p of profissionaisEmpresa) map.set(p.id, p.nome)");
+    // Desde a paridade da Agenda (Task 7): `colunasDaTimeline` (visoes.ts) recebe a lista inteira.
+    expect(src).toContain('colunasDaTimeline(ags, profissionaisEmpresa, filtro)');
   });
   it('carrega os profissionais da empresa de empresa_membros', () => {
     expect(src).toContain("setProfissionaisEmpresa");

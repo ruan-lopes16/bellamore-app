@@ -7,8 +7,13 @@
  * ## Componentes internos
  * - `AgCard`        — card de agendamento com dropdown de status
  * - `NovoAgModal`   — modal de criação/edição de agendamento
- * - `ListaDia`      — lista de agendamentos do dia selecionado
- * - `MesView`       — calendário mensal com dots indicadores
+ * - `ListaDia`      — lista de agendamentos (e bloqueios) do dia selecionado
+ * - `TimelineView`  — grade por hora; em "Todas as profissionais", uma coluna por profissional
+ *
+ * ## Arquivos ao lado
+ * - `visoes.ts`          — regras puras: janela do dia, posições, filtro "todas", semana/mês
+ * - `MesView.tsx`        — calendário mensal (atendimentos e bloqueios por dia)
+ * - `BloqueiosDoDia.tsx` — bloqueios do dia como itens nas visões Semana e Mês
  *
  * ## Otimistic UI
  * Mudanças de status são aplicadas na UI antes da confirmação do banco.
@@ -23,9 +28,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   format, addDays, addMonths, subMonths,
-  startOfDay, endOfDay, startOfMonth, endOfMonth,
-  startOfWeek, eachDayOfInterval,
-  isSameDay, isSameMonth, isToday, addMinutes, parseISO, isPast,
+  isSameDay, isToday, addMinutes, parseISO, isPast,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -64,6 +67,14 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { chaveDiaBRT, chaveDiaExibido, horaBRT, limitesDias } from '@shared/periodos';
+import {
+  FILTRO_TODAS, TL_HOUR_H, alturaDaJanela, bloqueiosDoDia, bloqueiosVisiveis, buscarPaginas,
+  colunasDaTimeline, diasComBloqueio, filtroEfetivo, gradeDoMes, horaDoClique, horasDaJanela,
+  janelaDaTimeline, posicaoNaTimeline, semanaDoDia, topoAgora, type FiltroProfissional,
+} from './visoes';
+import { MesView } from './MesView';
+import { BloqueiosDoDia } from './BloqueiosDoDia';
 
 const supabase = createClient();
 
@@ -1301,37 +1312,8 @@ function NovoAgModal({
 
 // ── Timeline do dia ───────────────────────────────────────────
 
-/** Pixels por hora na timeline */
-const TL_HOUR_H  = 72;
-const TL_MIN_H   = TL_HOUR_H / 60;
-const TL_H_START = 7;
-const TL_H_END   = 22;
-const TL_HOURS   = Array.from({ length: TL_H_END - TL_H_START + 1 }, (_, i) => TL_H_START + i);
-const TL_TOTAL_H = (TL_H_END - TL_H_START) * TL_HOUR_H;
-
-/** Posição vertical (px) de um agendamento na timeline */
-function tlTop(ag: Ag): number {
-  const d = parseISO(ag.data_hora_inicio);
-  return ((d.getHours() - TL_H_START) * 60 + d.getMinutes()) * TL_MIN_H;
-}
-
-/** Altura (px) proporcional à duração; mínimo 26px */
-function tlHeight(ag: Ag): number {
-  const ms = parseISO(ag.data_hora_fim).getTime() - parseISO(ag.data_hora_inicio).getTime();
-  return Math.max((ms / 60000) * TL_MIN_H, 26);
-}
-
-/** Posição vertical (px) para um ISO string de hora */
-function tlTopISO(iso: string): number {
-  const d = parseISO(iso);
-  return Math.max(0, ((d.getHours() - TL_H_START) * 60 + d.getMinutes()) * TL_MIN_H);
-}
-
-/** Altura (px) entre dois ISO strings; mínimo 20px */
-function tlHeightISO(ini: string, fim: string): number {
-  const ms = parseISO(fim).getTime() - parseISO(ini).getTime();
-  return Math.max((ms / 60000) * TL_MIN_H, 20);
-}
+// Janela (horas visíveis), posições e clique vêm de `./visoes` — em Brasília, esticando a
+// janela 7h–21h para caber todo atendimento e bloqueio do dia (nenhum card cortado).
 
 /** Verifica se dois agendamentos se sobrepõem no tempo */
 function sobrepoem(a: Ag, b: Ag): boolean {
@@ -1615,26 +1597,18 @@ function PendentesBloqueioBtn({ pendentes, onAprovar, onRecusar }: {
 /**
  * TimelineView — Visão por hora dos agendamentos do dia.
  *
- * Exibe uma coluna por profissional. Agendamentos são blocos
- * posicionados proporcionalmente ao horário e duração.
+ * Uma coluna por profissional (`colunasDaTimeline`): só a escolhida, ou todas em
+ * "Todas as profissionais", com o nome no topo e rolagem horizontal. Agendamentos são
+ * blocos posicionados pelo horário e duração (Brasília) dentro da janela do dia.
  * Sobreposições são detectadas e exibidas lado a lado.
  * Clicar num bloco abre o AgCard no painel lateral.
  */
-/** Snap Y para o horário mais próximo de 15 em 15 min e retorna "HH:mm" */
-function calcHoraTimeline(y: number): string {
-  const totalMins = Math.floor(y / TL_MIN_H);
-  const absM = TL_H_START * 60 + totalMins;
-  let h = Math.floor(absM / 60);
-  let m = Math.round((absM % 60) / 15) * 15;
-  if (m === 60) { m = 0; h += 1; }
-  h = Math.min(Math.max(h, TL_H_START), TL_H_END - 1);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuUserId, podeAlterar,
+  ags, bloqueios, profissionaisEmpresa, filtro, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuUserId, podeAlterar,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
+  /** Profissional escolhida ou "todas" (já validado contra `agenda.ver_equipe`). */
+  filtro: FiltroProfissional;
   loading: boolean; empresaId: string;
   categoriasCustom: CategoriaCustom[];
   onStatus: (id: string, s: string) => void;
@@ -1656,14 +1630,22 @@ function TimelineView({
   useScrollLock(!!agSel, { apenasMobile: true });
   const [hoverInfo, setHoverInfo] = useState<{ profId: string; y: number; horaStr: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chaveDia = chaveDiaExibido(dataSel);
 
-  // Rola até o horário atual ao montar
+  // Janela do dia: 7h–21h esticada para caber todo atendimento e bloqueio visível.
+  const janela = useMemo(() => janelaDaTimeline(ags, bloqueios, chaveDia), [ags, bloqueios, chaveDia]);
+  const alturaTotal = alturaDaJanela(janela);
+  const horas = horasDaJanela(janela);
+
+  // Rola até o horário atual (ou o começo da janela) quando a grade aparece — ao montar ela
+  // ainda é o esqueleto de carregamento, por isso depende de `loading`.
   useEffect(() => {
-    if (!scrollRef.current) return;
-    const now = new Date();
-    const top = ((now.getHours() - TL_H_START) * 60 + now.getMinutes()) * TL_MIN_H;
+    if (loading || !scrollRef.current) return;
+    const agoraIso = new Date().toISOString();
+    const top = topoAgora(agoraIso, chaveDiaBRT(agoraIso), janela) ?? 0;
     scrollRef.current.scrollTop = Math.max(0, top - 100);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   // Sincroniza agSel quando o ag sofre atualização de status (optimistic)
   useEffect(() => {
@@ -1672,28 +1654,14 @@ function TimelineView({
     if (atualizado) setAgSel(atualizado);
   }, [ags]);
 
-  // Colunas da timeline: profissionais da empresa (sempre, mesmo sem
+  // Colunas da timeline: a profissional escolhida, ou todas em "Todas" (sempre, mesmo sem
   // agendamento) + qualquer profissional que apareça só nos agendamentos do dia
   // e não esteja na lista (defensivo — ex.: profissional desativado depois).
-  const profissionais = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const p of profissionaisEmpresa) map.set(p.id, p.nome);
-    for (const ag of ags) {
-      if (ag.profissional && !map.has(ag.profissional.id)) map.set(ag.profissional.id, ag.profissional.nome);
-    }
-    return Array.from(map.entries()).map(([id, nome]) => ({ id, nome }));
-  }, [ags, profissionaisEmpresa]);
-
-  // Agendamentos agrupados por profissional
-  const agsByProf = useMemo(() => {
-    const map = new Map<string, Ag[]>();
-    for (const { id } of profissionais) map.set(id, []);
-    for (const ag of ags) {
-      const pid = ag.profissional?.id;
-      if (pid) map.get(pid)?.push(ag);
-    }
-    return map;
-  }, [ags, profissionais]);
+  const colunas = useMemo(
+    () => colunasDaTimeline(ags, profissionaisEmpresa, filtro),
+    [ags, profissionaisEmpresa, filtro],
+  );
+  const profissionais = colunas.map(c => c.profissional);
 
   // Categorias de serviço presentes no dia (para a legenda de cores)
   const categoriasPresentes = useMemo(() => {
@@ -1703,10 +1671,7 @@ function TimelineView({
   }, [ags, categoriasCustom]);
 
   // Linha de "agora"
-  const agora       = new Date();
-  const ehHoje      = isSameDay(dataSel, agora);
-  const agoraTop    = ((agora.getHours() - TL_H_START) * 60 + agora.getMinutes()) * TL_MIN_H;
-  const agoraVis    = agora.getHours() >= TL_H_START && agora.getHours() < TL_H_END;
+  const agoraTop = topoAgora(new Date().toISOString(), chaveDia, janela);
 
   if (loading) {
     return (
@@ -1767,10 +1732,10 @@ function TimelineView({
             {/* Coluna de horas */}
             <div
               className="w-10 md:w-12 flex-shrink-0 border-r border-border relative bg-bg/60"
-              style={{ height: TL_TOTAL_H }}>
-              {TL_HOURS.map(h => (
+              style={{ height: alturaTotal }}>
+              {horas.map(h => (
                 <div key={h}
-                  style={{ top: (h - TL_H_START) * TL_HOUR_H }}
+                  style={{ top: (h - janela.ini) * TL_HOUR_H }}
                   className="absolute inset-x-0 flex justify-center">
                   <span className="text-[10px] text-text-4 font-medium mt-0.5">
                     {String(h).padStart(2, '0')}h
@@ -1780,20 +1745,18 @@ function TimelineView({
             </div>
 
             {/* Colunas por profissional */}
-            {profissionais.map(prof => {
-              const colAgs  = agsByProf.get(prof.id) ?? [];
+            {colunas.map(({ profissional: prof, itens: colAgs }) => {
               const laneMap = computeLanes(colAgs);
 
               return (
                 <div key={prof.id}
                   className="flex-1 min-w-[140px] border-r border-border last:border-r-0 relative cursor-crosshair"
-                  style={{ height: TL_TOTAL_H }}
+                  style={{ height: alturaTotal }}
                   onClick={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
-                    const horaStr = calcHoraTimeline(e.clientY - rect.top);
-                    const [hh, mm] = horaStr.split(':').map(Number);
-                    const instante = new Date(dataSel);
-                    instante.setHours(hh, mm, 0, 0);
+                    const horaStr = horaDoClique(e.clientY - rect.top, janela);
+                    // Instante do clique em Brasília (mesmo fuso da grade).
+                    const instante = new Date(`${chaveDia}T${horaStr}:00-03:00`);
                     const bl = bloqueioNoInstante(bloqueios, prof.id, instante.toISOString());
                     if (bl) {
                       onAvisoBloqueio(msgBloqueio(bl.motivo));
@@ -1804,26 +1767,26 @@ function TimelineView({
                   onMouseMove={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const y = e.clientY - rect.top;
-                    setHoverInfo({ profId: prof.id, y, horaStr: calcHoraTimeline(y) });
+                    setHoverInfo({ profId: prof.id, y, horaStr: horaDoClique(y, janela) });
                   }}
                   onMouseLeave={() => setHoverInfo(null)}>
 
                   {/* Linhas de hora */}
-                  {TL_HOURS.map(h => (
+                  {horas.map(h => (
                     <div key={h}
-                      style={{ top: (h - TL_H_START) * TL_HOUR_H }}
+                      style={{ top: (h - janela.ini) * TL_HOUR_H }}
                       className="absolute inset-x-0 border-t border-border/40" />
                   ))}
 
                   {/* Linhas de meia hora */}
-                  {TL_HOURS.slice(0, -1).map(h => (
+                  {horas.slice(0, -1).map(h => (
                     <div key={`${h}h30`}
-                      style={{ top: (h - TL_H_START) * TL_HOUR_H + TL_HOUR_H / 2 }}
+                      style={{ top: (h - janela.ini) * TL_HOUR_H + TL_HOUR_H / 2 }}
                       className="absolute inset-x-0 border-t border-dashed border-border/25" />
                   ))}
 
                   {/* Linha de agora */}
-                  {ehHoje && agoraVis && (
+                  {agoraTop !== null && (
                     <div style={{ top: agoraTop }}
                       className="absolute inset-x-0 z-20 pointer-events-none">
                       <div className="border-t-2 border-red">
@@ -1843,18 +1806,11 @@ function TimelineView({
                   )}
 
                   {/* Bloqueios de horário */}
+                  {/* Quem chama já passa só os visíveis do dia (`bloqueiosVisiveis` + `bloqueiosDoDia`); aqui só os da coluna. */}
                   {bloqueios
                     .filter(b => b.profissional_id === null || b.profissional_id === prof.id)
-                    .filter(b =>
-                      // aprovados: todos veem. Pendentes: só a gestão ou quem criou.
-                      // A RLS já filtra isso no servidor; este filtro é defesa em profundidade visual.
-                      b.situacao === 'aprovado'
-                      || podeAprovarBloqueios
-                      || b.criado_por === meuUserId,
-                    )
                     .map(bl => {
-                      const topBl = tlTopISO(bl.data_inicio);
-                      const hBl   = tlHeightISO(bl.data_inicio, bl.data_fim);
+                      const { top: topBl, height: hBl } = posicaoNaTimeline(bl.data_inicio, bl.data_fim, chaveDia, janela, 20);
                       const pendente    = bl.situacao === 'pendente';
                       const podeRemover = podeAprovarBloqueios
                         || (pendente && bl.criado_por === meuUserId);
@@ -1896,8 +1852,7 @@ function TimelineView({
                   {colAgs.map(ag => {
                     const { lane, totalLanes } = laneMap.get(ag.id) ?? { lane: 0, totalLanes: 1 };
                     const pct      = 100 / totalLanes;
-                    const top      = tlTop(ag);
-                    const h        = tlHeight(ag);
+                    const { top, height: h } = posicaoNaTimeline(ag.data_hora_inicio, ag.data_hora_fim, chaveDia, janela, 26);
                     const cats     = categoriasDoAg(ag, categoriasCustom);
                     const infoCat  = infoCategoria(cats[0] ?? 'outros', categoriasCustom);
                     const corCat   = infoCat.cor;
@@ -1931,7 +1886,7 @@ function TimelineView({
                         <div className="px-1.5 py-1 h-full flex flex-col justify-start gap-0.5 min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
                             <span className={`text-[10px] font-bold leading-none flex-shrink-0 whitespace-nowrap tabular-nums ${inativo ? 'text-text-4' : 'text-text-3'}`}>
-                              {format(parseISO(ag.data_hora_inicio), 'HH:mm')}–{format(parseISO(ag.data_hora_fim), 'HH:mm')}
+                              {horaBRT(ag.data_hora_inicio)}–{horaBRT(ag.data_hora_fim)}
                             </span>
                             <p className={`text-[11px] font-bold leading-tight truncate flex-1 ${inativo ? 'text-text-3 line-through' : 'text-text'}`}>
                               {ag.cliente?.nome ?? '—'}
@@ -2011,12 +1966,19 @@ function TimelineView({
 
 // ── Lista do dia ─────────────────────────────────────────────
 
-function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar, podeAlterar }: {
-  ags: Ag[]; loading: boolean; dataSel: Date; empresaId: string;
+function ListaDia({ ags, bloqueios, loading, dataSel, empresaId, onNovo, onStatus, onEditar, podeAlterar, nomeProfissional, meuUserId, podeAprovar, onPedirRemoverBloqueio }: {
+  ags: Ag[];
+  /** Bloqueios visíveis do dia (mesmo filtro por profissional da Timeline). */
+  bloqueios: Bloqueio[];
+  loading: boolean; dataSel: Date; empresaId: string;
   onNovo: () => void; onStatus: (id: string, s: string) => void;
   onEditar?: (ag: Ag) => void;
   /** Falso = atendimento de outra profissional sem `agenda.gerenciar_outras` (só leitura). */
   podeAlterar: (ag: Ag) => boolean;
+  nomeProfissional: (id: string) => string | undefined;
+  meuUserId: string;
+  podeAprovar: boolean;
+  onPedirRemoverBloqueio: (b: Bloqueio) => void;
 }) {
   return (
     <div>
@@ -2044,7 +2006,17 @@ function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar
             </div>
           ))}
         </div>
-      ) : ags.length > 0 ? (
+      ) : (
+        <>
+        <BloqueiosDoDia
+          bloqueios={bloqueios}
+          chaveDia={chaveDiaExibido(dataSel)}
+          nomeProfissional={nomeProfissional}
+          meuUserId={meuUserId}
+          podeAprovar={podeAprovar}
+          onPedirRemover={b => { const orig = bloqueios.find(x => x.id === b.id); if (orig) onPedirRemoverBloqueio(orig); }}
+        />
+        {ags.length > 0 ? (
         <div className="flex flex-col gap-3">
           {ags.map((ag, idx) => (
             <div key={ag.id} className="bm-stagger" style={{ '--bm-i': idx, '--bm-step': '60ms' } as React.CSSProperties}>
@@ -2071,67 +2043,9 @@ function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar
           <span>Nenhum agendamento para este dia.</span>
           <button onClick={onNovo} className="text-accent font-semibold hover:underline self-start whitespace-nowrap">+ Criar agendamento</button>
         </div>
+        )}
+        </>
       )}
-    </div>
-  );
-}
-
-// ── Visão mensal ──────────────────────────────────────────────
-
-function MesView({
-  mes, agsPorDia, diaSel, onDiaClick,
-}: {
-  mes: Date;
-  agsPorDia: Map<string, number>;
-  diaSel: Date;
-  onDiaClick: (d: Date) => void;
-}) {
-  const gridStart = startOfWeek(startOfMonth(mes), { weekStartsOn: 0 });
-  const gridEnd   = new Date(gridStart); gridEnd.setDate(gridEnd.getDate() + 41);
-  const dias      = eachDayOfInterval({ start: gridStart, end: gridEnd });
-
-  return (
-    <div>
-      <div className="grid grid-cols-7 gap-1 mb-1">
-        {DIAS.map(d => (
-          <div key={d} className="text-center text-[10px] font-semibold text-text-4 py-1">{d}</div>
-        ))}
-      </div>
-      <div className="grid grid-cols-7 gap-1">
-        {dias.map(d => {
-          const key     = format(d, 'yyyy-MM-dd');
-          const count   = agsPorDia.get(key) ?? 0;
-          const selDia  = isSameDay(d, diaSel);
-          const hojeDia = isToday(d);
-          const dMes    = isSameMonth(d, mes);
-          return (
-            <div key={key} className="relative group">
-              <button
-                onClick={() => onDiaClick(d)}
-                className={`w-full aspect-square flex items-center justify-center rounded-lg text-sm font-bold transition
-                  ${selDia  ? 'bg-primary text-white'
-                  : hojeDia ? 'bg-primary-soft text-primary'
-                  : dMes    ? 'hover:bg-bg text-text-2'
-                  :           'text-text-4 hover:bg-bg'}`}
-              >
-                {format(d, 'd')}
-                {/* dot indicator */}
-                {count > 0 && !selDia && (
-                  <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
-              {/* tooltip no hover */}
-              {count > 0 && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-10
-                  opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity
-                  bg-text text-white text-[10px] font-semibold px-2 py-1 rounded-lg whitespace-nowrap shadow-lg">
-                  {count} {count === 1 ? 'agendamento' : 'agendamentos'}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -2143,20 +2057,20 @@ export default function AgendaPage() {
 
   const [view,      setView]      = useState<'semana' | 'mes' | 'timeline'>('timeline');
   const [dataSel,   setDataSel]   = useState(new Date());
-  const [semana,    setSemana]    = useState(() =>
-    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
-  );
+  const [semana,    setSemana]    = useState(() => semanaDoDia(new Date()));
   const [ags,        setAgs]       = useState<Ag[]>([]);
   const [bloqueios,  setBloqueios] = useState<Bloqueio[]>([]);
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
+  /** Bloqueios da grade do mês (42 dias), para marcar os dias na visão Mês. */
+  const [bloqueiosMes, setBloqueiosMes] = useState<Bloqueio[]>([]);
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
   const [meuUserId, setMeuUserId] = useState<string>('');
-  // Profissional cuja agenda está sendo exibida — sempre a própria pra quem
-  // é profissional (só ela mesma existe na lista pra escolher); pra
-  // gestão, começa nela mesma e pode trocar pelo seletor no header. Nunca
-  // existe modo "todas ao mesmo tempo" — sempre exatamente uma selecionada.
-  const [profFiltro, setProfFiltro] = useState<string>('');
+  // Agenda exibida: id de uma profissional ou "todas" (FILTRO_TODAS). Começa na própria
+  // pessoa ('' só enquanto a sessão carrega). "Todas" só vale com `agenda.ver_equipe` —
+  // sem ela, `filtroEfetivo` volta para a própria pessoa. A Task 8 troca o valor inicial
+  // pela preferência de abertura.
+  const [filtroProfissional, setFiltroProfissional] = useState<FiltroProfissional>('');
   const [modal,       setModal]      = useState(false);
   const [modalBloq,   setModalBloq]  = useState(false);
   const [modalParams, setModalParams] = useState<{ hora?: string; profId?: string }>({});
@@ -2180,6 +2094,8 @@ export default function AgendaPage() {
   const podeOutras = pode('agenda.gerenciar_outras');
   /** Mesma regra da policy de UPDATE de agendamentos: própria agenda sempre; a de outra só com a chave. */
   const podeAlterarAg = (ag: Ag) => podeMexerNoAgendamento(ag.profissional?.id, meuUserId, podeOutras);
+  /** Filtro válido para a carga e as visões ("todas" sem `ver_equipe` vira a própria pessoa). */
+  const filtro = filtroEfetivo(filtroProfissional, ehGestao, meuUserId);
 
   // Cancelado não aparece na agenda — vive só no histórico da cliente.
   // `ags` cru continua sendo a fonte de verdade do revert otimista em
@@ -2202,7 +2118,7 @@ export default function AgendaPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
       setMeuUserId(user.id);
-      setProfFiltro(user.id);
+      setFiltroProfissional(user.id);
       if (membro?.empresa_id) {
         const souGestao = ehGestao;
         const [{ data: cats }, { data: profs }] = await Promise.all([
@@ -2227,66 +2143,116 @@ export default function AgendaPage() {
     })();
   }, []);
 
-  // Busca agendamentos + bloqueios do dia selecionado
+  // Contadores de requisição: troca rápida de dia/filtro nunca mostra a resposta antiga.
+  const reqDia = useRef(0);
+  const reqMes = useRef(0);
+
+  // Busca agendamentos + bloqueios do dia selecionado (Brasília). Em "Todas", de todas as
+  // profissionais — paginado, porque o PostgREST corta em 1000 linhas sem avisar.
   const fetchDia = useCallback(async (data: Date, empId: string) => {
+    if (!filtro) return;
+    const req = ++reqDia.current;
     setLoading(true);
-    const iniDia = startOfDay(data).toISOString();
-    const fimDia = endOfDay(data).toISOString();
+    const { startIso: iniDia, endIso: fimDia } = limitesDias(chaveDiaExibido(data), chaveDiaExibido(data));
 
-    let queryAgs = supabase
-      .from('agendamentos')
-      .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,comanda_id,
-        cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
-        profissional:users!agendamentos_profissional_id_fkey(id,nome),
-        servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
-        agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria,categoria_id))`)
-      .eq('empresa_id', empId)
-      .gte('data_hora_inicio', iniDia)
-      .lte('data_hora_inicio', fimDia)
-      .neq('status', 'cancelado')
-      .order('data_hora_inicio');
-    if (profFiltro) queryAgs = queryAgs.eq('profissional_id', profFiltro);
-
-    const [{ data: rows, error: errAgs }, { data: blRows, error: errBloq }] = await Promise.all([
-      queryAgs,
-      supabase
-        .from('agenda_bloqueios')
-        .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
-        .eq('empresa_id', empId)
-        .lte('data_inicio', fimDia)
-        .gte('data_fim',    iniDia),
-    ]);
-
-    if (errAgs || errBloq) {
+    try {
+      const [rows, blRows] = await Promise.all([
+        buscarPaginas((de, ate) => {
+          let q = supabase
+            .from('agendamentos')
+            .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,comanda_id,
+              cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
+              profissional:users!agendamentos_profissional_id_fkey(id,nome),
+              servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
+              agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria,categoria_id))`)
+            .eq('empresa_id', empId)
+            .gte('data_hora_inicio', iniDia)
+            .lte('data_hora_inicio', fimDia)
+            .neq('status', 'cancelado');
+          if (filtro !== FILTRO_TODAS) q = q.eq('profissional_id', filtro);
+          return q.order('data_hora_inicio').order('id').range(de, ate);
+        }),
+        buscarPaginas((de, ate) => supabase
+          .from('agenda_bloqueios')
+          .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
+          .eq('empresa_id', empId)
+          .lte('data_inicio', fimDia)
+          .gte('data_fim',    iniDia)
+          .order('data_inicio').order('id')
+          .range(de, ate)),
+      ]);
+      if (req !== reqDia.current) return;
+      setErroDia('');
+      setAgs(rows as unknown as Ag[]);
+      setBloqueios(blRows as Bloqueio[]);
+    } catch (e) {
+      if (req !== reqDia.current) return;
       // Mantém o que já estava na tela: lista vazia aqui pareceria "dia sem atendimentos".
-      setErroDia(mensagemErroBanco(errAgs ?? errBloq, 'carregar a agenda do dia'));
-      setLoading(false);
-      return;
+      setErroDia(mensagemErroBanco(e as { message?: string; code?: string }, 'carregar a agenda do dia'));
     }
-    setErroDia('');
-    setAgs((rows ?? []) as unknown as Ag[]);
-    setBloqueios((blRows ?? []) as Bloqueio[]);
     setLoading(false);
-  }, [profFiltro]);
+  }, [filtro]);
 
-  // Busca contagem por dia para visão mensal
+  // Contagem por dia e bloqueios da grade da visão Mês (42 dias, domingo primeiro).
   const fetchMes = useCallback(async (mes: Date, empId: string) => {
-    let query = supabase
-      .from('agendamentos')
-      .select('data_hora_inicio')
-      .eq('empresa_id', empId)
-      .neq('status', 'cancelado')
-      .gte('data_hora_inicio', startOfMonth(mes).toISOString())
-      .lte('data_hora_inicio', endOfMonth(mes).toISOString());
-    if (profFiltro) query = query.eq('profissional_id', profFiltro);
-    const { data: rows } = await query;
-    const map = new Map<string, number>();
-    ((rows ?? []) as { data_hora_inicio: string }[]).forEach(r => {
-      const k = format(parseISO(r.data_hora_inicio), 'yyyy-MM-dd');
-      map.set(k, (map.get(k) ?? 0) + 1);
-    });
-    setAgsMes(map);
-  }, [profFiltro]);
+    if (!filtro) return;
+    const req = ++reqMes.current;
+    const grade = gradeDoMes(mes);
+    const { startIso, endIso } = limitesDias(chaveDiaExibido(grade[0]), chaveDiaExibido(grade[grade.length - 1]));
+    try {
+      const [rows, blRows] = await Promise.all([
+        buscarPaginas((de, ate) => {
+          let q = supabase
+            .from('agendamentos')
+            .select('id, data_hora_inicio')
+            .eq('empresa_id', empId)
+            .neq('status', 'cancelado')
+            .gte('data_hora_inicio', startIso)
+            .lte('data_hora_inicio', endIso);
+          if (filtro !== FILTRO_TODAS) q = q.eq('profissional_id', filtro);
+          return q.order('data_hora_inicio').order('id').range(de, ate);
+        }),
+        buscarPaginas((de, ate) => supabase
+          .from('agenda_bloqueios')
+          .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
+          .eq('empresa_id', empId)
+          .lte('data_inicio', endIso)
+          .gte('data_fim',    startIso)
+          .order('data_inicio').order('id')
+          .range(de, ate)),
+      ]);
+      if (req !== reqMes.current) return;
+      const map = new Map<string, number>();
+      (rows as { data_hora_inicio: string }[]).forEach(r => {
+        const k = chaveDiaBRT(r.data_hora_inicio);
+        map.set(k, (map.get(k) ?? 0) + 1);
+      });
+      setAgsMes(map);
+      setBloqueiosMes(blRows as Bloqueio[]);
+    } catch (e) {
+      if (req !== reqMes.current) return;
+      showErro(mensagemErroBanco(e as { message?: string; code?: string }, 'carregar o calendário do mês'));
+    }
+  }, [filtro]);
+
+  // Bloqueios visíveis (mesmo filtro em Timeline, Semana e Mês).
+  const chaveDiaSel = chaveDiaExibido(dataSel);
+  const bloqueiosDaLista = useMemo(
+    () => bloqueiosDoDia(bloqueiosVisiveis(bloqueios, filtro, meuUserId, podeAprovarBloqueios), chaveDiaSel),
+    [bloqueios, filtro, meuUserId, podeAprovarBloqueios, chaveDiaSel],
+  );
+  const diasBloqueadosMes = useMemo(
+    () => diasComBloqueio(
+      bloqueiosVisiveis(bloqueiosMes, filtro, meuUserId, podeAprovarBloqueios),
+      gradeDoMes(dataSel).map(chaveDiaExibido),
+    ),
+    [bloqueiosMes, filtro, meuUserId, podeAprovarBloqueios, dataSel],
+  );
+  const nomeProfissional = useCallback(
+    (id: string) => profissionaisEmpresa.find(p => p.id === id)?.nome
+      ?? ags.find(a => a.profissional?.id === id)?.profissional?.nome,
+    [profissionaisEmpresa, ags],
+  );
 
   // Bloqueios pendentes de aprovação (só a gestão enxerga / faz polling)
   const recarregarPendentes = useCallback(async () => {
@@ -2336,7 +2302,7 @@ export default function AgendaPage() {
     const novaData = addDays(dataSel, dir);
     setDataSel(novaData);
     if (!semana.some(s => isSameDay(s, novaData)))
-      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(novaData, { weekStartsOn: 0 }), i)));
+      setSemana(semanaDoDia(novaData));
   }
 
   function navMes(dir: number) {
@@ -2346,7 +2312,7 @@ export default function AgendaPage() {
   function selecionarDia(d: Date) {
     setDataSel(d);
     if (!semana.some(s => isSameDay(s, d)))
-      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
+      setSemana(semanaDoDia(d));
   }
 
   /** Atendimento aguardando a resposta de "Cobrar taxa de cancelamento de R$ X?". */
@@ -2502,9 +2468,9 @@ export default function AgendaPage() {
           {ehGestao && profissionaisEmpresa.length > 1 && (
             <div className="bm-mobile-action-wide" style={{ minWidth: 200 }}>
               <SearchSelect
-                options={profissionaisEmpresa.map(p => ({ value: p.id, label: p.nome }))}
-                value={profFiltro}
-                onChange={setProfFiltro}
+                options={[...(ehGestao ? [{ value: FILTRO_TODAS, label: 'Todas as profissionais' }] : []), ...profissionaisEmpresa.map(p => ({ value: p.id, label: p.nome }))]}
+                value={filtro}
+                onChange={v => setFiltroProfissional(v as FiltroProfissional)}
                 placeholder="Ver agenda de..."
               />
             </div>
@@ -2571,12 +2537,13 @@ export default function AgendaPage() {
       )}
 
       {view === 'semana' ? (
-        <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg}/>
+        <ListaDia ags={agsVisiveis} bloqueios={bloqueiosDaLista} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg} nomeProfissional={nomeProfissional} meuUserId={meuUserId} podeAprovar={podeAprovarBloqueios} onPedirRemoverBloqueio={setBloqueioParaRemover}/>
       ) : view === 'timeline' ? (
         <TimelineView
           ags={agsVisiveis}
-          bloqueios={bloqueios}
-          profissionaisEmpresa={profissionaisEmpresa.filter(p => p.id === profFiltro)}
+          bloqueios={bloqueiosDaLista}
+          profissionaisEmpresa={profissionaisEmpresa}
+          filtro={filtro}
           loading={loading}
           empresaId={empresaId ?? ''}
           categoriasCustom={categoriasCustom}
@@ -2612,10 +2579,10 @@ export default function AgendaPage() {
                 <ChevronRight size={16}/>
               </button>
             </div>
-            <MesView mes={dataSel} agsPorDia={agsMes} diaSel={dataSel} onDiaClick={selecionarDia}/>
+            <MesView mes={dataSel} agsPorDia={agsMes} diasBloqueados={diasBloqueadosMes} diaSel={dataSel} onDiaClick={selecionarDia}/>
           </div>
           </div>
-          <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg}/>
+          <ListaDia ags={agsVisiveis} bloqueios={bloqueiosDaLista} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg} nomeProfissional={nomeProfissional} meuUserId={meuUserId} podeAprovar={podeAprovarBloqueios} onPedirRemoverBloqueio={setBloqueioParaRemover}/>
         </>
       )}
 

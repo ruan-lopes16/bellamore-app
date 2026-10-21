@@ -11,7 +11,7 @@ describe('agenda web — cancelado oculto', () => {
     // fetchDia: filtro dentro da própria query de agendamentos do dia.
     expect(src).toMatch(/from\('agendamentos'\)[\s\S]{0,800}\.neq\('status', 'cancelado'\)/);
     // fetchMes: filtro na query de contagem por dia.
-    expect(src).toMatch(/select\('data_hora_inicio'\)[\s\S]{0,200}\.neq\('status', 'cancelado'\)/);
+    expect(src).toMatch(/select\('id, data_hora_inicio'\)[\s\S]{0,200}\.neq\('status', 'cancelado'\)/);
     // backstop: exatamente essas duas ocorrências, nada a mais.
     const ocorrencias = src.match(/\.neq\('status', 'cancelado'\)/g) ?? [];
     expect(ocorrencias.length).toBe(2);
