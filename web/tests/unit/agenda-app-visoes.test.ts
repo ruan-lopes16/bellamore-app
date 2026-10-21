@@ -2,29 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { janelaDoDia } from '@shared/agenda';
+import {
+  TODAS, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora, horasDaJanela, instanteDaHora,
+  itensDaJanela, juntarContagens, mesesDaSemana,
+} from '@shared/agenda-grade';
 
 // Task 6 da paridade da Agenda: visões do app (semana de verdade, Mês, janela do dia,
 // colunas por profissional em "Todas" e bloqueios filtrados pela profissional escolhida).
 const raiz = join(process.cwd(), '..');
 const ler = (p: string) => readFileSync(join(raiz, p), 'utf8').replace(/\r\n/g, '\n');
-
-// `grade.ts` mora no app. O web não pode importar módulos do mobile com import/from
-// (web-nao-importa-mobile.test.ts: o type-check do `next build` não acha as dependências do app),
-// então as funções puras entram só em tempo de execução, pelo glob do Vite (o tsc não segue).
-type Grade = {
-  horasDaJanela: (j: { ini: number; fim: number }) => number[];
-  instanteDaHora: (dia: string, hora: number) => string;
-  agruparPorHora: <T extends { data_hora_inicio: string }>(ags: T[]) => Record<number, T[]>;
-  bloqueiosDaProfissional: <B>(bs: B[], p: string) => B[];
-  bloqueiosPorHora: <B>(bs: B[], dia: string, horas: number[]) => Record<number, B[]>;
-  itensDaJanela: (dia: string, ags: { data_hora_inicio: string; data_hora_fim: string }[], bs: unknown[]) => { inicio: string; fim: string }[];
-};
-const g = Object.values(
-  (import.meta as unknown as { glob: (p: string, o: { eager: true }) => Record<string, unknown> })
-    .glob('../../../mobile/components/agenda/grade.ts', { eager: true }),
-)[0] as Grade;
-const TODAS = 'todas' as const;
-const { horasDaJanela, instanteDaHora, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora, itensDaJanela } = g;
 
 const EMPRESA = 'mobile/app/(empresa)/agenda.tsx';
 const PROF = 'mobile/app/(profissional)/agenda.tsx';
@@ -89,6 +75,22 @@ describe('grade da agenda do app (funções puras)', () => {
     expect(janelaDoDia(itensDaJanela('2026-10-19', [], [b]))).toEqual({ ini: 0, fim: 24 });
   });
 
+  it('meses da semana: os dois meses quando a semana cruza a virada', () => {
+    expect(mesesDaSemana('2026-10-14')).toEqual(['2026-10']);
+    expect(mesesDaSemana('2026-10-28')).toEqual(['2026-10']); // 25/10–31/10
+    expect(mesesDaSemana('2026-09-30')).toEqual(['2026-09', '2026-10']); // 27/09–03/10
+    expect(mesesDaSemana('2026-10-01')).toEqual(['2026-09', '2026-10']);
+    expect(mesesDaSemana('2026-12-31')).toEqual(['2026-12', '2027-01']);
+  });
+
+  it('juntar contagens: soma os meses carregados; mês que falta deixa o resultado indefinido', () => {
+    const a = new Map([['2026-09-30', 2]]);
+    const b = new Map([['2026-10-01', 1]]);
+    expect(juntarContagens([a, b])).toEqual(new Map([['2026-09-30', 2], ['2026-10-01', 1]]));
+    expect(juntarContagens([a, undefined])).toBeUndefined();
+    expect(juntarContagens([a])).toEqual(a);
+  });
+
   it('janela estica para atendimentos fora de 7–21', () => {
     const itens = itensDaJanela('2026-10-19', [
       { data_hora_inicio: '2026-10-19T09:30:00.000Z', data_hora_fim: '2026-10-19T10:30:00.000Z' }, // 06:30–07:30
@@ -105,9 +107,29 @@ describe('telas e hooks da agenda do app', () => {
   const hookProf = ler(HOOK_PROF);
 
   it('componentes de visão existem em mobile/components/agenda', () => {
-    for (const f of ['FaixaSemana.tsx', 'VisaoMes.tsx', 'AlternarVisao.tsx', 'TimelineColunas.tsx', 'grade.ts']) {
+    for (const f of ['FaixaSemana.tsx', 'VisaoMes.tsx', 'AlternarVisao.tsx', 'TimelineColunas.tsx']) {
       expect(existsSync(join(raiz, COMP, f))).toBe(true);
     }
+    // as funções puras da grade moram em shared (o teste importa de @shared, sem glob)
+    expect(existsSync(join(raiz, COMP, 'grade.ts'))).toBe(false);
+    for (const s of [empresa, prof, hookAgenda]) expect(s).not.toContain('components/agenda/grade');
+  });
+
+  it('pontinhos da faixa da semana: contam os dois meses quando a semana cruza a virada', () => {
+    for (const s of [empresa, prof]) {
+      expect(s).toContain('mesesDaSemana(dia)');
+      expect(s).toContain('juntarContagens(');
+    }
+  });
+
+  it('erro na carga do dia aparece na tela: sem horário vazio nem zeros', () => {
+    for (const s of [empresa, prof]) {
+      expect(s).toContain('Não foi possível carregar a agenda do dia');
+      expect(s).toMatch(/erroDia \? '—'/);
+    }
+    // a grade não é desenhada com a carga do dia falhando
+    expect(empresa).toMatch(/visao === 'dia' && \(erroDia \?/);
+    expect(prof).toMatch(/visao === 'dia' && \(erroDia \?/);
   });
 
   it('semana de verdade: setas chamam semanaVizinha e a semana é de domingo (diasDaSemana)', () => {

@@ -8,7 +8,7 @@ import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bl
 import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 import { chaveDiaBRT, limitesDias, limitesMes } from '@shared/periodos';
 import { buscarTodasPaginas } from '@shared/paginacao';
-import { TODAS, type FiltroProfissional } from '@/components/agenda/grade';
+import { TODAS, type FiltroProfissional } from '@shared/agenda-grade';
 
 // ── Tipos ────────────────────────────────────────────────────
 

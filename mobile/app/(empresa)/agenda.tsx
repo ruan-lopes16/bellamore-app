@@ -39,8 +39,8 @@ import { AlternarVisao, type VisaoAgenda } from '@/components/agenda/AlternarVis
 import { TimelineColunas } from '@/components/agenda/TimelineColunas';
 import {
   TODAS, type FiltroProfissional, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora,
-  dataDoDia, horasDaJanela, itensDaJanela,
-} from '@/components/agenda/grade';
+  dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana,
+} from '@shared/agenda-grade';
 import { BloqueioModal } from '@/components/BloqueioModal';
 import { PendentesBloqueioSheet } from '@/components/PendentesBloqueioSheet';
 import { BotaoExportar } from '@/components/BotaoExportar';
@@ -229,14 +229,29 @@ export default function Agenda() {
   const remover = useRemoverBloqueio();
   const [bloqueioParaRemover, setBloqueioParaRemover] = useState<BloqueioAgenda | null>(null);
 
-  const { data: agendamentos = [], isLoading, refetch } = useAgendamentoDia(dia, filtro);
-  const { data: profissionais = [] } = useProfissionais();
-  // Uma consulta do mês: o da visão Mês, ou o do dia exibido (pontinhos da faixa da semana).
-  const mesContagem = visao === 'mes' ? mesVisto : dia.slice(0, 7);
+  const {
+    data: agendamentos = [], isLoading, isError: erroAgendamentos, refetch,
+  } = useAgendamentoDia(dia, filtro);
+  const {
+    data: profissionais = [], isError: erroProfissionais, refetch: refetchProfissionais,
+  } = useProfissionais();
+  // Contagem por mês: na visão Mês, o mês visto; na faixa da semana, os meses que a semana toca
+  // (dois na virada do mês, senão os pontinhos dos dias do mês vizinho sumiriam).
+  const mesesSemana = mesesDaSemana(dia);
+  const ultimoMesSemana = mesesSemana[mesesSemana.length - 1];
   const {
     data: contagemMes, isLoading: carregandoMes, isError: erroMes, refetch: refetchMes,
-  } = useDiasComAgendamento(mesContagem, filtro);
-  const { data: bloqueios = [], refetch: refetchBloqueios } = useBloqueiosDia(dia, filtro);
+  } = useDiasComAgendamento(visao === 'mes' ? mesVisto : mesesSemana[0], filtro);
+  const { data: contagemMes2, refetch: refetchMes2 } = useDiasComAgendamento(
+    visao === 'mes' ? mesVisto : ultimoMesSemana, filtro,
+  );
+  const contagemSemana = juntarContagens(mesesSemana.length > 1 ? [contagemMes, contagemMes2] : [contagemMes]);
+  const {
+    data: bloqueios = [], isError: erroBloqueios, refetch: refetchBloqueios,
+  } = useBloqueiosDia(dia, filtro);
+  // Carga do dia com erro: aviso na tela, sem horário vazio nem zeros (em "Todas" as colunas
+  // dependem também da lista de profissionais).
+  const erroDia = erroAgendamentos || erroBloqueios || (filtro === TODAS && erroProfissionais);
   const { data: pendentes = [], isError: pendentesErro } = useBloqueiosPendentes();
   const criarBloqueio = useCriarBloqueio();
   const aprovar = useAprovarBloqueio();
@@ -261,8 +276,8 @@ export default function Agenda() {
   });
 
   const onRefresh = useCallback(() => {
-    refetch(); refetchMes(); refetchBloqueios();
-  }, [refetch, refetchMes, refetchBloqueios]);
+    refetch(); refetchMes(); refetchMes2(); refetchBloqueios(); refetchProfissionais();
+  }, [refetch, refetchMes, refetchMes2, refetchBloqueios, refetchProfissionais]);
 
   // Reprograma os lembretes locais (30 min antes) sempre que a lista muda.
   useEffect(() => {
@@ -446,7 +461,7 @@ export default function Agenda() {
               onAbrirDia={(d) => { setDia(d); setVisao('dia'); }}
             />
           ) : (
-            <FaixaSemana dia={dia} hoje={hoje} contagem={contagemMes} onSelecionar={setDia} />
+            <FaixaSemana dia={dia} hoje={hoje} contagem={contagemSemana} onSelecionar={setDia} />
           )}
 
           {visao === 'dia' && (<>
@@ -459,10 +474,10 @@ export default function Agenda() {
             shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
           }}>
             {[
-              { value: String(resumo.total),           label: 'Agendamentos', color: C.text },
-              { value: formatarMoeda(resumo.receita),       label: 'Receita prev.',  color: C.green },
-              { value: String(resumo.profissionais),    label: 'Profissionais',  color: C.text },
-              { value: String(resumo.pendentes),        label: 'Pendentes',      color: resumo.pendentes > 0 ? C.amber : C.text },
+              { value: erroDia ? '—' : String(resumo.total),           label: 'Agendamentos', color: C.text },
+              { value: erroDia ? '—' : formatarMoeda(resumo.receita),  label: 'Receita prev.',  color: C.green },
+              { value: erroDia ? '—' : String(resumo.profissionais),   label: 'Profissionais',  color: C.text },
+              { value: erroDia ? '—' : String(resumo.pendentes),       label: 'Pendentes',      color: !erroDia && resumo.pendentes > 0 ? C.amber : C.text },
             ].map((s, i, arr) => (
               <View key={s.label} style={{ flex: 1, alignItems: 'center' }}>
                 <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>
@@ -568,7 +583,11 @@ export default function Agenda() {
         </View>
 
         {/* ── Timeline (visão Dia) ── */}
-        {visao === 'dia' && (filtro === TODAS ? (
+        {visao === 'dia' && (erroDia ? (
+          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#C0392B' }}>
+            Não foi possível carregar a agenda do dia. Puxe para atualizar.
+          </Text>
+        ) : filtro === TODAS ? (
           <TimelineColunas
             colunas={colunas}
             horas={horas}

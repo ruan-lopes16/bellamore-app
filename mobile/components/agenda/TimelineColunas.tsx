@@ -5,7 +5,7 @@
  */
 import type { ReactNode } from 'react';
 import { View, Text, ScrollView } from 'react-native';
-import { agruparPorHora } from './grade';
+import { agruparPorHora } from '@shared/agenda-grade';
 
 const C = { surface: '#FFFFFF', border: '#E8E2DC', primary: '#2C1654', text2: '#4A3F5C', linha: '#D8D0C8' };
 

@@ -37,8 +37,8 @@ import { FaixaSemana } from '@/components/agenda/FaixaSemana';
 import { VisaoMes } from '@/components/agenda/VisaoMes';
 import { AlternarVisao, type VisaoAgenda } from '@/components/agenda/AlternarVisao';
 import {
-  agruparPorHora, bloqueiosPorHora, dataDoDia, horasDaJanela, itensDaJanela,
-} from '@/components/agenda/grade';
+  agruparPorHora, bloqueiosPorHora, dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana,
+} from '@shared/agenda-grade';
 import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -177,13 +177,24 @@ export default function AgendaProfissional() {
   const [mesVisto, setMesVisto] = useState(hoje.slice(0, 7));
   const dataDia = dataDoDia(dia);
 
-  const { data: agendamentos = [], isLoading, refetch } = useAgendaProfissional(dataDia);
+  const {
+    data: agendamentos = [], isLoading, isError: erroAgendamentos, refetch,
+  } = useAgendaProfissional(dataDia);
   const { data: kpis, isError: erroKpis, error: errKpis, refetch: refetchKpis } = useKpisDiaProfissional(dataDia);
-  // Uma consulta do mês: o da visão Mês, ou o do dia exibido (pontinhos da faixa da semana).
+  // Contagem por mês: na visão Mês, o mês visto; na faixa da semana, os meses que a semana toca
+  // (dois na virada do mês, senão os pontinhos dos dias do mês vizinho sumiriam).
+  const mesesSemana = mesesDaSemana(dia);
+  const ultimoMesSemana = mesesSemana[mesesSemana.length - 1];
   const {
     data: contagemMes, isLoading: carregandoMes, isError: erroMes, refetch: refetchMes,
-  } = useDiasProfissional(visao === 'mes' ? mesVisto : dia.slice(0, 7));
-  const { data: bloqueios = [], refetch: refetchBloqueios } = useBloqueiosProfissionalDia(dia);
+  } = useDiasProfissional(visao === 'mes' ? mesVisto : mesesSemana[0]);
+  const { data: contagemMes2, refetch: refetchMes2 } = useDiasProfissional(visao === 'mes' ? mesVisto : ultimoMesSemana);
+  const contagemSemana = juntarContagens(mesesSemana.length > 1 ? [contagemMes, contagemMes2] : [contagemMes]);
+  const {
+    data: bloqueios = [], isError: erroBloqueios, refetch: refetchBloqueios,
+  } = useBloqueiosProfissionalDia(dia);
+  // Carga do dia com erro: aviso na tela, sem horário vazio nem zeros.
+  const erroDia = erroAgendamentos || erroBloqueios;
   const criarBloqueio = useCriarBloqueioProfissional();
   const remover = useRemoverBloqueio();
   const [modalBloqueio, setModalBloqueio] = useState(false);
@@ -198,8 +209,8 @@ export default function AgendaProfissional() {
   });
 
   const onRefresh = useCallback(() => {
-    refetch(); refetchMes(); refetchBloqueios();
-  }, [refetch, refetchMes, refetchBloqueios]);
+    refetch(); refetchMes(); refetchMes2(); refetchBloqueios(); refetchKpis();
+  }, [refetch, refetchMes, refetchMes2, refetchBloqueios, refetchKpis]);
 
   if (!fontsLoaded) return null;
 
@@ -300,7 +311,7 @@ export default function AgendaProfissional() {
                 onAbrirDia={(d) => { setDia(d); setVisao('dia'); }}
               />
             ) : (
-              <FaixaSemana dia={dia} hoje={hoje} contagem={contagemMes} onSelecionar={setDia} />
+              <FaixaSemana dia={dia} hoje={hoje} contagem={contagemSemana} onSelecionar={setDia} />
             )}
 
             {/* Resumo do dia */}
@@ -314,7 +325,7 @@ export default function AgendaProfissional() {
               {[
                 { value: erroKpis ? '—' : String(kpis?.total ?? 0), label: 'Atendimentos', color: C.primary },
                 { value: erroKpis ? '—' : formatarMoeda(kpis?.comissaoDia ?? 0), label: 'Comissão do dia', color: C.green },
-                { value: `${agendamentos.reduce((s, a) => s + (a.servico?.duracao_minutos ?? 0), 0)}min`, label: 'Tempo total', color: C.text },
+                { value: erroDia ? '—' : `${agendamentos.reduce((s, a) => s + (a.servico?.duracao_minutos ?? 0), 0)}min`, label: 'Tempo total', color: C.text },
               ].map((s, i, arr) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center', position: 'relative' }}>
                   <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>{s.value}</SecretText>
@@ -344,7 +355,11 @@ export default function AgendaProfissional() {
         </View>
 
         {/* ── Timeline (visão Dia) ── */}
-        {visao === 'dia' && (
+        {visao === 'dia' && (erroDia ? (
+          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#C0392B' }}>
+            Não foi possível carregar a agenda do dia. Puxe para atualizar.
+          </Text>
+        ) : (
         <View style={{ paddingHorizontal: 24 }}>
           <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 18, color: C.text, marginBottom: 12 }}>
             Minha Agenda · {format(dataDia, "EEEE',' d", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
@@ -407,7 +422,7 @@ export default function AgendaProfissional() {
             );
           })}
         </View>
-        )}
+        ))}
       </ScrollView>
 
       <BloqueioModal

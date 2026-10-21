@@ -1,9 +1,10 @@
 /**
  * Grade da timeline da agenda do app (empresa e profissional). Funções puras, sem React Native,
- * sempre em Brasília (UTC−3) via `shared/periodos.ts`. A janela e os horários vêm de `shared/agenda.ts`.
+ * sempre em Brasília (UTC−3) via `periodos.ts`. A janela e os horários vêm de `agenda.ts`.
+ * (Moram em shared para o teste usar import estático; o web tem as suas em `agenda/visoes.ts`.)
  */
-import { horariosDoDia, type Janela } from '@shared/agenda';
-import { horaBRT, instanteMs, limitesDias } from '@shared/periodos';
+import { diasDaSemana, horariosDoDia, type Janela } from './agenda';
+import { horaBRT, instanteMs, limitesDias } from './periodos';
 
 /** Valor do filtro de profissional que mostra uma coluna por profissional. */
 export const TODAS = 'todas' as const;
@@ -97,4 +98,28 @@ export function itensDaJanela(
 export function dataDoDia(dia: string): Date {
   const [a, m, d] = dia.split('-').map(Number);
   return new Date(a, m - 1, d);
+}
+
+/**
+ * Meses ("AAAA-MM") que a semana de `dia` (domingo a sábado, Brasília) toca: um, ou dois quando a
+ * semana cruza a virada do mês. A faixa da semana consulta a contagem de cada um.
+ */
+export function mesesDaSemana(dia: string): string[] {
+  const semana = diasDaSemana(dia);
+  const ini = semana[0].slice(0, 7);
+  const fim = semana[6].slice(0, 7);
+  return ini === fim ? [ini] : [ini, fim];
+}
+
+/**
+ * Junta as contagens por dia de vários meses. Se algum mês ainda não chegou (ou falhou), devolve
+ * `undefined`: a faixa não mostra pontinhos pela metade.
+ */
+export function juntarContagens(
+  contagens: (Map<string, number> | undefined)[],
+): Map<string, number> | undefined {
+  if (contagens.some((c) => !c)) return undefined;
+  const out = new Map<string, number>();
+  for (const c of contagens) for (const [d, n] of c!) out.set(d, (out.get(d) ?? 0) + n);
+  return out;
 }
