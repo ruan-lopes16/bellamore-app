@@ -2,12 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { chaveDiaExibido } from '@shared/periodos';
+import { janelaDoDia } from '@shared/agenda';
+import { TODAS, colunasComExtras, horasDaJanela, itensDaJanela } from '@shared/agenda-grade';
 import {
-  FILTRO_TODAS, TL_HOUR_H, janelaDaTimeline, posicaoNaTimeline, horaDoClique, horasDaJanela,
+  TL_HOUR_H, posicaoNaTimeline, horaDoClique,
   alturaDaJanela, topoAgora, bloqueiosVisiveis, bloqueiosDoDia, diasComBloqueio,
-  faixaDoBloqueioNoDia, semanaDoDia, gradeDoMes, colunasDaTimeline, filtroEfetivo,
+  faixaDoBloqueioNoDia, semanaDoDia, gradeDoMes, filtroEfetivo,
   buscarPaginas,
 } from '@/app/(app)/agenda/visoes';
+
+// Janela e colunas vêm de shared (as mesmas funções do app); aqui só encaixam os tipos do web.
+const janelaDaTimeline = (
+  ags: { data_hora_inicio: string; data_hora_fim: string }[],
+  bloqs: { data_inicio: string; data_fim: string }[],
+  dia: string,
+) => janelaDoDia(itensDaJanela(dia, ags, bloqs));
+const colunasDaTimeline = <T extends { profissional: { id: string; nome: string } | null }>(
+  ags: T[], profs: { id: string; nome: string }[], filtro: string,
+) => colunasComExtras(ags, profs, filtro, (a) => a.profissional);
+const FILTRO_TODAS = TODAS;
 
 // Task 7 da paridade da Agenda: visões do web (Todas, colunas, janela do dia, bloqueios em Semana e Mês).
 const root = join(__dirname, '..', '..', '..');
@@ -32,6 +45,20 @@ const bl = (over: Partial<{ id: string; profissional_id: string | null; data_ini
   situacao: 'aprovado' as const, criado_por: 'p1', ...over,
 });
 
+describe('web não repete a grade de shared', () => {
+  const visoes = ler('web/app/(app)/agenda/visoes.ts');
+  it('visoes.ts importa de @shared/agenda-grade e não redefine as funções comuns', () => {
+    expect(visoes).toContain("from '@shared/agenda-grade'");
+    for (const nome of ['FILTRO_TODAS', 'janelaDaTimeline', 'cortarNoDia', 'colunasDaTimeline', 'horasDaJanela']) {
+      expect(visoes).not.toContain(nome);
+    }
+  });
+  it('bloqueio geral: critério único (escopo, ou profissional_id nulo sem escopo)', () => {
+    expect(visoes).toContain('ehBloqueioGeral(');
+    expect(visoes).not.toMatch(/profissional_id === null/);
+  });
+});
+
 describe('janela do dia na timeline', () => {
   it('sem nada no dia usa 7h–21h', () => {
     expect(janelaDaTimeline([], [], DIA)).toEqual({ ini: 7, fim: 21 });
@@ -52,7 +79,7 @@ describe('janela do dia na timeline', () => {
     expect(janelaDaTimeline([], [b], DIA)).toEqual({ ini: 7, fim: 21 });
   });
   it('horas e altura acompanham a janela', () => {
-    expect(horasDaJanela({ ini: 6, fim: 9 })).toEqual([6, 7, 8, 9]);
+    expect(horasDaJanela({ ini: 6, fim: 9 })).toEqual([6, 7, 8]);
     expect(alturaDaJanela({ ini: 6, fim: 9 })).toBe(3 * TL_HOUR_H);
   });
 });
@@ -158,7 +185,10 @@ describe('semana de domingo a sábado em todas as visões', () => {
     }
     expect(agenda).not.toContain('TL_H_START');
     expect(agenda).not.toContain('TL_H_END');
-    expect(agenda).toContain('janelaDaTimeline(');
+    expect(agenda).toContain('janelaDoDia(itensDaJanela(');
+    expect(agenda).toContain("from '@shared/agenda-grade'");
+    expect(agenda).toContain('colunasComExtras(');
+    expect(agenda).toContain('bloqueiosDaProfissional(');
     expect(agenda).toContain('semanaDoDia(');
     expect(mesView).toContain('gradeDoMes(');
   });
@@ -172,11 +202,11 @@ describe('página: seletor, carga e bloqueios em Semana e Mês', () => {
     expect(agenda).not.toContain('Nunca existe modo');
   });
   it('"Todas as profissionais" no seletor só com agenda.ver_equipe', () => {
-    expect(agenda).toMatch(/ehGestao[^\n]*\{ value: FILTRO_TODAS, label: 'Todas as profissionais' \}/);
+    expect(agenda).toMatch(/ehGestao[^\n]*\{ value: TODAS, label: 'Todas as profissionais' \}/);
   });
   it('carga do dia e do mês paginada, filtrando profissional só fora de "Todas"', () => {
     expect(agenda).toContain('buscarPaginas(');
-    expect(agenda).toMatch(/filtro !== FILTRO_TODAS\) q = q\.eq\('profissional_id', filtro\)/);
+    expect(agenda).toMatch(/filtro !== TODAS\) q = q\.eq\('profissional_id', filtro\)/);
     expect(agenda).toContain("from('agenda_bloqueios')");
     expect(agenda).toContain('setBloqueiosMes(');
   });

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { janelaDoDia } from '@shared/agenda';
 import {
-  TODAS, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora, horasDaJanela, instanteDaHora,
+  TODAS, agruparPorHora, bloqueiosDaProfissional, colunasComExtras, ehBloqueioGeral, bloqueiosPorHora, horasDaJanela, instanteDaHora,
   itensDaJanela, juntarContagens, mesesDaSemana,
 } from '@shared/agenda-grade';
 
@@ -21,6 +21,43 @@ const COMP = 'mobile/components/agenda';
 const bl = (o: Partial<{ id: string; profissional_id: string | null; escopo: 'profissional' | 'geral'; situacao: 'aprovado' | 'pendente'; data_inicio: string; data_fim: string }>) => ({
   id: 'b', profissional_id: 'ana', escopo: 'profissional' as const, situacao: 'aprovado' as const,
   data_inicio: '2026-10-19T13:00:00.000Z', data_fim: '2026-10-19T15:00:00.000Z', ...o,
+});
+
+describe('grade da agenda em shared (web e app)', () => {
+  it('bloqueio geral: escopo, ou profissional_id nulo quando não há escopo', () => {
+    expect(ehBloqueioGeral({ escopo: 'geral', profissional_id: null })).toBe(true);
+    expect(ehBloqueioGeral({ escopo: 'profissional', profissional_id: 'ana' })).toBe(false);
+    expect(ehBloqueioGeral({ profissional_id: null })).toBe(true);
+    expect(ehBloqueioGeral({ escopo: null, profissional_id: null })).toBe(true);
+    expect(ehBloqueioGeral({ profissional_id: 'ana' })).toBe(false);
+  });
+  it('bloqueiosDaProfissional aceita linha sem escopo (usa profissional_id nulo)', () => {
+    const semEscopo = { id: 'g', profissional_id: null, data_inicio: 'a', data_fim: 'b' };
+    const dela = { id: 'd', profissional_id: 'ana', data_inicio: 'a', data_fim: 'b' };
+    const outra = { id: 'o', profissional_id: 'bia', data_inicio: 'a', data_fim: 'b' };
+    expect(bloqueiosDaProfissional([semEscopo, dela, outra], 'ana').map((b) => b.id)).toEqual(['g', 'd']);
+  });
+  it('colunasComExtras: todas = uma por profissional, na ordem, mais quem só tem atendimento', () => {
+    const profs = [{ id: 'p1', nome: 'Ana' }, { id: 'p2', nome: 'Bia' }];
+    const ags = [{ x: 'p2' }, { x: 'px' }];
+    const quem = (a: { x: string }) => ({ id: a.x, nome: a.x === 'px' ? 'Xuxa' : undefined });
+    const cols = colunasComExtras(ags, profs, TODAS, quem);
+    expect(cols.map((c) => c.profissional.id)).toEqual(['p1', 'p2', 'px']);
+    expect(cols[0].itens).toEqual([]);
+    expect(cols[1].itens).toHaveLength(1);
+    expect(cols[2].profissional.nome).toBe('Xuxa');
+  });
+  it('colunasComExtras: uma escolhida = só a coluna dela; sem nome o extra vira "Profissional"', () => {
+    const profs = [{ id: 'p1', nome: 'Ana' }, { id: 'p2', nome: 'Bia' }];
+    expect(colunasComExtras([], profs, 'p2', () => null).map((c) => c.profissional.id)).toEqual(['p2']);
+    const c = colunasComExtras([{}], [], 'p1', () => ({ id: 'z' }));
+    expect(c[0].profissional.nome).toBe('Profissional');
+  });
+  it('a hora final da janela é exclusiva: o último atendimento cabe sem linha vazia depois', () => {
+    const j = janelaDoDia([{ inicio: '2026-10-19T23:00:00.000Z', fim: '2026-10-20T00:15:00.000Z' }]); // 20:00–21:15 BRT
+    expect(j.fim).toBe(22);
+    expect(horasDaJanela(j).at(-1)).toBe(21);
+  });
 });
 
 describe('grade da agenda do app (funções puras)', () => {
@@ -200,7 +237,7 @@ describe('telas e hooks da agenda do app', () => {
   });
 
   it('modo "Todas": uma coluna por profissional com rolagem horizontal e nome no topo', () => {
-    expect(empresa).toContain('colunasPorProfissional(');
+    expect(empresa).toContain('colunasComExtras(');
     expect(empresa).toContain('<TimelineColunas');
     expect(empresa).toContain('bloqueiosDaProfissional(bloqueios, ');
     const col = ler(`${COMP}/TimelineColunas.tsx`);

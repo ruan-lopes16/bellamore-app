@@ -50,8 +50,11 @@ import {
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import {
   linhasIniciaisEdicao, montarAgendamento, instanteNoPassado, msgConflito, msgBloqueio,
-  valorDigitadoValido, MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA,
+  valorDigitadoValido, MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, janelaDoDia,
 } from '@shared/agenda';
+import {
+  TODAS, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
+} from '@shared/agenda-grade';
 import { parseValorBR } from '@shared/comanda-fechamento';
 import { salvarAvaliacao } from '@shared/agenda-consultas';
 import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
@@ -69,9 +72,9 @@ import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { chaveDiaBRT, chaveDiaExibido, horaBRT, limitesDias } from '@shared/periodos';
 import {
-  FILTRO_TODAS, TL_HOUR_H, alturaDaJanela, bloqueiosDoDia, bloqueiosVisiveis, buscarPaginas,
-  colunasDaTimeline, diasComBloqueio, filtroEfetivo, gradeDoMes, horaDoClique, horasDaJanela,
-  janelaDaTimeline, posicaoNaTimeline, semanaDoDia, topoAgora, type FiltroProfissional,
+  TL_HOUR_H, alturaDaJanela, bloqueiosDoDia, bloqueiosVisiveis, buscarPaginas,
+  diasComBloqueio, filtroEfetivo, gradeDoMes, horaDoClique,
+  posicaoNaTimeline, semanaDoDia, topoAgora,
 } from './visoes';
 import { MesView } from './MesView';
 import { BloqueiosDoDia } from './BloqueiosDoDia';
@@ -1633,7 +1636,7 @@ function TimelineView({
   const chaveDia = chaveDiaExibido(dataSel);
 
   // Janela do dia: 7h–21h esticada para caber todo atendimento e bloqueio visível.
-  const janela = useMemo(() => janelaDaTimeline(ags, bloqueios, chaveDia), [ags, bloqueios, chaveDia]);
+  const janela = useMemo(() => janelaDoDia(itensDaJanela(chaveDia, ags.map(a => ({ data_hora_inicio: a.data_hora_inicio, data_hora_fim: a.data_hora_fim })), bloqueios)), [ags, bloqueios, chaveDia]);
   const alturaTotal = alturaDaJanela(janela);
   const horas = horasDaJanela(janela);
 
@@ -1658,7 +1661,7 @@ function TimelineView({
   // agendamento) + qualquer profissional que apareça só nos agendamentos do dia
   // e não esteja na lista (defensivo — ex.: profissional desativado depois).
   const colunas = useMemo(
-    () => colunasDaTimeline(ags, profissionaisEmpresa, filtro),
+    () => colunasComExtras(ags, profissionaisEmpresa, filtro, a => a.profissional),
     [ags, profissionaisEmpresa, filtro],
   );
   const profissionais = colunas.map(c => c.profissional);
@@ -1810,8 +1813,7 @@ function TimelineView({
 
                   {/* Bloqueios de horário */}
                   {/* Quem chama já passa só os visíveis do dia (`bloqueiosVisiveis` + `bloqueiosDoDia`); aqui só os da coluna. */}
-                  {bloqueios
-                    .filter(b => b.profissional_id === null || b.profissional_id === prof.id)
+                  {bloqueiosDaProfissional(bloqueios, prof.id)
                     .map(bl => {
                       const { top: topBl, height: hBl } = posicaoNaTimeline(bl.data_inicio, bl.data_fim, chaveDia, janela, 20);
                       const pendente    = bl.situacao === 'pendente';
@@ -2070,7 +2072,7 @@ export default function AgendaPage() {
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
   const [meuUserId, setMeuUserId] = useState<string>('');
-  // Agenda exibida: id de uma profissional ou "todas" (FILTRO_TODAS). Começa na própria
+  // Agenda exibida: id de uma profissional ou "todas" (TODAS). Começa na própria
   // pessoa ('' só enquanto a sessão carrega). "Todas" só vale com `agenda.ver_equipe` —
   // sem ela, `filtroEfetivo` volta para a própria pessoa. A Task 8 troca o valor inicial
   // pela preferência de abertura.
@@ -2175,7 +2177,7 @@ export default function AgendaPage() {
             .gte('data_hora_inicio', iniDia)
             .lte('data_hora_inicio', fimDia)
             .neq('status', 'cancelado');
-          if (filtro !== FILTRO_TODAS) q = q.eq('profissional_id', filtro);
+          if (filtro !== TODAS) q = q.eq('profissional_id', filtro);
           return q.order('data_hora_inicio').order('id').range(de, ate);
         }),
         buscarPaginas((de, ate) => supabase
@@ -2215,7 +2217,7 @@ export default function AgendaPage() {
             .neq('status', 'cancelado')
             .gte('data_hora_inicio', startIso)
             .lte('data_hora_inicio', endIso);
-          if (filtro !== FILTRO_TODAS) q = q.eq('profissional_id', filtro);
+          if (filtro !== TODAS) q = q.eq('profissional_id', filtro);
           return q.order('data_hora_inicio').order('id').range(de, ate);
         }),
         buscarPaginas((de, ate) => supabase
@@ -2483,7 +2485,7 @@ export default function AgendaPage() {
           {ehGestao && profissionaisEmpresa.length > 1 && (
             <div className="bm-mobile-action-wide" style={{ minWidth: 200 }}>
               <SearchSelect
-                options={[...(ehGestao ? [{ value: FILTRO_TODAS, label: 'Todas as profissionais' }] : []), ...profissionaisEmpresa.map(p => ({ value: p.id, label: p.nome }))]}
+                options={[...(ehGestao ? [{ value: TODAS, label: 'Todas as profissionais' }] : []), ...profissionaisEmpresa.map(p => ({ value: p.id, label: p.nome }))]}
                 value={filtro}
                 onChange={v => setFiltroProfissional(v as FiltroProfissional)}
                 placeholder="Ver agenda de..."

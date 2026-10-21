@@ -31,14 +31,14 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { agendarLembretesLocais } from '@/lib/notifications';
 import { motivoBloqueioLabel } from '@shared/bloqueios';
-import { colunasPorProfissional, janelaDoDia } from '@shared/agenda';
+import { janelaDoDia } from '@shared/agenda';
 import { hojeBRT, horaBRT } from '@shared/periodos';
 import { FaixaSemana } from '@/components/agenda/FaixaSemana';
 import { VisaoMes } from '@/components/agenda/VisaoMes';
 import { AlternarVisao, type VisaoAgenda } from '@/components/agenda/AlternarVisao';
 import { TimelineColunas } from '@/components/agenda/TimelineColunas';
 import {
-  TODAS, type FiltroProfissional, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora,
+  TODAS, type FiltroProfissional, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora, colunasComExtras,
   dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana,
 } from '@shared/agenda-grade';
 import { BloqueioModal } from '@/components/BloqueioModal';
@@ -305,13 +305,14 @@ export default function Agenda() {
 
   // "Todas": uma coluna por profissional ativa. Quem tem atendimento no dia e não está na lista
   // (ex.: desativada) ganha coluna também, para nenhum atendimento sumir da grade.
-  const membrosColunas = profissionais.map((p) => ({ id: p.id, nome: p.nome }));
-  for (const a of agendamentos) {
-    if (a.profissional_id && !membrosColunas.some((m) => m.id === a.profissional_id)) {
-      membrosColunas.push({ id: a.profissional_id, nome: a.profissional?.nome ?? 'Profissional' });
-    }
-  }
-  const colunas = filtro === TODAS ? colunasPorProfissional(agendamentos, membrosColunas) : [];
+  const colunas = filtro === TODAS
+    ? colunasComExtras(
+        agendamentos,
+        profissionais.map((p) => ({ id: p.id, nome: p.nome })),
+        TODAS,
+        (a) => (a.profissional_id ? { id: a.profissional_id, nome: a.profissional?.nome } : null),
+      )
+    : [];
   // Cada coluna considera os bloqueios daquela profissional mais os gerais.
   const bloqPorColuna = new Map(
     colunas.map((c) => [c.profissional.id, bloqueiosPorHora(bloqueiosDaProfissional(bloqueios, c.profissional.id), dia, horas)]),

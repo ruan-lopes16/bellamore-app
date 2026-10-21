@@ -1,26 +1,23 @@
 /**
- * Regras puras das visões da Agenda do web (Timeline, Semana e Mês).
+ * Regras puras das visões da Agenda do web (Timeline, Semana e Mês) que são só do web: pixels,
+ * clique, semana/mês em Date. Janela, horas, colunas e bloqueios por profissional moram em
+ * `@shared/agenda-grade` (as mesmas funções do app).
  *
  * - Horas sempre em Brasília (`@shared/periodos`), como a janela de `janelaDoDia`.
  * - Semana de domingo a sábado (`diasDaSemana`) em todas as visões.
- * - "Todas as profissionais" (`FILTRO_TODAS`) só vale com `agenda.ver_equipe`.
+ * - "Todas as profissionais" (`TODAS`, de `@shared/agenda-grade`) só vale com `agenda.ver_equipe`.
  */
-import { colunasPorProfissional, diasDaSemana, janelaDoDia, type Janela } from '@shared/agenda';
+import { diasDaSemana, type Janela } from '@shared/agenda';
+import { TODAS, ehBloqueioGeral, recortarAoDia, type FiltroProfissional } from '@shared/agenda-grade';
 import { chaveDiaBRT, chaveDiaExibido, horaBRT, instanteMs, limitesDias, somarDias } from '@shared/periodos';
-
-/** Valor do seletor que mostra a agenda de todas as profissionais. */
-export const FILTRO_TODAS = 'todas' as const;
-/** Filtro da agenda: id de uma profissional ou "todas" ('' enquanto a sessão carrega). */
-export type FiltroProfissional = string | typeof FILTRO_TODAS;
 
 /** Pixels por hora na timeline. */
 export const TL_HOUR_H = 72;
 /** Pixels por minuto na timeline. */
 export const TL_MIN_H = TL_HOUR_H / 60;
 
-type AgLike = { data_hora_inicio: string; data_hora_fim: string; profissional: { id: string; nome: string } | null };
 type BloqLike = {
-  profissional_id: string | null; data_inicio: string; data_fim: string;
+  profissional_id: string | null; escopo?: 'profissional' | 'geral' | null; data_inicio: string; data_fim: string;
   situacao: 'aprovado' | 'pendente'; criado_por: string | null;
 };
 
@@ -29,7 +26,7 @@ type BloqLike = {
  * de qualquer jeito). Derivado, não grava estado: a permissão pode chegar depois da preferência.
  */
 export function filtroEfetivo(filtro: FiltroProfissional, verEquipe: boolean, meuUserId: string): FiltroProfissional {
-  return filtro === FILTRO_TODAS && !verEquipe ? meuUserId : filtro;
+  return filtro === TODAS && !verEquipe ? meuUserId : filtro;
 }
 
 function limitesMsDoDia(chaveDia: string): { ini: number; fim: number } {
@@ -41,38 +38,6 @@ function limitesMsDoDia(chaveDia: string): { ini: number; fim: number } {
 function tocaODia(inicio: string, fim: string, chaveDia: string): boolean {
   const d = limitesMsDoDia(chaveDia);
   return instanteMs(inicio) < d.fim && instanteMs(fim) > d.ini;
-}
-
-/** Corta o intervalo no dia (00:00–23:59:59.999 em Brasília). */
-function cortarNoDia(inicio: string, fim: string, chaveDia: string): { inicio: string; fim: string } {
-  const d = limitesMsDoDia(chaveDia);
-  return {
-    inicio: new Date(Math.max(instanteMs(inicio), d.ini)).toISOString(),
-    fim: new Date(Math.min(instanteMs(fim), d.fim - 1)).toISOString(),
-  };
-}
-
-/**
- * Janela da timeline: 7h–21h esticada (`janelaDoDia`) para cobrir todo atendimento e bloqueio do
- * dia. Bloqueio de vários dias é cortado no dia antes, para não puxar horas de outro dia.
- */
-export function janelaDaTimeline(
-  ags: { data_hora_inicio: string; data_hora_fim: string }[],
-  bloqueios: { data_inicio: string; data_fim: string }[],
-  chaveDia: string,
-): Janela {
-  const itens = [
-    ...ags.map((a) => ({ inicio: a.data_hora_inicio, fim: a.data_hora_fim })),
-    ...bloqueios
-      .filter((b) => tocaODia(b.data_inicio, b.data_fim, chaveDia))
-      .map((b) => cortarNoDia(b.data_inicio, b.data_fim, chaveDia)),
-  ];
-  return janelaDoDia(itens);
-}
-
-/** Horas cheias da janela, das `ini` às `fim` (inclusive, para a última linha). */
-export function horasDaJanela(j: Janela): number[] {
-  return Array.from({ length: j.fim - j.ini + 1 }, (_, i) => j.ini + i);
 }
 
 /** Altura total (px) da grade da janela. */
@@ -117,21 +82,6 @@ export function topoAgora(agoraIso: string, chaveDia: string, j: Janela): number
 }
 
 /**
- * Colunas da timeline (`colunasPorProfissional`): em "todas", uma por profissional da empresa;
- * senão só a escolhida. Profissional que só aparece num atendimento (ex.: desativada) ganha coluna.
- */
-export function colunasDaTimeline<T extends AgLike>(
-  ags: T[], profissionais: { id: string; nome: string }[], filtro: FiltroProfissional,
-): { profissional: { id: string; nome: string }; itens: T[] }[] {
-  const mapa = new Map<string, string>();
-  for (const p of profissionais) if (filtro === FILTRO_TODAS || p.id === filtro) mapa.set(p.id, p.nome);
-  for (const a of ags) if (a.profissional && !mapa.has(a.profissional.id)) mapa.set(a.profissional.id, a.profissional.nome);
-  const profs = Array.from(mapa, ([id, nome]) => ({ id, nome }));
-  const comId = ags.map((ag) => ({ profissional_id: ag.profissional?.id ?? '', ag }));
-  return colunasPorProfissional(comId, profs).map((c) => ({ profissional: c.profissional, itens: c.itens.map((i) => i.ag) }));
-}
-
-/**
  * Bloqueios que a tela mostra: do filtro (em "todas", todos; senão os da profissional e os gerais)
  * e, se pendentes, só para quem aprova ou quem criou (a RLS já filtra; aqui é defesa visual).
  */
@@ -139,7 +89,7 @@ export function bloqueiosVisiveis<B extends BloqLike>(
   bloqueios: B[], filtro: FiltroProfissional, meuUserId: string, podeAprovar: boolean,
 ): B[] {
   return bloqueios
-    .filter((b) => filtro === FILTRO_TODAS || b.profissional_id === null || b.profissional_id === filtro)
+    .filter((b) => filtro === TODAS || ehBloqueioGeral(b) || b.profissional_id === filtro)
     .filter((b) => b.situacao === 'aprovado' || podeAprovar || b.criado_por === meuUserId);
 }
 
@@ -161,8 +111,11 @@ export function diasComBloqueio(bloqueios: { data_inicio: string; data_fim: stri
 export function faixaDoBloqueioNoDia(b: { data_inicio: string; data_fim: string }, chaveDia: string): string {
   const d = limitesMsDoDia(chaveDia);
   if (instanteMs(b.data_inicio) <= d.ini && instanteMs(b.data_fim) >= d.fim - 1) return 'Dia inteiro';
-  const c = cortarNoDia(b.data_inicio, b.data_fim, chaveDia);
-  return `${horaBRT(c.inicio)}–${horaBRT(c.fim)}`;
+  const r = recortarAoDia(b, chaveDia);
+  if (!r) return '';
+  // O fim do dia é 23:59:59.999 (não 00:00 do dia seguinte), para o rótulo não virar "00:00".
+  const fim = Math.min(r.fim, r.inicioDia + 24 * 60 * 60 * 1000 - 1);
+  return `${horaBRT(new Date(r.ini).toISOString())}–${horaBRT(new Date(fim).toISOString())}`;
 }
 
 function dataLocal(chave: string): Date {
