@@ -10,7 +10,7 @@ import { format, startOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { maskPhone } from '@/lib/masks';
-import { montarAniversario, diasNoMes, nomeClienteValido } from '@shared/clientes';
+import { montarAniversario, diasNoMes, nomeClienteValido, erroTelefoneCliente, erroEmailCliente } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 import { avancarComEnter } from '@/lib/formNav';
 import { ExportButton } from '@/components/ExportButton';
@@ -51,6 +51,10 @@ function NovoClienteModal({ empresaId, onClose }: {
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro('');
     if (!nomeClienteValido(nome)) { setErro('O nome é obrigatório (mínimo 2 caracteres).'); return; }
+    const erroTel = erroTelefoneCliente(telefone);
+    if (erroTel) { setErro(erroTel); return; }
+    const erroMail = erroEmailCliente(email);
+    if (erroMail) { setErro(erroMail); return; }
     if (!!nascMes !== !!nascDia) { setErro('Escolha o mês e o dia do aniversário, ou deixe os dois em branco.'); return; }
     setSalvando(true);
     const data_nascimento = montarAniversario(nascMes, nascDia);
@@ -108,12 +112,12 @@ function NovoClienteModal({ empresaId, onClose }: {
             <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome completo" required className={inputClass}/>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Telefone</label>
-            <input value={telefone} onChange={e => setTelefone(maskPhone(e.target.value))} placeholder="(11) 99999-9999" type="tel" maxLength={15} className={inputClass}/>
+            <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Telefone / WhatsApp *</label>
+            <input value={telefone} onChange={e => setTelefone(maskPhone(e.target.value))} placeholder="(11) 98765-4321" type="tel" maxLength={15} required className={inputClass}/>
           </div>
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">E-mail</label>
-            <input value={email} onChange={e => setEmail(e.target.value)} placeholder="opcional" type="email" className={inputClass}/>
+            <input value={email} onChange={e => setEmail(e.target.value)} placeholder="nome@exemplo.com" type="email" className={inputClass}/>
           </div>
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Aniversário (opcional)</label>

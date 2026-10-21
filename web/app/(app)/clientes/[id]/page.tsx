@@ -23,7 +23,7 @@ import { novoUuid } from '@shared/uuid';
 import { podeArquivarCliente, podeEditarAnamnese } from '@shared/permissoes';
 import {
   aniversarioParaGravar, nomeClienteValido, parseEndereco, serializarEndereco,
-  partesAniversario, diasNoMes, idadeCliente,
+  partesAniversario, diasNoMes, idadeCliente, erroTelefoneCliente, erroEmailCliente,
 } from '@shared/clientes';
 import {
   ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese, ehRestricao,
@@ -757,6 +757,10 @@ export default function ClientePerfilPage() {
 
   async function salvarInfo() {
     if (!nomeClienteValido(rascunhoInfo.nome)) return;
+    const erroTel = erroTelefoneCliente(rascunhoInfo.telefone);
+    if (erroTel) { setErroInfo(erroTel); return; }
+    const erroMail = erroEmailCliente(rascunhoInfo.email);
+    if (erroMail) { setErroInfo(erroMail); return; }
     const { nascMes, nascDia } = rascunhoInfo;
     if (!!nascMes !== !!nascDia) { setErroInfo('Escolha o mês e o dia do aniversário, ou deixe os dois em branco.'); return; }
     setErroInfo('');
@@ -1049,10 +1053,10 @@ export default function ClientePerfilPage() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className={labelClass}>Telefone</label>
+                        <label className={labelClass}>Telefone / WhatsApp *</label>
                         <input value={rascunhoInfo.telefone} type="tel"
                           onChange={e => setRascunhoInfo(r => ({ ...r, telefone: maskPhone(e.target.value) }))}
-                          placeholder="(11) 99999-9999" maxLength={15} className={inputClass}/>
+                          placeholder="(11) 98765-4321" maxLength={15} className={inputClass}/>
                       </div>
                       <div>
                         <label className={labelClass}>Data de nascimento</label>
@@ -1084,7 +1088,7 @@ export default function ClientePerfilPage() {
                       <label className={labelClass}>E-mail</label>
                       <input value={rascunhoInfo.email} type="email"
                         onChange={e => setRascunhoInfo(r => ({ ...r, email: e.target.value }))}
-                        placeholder="opcional" className={inputClass}/>
+                        placeholder="nome@exemplo.com" className={inputClass}/>
                     </div>
                     <div>
                       <label className={labelClass}>Observações internas</label>

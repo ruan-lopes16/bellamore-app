@@ -38,7 +38,7 @@ import SuccessCheck from '@/components/SuccessCheck';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { maskPhone } from '@shared/mascaras';
-import { nomeClienteValido } from '@shared/clientes';
+import { nomeClienteValido, erroTelefoneCliente } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { novoUuid } from '@shared/uuid';
@@ -274,12 +274,14 @@ export default function NovoAgendamento() {
 
   async function salvarNovoCliente() {
     if (!nomeClienteValido(novoClienteNome) || !empresaAtiva?.id) return;
+    const erroTel = erroTelefoneCliente(novoClienteTelefone);
+    if (erroTel) { Alert.alert('Telefone', erroTel); return; }
     setSalvandoCliente(true);
 
     const { data: nova, error: errNova } = await supabase.from('clientes').insert({
       empresa_id: empresaAtiva.id,
       nome: novoClienteNome.trim(),
-      telefone: novoClienteTelefone.trim() || null,
+      telefone: novoClienteTelefone.trim(),
     }).select('id, nome, telefone').single();
     setSalvandoCliente(false);
     if (errNova || !nova) { Alert.alert('Erro', mensagemErroBanco(errNova, 'cadastrar cliente')); return; }
@@ -1114,7 +1116,7 @@ export default function NovoAgendamento() {
                   value={novoClienteTelefone}
                   onChangeText={(v) => setNovoClienteTelefone(maskPhone(v))}
                   maxLength={15}
-                  placeholder="Telefone (opcional)"
+                  placeholder="Telefone / WhatsApp *"
                   placeholderTextColor={C.text4}
                   keyboardType="phone-pad"
                   style={{

@@ -28,7 +28,7 @@ import { podeEditarAnamnese } from '@shared/permissoes';
 import { supabase } from '@/lib/supabase';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
-import { montarAniversario, nomeClienteValido, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
+import { montarAniversario, nomeClienteValido, serializarEndereco, erroTelefoneCliente, erroEmailCliente, type EnderecoCliente } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -155,6 +155,10 @@ export default function NovoCliente() {
       return;
     }
     if (!empresaAtiva) return;
+    const erroTel = erroTelefoneCliente(telefone);
+    if (erroTel) { Alert.alert('Telefone', erroTel); return; }
+    const erroMail = erroEmailCliente(email);
+    if (erroMail) { Alert.alert('E-mail', erroMail); return; }
     if (!!nascMes !== !!nascDia) {
       Alert.alert('Aniversário', 'Escolha o mês e o dia do aniversário, ou deixe os dois em branco.');
       return;
@@ -164,7 +168,7 @@ export default function NovoCliente() {
     const { data, error } = await supabase.from('clientes').insert({
       empresa_id:      empresaAtiva.id,
       nome:            nome.trim(),
-      telefone:        telefone.trim() || null,
+      telefone:        telefone.trim(),
       email:           email.trim() || null,
       data_nascimento: montarAniversario(nascMes, nascDia),
       endereco:        serializarEndereco(endereco),
@@ -241,8 +245,8 @@ export default function NovoCliente() {
             icon={<User size={16} color={C.text4} strokeWidth={1.8} />}
           />
           <Campo
-            label="Telefone / WhatsApp" value={telefone} onChangeText={(v) => setTelefone(maskPhone(v))} maxLength={15}
-            placeholder="(00) 00000-0000" keyboardType="phone-pad"
+            label="Telefone / WhatsApp" value={telefone} onChangeText={(v) => setTelefone(maskPhone(v))} maxLength={15} obrigatorio
+            placeholder="(11) 98765-4321" keyboardType="phone-pad"
             icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />}
           />
           <Campo

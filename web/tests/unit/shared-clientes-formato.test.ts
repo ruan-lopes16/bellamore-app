@@ -109,3 +109,33 @@ describe('parseEndereco com campos nulos', () => {
     expect(serializarEndereco(e)).not.toBeNull();
   });
 });
+
+describe('erroTelefoneCliente', () => {
+  it('aceita celular e fixo, com ou sem máscara e DDI', async () => {
+    const { erroTelefoneCliente } = await import('@shared/clientes');
+    for (const t of ['(11) 98765-4321', '11987654321', '(34) 3333-4444', '+55 34 99178-0000', '5534991780000']) {
+      expect(erroTelefoneCliente(t), t).toBeNull();
+    }
+  });
+  it('recusa vazio, curto, DDD inexistente, celular sem 9, fixo errado e repetidos', async () => {
+    const { erroTelefoneCliente, telefoneClienteValido } = await import('@shared/clientes');
+    for (const t of ['', '   ', '1198765', '(10) 98765-4321', '(20) 98765-4321', '(11) 88765-4321',
+      '(11) 1234-5678', '(11) 99999-9999', '(11) 3333-3333']) {
+      expect(erroTelefoneCliente(t), t).not.toBeNull();
+      expect(telefoneClienteValido(t)).toBe(false);
+    }
+  });
+});
+
+describe('erroEmailCliente', () => {
+  it('vazio é aceito (campo opcional) e e-mails comuns passam', async () => {
+    const { erroEmailCliente } = await import('@shared/clientes');
+    for (const e of ['', '  ', 'ana@exemplo.com', 'ana.silva+x@mail.com.br']) expect(erroEmailCliente(e), e).toBeNull();
+  });
+  it('recusa formatos inválidos', async () => {
+    const { erroEmailCliente } = await import('@shared/clientes');
+    for (const e of ['ana', 'ana@', '@x.com', 'ana@x', 'ana@x.c', 'a na@x.com', 'ana@@x.com', 'ana..b@x.com', '.ana@x.com', 'ana@x..com']) {
+      expect(erroEmailCliente(e), e).not.toBeNull();
+    }
+  });
+});
