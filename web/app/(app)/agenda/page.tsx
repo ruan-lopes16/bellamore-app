@@ -50,7 +50,7 @@ import {
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import {
   linhasIniciaisEdicao, montarAgendamento, instanteNoPassado, msgConflito, msgBloqueio,
-  valorDigitadoValido, MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, janelaDoDia,
+  valorDigitadoValido, MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, janelaDoDia, horariosDoDia, instanteBRT,
   statusPermitidos, precisaConfirmarStatus, resumoDoDia, MSG_REABRIR, type StatusAg,
 } from '@shared/agenda';
 import {
@@ -71,7 +71,7 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
-import { chaveDiaBRT, chaveDiaExibido, horaBRT, limitesDias } from '@shared/periodos';
+import { chaveDiaBRT, chaveDiaExibido, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
 import {
   TL_HOUR_H, alturaDaJanela, bloqueiosDoDia, bloqueiosVisiveis, buscarPaginas,
   diasComBloqueio, filtroEfetivo, gradeDoMes, horaDoClique,
@@ -215,8 +215,8 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, onDetalhes, s
 }) {
   const onEditar = somenteLeitura ? undefined : onEditarProp;
   const [menuAberto, setMenuAberto] = useState(false);
-  const inicio = format(parseISO(ag.data_hora_inicio), 'HH:mm');
-  const fim    = format(parseISO(ag.data_hora_fim), 'HH:mm');
+  const inicio = horaBRT(ag.data_hora_inicio);
+  const fim    = horaBRT(ag.data_hora_fim);
   const st     = STATUS[ag.status] ?? { label: ag.status, bg: 'bg-bg', text: 'text-text-3' };
   // Regra única com o app: concluído com comanda fechada não oferece nenhum status.
   const opcoesStatus = statusPermitidos(ag.status as StatusAg, !!ag.comanda_id) ?? [];
@@ -354,10 +354,15 @@ function NovoAgModal({
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<Servico[]>([]);
 
-  const [dataSel,   setDataSel]   = useState(() => agEditar ? parseISO(agEditar.data_hora_inicio) : data);
+  // `dataSel` é o dia do calendário (meia-noite local, igual ao seletor da agenda); o dia e a hora
+  // valem em Brasília: o instante é montado por `instanteBRT`, nunca no fuso do navegador.
+  const [dataSel,   setDataSel]   = useState(() => agEditar ? new Date(`${chaveDiaBRT(agEditar.data_hora_inicio)}T00:00:00`) : data);
   const [clienteId, setClienteId] = useState(() => agEditar?.cliente?.id ?? '');
   const [profId,    setProfId]    = useState(() => agEditar?.profissional?.id ?? (podeOutras ? (profIdInicial ?? '') : meuUserId));
-  const [hora,      setHora]      = useState(() => agEditar ? format(parseISO(agEditar.data_hora_inicio), 'HH:mm') : (horaInicial ?? '09:00'));
+  const [hora,      setHora]      = useState(() => agEditar ? horaBRT(agEditar.data_hora_inicio) : (horaInicial ?? '09:00'));
+  /** Instante (Date) do dia escolhido à hora `hhmm` de Brasília; null com hora incompleta. */
+  const inicioDe = (hhmm: string): Date | null =>
+    /^\d{2}:\d{2}$/.test(hhmm) ? new Date(instanteBRT(chaveDiaExibido(dataSel), hhmm)) : null;
   const [obs,       setObs]       = useState(() => agEditar?.observacao ?? '');
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
@@ -434,9 +439,10 @@ function NovoAgModal({
       const salvas = [...(agEditar.agendamento_servicos ?? [])]
         .sort((a, b) => a.ordem - b.ordem)
         .map(s => ({ servico_id: s.servico_id, profissional_id: agEditar.profissional?.id ?? '', valor: s.valor, duracao_min: s.duracao_minutos }));
-      // Atendimento antigo (sem linhas em agendamento_servicos) começa com o serviço principal.
-      const duracaoAg = agEditar.servico?.duracao_minutos
-        ?? Math.round((new Date(agEditar.data_hora_fim).getTime() - new Date(agEditar.data_hora_inicio).getTime()) / 60000);
+      // Atendimento antigo (sem linhas em agendamento_servicos) começa com o serviço principal, com a
+      // duração REAL do atendimento (igual ao app): editar só a observação não muda o horário de fim.
+      const duracaoReal = Math.round((new Date(agEditar.data_hora_fim).getTime() - new Date(agEditar.data_hora_inicio).getTime()) / 60000);
+      const duracaoAg = duracaoReal > 0 ? duracaoReal : (agEditar.servico?.duracao_minutos ?? 60);
       const iniciais = linhasIniciaisEdicao(
         { servico_id: agEditar.servico?.id ?? null, profissional_id: agEditar.profissional?.id ?? '', valor: agEditar.valor, duracao_min: duracaoAg },
         salvas,
@@ -507,14 +513,13 @@ function NovoAgModal({
 
   // Recarrega ao trocar a data dentro do modal (o campo de data é editável).
   useEffect(() => {
-    const d0 = new Date(dataSel); d0.setHours(0, 0, 0, 0);
-    const d1 = new Date(dataSel); d1.setHours(23, 59, 59, 999);
+    const dia = limitesDias(chaveDiaExibido(dataSel), chaveDiaExibido(dataSel));
     supabase
       .from('agenda_bloqueios')
       .select('id, escopo, profissional_id, situacao, motivo, titulo, data_inicio, data_fim')
       .eq('empresa_id', empresaId)
-      .lt('data_inicio', d1.toISOString())
-      .gt('data_fim', d0.toISOString())
+      .lt('data_inicio', dia.endIso)
+      .gt('data_fim', dia.startIso)
       .then(({ data }: { data: any[] | null }) => {
         setBloqueiosDia((data ?? []) as Bloqueio[]);
       });
@@ -561,7 +566,9 @@ function NovoAgModal({
           })
           .filter(p => p.restantes === null || p.restantes > 0);
         setPacotesCliente(opts);
-        setPacoteClienteId(prev => opts.some(o => o.id === prev) ? prev : '');
+        // Na edição, o pacote já vinculado ao atendimento (vencido, sem saldo ou de outra lista) nunca
+        // é desvinculado em silêncio — gravaria pacote_cliente_id nulo e o atendimento viraria cobrado (igual ao app).
+        setPacoteClienteId(prev => opts.some(o => o.id === prev) || (!!prev && prev === agEditar?.pacote_cliente_id) ? prev : '');
       });
   }, [empresaId, clienteId]);
 
@@ -802,8 +809,8 @@ function NovoAgModal({
     if (aplicarTaxaReserva && taxaReservaCfg.ativa && !agEditar && !valorDigitadoValido(taxaReserva)) {
       setErro('Corrija o valor da taxa de reserva.'); return;
     }
-    const [h, m] = hora.split(':').map(Number);
-    const inicio = new Date(dataSel); inicio.setHours(h, m, 0, 0);
+    const inicio = inicioDe(hora);
+    if (!inicio) { setErro('Informe o horário de início.'); return; }
     const fim    = addMinutes(inicio, totalDuracao || 60);
 
     let confQuery = supabase
@@ -823,10 +830,10 @@ function NovoAgModal({
     if (conf && conf.length > 0) {
       setPendInicio(inicio);
       setPendFim(fim);
-      setMsgConflitoAtual(msgConflito(profissionais.find(p => p.id === profId)?.nome ?? 'Profissional', format(parseISO(conf[0].data_hora_inicio), 'HH:mm')));
+      setMsgConflitoAtual(msgConflito(profissionais.find(p => p.id === profId)?.nome ?? 'Profissional', horaBRT(conf[0].data_hora_inicio)));
       setConflitos(conf.map((c: any) => ({
-        inicio:  format(parseISO(c.data_hora_inicio), 'HH:mm'),
-        fim:     format(parseISO(c.data_hora_fim),    'HH:mm'),
+        inicio:  horaBRT(c.data_hora_inicio),
+        fim:     horaBRT(c.data_hora_fim),
         cliente: c.cliente?.nome ?? '—',
         servico: c.servico?.nome  ?? '—',
       })));
@@ -848,10 +855,9 @@ function NovoAgModal({
 
   // Bloqueio que colide com o intervalo que o formulário representa agora.
   const bloqueioConflitante = (() => {
-    if (!profId || !hora) return null;
-    const [bh, bm] = hora.split(':').map(Number);
-    if (Number.isNaN(bh) || Number.isNaN(bm)) return null;
-    const ini = new Date(dataSel); ini.setHours(bh, bm, 0, 0);
+    if (!profId) return null;
+    const ini = inicioDe(hora);
+    if (!ini) return null;
     const fim = addMinutes(ini, totalDuracao || 60);
     // Só trava a edição quando o intervalo/profissional REALMENTE mudou —
     // o trigger 074 usa a mesma condição (is not distinct from). Sem isto,
@@ -896,7 +902,7 @@ function NovoAgModal({
           <p className="text-sm text-text-2 truncate max-w-full">{sucesso.clienteNome}</p>
           <p className="text-xs text-text-4">{sucesso.servicosNomes.join(' + ')} · {sucesso.profNome}</p>
           <p className="text-xs text-text-4">
-            {format(sucesso.inicio, 'HH:mm')}–{format(sucesso.fim, 'HH:mm')}
+            {horaBRT(sucesso.inicio.toISOString())}–{horaBRT(sucesso.fim.toISOString())}
           </p>
           {avisoTaxaReserva && (
             <p className="text-xs text-amber mt-1">{avisoTaxaReserva}</p>
@@ -936,7 +942,7 @@ function NovoAgModal({
             </div>
             <p className="text-xs text-text-2 px-4 pb-4">
               {motivoBloqueioLabel(bloqueioConflitante.motivo)} ·{' '}
-              {format(parseISO(bloqueioConflitante.data_inicio), 'HH:mm')}–{format(parseISO(bloqueioConflitante.data_fim), 'HH:mm')}.
+              {horaBRT(bloqueioConflitante.data_inicio)}–{horaBRT(bloqueioConflitante.data_fim)}.
               {' '}Remova o bloqueio na agenda para poder agendar nesse horário.
             </p>
           </div>
@@ -1215,11 +1221,15 @@ function NovoAgModal({
 
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Horário de início</label>
-            <input type="time" value={hora} onChange={e => setHora(e.target.value)} required className={inputClass} />
+            {/* Sugestões de 15 em 15 min (horariosDoDia, igual ao app) e digitação livre de qualquer horário. */}
+            <input type="time" list="horarios-agendamento" value={hora} onChange={e => setHora(e.target.value)} required className={inputClass} />
+            <datalist id="horarios-agendamento">
+              {horariosDoDia(janelaDoDia([])).map(h => <option key={h} value={h} />)}
+            </datalist>
             {totalDuracao > 0 && (() => {
-              const [h, m] = hora.split(':').map(Number);
-              const fim = addMinutes(new Date(new Date(dataSel).setHours(h, m, 0, 0)), totalDuracao);
-              return <p className="text-xs text-text-3 mt-1">Término previsto: {format(fim, 'HH:mm')}</p>;
+              const ini = inicioDe(hora);
+              if (!ini) return null;
+              return <p className="text-xs text-text-3 mt-1">Término previsto: {horaBRT(addMinutes(ini, totalDuracao).toISOString())}</p>;
             })()}
           </div>
 
@@ -1393,8 +1403,12 @@ function NovoBloqueioModal({ data, empresaId, meuUserId, meuNome, membros, onClo
     e.preventDefault();
     setErro(''); setSalvando(true);
 
-    const dataInicio = new Date(`${dataBl}T${horaIni}:00`);
-    const dataFim    = new Date(`${dataBl}T${horaFim}:00`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataBl) || !/^\d{2}:\d{2}$/.test(horaIni) || !/^\d{2}:\d{2}$/.test(horaFim)) {
+      setErro('Informe a data e os horários do bloqueio.'); setSalvando(false); return;
+    }
+    // Em Brasília (instanteBRT), nunca no fuso do navegador.
+    const dataInicio = new Date(instanteBRT(dataBl, horaIni));
+    const dataFim    = new Date(instanteBRT(dataBl, horaFim));
     if (dataFim <= dataInicio) {
       setErro('O horário de fim deve ser após o início.'); setSalvando(false); return;
     }
@@ -1567,7 +1581,7 @@ function PendentesBloqueioBtn({ pendentes, onAprovar, onRecusar }: {
                 <div key={b.id} className="rounded-xl border border-border p-3">
                   <p className="font-semibold text-text text-sm">{b.autorNome}</p>
                   <p className="text-xs text-text-3 mt-0.5">
-                    {format(parseISO(b.data_inicio), "dd/MM 'às' HH:mm")}–{format(parseISO(b.data_fim), 'HH:mm')}
+                    {rotuloDataHoraBRT(b.data_inicio)}–{horaBRT(b.data_fim)}
                     {' · '}{motivoBloqueioLabel(b.motivo)}
                   </p>
                   {b.titulo && b.titulo !== motivoBloqueioLabel(b.motivo) && (
@@ -2755,7 +2769,7 @@ export default function AgendaPage() {
           ? 'Toda a agenda'
           : (profissionaisEmpresa.find(p => p.id === b.profissional_id)?.nome ?? 'Profissional');
         const intervalo =
-          `${format(parseISO(b.data_inicio), "dd/MM 'às' HH:mm")}–${format(parseISO(b.data_fim), 'HH:mm')}`;
+          `${rotuloDataHoraBRT(b.data_inicio)}–${horaBRT(b.data_fim)}`;
         const pend = b.situacao === 'pendente' ? ' Este pedido ainda aguarda aprovação.' : '';
         return (
           <ConfirmDialog

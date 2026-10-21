@@ -478,7 +478,7 @@ export default function AgendamentoDetalhe() {
       .eq('id', id)
       .select('id');
     setAtualizando(false);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error) { Alert.alert('Erro', mensagemErroBanco(error, 'excluir este agendamento')); return; }
     if (!apagados || apagados.length === 0) {
       Alert.alert('Sem permissão', 'Você não tem permissão para excluir agendamentos.');
       return;

@@ -49,6 +49,15 @@ export function semanaVizinha(chaveDia: string, delta: number): string {
   return somarDias(chaveDia, 7 * delta);
 }
 
+/**
+ * Instante (ISO, UTC) do dia `dia` ("AAAA-MM-DD") às `hhmm` ("HH:MM") em Brasília (UTC−3).
+ * Web e app montam o horário do agendamento e do bloqueio por aqui — nunca no fuso do aparelho
+ * ou do navegador (quem usa fora de Brasília gravaria outro horário).
+ */
+export function instanteBRT(dia: string, hhmm: string): string {
+  return new Date(instanteMs(`${dia}T${hhmm}:00-03:00`)).toISOString();
+}
+
 /** Indica se o instante já passou em relação a `agoraMs`. */
 export function instanteNoPassado(iso: string, agoraMs: number): boolean {
   return instanteMs(iso) < agoraMs;

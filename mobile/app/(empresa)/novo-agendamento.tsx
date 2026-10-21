@@ -39,7 +39,7 @@ import SeletorHorario, { horaValida } from '@/components/agenda/SeletorHorario';
 import {
   montarAgendamento, horariosDoDia, janelaDoDia, conflitosDeHorario, instanteNoPassado,
   linhasIniciaisEdicao, msgConflito, diasDaSemana, semanaVizinha,
-  MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, msgBloqueio, valorDigitadoValido,
+  MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, msgBloqueio, valorDigitadoValido, instanteBRT,
 } from '@shared/agenda';
 import { bloqueioEmConflito, type BlocoParaChecagem } from '@shared/bloqueios';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -98,10 +98,6 @@ function fmtSessaoData(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   return isNaN(d.getTime()) ? '—' : format(d, 'dd/MM/yy');
-}
-/** Instante ISO (UTC) de um dia 'AAAA-MM-DD' e hora 'HH:MM' de Brasília. */
-function instanteBRT(dia: string, hhmm: string): string {
-  return new Date(instanteMs(`${dia}T${hhmm}:00-03:00`)).toISOString();
 }
 /** Pergunta Sim/Voltar; resolve true só se a pessoa confirmar. */
 function confirmarAlerta(titulo: string, mensagem: string, confirmar: string): Promise<boolean> {

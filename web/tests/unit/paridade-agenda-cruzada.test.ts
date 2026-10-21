@@ -48,6 +48,8 @@ describe('paridade da agenda: mesma função de shared nas duas plataformas', ()
     { regra: 'linhas de edição', nome: 'linhasIniciaisEdicao', arquivos: [PAGE, NOVO_EMP] },
     { regra: 'valor digitado', nome: 'valorDigitadoValido', arquivos: [PAGE, NOVO_EMP, LINHAS] },
     { regra: 'horário passado', nome: 'instanteNoPassado', arquivos: [PAGE, NOVO_EMP] },
+    { regra: 'instante em Brasília', nome: 'instanteBRT', arquivos: [PAGE, NOVO_EMP] },
+    { regra: 'horários de 15 em 15', nome: 'horariosDoDia', arquivos: [PAGE, NOVO_EMP] },
     { regra: 'mensagem de conflito', nome: 'msgConflito', arquivos: [PAGE, NOVO_EMP] },
     { regra: 'mensagem de bloqueio', nome: 'msgBloqueio', arquivos: [PAGE, NOVO_EMP] },
     { regra: 'dias da semana', nome: 'diasDaSemana', arquivos: [VISOES, NOVO_EMP, FAIXA] },
@@ -73,7 +75,7 @@ describe('paridade da agenda: mesma função de shared nas duas plataformas', ()
 
   it('nenhuma plataforma reimplementa as funções de shared', () => {
     const funcoes = ['janelaDoDia', 'montarAgendamento', 'statusPermitidos', 'precisaConfirmarStatus', 'contatosCliente',
-      'resumoDoDia', 'diasDaSemana', 'semanaVizinha', 'horariosDoDia', 'colunasComExtras', 'bloqueiosDaProfissional', 'filtroInicialAgenda'];
+      'resumoDoDia', 'diasDaSemana', 'semanaVizinha', 'horariosDoDia', 'instanteBRT', 'colunasComExtras', 'bloqueiosDaProfissional', 'filtroInicialAgenda'];
     for (const f of TODOS) {
       const cod = semComentarios(ler(f));
       for (const fn of funcoes) {

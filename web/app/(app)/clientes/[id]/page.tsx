@@ -16,7 +16,11 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
-import { montarAgendamento, valorDigitadoValido } from '@shared/agenda';
+import {
+  montarAgendamento, valorDigitadoValido, instanteBRT, conflitosDeHorario, instanteNoPassado,
+  msgConflito, MSG_HORARIO_PASSADO,
+} from '@shared/agenda';
+import { horaBRT } from '@shared/periodos';
 import { parseValorBR } from '@shared/comanda-fechamento';
 import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { buscarTodasPaginas } from '@shared/paginacao';
@@ -197,23 +201,84 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   // total e recalcula quando ele muda, até a pessoa digitar a taxa.
   const precoServico = servicos.find(sv => sv.id === servicoId)?.preco ?? 0;
   const valorOk = valorDigitadoValido(valor);
-  const { valorTotal } = montarAgendamento({
+  const montado = montarAgendamento({
     linhas: servicoId ? [{ servico_id: servicoId, profissional_id: profId, valor, duracao_min: duracao, preco: precoServico }] : [],
     inicioIso: new Date().toISOString(),
   });
+  const { valorTotal } = montado;
   useEffect(() => {
     if (!taxaReservaCfg.ativa || taxaEditadaManual) return;
     setTaxaReserva(String(valorTaxaReservaSugerida(taxaReservaCfg, valorTotal)).replace('.', ','));
   }, [taxaReservaCfg, taxaEditadaManual, valorTotal]);
 
+  // Pergunta pendente antes de gravar (conflito de horário, depois horário passado) — mesmas regras
+  // e textos da agenda (shared/agenda).
+  const [pergunta, setPergunta] = useState<{ mensagem: string; titulo: string; seguir: () => void } | null>(null);
+  // Agendamento já gravado cuja linha de serviço falhou: a nova tentativa só regrava a linha
+  // (nunca cria um segundo agendamento nem uma segunda taxa).
+  const [idCriado, setIdCriado] = useState<string | null>(null);
+
+  async function gravarLinha(agId: string): Promise<boolean> {
+    const { error: errLinhas } = await supabase.from('agendamento_servicos').insert(
+      montado.linhas.map((l, i) => ({
+        agendamento_id: agId, servico_id: l.servico_id, valor: l.valor,
+        duracao_minutos: l.duracao_min, ordem: i, empresa_id: empresaId,
+      })),
+    );
+    if (errLinhas) {
+      setIdCriado(agId);
+      setErro(`O agendamento foi salvo, mas os serviços não: ${mensagemErroBanco(errLinhas, 'salvar os serviços do agendamento')}`);
+      return false;
+    }
+    return true;
+  }
+
   async function salvar(e: React.FormEvent) {
     e.preventDefault(); setErro('');
+    if (idCriado) {
+      setSalvando(true);
+      const ok = await gravarLinha(idCriado);
+      setSalvando(false);
+      if (ok) onSalvo();
+      return;
+    }
     if (!valorOk) { setErro('Corrija o valor do serviço (use 0 para cortesia).'); return; }
     if (aplicarTaxaReserva && taxaReservaCfg.ativa && !valorDigitadoValido(taxaReserva)) { setErro('Corrija o valor da taxa de reserva.'); return; }
-    setSalvando(true);
-    const [h, m] = hora.split(':').map(Number);
-    const inicio = new Date(`${data}T00:00:00`); inicio.setHours(h, m, 0, 0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^\d{2}:\d{2}$/.test(hora)) { setErro('Informe a data e o horário.'); return; }
+    // Dia e hora em Brasília, nunca no fuso do navegador.
+    const inicio = new Date(instanteBRT(data, hora));
     const fim    = addMinutes(inicio, duracao);
+
+    setSalvando(true);
+    const { data: conf, error: errConf } = await supabase
+      .from('agendamentos')
+      .select('id, profissional_id, data_hora_inicio, data_hora_fim, status')
+      .eq('empresa_id', empresaId).eq('profissional_id', profId)
+      .lt('data_hora_inicio', fim.toISOString()).gt('data_hora_fim', inicio.toISOString());
+    setSalvando(false);
+    if (errConf) { setErro(mensagemErroBanco(errConf, 'conferir a agenda')); return; }
+    const conflitos = conflitosDeHorario(
+      { profissional_id: profId, inicioIso: inicio.toISOString(), fimIso: fim.toISOString() },
+      ((conf ?? []) as { id: string; profissional_id: string; data_hora_inicio: string; data_hora_fim: string; status: string }[])
+        .map(a => ({ id: a.id, profissional_id: a.profissional_id, inicio: a.data_hora_inicio, fim: a.data_hora_fim, status: a.status })),
+    );
+    const nomeProf = profissionais.find(p => p.id === profId)?.nome ?? 'Profissional';
+    const depoisDoConflito = () => {
+      if (instanteNoPassado(inicio.toISOString(), Date.now())) {
+        setPergunta({ titulo: 'Horário passado', mensagem: MSG_HORARIO_PASSADO, seguir: () => void gravar(inicio, fim) });
+        return;
+      }
+      void gravar(inicio, fim);
+    };
+    if (conflitos.length > 0) {
+      setPergunta({ titulo: 'Conflito de horário', mensagem: msgConflito(nomeProf, horaBRT(conflitos[0].inicio)), seguir: depoisDoConflito });
+      return;
+    }
+    depoisDoConflito();
+  }
+
+  async function gravar(inicio: Date, fim: Date) {
+    setSalvando(true);
     // Id gerado aqui e SEM RETURNING: com "agenda.gerenciar_outras" e sem "agenda.ver_equipe" a
     // pessoa cria na agenda de outra profissional, mas não lê a linha nova — o RETURNING recusava.
     const ag = { id: novoUuid() };
@@ -241,8 +306,9 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
       }
     }
 
+    const ok = await gravarLinha(ag.id);
     setSalvando(false);
-    onSalvo();
+    if (ok) onSalvo();
   }
 
   return (
@@ -363,11 +429,20 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
             <button type="submit" disabled={salvando || !servicoId || !profId} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
-              {salvando ? 'Salvando...' : 'Agendar'}
+              {salvando ? 'Salvando...' : idCriado ? 'Salvar serviços' : 'Agendar'}
             </button>
           </div>
         </form>
       </div>
+      <ConfirmDialog
+        open={!!pergunta}
+        title={pergunta?.titulo ?? ''}
+        message={pergunta?.mensagem ?? ''}
+        confirmLabel={pergunta?.titulo === 'Horário passado' ? 'Registrar' : 'Agendar mesmo assim'}
+        variant="warning"
+        onConfirm={() => { const p = pergunta; setPergunta(null); p?.seguir(); }}
+        onCancel={() => setPergunta(null)}
+      />
     </div>
   );
 }
