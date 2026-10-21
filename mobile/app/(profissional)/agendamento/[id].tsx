@@ -24,7 +24,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { format, differenceInMinutes } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
@@ -33,11 +33,15 @@ import { formatarMoeda } from '@shared/moeda';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
 import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
 import { confirmarAlerta } from '@/lib/statusAtendimento';
-import { precisaConfirmarStatus, type StatusAg } from '@shared/agenda';
+import { contatosCliente, precisaConfirmarStatus, type StatusAg } from '@shared/agenda';
+import { mensagemErroBanco } from '@shared/erros';
 import { BotoesStatus } from '@/components/atendimento/BotoesStatus';
 import { AvaliacaoAtendimento } from '@/components/atendimento/AvaliacaoAtendimento';
 
 // ── Constantes ───────────────────────────────────────────────
+
+/** Botão das ações rápidas do topo (Ligar / WhatsApp). */
+type AcaoRapida = { icon: ReactNode; label: string; onPress: () => void };
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -163,7 +167,7 @@ export default function AgendamentoProfissional() {
       .update({ status: novoStatus, ...extra })
       .eq('id', id)
       .select('id');
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error) { Alert.alert('Erro', mensagemErroBanco(error, 'mudar o status deste atendimento')); return; }
     if (!atualizados || atualizados.length === 0) {
       Alert.alert('Sem permissão', 'Você não tem permissão para alterar este atendimento.');
       return;
@@ -173,6 +177,8 @@ export default function AgendamentoProfissional() {
     qc.invalidateQueries({ queryKey: ['prof-kpis-dia'] });
   }
 
+  // Ligar / WhatsApp pela regra de shared (não duplica o DDI 55); null sem telefone.
+  const contatos = contatosCliente(ag.cliente?.telefone);
   const estaConcluido = ag.status === 'concluido';
   const estaCancelado = ag.status === 'cancelado';
   const estaFaltou    = ag.status === 'faltou';
@@ -236,10 +242,11 @@ export default function AgendamentoProfissional() {
 
           {/* Ações rápidas */}
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {[
-              { icon: <Phone size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => ag.cliente?.telefone && Linking.openURL(`tel:${ag.cliente.telefone}`) },
-              { icon: <MessageCircle size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'WhatsApp', onPress: () => ag.cliente?.telefone && Linking.openURL(`https://wa.me/55${ag.cliente.telefone.replace(/\D/g, '')}`) },
-            ].map((a) => (
+            {/* Mesma regra do web (contatosCliente): somem sem telefone. */}
+            {([
+              contatos ? { icon: <Phone size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => Linking.openURL(contatos.ligar) } : null,
+              contatos ? { icon: <MessageCircle size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'WhatsApp', onPress: () => Linking.openURL(contatos.whatsapp) } : null,
+            ] as (AcaoRapida | null)[]).filter((a): a is AcaoRapida => !!a).map((a) => (
               <TouchableOpacity
                 key={a.label}
                 onPress={a.onPress}

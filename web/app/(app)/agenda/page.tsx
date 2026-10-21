@@ -57,7 +57,7 @@ import {
   TODAS, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
 } from '@shared/agenda-grade';
 import { parseValorBR } from '@shared/comanda-fechamento';
-import { carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas';
+import { avisoTaxaPagaAoExcluir, carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas';
 import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -92,6 +92,8 @@ type Ag = {
   status: string; valor: number; observacao?: string;
   pacote_cliente_id?: string | null;
   comanda_id?: string | null;
+  /** Coluna da linha (vem do `*` do fetchDia). */
+  profissional_id?: string | null;
   /** Parte do desconto da comanda (090); só vem quando a coluna existe. */
   desconto_rateado?: number | string | null;
   cliente: { id: string; nome: string; telefone?: string } | null;
@@ -368,20 +370,15 @@ function NovoAgModal({
 
   async function abrirConfirmExcluir() {
     setAvisoTaxaExcluir('');
+    setErro('');
     if (!agEditar) return;
-    // Avisa se há taxa paga que sairá do faturamento junto
-    const [{ data: tr }, { data: tc }] = await Promise.all([
-      supabase.from('taxas_reserva').select('valor, status, paga_em').eq('agendamento_id', agEditar.id),
-      supabase.from('taxas_cancelamento').select('valor, status, paga_em').eq('agendamento_id', agEditar.id),
-    ]);
-    const pagas = [...(tr ?? []), ...(tc ?? [])].filter(
-      (t: any) => t.paga_em != null || t.status === 'pago' || t.status === 'paga',
-    );
-    const totalPago = pagas.reduce((s: number, t: any) => s + Number(t.valor || 0), 0);
-    if (totalPago > 0) {
-      setAvisoTaxaExcluir(
-        ` A taxa de ${fmtBRL(totalPago)} (paga) também será removida e sai do faturamento daquele período.`,
-      );
+    // Avisa se há taxa paga que sairá do faturamento junto (mesma função do app). Se a consulta
+    // falhar, mostra o erro e não abre a confirmação: nunca exclui receita sem conseguir avisar.
+    try {
+      setAvisoTaxaExcluir(await avisoTaxaPagaAoExcluir(supabase, agEditar.id));
+    } catch (e) {
+      setErro((e as Error).message);
+      return;
     }
     setConfirmarExcluir(true);
   }
@@ -396,7 +393,7 @@ function NovoAgModal({
       .select('id');
     setExcluindo(false);
     setConfirmarExcluir(false);
-    if (error) { setErro(`Erro ao excluir: ${error.message}`); return; }
+    if (error) { setErro(mensagemErroBanco(error, 'excluir este agendamento')); return; }
     if (!apagados || apagados.length === 0) {
       setErro('Você não tem permissão para excluir agendamentos.');
       return;
@@ -2160,7 +2157,7 @@ export default function AgendaPage() {
   const resumoDia = useMemo(
     () => resumoDoDia(agsVisiveis.map(a => ({
       status: a.status,
-      profissional_id: a.profissional?.id ?? '',
+      profissional_id: a.profissional_id ?? a.profissional?.id ?? '',
       valor: a.valor,
       pacote_cliente_id: a.pacote_cliente_id ?? null,
       desconto_rateado: a.desconto_rateado ?? null,

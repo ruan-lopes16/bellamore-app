@@ -5,6 +5,7 @@
  */
 import type { ClienteDb } from './kpis-financeiros-consultas';
 import { mensagemErroBanco } from './erros';
+import { formatarMoeda } from './moeda';
 
 /** Client com `rpc` (web: @supabase/ssr; mobile: @supabase/supabase-js). */
 export type ClienteDbAgenda = ClienteDb & {
@@ -79,4 +80,28 @@ export async function salvarAvaliacao(
     .select('id');
   if (error) throw new Error(mensagemErroBanco(error, 'salvar a avaliação'));
   if (!data || (data as unknown[]).length === 0) throw new Error(mensagemErroBanco({ code: '42501' }, 'salvar a avaliação'));
+}
+
+/** Mensagem quando não dá para conferir as taxas antes de excluir (web e app não excluem). */
+export const MSG_ERRO_TAXAS_EXCLUIR = 'Não foi possível conferir as taxas deste atendimento. Tente novamente.';
+
+/**
+ * Antes de excluir um atendimento: soma as taxas de reserva e de cancelamento já pagas dele (somem
+ * junto, por cascata, e saem do faturamento) e devolve o trecho do aviso de exclusão. Sem taxa paga
+ * devolve ''. LANÇA `MSG_ERRO_TAXAS_EXCLUIR` se qualquer consulta falhar: web e app mostram o erro e
+ * não excluem, para nunca apagar receita sem avisar.
+ */
+export async function avisoTaxaPagaAoExcluir(db: ClienteDb, agendamentoId: string): Promise<string> {
+  const [rTr, rTc] = await Promise.all([
+    db.from('taxas_reserva').select('valor, status, paga_em').eq('agendamento_id', agendamentoId),
+    db.from('taxas_cancelamento').select('valor, status, paga_em').eq('agendamento_id', agendamentoId),
+  ]);
+  if (rTr.error || rTc.error) throw new Error(MSG_ERRO_TAXAS_EXCLUIR);
+  type Taxa = { valor: number | string | null; status: string | null; paga_em: string | null };
+  const pagas = [...((rTr.data ?? []) as Taxa[]), ...((rTc.data ?? []) as Taxa[])].filter(
+    (t) => t.paga_em != null || t.status === 'pago' || t.status === 'paga',
+  );
+  const totalPago = pagas.reduce((s, t) => s + Number(t.valor || 0), 0);
+  if (totalPago <= 0) return '';
+  return ` A taxa de ${formatarMoeda(totalPago)} (paga) também será removida e sai do faturamento daquele período.`;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StatusBar, Alert, ActivityIndicator, Linking,
@@ -41,11 +41,14 @@ import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
 import { avisoTaxaPagaAoExcluir, confirmarAlerta } from '@/lib/statusAtendimento';
-import { precisaConfirmarStatus, type StatusAg } from '@shared/agenda';
+import { contatosCliente, precisaConfirmarStatus, type StatusAg } from '@shared/agenda';
 import { BotoesStatus } from '@/components/atendimento/BotoesStatus';
 import { AvaliacaoAtendimento } from '@/components/atendimento/AvaliacaoAtendimento';
 
 // ── Constantes ───────────────────────────────────────────────
+
+/** Botão das ações rápidas do topo (Ligar / WhatsApp / Perfil). */
+type AcaoRapida = { icon: ReactNode; label: string; onPress: () => void };
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -410,6 +413,9 @@ export default function AgendamentoDetalhe() {
   const duracao   = differenceInMinutes(fim, inicio);
 
   const [c1Cliente, c2Cliente]   = avatarColors(ag.cliente?.nome ?? '');
+  // Ligar / WhatsApp pela regra de shared (não duplica o DDI 55); null sem telefone.
+  const contatos = contatosCliente(ag.cliente?.telefone);
+  const clienteIdPerfil = ag.cliente_id ?? ag.cliente?.id ?? null;
   const [c1Prof,    c2Prof]      = avatarColors(ag.profissional?.nome ?? '');
 
   /**
@@ -562,11 +568,12 @@ export default function AgendamentoDetalhe() {
 
           {/* Ações rápidas */}
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {[
-              { icon: <Phone size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => ag.cliente?.telefone && Linking.openURL(`tel:${ag.cliente.telefone}`) },
-              { icon: <MessageCircle size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'WhatsApp', onPress: () => ag.cliente?.telefone && Linking.openURL(`https://wa.me/55${ag.cliente.telefone.replace(/\D/g, '')}`) },
-              { icon: <User size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Perfil', onPress: () => router.push(`/(empresa)/cliente/${ag.cliente_id}` as any) },
-            ].map((a) => (
+            {/* Mesma regra do web (contatosCliente): somem sem telefone; "Perfil" some sem cliente. */}
+            {([
+              contatos ? { icon: <Phone size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => Linking.openURL(contatos.ligar) } : null,
+              contatos ? { icon: <MessageCircle size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'WhatsApp', onPress: () => Linking.openURL(contatos.whatsapp) } : null,
+              clienteIdPerfil ? { icon: <User size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Perfil', onPress: () => router.push(`/(empresa)/cliente/${clienteIdPerfil}` as any) } : null,
+            ] as (AcaoRapida | null)[]).filter((a): a is AcaoRapida => !!a).map((a) => (
               <TouchableOpacity
                 key={a.label}
                 onPress={a.onPress}

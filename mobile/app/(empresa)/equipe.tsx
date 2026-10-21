@@ -38,6 +38,7 @@ import { supabase } from '@/lib/supabase';
 import { configVazia, contarExcecoes, podeGerenciarMembro } from '@shared/permissoes';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { formatarMoeda } from '@shared/moeda';
+import { toWhatsApp } from '@shared/mascaras';
 import { ConvitesPendentesSecao, HistoricoEquipeSecao } from '@/components/EquipeConvites';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -118,7 +119,8 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
     if (membro.user.telefone) Linking.openURL(`tel:${membro.user.telefone}`);
   }
   function whatsapp() {
-    if (membro.user.telefone) Linking.openURL(`https://wa.me/55${membro.user.telefone.replace(/\D/g, '')}`);
+    // toWhatsApp não duplica o DDI de número já salvo com 55.
+    if (membro.user.telefone) Linking.openURL(`https://wa.me/${toWhatsApp(membro.user.telefone)}`);
   }
 
   return (

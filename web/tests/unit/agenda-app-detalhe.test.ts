@@ -86,7 +86,9 @@ describe('app: detalhe do atendimento', () => {
 
   describe('excluir', () => {
     it('consulta as taxas pagas do atendimento com o mesmo texto do web', () => {
-      const l = ler(LIB);
+      // A consulta mora em shared (mesma função do web); o app só repassa o client.
+      expect(ler(LIB)).toContain('export function avisoTaxaPagaAoExcluir(');
+      const l = ler('shared/agenda-consultas.ts');
       expect(l).toContain('export async function avisoTaxaPagaAoExcluir(');
       expect(l).toContain("from('taxas_reserva').select('valor, status, paga_em').eq('agendamento_id', agendamentoId)");
       expect(l).toContain("from('taxas_cancelamento').select('valor, status, paga_em').eq('agendamento_id', agendamentoId)");
