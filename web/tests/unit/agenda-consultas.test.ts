@@ -36,10 +36,10 @@ describe('carregarPreferenciaAgenda', () => {
     expect(await carregarPreferenciaAgenda(falso({ data: { agenda_abre_em: 'x' }, error: null }).db, 'e1', 'u1')).toBe('propria');
     expect(await carregarPreferenciaAgenda(falso({ data: null, error: null }).db, 'e1', 'u1')).toBe('propria');
   });
-  it('coluna ainda não criada (sem a 094: 42703 / PGRST204) vira "propria"', async () => {
+  it('coluna ainda não criada (sem a 094: 42703 / PGRST204) devolve null', async () => {
     for (const code of ['42703', 'PGRST204']) {
       const { db } = falso({ data: null, error: { code, message: 'column empresa_membros.agenda_abre_em does not exist' } });
-      expect(await carregarPreferenciaAgenda(db, 'e1', 'u1')).toBe('propria');
+      expect(await carregarPreferenciaAgenda(db, 'e1', 'u1')).toBeNull();
     }
   });
   it('outro erro lança em português (nunca finge a preferência)', async () => {

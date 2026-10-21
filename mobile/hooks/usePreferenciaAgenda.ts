@@ -9,7 +9,7 @@ export const chavePreferenciaAgenda = (empresaId?: string, userId?: string) =>
 
 /**
  * Preferência "Minha agenda abre em" da pessoa logada na empresa ativa (`'propria'` | `'todas'`).
- * Sem a 094 devolve `'propria'`; erro de rede = query em erro (a agenda abre na própria pessoa).
+ * Sem a 094 devolve `null` (o campo some e a agenda abre na própria pessoa); erro de rede = query em erro (a agenda abre na própria pessoa).
  */
 export function usePreferenciaAgenda() {
   const { empresaAtiva, user } = useAuthStore();

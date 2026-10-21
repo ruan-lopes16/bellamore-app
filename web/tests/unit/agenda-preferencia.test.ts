@@ -60,3 +60,10 @@ describe('telas usam a preferência', () => {
     expect(ler('mobile/app/(profissional)/agenda.tsx')).not.toContain('PreferenciaAgenda');
   });
 });
+
+describe('campo some sem a 094 (preferência null)', () => {
+  it('as duas Configurações escondem o campo quando a preferência é null', () => {
+    expect(ler('web/app/(app)/configuracoes/page.tsx')).toContain('valor === null) return null');
+    expect(ler('mobile/app/(empresa)/configuracoes.tsx')).toContain('prefAgenda.data !== null');
+  });
+});

@@ -740,7 +740,7 @@ export default function Configuracoes() {
             </View>
           </MotiView>
 
-          {pode('agenda.ver_equipe') && (
+          {pode('agenda.ver_equipe') && prefAgenda.data !== null && (
             <View style={{ marginHorizontal: 24, marginTop: 20 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10 }}>
                 Minha agenda abre em

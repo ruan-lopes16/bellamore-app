@@ -2130,11 +2130,11 @@ export default function AgendaPage() {
       // Só aplica depois de carregar: o filtro fica '' (nada é buscado) até aqui. As permissões já
       // vêm do provider; "Todas" exige `agenda.ver_equipe` mesmo com a preferência gravada.
       // Erro ao ler a preferência = abre na própria pessoa. A troca manual não grava nada.
-      let preferencia: 'propria' | 'todas' = 'propria';
+      let preferencia: 'propria' | 'todas' | null = 'propria';
       if (membro?.empresa_id) {
         try { preferencia = await carregarPreferenciaAgenda(supabase, membro.empresa_id, user.id); } catch { /* própria */ }
       }
-      setFiltroProfissional(filtroInicialAgenda(preferencia, ehGestao, user.id));
+      setFiltroProfissional(filtroInicialAgenda(preferencia ?? 'propria', ehGestao, user.id));
       if (membro?.empresa_id) {
         const souGestao = ehGestao;
         const [{ data: cats }, { data: profs }] = await Promise.all([

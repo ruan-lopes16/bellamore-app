@@ -25,20 +25,21 @@ export const MENSAGEM_SEM_094 = 'Atualização do banco pendente: peça para rod
 
 /**
  * Preferência de abertura da agenda da pessoa na empresa (`empresa_membros.agenda_abre_em`).
- * Sem a 094 (coluna inexistente) ou sem linha, devolve `'propria'`. Outros erros lançam.
+ * Sem linha ou valor desconhecido, devolve `'propria'`. Sem a 094 (coluna inexistente) devolve `null`
+ * (as telas escondem o campo e abrem na própria pessoa). Outros erros lançam.
  *
  * @param db        client do Supabase
  * @param empresaId empresa ativa
  * @param userId    `auth.uid()` da pessoa logada
  */
-export async function carregarPreferenciaAgenda(db: ClienteDb, empresaId: string, userId: string): Promise<PreferenciaAgenda> {
+export async function carregarPreferenciaAgenda(db: ClienteDb, empresaId: string, userId: string): Promise<PreferenciaAgenda | null> {
   const { data, error } = await db.from('empresa_membros')
     .select('agenda_abre_em')
     .eq('empresa_id', empresaId)
     .eq('user_id', userId)
     .maybeSingle();
   if (error) {
-    if (colunaInexistente(error)) return 'propria';
+    if (colunaInexistente(error)) return null;
     throw new Error(mensagemErroBanco(error, 'carregar a preferência da agenda'));
   }
   return (data as { agenda_abre_em?: unknown } | null)?.agenda_abre_em === 'todas' ? 'todas' : 'propria';

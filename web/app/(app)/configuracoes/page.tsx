@@ -174,7 +174,7 @@ function ToggleLinha({ label, desc, checked, onToggle }: {
  * gravação (inclusive o erro em português); a troca manual do filtro na agenda não altera isto.
  */
 function CardAgendaAbreEm({ empresaId, userId }: { empresaId: string; userId: string }) {
-  const [valor, setValor] = useState<PreferenciaAgenda>('propria');
+  const [valor, setValor] = useState<PreferenciaAgenda | null>('propria');
   const [carregada, setCarregada] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -189,7 +189,7 @@ function CardAgendaAbreEm({ empresaId, userId }: { empresaId: string; userId: st
   }, [empresaId, userId]);
 
   async function escolher(novo: PreferenciaAgenda) {
-    if (novo === valor || salvando) return;
+    if (valor === null || novo === valor || salvando) return;
     const anterior = valor;
     setValor(novo); setSalvando(true); setMsg(null);
     try {
@@ -203,6 +203,8 @@ function CardAgendaAbreEm({ empresaId, userId }: { empresaId: string; userId: st
     }
   }
 
+  // Sem a 094 (preferência null) o campo não existe: nada para salvar.
+  if (valor === null) return null;
   const opcoes: { v: PreferenciaAgenda; label: string }[] = [
     { v: 'propria', label: 'Minha agenda' },
     { v: 'todas',   label: 'Todas as profissionais' },
