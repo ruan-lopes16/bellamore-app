@@ -45,7 +45,7 @@ describe('cortesia', () => {
 
 describe('avaliação', () => {
   it('usa salvarAvaliacao, sem profissional_id, e mostra o erro', () => {
-    expect(agenda).toContain("import { salvarAvaliacao } from '@shared/agenda-consultas'");
+    expect(agenda).toContain("import { carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas'");
     expect(agenda).toContain('await salvarAvaliacao(');
     expect(agenda).not.toContain("from('avaliacoes')");
     expect(agenda).not.toContain('avaliacaoAg.profissionalId');

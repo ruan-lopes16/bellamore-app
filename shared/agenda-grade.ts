@@ -161,3 +161,13 @@ export function juntarContagens(
   for (const c of contagens) for (const [d, n] of c!) out.set(d, (out.get(d) ?? 0) + n);
   return out;
 }
+
+/**
+ * Filtro inicial da agenda da empresa: "Todas" só quando a preferência é `'todas'` E a pessoa tem
+ * `agenda.ver_equipe` (a gestora pode mudar a preferência de outras pessoas pelo banco, então a
+ * tela não confia só nela). Senão, a própria pessoa. Só vale para o valor inicial: a troca manual
+ * na tela não altera a preferência.
+ */
+export function filtroInicialAgenda(preferencia: 'propria' | 'todas', verEquipe: boolean, meuUserId: string): FiltroProfissional {
+  return preferencia === 'todas' && verEquipe ? TODAS : meuUserId;
+}

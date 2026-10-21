@@ -197,7 +197,7 @@ describe('semana de domingo a sábado em todas as visões', () => {
 describe('página: seletor, carga e bloqueios em Semana e Mês', () => {
   it('estado filtroProfissional: string | "todas", começando na própria pessoa', () => {
     expect(agenda).toMatch(/useState<FiltroProfissional>\(''\)/);
-    expect(agenda).toContain('setFiltroProfissional(user.id)');
+    expect(agenda).toContain('setFiltroProfissional(filtroInicialAgenda(preferencia, ehGestao, user.id))');
     expect(agenda).not.toContain('profFiltro');
     expect(agenda).not.toContain('Nunca existe modo');
   });

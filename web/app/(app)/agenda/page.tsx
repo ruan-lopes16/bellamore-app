@@ -53,10 +53,10 @@ import {
   valorDigitadoValido, MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, janelaDoDia,
 } from '@shared/agenda';
 import {
-  TODAS, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
+  TODAS, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
 } from '@shared/agenda-grade';
 import { parseValorBR } from '@shared/comanda-fechamento';
-import { salvarAvaliacao } from '@shared/agenda-consultas';
+import { carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas';
 import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -2073,9 +2073,9 @@ export default function AgendaPage() {
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
   const [meuUserId, setMeuUserId] = useState<string>('');
   // Agenda exibida: id de uma profissional ou "todas" (TODAS). Começa na própria
-  // pessoa ('' só enquanto a sessão carrega). "Todas" só vale com `agenda.ver_equipe` —
-  // sem ela, `filtroEfetivo` volta para a própria pessoa. A Task 8 troca o valor inicial
-  // pela preferência de abertura.
+  // pessoa ('' só enquanto a sessão e a preferência carregam). "Todas" só vale com
+  // `agenda.ver_equipe` — sem ela, `filtroEfetivo` volta para a própria pessoa. O valor inicial
+  // vem da preferência "Minha agenda abre em" (`filtroInicialAgenda`).
   const [filtroProfissional, setFiltroProfissional] = useState<FiltroProfissional>('');
   const [modal,       setModal]      = useState(false);
   const [modalBloq,   setModalBloq]  = useState(false);
@@ -2126,7 +2126,15 @@ export default function AgendaPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
       setMeuUserId(user.id);
-      setFiltroProfissional(user.id);
+      // Valor inicial pela preferência "Minha agenda abre em" (Configurações → Meu perfil).
+      // Só aplica depois de carregar: o filtro fica '' (nada é buscado) até aqui. As permissões já
+      // vêm do provider; "Todas" exige `agenda.ver_equipe` mesmo com a preferência gravada.
+      // Erro ao ler a preferência = abre na própria pessoa. A troca manual não grava nada.
+      let preferencia: 'propria' | 'todas' = 'propria';
+      if (membro?.empresa_id) {
+        try { preferencia = await carregarPreferenciaAgenda(supabase, membro.empresa_id, user.id); } catch { /* própria */ }
+      }
+      setFiltroProfissional(filtroInicialAgenda(preferencia, ehGestao, user.id));
       if (membro?.empresa_id) {
         const souGestao = ehGestao;
         const [{ data: cats }, { data: profs }] = await Promise.all([

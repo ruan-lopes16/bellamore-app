@@ -227,8 +227,8 @@ describe('telas e hooks da agenda do app', () => {
   });
 
   it('filtroProfissional: começa na própria pessoa e só vira "Todas" com agenda.ver_equipe', () => {
-    expect(empresa).toMatch(/const \[filtroProfissional, setFiltroProfissional\] = useState<string \| 'todas'>\(/);
-    expect(empresa).toMatch(/useState<string \| 'todas'>\(\(\) => user\?\.id \?\? ''\)/);
+    expect(empresa).toContain("const [filtroManual, setFiltroManual] = useState<string | null>(null)");
+    expect(empresa).toContain('filtroInicialAgenda(preferencia.data');
     expect(empresa).toMatch(/const filtro\b[^\n]*podeVerEquipe \? [^\n]*: \(?user\?\.id/);
     expect(empresa).toContain('useBloqueiosDia(dia, filtro)');
     expect(empresa).toContain('useAgendamentoDia(dia, filtro)');

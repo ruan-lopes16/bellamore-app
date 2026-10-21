@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, StatusBar, Pressable, Alert,
+  RefreshControl, StatusBar, Pressable, Alert, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,6 +28,7 @@ import {
   type AgendamentoCompleto, type ProfissionalAgenda, type BloqueioAgenda,
 } from '@/hooks/useAgenda';
 import { useAuthStore } from '@/stores/authStore';
+import { usePreferenciaAgenda } from '@/hooks/usePreferenciaAgenda';
 import { usePermissoes } from '@/lib/permissions';
 import { agendarLembretesLocais } from '@/lib/notifications';
 import { motivoBloqueioLabel } from '@shared/bloqueios';
@@ -38,7 +39,7 @@ import { VisaoMes } from '@/components/agenda/VisaoMes';
 import { AlternarVisao, type VisaoAgenda } from '@/components/agenda/AlternarVisao';
 import { TimelineColunas } from '@/components/agenda/TimelineColunas';
 import {
-  TODAS, type FiltroProfissional, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora, colunasComExtras,
+  TODAS, filtroInicialAgenda, type FiltroProfissional, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora, colunasComExtras,
   dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana,
 } from '@shared/agenda-grade';
 import { BloqueioModal } from '@/components/BloqueioModal';
@@ -210,7 +211,8 @@ function SlotVazio({ hora, dia, profissionalId }: { hora: number; dia: string; p
 export default function Agenda() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user } = useAuthStore();
-  const { pode } = usePermissoes();
+  const { pode, permissoesCarregadas } = usePermissoes();
+  const preferencia = usePreferenciaAgenda();
   const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
   // Sem `agenda.ver_equipe` só a própria agenda (igual ao web): sem chips de equipe.
   const podeVerEquipe = pode('agenda.ver_equipe');
@@ -220,10 +222,18 @@ export default function Agenda() {
   const [dia, setDia] = useState(hoje);
   const [visao, setVisao] = useState<VisaoAgenda>('dia');
   const [mesVisto, setMesVisto] = useState(hoje.slice(0, 7));
-  // Profissional escolhida ou "Todas". Começa na própria pessoa (a Task 8 troca pela preferência).
-  const [filtroProfissional, setFiltroProfissional] = useState<string | 'todas'>(() => user?.id ?? '');
+  // Escolha manual na tela (null = ainda não mexeu). Não altera a preferência salva.
+  const [filtroManual, setFiltroManual] = useState<string | null>(null);
+  // Só aplica o valor inicial depois de carregar permissões e preferência: antes disso o filtro
+  // fica '' (nenhuma consulta dispara) e a tela mostra "Carregando", sem trocar de agenda depois.
+  // Erro ao ler a preferência = própria agenda. "Todas" exige `agenda.ver_equipe` mesmo com a
+  // preferência gravada (a gestora pode mudar a de outras pessoas pelo banco).
+  const aguardandoFiltro = !permissoesCarregadas || preferencia.isPending;
+  const filtroProfissional = filtroManual
+    ?? filtroInicialAgenda(preferencia.data ?? 'propria', podeVerEquipe, user?.id ?? '');
+  const setFiltroProfissional = setFiltroManual;
   // Sem `agenda.ver_equipe` só a própria agenda (igual ao web): nunca "Todas" nem outra pessoa.
-  const filtro: FiltroProfissional = podeVerEquipe ? (filtroProfissional || user?.id || '') : (user?.id ?? '');
+  const filtro: FiltroProfissional = aguardandoFiltro ? '' : podeVerEquipe ? (filtroProfissional || user?.id || '') : (user?.id ?? '');
   const [modalBloqueio, setModalBloqueio] = useState(false);
   const [sheetPendentes, setSheetPendentes] = useState(false);
   const remover = useRemoverBloqueio();
@@ -293,6 +303,13 @@ export default function Agenda() {
   }, [agendamentos, user?.notif_lembrete_atendimento]);
 
   if (!fontsLoaded) return null;
+  if (aguardandoFiltro) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.accent} />
+      </View>
+    );
+  }
 
   // Bloqueios que valem para a profissional escolhida (os dela e os gerais; em "Todas", todos).
   const bloqueiosVisiveis = bloqueiosDaProfissional(bloqueios, filtro);
