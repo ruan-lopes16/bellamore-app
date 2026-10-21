@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
-  ChevronLeft, ChevronRight, Plus, Search, Ban, X,
+  Plus, Search, Ban, X,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -21,12 +21,6 @@ import {
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import {
-  addDays, subDays, addMonths, subMonths,
-  format, isSameDay, startOfWeek,
-} from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-
-import {
   useAgendamentoDia, useProfissionais, useDiasComAgendamento,
   useResumoDia, CATEGORIA_CONFIG,
   useBloqueiosDia, useBloqueiosPendentes, useCriarBloqueio,
@@ -36,7 +30,17 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { agendarLembretesLocais } from '@/lib/notifications';
-import { motivoBloqueioLabel, bloqueioNoInstante } from '@shared/bloqueios';
+import { motivoBloqueioLabel } from '@shared/bloqueios';
+import { colunasPorProfissional, janelaDoDia } from '@shared/agenda';
+import { hojeBRT, horaBRT } from '@shared/periodos';
+import { FaixaSemana } from '@/components/agenda/FaixaSemana';
+import { VisaoMes } from '@/components/agenda/VisaoMes';
+import { AlternarVisao, type VisaoAgenda } from '@/components/agenda/AlternarVisao';
+import { TimelineColunas } from '@/components/agenda/TimelineColunas';
+import {
+  TODAS, type FiltroProfissional, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora,
+  dataDoDia, horasDaJanela, itensDaJanela,
+} from '@/components/agenda/grade';
 import { BloqueioModal } from '@/components/BloqueioModal';
 import { PendentesBloqueioSheet } from '@/components/PendentesBloqueioSheet';
 import { BotaoExportar } from '@/components/BotaoExportar';
@@ -54,8 +58,6 @@ const C = {
   amber: '#B45309', amberSoft: '#FEF3E2',
   text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
 };
-
-const HORAS = Array.from({ length: 13 }, (_, i) => i + 7); // 07:00 – 19:00
 
 const STATUS_CONFIG = {
   agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primary },
@@ -79,8 +81,9 @@ function avatarColors(nome: string): [string, string] {
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
+/** "HH:mm" em Brasília (a grade agrupa pela hora de Brasília, não do aparelho). */
 function horaStr(iso: string) {
-  return format(new Date(iso), 'HH:mm');
+  return horaBRT(iso);
 }
 /** Nomes de todos os serviços do agendamento, unidos por " + " (fallback: serviço único). */
 function nomesServicos(ag: AgendamentoCompleto): string {
@@ -172,12 +175,14 @@ function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number
 
 // ── Slot vazio ───────────────────────────────────────────────
 
-function SlotVazio({ hora, dia, bloqueado }: { hora: number; dia: Date; bloqueado?: boolean }) {
-  if (bloqueado) return null;
-
+/**
+ * Horário vazio da grade: abre o novo agendamento já no dia, na hora e na profissional da coluna.
+ * Quem chama só o desenha quando não há bloqueio dessa profissional nem bloqueio geral na hora.
+ */
+function SlotVazio({ hora, dia, profissionalId }: { hora: number; dia: string; profissionalId: string }) {
   return (
     <TouchableOpacity
-      onPress={() => router.push(`/(empresa)/novo-agendamento?data=${format(dia, 'yyyy-MM-dd')}&hora=${String(hora).padStart(2, '0')}:00` as any)}
+      onPress={() => router.push(`/(empresa)/novo-agendamento?data=${dia}&hora=${String(hora).padStart(2, '0')}:00&profissional=${profissionalId}` as any)}
       style={{
         height: 48, borderRadius: 10,
         borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C4BAD4',
@@ -210,23 +215,28 @@ export default function Agenda() {
   // Sem `agenda.ver_equipe` só a própria agenda (igual ao web): sem chips de equipe.
   const podeVerEquipe = pode('agenda.ver_equipe');
 
-  const [diaSelecionado, setDiaSelecionado] = useState(new Date());
-  const [mesRef, setMesRef] = useState(new Date());
-  const [profFiltroSel, setProfFiltro] = useState<string | undefined>(undefined);
-  const profFiltro = podeVerEquipe ? profFiltroSel : user?.id;
+  // Dia exibido ("AAAA-MM-DD", Brasília) e visão (Dia / Mês, na mesma tela).
+  const hoje = hojeBRT();
+  const [dia, setDia] = useState(hoje);
+  const [visao, setVisao] = useState<VisaoAgenda>('dia');
+  const [mesVisto, setMesVisto] = useState(hoje.slice(0, 7));
+  // Profissional escolhida ou "Todas". Começa na própria pessoa (a Task 8 troca pela preferência).
+  const [filtroProfissional, setFiltroProfissional] = useState<string | 'todas'>(() => user?.id ?? '');
+  // Sem `agenda.ver_equipe` só a própria agenda (igual ao web): nunca "Todas" nem outra pessoa.
+  const filtro: FiltroProfissional = podeVerEquipe ? (filtroProfissional || user?.id || '') : (user?.id ?? '');
   const [modalBloqueio, setModalBloqueio] = useState(false);
   const [sheetPendentes, setSheetPendentes] = useState(false);
   const remover = useRemoverBloqueio();
   const [bloqueioParaRemover, setBloqueioParaRemover] = useState<BloqueioAgenda | null>(null);
 
-  const semana = Array.from({ length: 7 }, (_, i) =>
-    addDays(startOfWeek(diaSelecionado, { weekStartsOn: 1 }), i)
-  );
-
-  const { data: agendamentos = [], isLoading, refetch } = useAgendamentoDia(diaSelecionado, profFiltro);
+  const { data: agendamentos = [], isLoading, refetch } = useAgendamentoDia(dia, filtro);
   const { data: profissionais = [] } = useProfissionais();
-  const { data: diasComAg } = useDiasComAgendamento(mesRef);
-  const { data: bloqueios = [] } = useBloqueiosDia(diaSelecionado);
+  // Uma consulta do mês: o da visão Mês, ou o do dia exibido (pontinhos da faixa da semana).
+  const mesContagem = visao === 'mes' ? mesVisto : dia.slice(0, 7);
+  const {
+    data: contagemMes, isLoading: carregandoMes, isError: erroMes, refetch: refetchMes,
+  } = useDiasComAgendamento(mesContagem, filtro);
+  const { data: bloqueios = [], refetch: refetchBloqueios } = useBloqueiosDia(dia, filtro);
   const { data: pendentes = [], isError: pendentesErro } = useBloqueiosPendentes();
   const criarBloqueio = useCriarBloqueio();
   const aprovar = useAprovarBloqueio();
@@ -250,7 +260,9 @@ export default function Agenda() {
     PlusJakartaSans_700Bold,
   });
 
-  const onRefresh = useCallback(() => refetch(), [refetch]);
+  const onRefresh = useCallback(() => {
+    refetch(); refetchMes(); refetchBloqueios();
+  }, [refetch, refetchMes, refetchBloqueios]);
 
   // Reprograma os lembretes locais (30 min antes) sempre que a lista muda.
   useEffect(() => {
@@ -267,34 +279,72 @@ export default function Agenda() {
 
   if (!fontsLoaded) return null;
 
-  // Agrupa agendamentos por hora
-  const agPorHora: Record<number, AgendamentoCompleto[]> = {};
-  agendamentos.forEach((ag) => {
-    const hora = new Date(ag.data_hora_inicio).getHours();
-    if (!agPorHora[hora]) agPorHora[hora] = [];
-    agPorHora[hora].push(ag);
-  });
+  // Bloqueios que valem para a profissional escolhida (os dela e os gerais; em "Todas", todos).
+  const bloqueiosVisiveis = bloqueiosDaProfissional(bloqueios, filtro);
+  // Janela do dia: 7–21, esticada para cobrir atendimentos e bloqueios (nada fica cortado).
+  const horas = horasDaJanela(janelaDoDia(itensDaJanela(dia, agendamentos, bloqueiosVisiveis)));
+  const agPorHora = agruparPorHora(agendamentos);
+  // Um bloqueio ocupa todas as horas que cruza no dia (em Brasília); o horário vazio só some
+  // com bloqueio da profissional escolhida ou geral.
+  const bloqPorHora = bloqueiosPorHora(bloqueiosVisiveis, dia, horas);
 
-  // Agrupa bloqueios do dia por hora: um bloqueio ocupa TODAS as horas que
-  // cruza (08:00–12:00 => 8,9,10,11). Fim exatamente na hora cheia não conta
-  // aquela hora. Limita ao dia visível (bloqueio pode cruzar vários dias).
-  const bloqueiosPorHora: Record<number, typeof bloqueios> = {};
-  bloqueios.forEach((b) => {
-    const diaIni = new Date(diaSelecionado); diaIni.setHours(0, 0, 0, 0);
-    const diaFim = new Date(diaSelecionado); diaFim.setHours(23, 59, 59, 999);
-    const ini = new Date(b.data_inicio);
-    const fim = new Date(b.data_fim);
-    const eIni = ini < diaIni ? diaIni : ini;
-    const eFim = fim > diaFim ? diaFim : fim;
-    const hIni = eIni.getHours();
-    let hFim = eFim.getHours();
-    if (eFim.getMinutes() === 0 && eFim.getSeconds() === 0 && hFim > hIni) hFim -= 1;
-    for (let h = hIni; h <= hFim; h++) {
-      if (!HORAS.includes(h)) continue;
-      if (!bloqueiosPorHora[h]) bloqueiosPorHora[h] = [];
-      bloqueiosPorHora[h].push(b);
+  // "Todas": uma coluna por profissional ativa. Quem tem atendimento no dia e não está na lista
+  // (ex.: desativada) ganha coluna também, para nenhum atendimento sumir da grade.
+  const membrosColunas = profissionais.map((p) => ({ id: p.id, nome: p.nome }));
+  for (const a of agendamentos) {
+    if (a.profissional_id && !membrosColunas.some((m) => m.id === a.profissional_id)) {
+      membrosColunas.push({ id: a.profissional_id, nome: a.profissional?.nome ?? 'Profissional' });
     }
-  });
+  }
+  const colunas = filtro === TODAS ? colunasPorProfissional(agendamentos, membrosColunas) : [];
+  // Cada coluna considera os bloqueios daquela profissional mais os gerais.
+  const bloqPorColuna = new Map(
+    colunas.map((c) => [c.profissional.id, bloqueiosPorHora(bloqueiosDaProfissional(bloqueios, c.profissional.id), dia, horas)]),
+  );
+
+  const renderBloqueio = (b: BloqueioAgenda) => {
+    const podeRemover =
+      podeAprovarBloqueios
+      || (b.situacao === 'pendente' && b.criado_por === user?.id);
+    return (
+      <View key={b.id} style={{
+        borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
+        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+        padding: 10, marginBottom: 6, flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+      }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
+            {b.titulo || motivoBloqueioLabel(b.motivo)}
+          </Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: '#8878A6' }}>
+            {horaBRT(b.data_inicio)}–{horaBRT(b.data_fim)}
+            {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
+          </Text>
+        </View>
+        {podeRemover && (
+          <TouchableOpacity
+            onPress={() => setBloqueioParaRemover(b)}
+            disabled={remover.isPending}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{ padding: 2, opacity: remover.isPending ? 0.4 : 1 }}>
+            <X size={14} color="#C9527F" strokeWidth={2.5} />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  /** Conteúdo de uma hora para uma profissional: atendimentos, bloqueios ou o horário vazio. */
+  const renderCelula = (
+    profissionalId: string, ags: AgendamentoCompleto[], bloqs: BloqueioAgenda[], hora: number,
+  ) => (
+    <>
+      {ags.length > 0
+        ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
+        : bloqs.length > 0 ? null : <SlotVazio hora={hora} dia={dia} profissionalId={profissionalId} />}
+      {bloqs.map(renderBloqueio)}
+    </>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -331,7 +381,7 @@ export default function Agenda() {
             </View>
             <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
               <BotaoExportar
-                definicao={definicaoAgenda(format(diaSelecionado, 'yyyy-MM-dd'))}
+                definicao={definicaoAgenda(dia)}
                 getLinhas={() => agendamentos.map((a) => ({ inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null, profissional: a.profissional?.nome ?? null, valor: a.valor, status: STATUS_CONFIG[a.status]?.label ?? a.status }))}
                 cor={C.text2}
               />
@@ -378,73 +428,28 @@ export default function Agenda() {
             )}
           </View>
 
-          {/* Nav de mês */}
-          <View style={{
-            marginHorizontal: 24, marginBottom: 12,
-            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-          }}>
-            <TouchableOpacity
-              onPress={() => setMesRef((m) => subMonths(m, 1))}
-              style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <ChevronLeft size={13} color={C.text2} strokeWidth={2.5} />
-            </TouchableOpacity>
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
-              {format(mesRef, 'MMMM yyyy', { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
-            </Text>
-            <TouchableOpacity
-              onPress={() => setMesRef((m) => addMonths(m, 1))}
-              style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <ChevronRight size={13} color={C.text2} strokeWidth={2.5} />
-            </TouchableOpacity>
-          </View>
+          {/* Dia / Mês */}
+          <AlternarVisao
+            visao={visao}
+            onMudar={(v) => { if (v === 'mes') setMesVisto(dia.slice(0, 7)); setVisao(v); }}
+          />
 
-          {/* Strip semanal */}
-          <View style={{ marginHorizontal: 24, marginBottom: 14, flexDirection: 'row', gap: 4 }}>
-            {semana.map((dia) => {
-              const ativo   = isSameDay(dia, diaSelecionado);
-              const temAg   = diasComAg?.has(format(dia, 'yyyy-MM-dd')) ?? false;
-              const nomeD   = format(dia, 'EEE', { locale: ptBR }).slice(0, 3);
+          {visao === 'mes' ? (
+            <VisaoMes
+              mes={mesVisto}
+              diaSelecionado={dia}
+              hoje={hoje}
+              contagem={contagemMes}
+              carregando={carregandoMes}
+              erro={erroMes}
+              onMudarMes={setMesVisto}
+              onAbrirDia={(d) => { setDia(d); setVisao('dia'); }}
+            />
+          ) : (
+            <FaixaSemana dia={dia} hoje={hoje} contagem={contagemMes} onSelecionar={setDia} />
+          )}
 
-              return (
-                <TouchableOpacity
-                  key={dia.toISOString()}
-                  onPress={() => { setDiaSelecionado(dia); setMesRef(dia); }}
-                  style={{
-                    flex: 1, alignItems: 'center', paddingVertical: 8,
-                    borderRadius: 14, gap: 4,
-                    backgroundColor: ativo ? C.primary : temAg ? C.surface : 'transparent',
-                    borderWidth: ativo || temAg ? 1 : 0,
-                    borderColor: ativo ? C.primary : C.border,
-                    shadowColor: C.primary,
-                    shadowOpacity: temAg && !ativo ? 0.04 : 0,
-                    shadowRadius: 4, elevation: temAg && !ativo ? 1 : 0,
-                  }}
-                >
-                  <Text style={{
-                    fontFamily: 'PlusJakartaSans_600SemiBold',
-                    fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5,
-                    color: ativo ? 'rgba(255,255,255,0.6)' : C.text3,
-                  }}>
-                    {nomeD}
-                  </Text>
-                  <Text style={{
-                    fontFamily: 'PlusJakartaSans_700Bold',
-                    fontSize: 16, lineHeight: 18,
-                    color: ativo ? '#fff' : C.text,
-                  }}>
-                    {format(dia, 'd')}
-                  </Text>
-                  <View style={{
-                    width: 4, height: 4, borderRadius: 2,
-                    backgroundColor: ativo ? 'rgba(255,255,255,0.5)' : temAg ? C.accent : 'transparent',
-                  }} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
+          {visao === 'dia' && (<>
           {/* Resumo do dia */}
           <View style={{
             marginHorizontal: 24, marginBottom: 14,
@@ -506,33 +511,36 @@ export default function Agenda() {
               </View>
             ))}
           </ScrollView>
+          </>)}
 
-          {/* Filtro profissional */}
+          {/* Filtro profissional: "Todas" e as colegas só com agenda.ver_equipe */}
           {podeVerEquipe && (
           <ScrollView
             horizontal showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 24, gap: 6, paddingBottom: 14 }}
           >
             <TouchableOpacity
-              onPress={() => setProfFiltro(undefined)}
+              onPress={() => setFiltroProfissional(TODAS)}
+              accessibilityState={{ selected: filtro === TODAS }}
               style={{
                 paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20,
-                backgroundColor: !profFiltro ? C.primary : C.surface,
-                borderWidth: 1, borderColor: !profFiltro ? C.primary : C.border,
+                backgroundColor: filtro === TODAS ? C.primary : C.surface,
+                borderWidth: 1, borderColor: filtro === TODAS ? C.primary : C.border,
               }}
             >
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: !profFiltro ? '#fff' : C.text3 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: filtro === TODAS ? '#fff' : C.text3 }}>
                 Todas
               </Text>
             </TouchableOpacity>
 
             {profissionais.map((prof) => {
-              const ativo = profFiltro === prof.id;
+              const ativo = filtro === prof.id;
               const [c1, c2] = avatarColors(prof.nome);
               return (
                 <TouchableOpacity
                   key={prof.id}
-                  onPress={() => setProfFiltro(ativo ? undefined : prof.id)}
+                  onPress={() => setFiltroProfissional(prof.id)}
+                  accessibilityState={{ selected: ativo }}
                   style={{
                     flexDirection: 'row', alignItems: 'center', gap: 6,
                     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
@@ -559,12 +567,17 @@ export default function Agenda() {
           )}
         </View>
 
-        {/* ── Timeline ── */}
-        <View style={{ paddingHorizontal: 24 }}>
-          {HORAS.map((hora) => {
-            const ags = agPorHora[hora] ?? [];
-
-            return (
+        {/* ── Timeline (visão Dia) ── */}
+        {visao === 'dia' && (filtro === TODAS ? (
+          <TimelineColunas
+            colunas={colunas}
+            horas={horas}
+            renderCelula={(profissionalId, ags, hora) =>
+              renderCelula(profissionalId, ags, bloqPorColuna.get(profissionalId)?.[hora] ?? [], hora)}
+          />
+        ) : (
+          <View style={{ paddingHorizontal: 24 }}>
+            {horas.map((hora) => (
               <View key={hora} style={{ flexDirection: 'row', gap: 12, minHeight: 64 }}>
                 {/* Hora */}
                 <View style={{ minWidth: 44, alignItems: 'flex-end', paddingTop: 0 }}>
@@ -580,65 +593,22 @@ export default function Agenda() {
                 {/* Conteúdo */}
                 <View style={{ flex: 1 }}>
                   <View style={{ height: 1, backgroundColor: '#D8D0C8', marginBottom: 6 }} />
-                  {ags.length > 0 ? (
-                    ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
-                  ) : bloqueiosPorHora[hora]?.length ? null : (
-                    <SlotVazio
-                      hora={hora}
-                      dia={new Date(diaSelecionado)}
-                      bloqueado={!!bloqueioNoInstante(
-                        bloqueios,
-                        profFiltro ?? (bloqueios[0]?.profissional_id ?? ''),
-                        new Date(new Date(diaSelecionado).setHours(hora, 0, 0, 0)).toISOString(),
-                      )}
-                    />
-                  )}
-                  {(bloqueiosPorHora[hora] ?? []).map((b) => {
-                    const podeRemover =
-                      podeAprovarBloqueios
-                      || (b.situacao === 'pendente' && b.criado_por === user?.id);
-                    return (
-                      <View key={b.id} style={{
-                        borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
-                        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
-                        padding: 10, marginBottom: 6, flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-                      }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
-                            {b.titulo || motivoBloqueioLabel(b.motivo)}
-                          </Text>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: '#8878A6' }}>
-                            {format(new Date(b.data_inicio), 'HH:mm')}–{format(new Date(b.data_fim), 'HH:mm')}
-                            {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
-                          </Text>
-                        </View>
-                        {podeRemover && (
-                          <TouchableOpacity
-                            onPress={() => setBloqueioParaRemover(b)}
-                            disabled={remover.isPending}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            style={{ padding: 2, opacity: remover.isPending ? 0.4 : 1 }}>
-                            <X size={14} color="#C9527F" strokeWidth={2.5} />
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    );
-                  })}
+                  {renderCelula(filtro, agPorHora[hora] ?? [], bloqPorHora[hora] ?? [], hora)}
                 </View>
               </View>
-            );
-          })}
-        </View>
+            ))}
+          </View>
+        ))}
       </ScrollView>
 
       <BloqueioModal
-        key={diaSelecionado.toISOString()}
+        key={dia}
         visible={modalBloqueio}
         podeAprovarBloqueios={podeAprovarBloqueios}
         meuUserId={user?.id ?? ''}
         meuNome={user?.nome ?? 'Você'}
         membros={profissionais.map((p) => ({ id: p.id, nome: p.nome }))}
-        dataInicial={diaSelecionado}
+        dataInicial={dataDoDia(dia)}
         onClose={() => setModalBloqueio(false)}
         onSubmit={async (input) => {
           const r = await criarBloqueio.mutateAsync(input);
