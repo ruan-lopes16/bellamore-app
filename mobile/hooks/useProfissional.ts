@@ -3,7 +3,8 @@ import { format, differenceInDays } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { resolverCategoria, type AgendamentoCompleto, type BloqueioAgenda } from '@/hooks/useAgenda';
-import { limitesDias, limitesMes, chaveDoMesExibido, chaveDiaBRT, type Limites } from '@shared/periodos';
+import { limitesDias, limitesMes, chaveDiaBRT, type Limites } from '@shared/periodos';
+import { buscarTodasPaginas } from '@shared/paginacao';
 import { normalizarComissoes } from '@shared/comissoes';
 import { carregarComissoesDoPeriodo } from '@shared/comissoes-consultas';
 export type { ComissaoItem } from '@shared/comissoes';
@@ -149,26 +150,39 @@ export function useResumoComissoes(l: Limites): { data: ResumoComissoes | null; 
 
 // ── Dias com agendamentos da profissional (dots) ─────────────
 
-export function useDiasProfissional(mes: Date) {
+/**
+ * Contagem dos atendimentos da profissional (sem cancelados) por dia do mês `chave` ("AAAA-MM"),
+ * em Brasília. Uma consulta paginada, com erro conferido.
+ */
+export function useDiasProfissional(chave: string) {
   const { user, empresaAtiva } = useAuthStore();
   const userId = user?.id;
   const empresaId = empresaAtiva?.id;
-  const chave = chaveDoMesExibido(mes);
   return useQuery({
     queryKey: ['prof-dias', userId, empresaId, chave],
     enabled: !!userId && !!empresaId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
       const l = limitesMes(chave);   // mês em Brasília
-      const { data, error } = await supabase.from('agendamentos')
-        .select('data_hora_inicio')
-        .eq('empresa_id', empresaId!)
-        .eq('profissional_id', userId!)
-        .neq('status', 'cancelado')
-        .gte('data_hora_inicio', l.startIso)
-        .lte('data_hora_inicio', l.endIso);
-      if (error) throw error;
-      return new Set((data ?? []).map(a => chaveDiaBRT(a.data_hora_inicio)));
+      const linhas = await buscarTodasPaginas<{ data_hora_inicio: string }>(async (from, to) => {
+        const { data, error } = await supabase.from('agendamentos')
+          .select('id, data_hora_inicio')
+          .eq('empresa_id', empresaId!)
+          .eq('profissional_id', userId!)
+          .neq('status', 'cancelado')
+          .gte('data_hora_inicio', l.startIso)
+          .lte('data_hora_inicio', l.endIso)
+          .order('id')
+          .range(from, to);
+        if (error) throw error;
+        return { data, error: null };
+      });
+      const contagem = new Map<string, number>();
+      for (const a of linhas) {
+        const d = chaveDiaBRT(a.data_hora_inicio);
+        contagem.set(d, (contagem.get(d) ?? 0) + 1);
+      }
+      return contagem;
     },
   });
 }
@@ -188,17 +202,17 @@ const BLOQUEIO_PROF_COLS =
  * `aprovado` das colegas. O filtro deixa passar só os dela e os de
  * escopo `geral` (que valem para a agenda inteira).
  */
-export function useBloqueiosProfissionalDia(dia: Date) {
+export function useBloqueiosProfissionalDia(dia: string) {
   const { user, empresaAtiva } = useAuthStore();
   const userId = user?.id;
   const empresaId = empresaAtiva?.id;
   return useQuery({
-    queryKey: ['bloqueios-prof-dia', empresaId, userId, format(dia, 'yyyy-MM-dd')],
+    queryKey: ['bloqueios-prof-dia', empresaId, userId, dia],
     enabled: !!empresaId && !!userId,
     staleTime: 1000 * 30,
     queryFn: async (): Promise<BloqueioAgenda[]> => {
-      // Limites do dia em Brasília (não no fuso do aparelho).
-      const lim = limitesDias(format(dia, 'yyyy-MM-dd'), format(dia, 'yyyy-MM-dd'));
+      // Limites do dia ("AAAA-MM-DD") em Brasília (não no fuso do aparelho).
+      const lim = limitesDias(dia, dia);
       const { data, error } = await supabase
         .from('agenda_bloqueios')
         .select(BLOQUEIO_PROF_COLS)

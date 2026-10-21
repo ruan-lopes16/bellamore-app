@@ -79,7 +79,7 @@ describe('Timeline (web) — bloco mostra início–fim', () => {
   const src = read('app/(app)/agenda/page.tsx');
   it('o rótulo de hora do bloco concatena data_hora_inicio e data_hora_fim', () => {
     expect(src).toMatch(
-      /format\(parseISO\(ag\.data_hora_inicio\), 'HH:mm'\)\}–\{format\(parseISO\(ag\.data_hora_fim\), 'HH:mm'\)/,
+      /\{horaBRT\(ag\.data_hora_inicio\)\}–\{horaBRT\(ag\.data_hora_fim\)\}/,
     );
   });
 });

@@ -130,4 +130,12 @@ describe('faturamentoPrevistoDia (Fat. hoje da profissional)', () => {
       { valor: 300, status: 'confirmado', pacote_cliente_id: 'pc' },
     ])).toBe(150);
   });
+  it('usa o valor cobrado (valor − desconto_rateado) quando a comanda já rateou o desconto', () => {
+    expect(faturamentoPrevistoDia([
+      { valor: 100, status: 'concluido', pacote_cliente_id: null, desconto_rateado: 10 },
+      { valor: 50,  status: 'agendado',  pacote_cliente_id: null, desconto_rateado: null },
+      { valor: 20,  status: 'concluido', pacote_cliente_id: null, desconto_rateado: '30' },
+      { valor: 80,  status: 'cancelado', pacote_cliente_id: null, desconto_rateado: 5 },
+    ])).toBe(140);
+  });
 });

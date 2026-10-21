@@ -93,7 +93,11 @@ describe('agenda: TimelineView desenha bloqueio pendente + trava do remover', ()
   });
 
   it('filtro visual esconde pendente de quem não é gestão nem criador', () => {
-    expect(src).toMatch(/\.filter\(b =>[\s\S]*?b\.situacao === 'aprovado'[\s\S]*?\|\| podeAprovarBloqueios[\s\S]*?b\.criado_por === meuUserId,\s*\)/);
+    // Desde a paridade da Agenda (Task 7) a regra vive em `bloqueiosVisiveis` (visoes.ts),
+    // usada pela Timeline, pela lista da Semana e pelo Mês.
+    const visoes = readFileSync(join(process.cwd(), 'app', '(app)', 'agenda', 'visoes.ts'), 'utf8');
+    expect(visoes).toMatch(/b\.situacao === 'aprovado' \|\| podeAprovar \|\| b\.criado_por === meuUserId/);
+    expect(src).toContain('bloqueiosVisiveis(bloqueios, filtro, meuUserId, podeAprovarBloqueios)');
   });
 
   it('podeRemover libera o "X" para gestão ou para o criador do bloco ainda pendente', () => {

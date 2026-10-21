@@ -31,6 +31,8 @@ import { PermissoesPanel } from '@/components/PermissoesPanel';
 import { supabase } from '@/lib/supabase';
 import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
 import { mensagemErroBanco } from '@shared/erros';
+import { salvarPreferenciaAgenda, type PreferenciaAgenda } from '@shared/agenda-consultas';
+import { chavePreferenciaAgenda, usePreferenciaAgenda } from '@/hooks/usePreferenciaAgenda';
 import { CartoesConfig } from '@/components/configuracoes/CartoesConfig';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -185,6 +187,24 @@ export default function Configuracoes() {
   const [notifLembrete, setNotifLembrete] = useState(user?.notif_lembrete_atendimento ?? true);
 
   const [salvando, setSalvando] = useState(false);
+
+  // "Minha agenda abre em": salva na hora (não depende do botão Salvar) e mostra o retorno.
+  const prefAgenda = usePreferenciaAgenda();
+  const [salvandoPref, setSalvandoPref] = useState(false);
+  const [msgPref, setMsgPref] = useState<{ ok: boolean; texto: string } | null>(null);
+  async function escolherPrefAgenda(novo: PreferenciaAgenda) {
+    if (!empresaAtiva || !user || salvandoPref || novo === (prefAgenda.data ?? 'propria')) return;
+    setSalvandoPref(true); setMsgPref(null);
+    try {
+      await salvarPreferenciaAgenda(supabase, empresaAtiva.id, novo);
+      qc.setQueryData(chavePreferenciaAgenda(empresaAtiva.id, user.id), novo);
+      setMsgPref({ ok: true, texto: 'Preferência salva.' });
+    } catch (e) {
+      setMsgPref({ ok: false, texto: e instanceof Error ? e.message : 'Não foi possível salvar a preferência.' });
+    } finally {
+      setSalvandoPref(false);
+    }
+  }
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -719,6 +739,42 @@ export default function Configuracoes() {
               </TouchableOpacity>
             </View>
           </MotiView>
+
+          {pode('agenda.ver_equipe') && prefAgenda.data !== null && (
+            <View style={{ marginHorizontal: 24, marginTop: 20 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10 }}>
+                Minha agenda abre em
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {([['propria', 'Minha agenda'], ['todas', 'Todas as profissionais']] as const).map(([v, label]) => {
+                  const ativo = (prefAgenda.data ?? 'propria') === v;
+                  return (
+                    <TouchableOpacity key={v} onPress={() => escolherPrefAgenda(v)}
+                      disabled={salvandoPref || prefAgenda.isPending}
+                      accessibilityState={{ selected: ativo }}
+                      style={{
+                        height: 40, paddingHorizontal: 14, borderRadius: 20, justifyContent: 'center',
+                        backgroundColor: ativo ? C.primary : C.surface,
+                        borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                        opacity: salvandoPref || prefAgenda.isPending ? 0.6 : 1,
+                      }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? '#fff' : C.text2 }}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {prefAgenda.isError && !msgPref && (
+                <Text style={{ marginTop: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.red }}>
+                  Não foi possível carregar a preferência.
+                </Text>
+              )}
+              {msgPref && (
+                <Text style={{ marginTop: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: msgPref.ok ? C.green : C.red }}>
+                  {msgPref.texto}
+                </Text>
+              )}
+            </View>
+          )}
 
           </>)}
 

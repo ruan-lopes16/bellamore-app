@@ -51,9 +51,12 @@ describe('app: botões consultam a chave certa', () => {
   for (const [arq, chaves] of esperado) {
     for (const c of chaves) it(`${arq} usa ${c}`, () => expect(ler(arq)).toContain(CHAMADA[c] ?? `pode('${c}')`));
   }
+  // Exceção explícita à decisão de 02/10 (sem telas novas na área da profissional): `novo-agendamento.tsx`
+  // só reexporta a tela da empresa e é alcançada pelo botão do horário vazio e pelo "Editar" do detalhe,
+  // sem menu nem aba (registrada com href: null no _layout).
   it('área da profissional não ganhou telas novas', () => {
     expect(readdirSync(join(mob, 'app', '(profissional)')).sort()).toEqual(
-      ['_layout.tsx', 'agenda.tsx', 'agendamento', 'comissoes.tsx', 'configuracoes.tsx', 'inicio.tsx', 'pacotes.tsx', 'servicos.tsx'].sort(),
+      ['_layout.tsx', 'agenda.tsx', 'agendamento', 'comissoes.tsx', 'configuracoes.tsx', 'inicio.tsx', 'novo-agendamento.tsx', 'pacotes.tsx', 'servicos.tsx'].sort(),
     );
   });
 });

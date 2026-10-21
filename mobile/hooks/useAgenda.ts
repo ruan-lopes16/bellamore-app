@@ -1,12 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { startOfDay, endOfDay, format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import type { Agendamento } from '@/types';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
 import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bloqueios';
-import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
+import { chaveDiaBRT, limitesDias, limitesMes } from '@shared/periodos';
+import { buscarTodasPaginas } from '@shared/paginacao';
+import { TODAS, type FiltroProfissional } from '@shared/agenda-grade';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -35,13 +36,6 @@ export interface ProfissionalAgenda {
   id: string;
   nome: string;
   foto_url?: string;
-}
-
-export interface ResumoDia {
-  total: number;
-  receita: number;
-  profissionais: number;
-  pendentes: number;
 }
 
 /**
@@ -93,16 +87,20 @@ export const CATEGORIA_CONFIG: Record<CategoriaServico, {
 
 // ── Hook: agendamentos do dia ────────────────────────────────
 
-export function useAgendamentoDia(dia: Date, profissionalFiltro?: string) {
+/**
+ * Agendamentos do dia `dia` ("AAAA-MM-DD", limites em Brasília). `profissional` é o id da
+ * profissional escolhida ou `TODAS` (sem filtro). Sem profissional definida, não consulta.
+ */
+export function useAgendamentoDia(dia: string, profissional: FiltroProfissional) {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
-  const chave = format(dia, 'yyyy-MM-dd');
 
   return useQuery({
-    queryKey: ['agenda-dia', empresaId, chave, profissionalFiltro],
-    enabled: !!empresaId,
+    queryKey: ['agenda-dia', empresaId, dia, profissional],
+    enabled: !!empresaId && !!profissional,
     staleTime: 1000 * 30, // 30s — agenda muda com frequência
     queryFn: async () => {
+      const lim = limitesDias(dia, dia);
       let query = supabase
         .from('agendamentos')
         .select(`
@@ -113,17 +111,16 @@ export function useAgendamentoDia(dia: Date, profissionalFiltro?: string) {
           agendamento_servicos(ordem, servico:servicos(nome))
         `)
         .eq('empresa_id', empresaId!)
-        .gte('data_hora_inicio', startOfDay(dia).toISOString())
-        .lte('data_hora_inicio', endOfDay(dia).toISOString())
-        .neq('status', 'cancelado')
-        .order('data_hora_inicio', { ascending: true });
+        .gte('data_hora_inicio', lim.startIso)
+        .lte('data_hora_inicio', lim.endIso)
+        .neq('status', 'cancelado');
 
-      if (profissionalFiltro) {
-        query = query.eq('profissional_id', profissionalFiltro);
+      if (profissional !== TODAS) {
+        query = query.eq('profissional_id', profissional);
       }
 
       const [{ data, error }, { data: cats }] = await Promise.all([
-        query,
+        query.order('data_hora_inicio', { ascending: true }),
         supabase.from('categorias_servico').select('*').eq('empresa_id', empresaId!).order('nome'),
       ]);
       if (error) throw error;
@@ -141,17 +138,7 @@ export function useAgendamentoDia(dia: Date, profissionalFiltro?: string) {
   });
 }
 
-// ── Hook: resumo do dia ──────────────────────────────────────
-
-export function useResumoDia(agendamentos: AgendamentoCompleto[]): ResumoDia {
-  const total        = agendamentos.length;
-  // Valor cobrado (com a parte do desconto da comanda, 090); `*` já traz a coluna quando existe.
-  const receita      = agendamentos.reduce((s, a) => s + valorCobradoAtendimento(a as { valor?: number; desconto_rateado?: number | string | null }), 0);
-  const pendentes    = agendamentos.filter((a) => a.status === 'agendado').length;
-  const profIds      = new Set(agendamentos.map((a) => a.profissional_id));
-
-  return { total, receita, profissionais: profIds.size, pendentes };
-}
+// Resumo do dia: `resumoDoDia` de @shared/agenda (os mesmos 4 números do web).
 
 // ── Hook: profissionais da empresa ───────────────────────────
 
@@ -168,42 +155,52 @@ export function useProfissionais() {
         .from('empresa_membros')
         .select('user:users(id, nome, foto_url)')
         .eq('empresa_id', empresaId!)
-        .eq('role', 'profissional')
+        .in('role', ['owner', 'gestor', 'profissional'])
         .eq('ativo', true);
 
       if (error) throw error;
-      return (data ?? []).map((m: any) => m.user as ProfissionalAgenda);
+      // Todos os membros ativos que atendem (dona, gestora e profissional), igual ao web.
+      return (data ?? [])
+        .map((m: any) => m.user as ProfissionalAgenda | null)
+        .filter((u): u is ProfissionalAgenda => !!u?.id && !!u?.nome);
     },
   });
 }
 
-// ── Hook: dias com agendamentos no mês (para dots) ───────────
+// ── Hook: atendimentos por dia do mês (visão Mês e pontinhos da semana) ──
 
-export function useDiasComAgendamento(mes: Date) {
+/**
+ * Contagem de atendimentos (sem cancelados) por dia do mês `mes` ("AAAA-MM"), em Brasília.
+ * Uma consulta paginada (o PostgREST corta em 1000 linhas sem avisar), com erro conferido.
+ */
+export function useDiasComAgendamento(mes: string, profissional: FiltroProfissional) {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
-  const chave = format(mes, 'yyyy-MM');
 
   return useQuery({
-    queryKey: ['dias-agendados', empresaId, chave],
-    enabled: !!empresaId,
+    queryKey: ['dias-agendados', empresaId, mes, profissional],
+    enabled: !!empresaId && !!profissional,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const inicio = new Date(mes.getFullYear(), mes.getMonth(), 1).toISOString();
-      const fim    = new Date(mes.getFullYear(), mes.getMonth() + 1, 0, 23, 59).toISOString();
-
-      const { data } = await supabase
-        .from('agendamentos')
-        .select('data_hora_inicio')
-        .eq('empresa_id', empresaId!)
-        .neq('status', 'cancelado')
-        .gte('data_hora_inicio', inicio)
-        .lte('data_hora_inicio', fim);
-
-      const dias = new Set(
-        (data ?? []).map((a) => format(new Date(a.data_hora_inicio), 'yyyy-MM-dd'))
-      );
-      return dias;
+      const l = limitesMes(mes);
+      const linhas = await buscarTodasPaginas<{ data_hora_inicio: string }>(async (from, to) => {
+        let q = supabase.from('agendamentos')
+          .select('id, data_hora_inicio')
+          .eq('empresa_id', empresaId!)
+          .neq('status', 'cancelado')
+          .gte('data_hora_inicio', l.startIso)
+          .lte('data_hora_inicio', l.endIso);
+        if (profissional !== TODAS) q = q.eq('profissional_id', profissional);
+        const { data, error } = await q.order('id').range(from, to);
+        if (error) throw error;
+        return { data, error: null };
+      });
+      const contagem = new Map<string, number>();
+      for (const a of linhas) {
+        const d = chaveDiaBRT(a.data_hora_inicio);
+        contagem.set(d, (contagem.get(d) ?? 0) + 1);
+      }
+      return contagem;
     },
   });
 }
@@ -215,27 +212,28 @@ const BLOQUEIO_COLS =
   'id, profissional_id, titulo, motivo, escopo, situacao, criado_por, data_inicio, data_fim';
 
 /**
- * Bloqueios que tocam um dia específico (qualquer situação): o intervalo
- * do bloqueio precisa cruzar o dia inteiro selecionado. Serve para a
- * timeline desenhar as faixas bloqueadas.
+ * Bloqueios que tocam o dia `dia` ("AAAA-MM-DD", em Brasília), em qualquer situação, para a
+ * timeline desenhar as faixas bloqueadas. Com uma profissional escolhida, só os dela e os de
+ * escopo geral (o bloqueio de outra profissional não esconde o horário vazio); em `TODAS`, todos
+ * (cada coluna filtra os seus com `bloqueiosDaProfissional`).
  */
-export function useBloqueiosDia(dia: Date) {
+export function useBloqueiosDia(dia: string, profissional: FiltroProfissional) {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
-  const chave = format(dia, 'yyyy-MM-dd');
   return useQuery({
-    queryKey: ['bloqueios-dia', empresaId, chave],
-    enabled: !!empresaId,
+    queryKey: ['bloqueios-dia', empresaId, dia, profissional],
+    enabled: !!empresaId && !!profissional,
     staleTime: 1000 * 30,
     queryFn: async (): Promise<BloqueioAgenda[]> => {
-      const ini = startOfDay(dia).toISOString();
-      const fim = endOfDay(dia).toISOString();
-      const { data, error } = await supabase
+      const lim = limitesDias(dia, dia);
+      let q = supabase
         .from('agenda_bloqueios')
         .select(BLOQUEIO_COLS)
         .eq('empresa_id', empresaId)
-        .lte('data_inicio', fim)
-        .gte('data_fim', ini);
+        .lte('data_inicio', lim.endIso)
+        .gte('data_fim', lim.startIso);
+      if (profissional !== TODAS) q = q.or(`profissional_id.eq.${profissional},escopo.eq.geral`);
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as BloqueioAgenda[];
     },

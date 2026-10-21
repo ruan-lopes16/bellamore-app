@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StatusBar, Alert, ActivityIndicator, Linking,
@@ -40,8 +40,15 @@ import { podeExcluirAgendamento, podeMexerNoAgendamento } from '@shared/agendame
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
+import { avisoTaxaPagaAoExcluir, confirmarAlerta } from '@/lib/statusAtendimento';
+import { contatosCliente, precisaConfirmarStatus, type StatusAg } from '@shared/agenda';
+import { BotoesStatus } from '@/components/atendimento/BotoesStatus';
+import { AvaliacaoAtendimento } from '@/components/atendimento/AvaliacaoAtendimento';
 
 // ── Constantes ───────────────────────────────────────────────
+
+/** Botão das ações rápidas do topo (Ligar / WhatsApp / Perfil). */
+type AcaoRapida = { icon: ReactNode; label: string; onPress: () => void };
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -406,23 +413,39 @@ export default function AgendamentoDetalhe() {
   const duracao   = differenceInMinutes(fim, inicio);
 
   const [c1Cliente, c2Cliente]   = avatarColors(ag.cliente?.nome ?? '');
+  // Ligar / WhatsApp pela regra de shared (não duplica o DDI 55); null sem telefone.
+  const contatos = contatosCliente(ag.cliente?.telefone);
+  const clienteIdPerfil = ag.cliente_id ?? ag.cliente?.id ?? null;
   const [c1Prof,    c2Prof]      = avatarColors(ag.profissional?.nome ?? '');
 
-  async function atualizarStatus(novoStatus: AgendamentoStatus) {
-    // Cancelado/faltou: com a 091, pergunta (ou envia true) o campo cobrar_taxa_cancelamento.
-    const { continuar, extra } = await escolherCobrancaCancelamento({
-      empresaId: empresaAtiva?.id, novoStatus,
-      clienteId: ag.cliente_id ?? ag.cliente?.id, valorAtendimento: Number(ag.valor),
-    });
-    if (!continuar) return;
+  /**
+   * Troca de status pela regra única (`statusPermitidos`, nos botões). Cancelar/faltar com taxa
+   * mostra só a pergunta da taxa (091); sem ela, a troca passa por `precisaConfirmarStatus`.
+   */
+  async function trocarStatus(novoStatus: StatusAg) {
+    if (atualizando) return;
     setAtualizando(true);
+    try {
+      const { continuar, extra, perguntou } = await escolherCobrancaCancelamento({
+        empresaId: empresaAtiva?.id, novoStatus,
+        clienteId: ag.cliente_id ?? ag.cliente?.id, valorAtendimento: Number(ag.valor),
+      });
+      if (!continuar) return;
+      const pergunta = perguntou ? null : precisaConfirmarStatus(ag.status as StatusAg, novoStatus);
+      if (pergunta && !(await confirmarAlerta('Atualizar status', pergunta))) return;
+      await atualizarStatus(novoStatus, extra);
+    } finally {
+      setAtualizando(false);
+    }
+  }
+
+  async function atualizarStatus(novoStatus: AgendamentoStatus, extra: { cobrar_taxa_cancelamento?: boolean }) {
     // .select('id') + guarda de 0 linhas: RLS recusando UPDATE devolve sucesso sem linha.
     const { data: rows, error } = await supabase
       .from('agendamentos')
       .update({ status: novoStatus, ...extra })
       .eq('id', id)
       .select('id');
-    setAtualizando(false);
 
     if (error || !rows || rows.length === 0) {
       Alert.alert('Erro', mensagemErroBanco(error ?? { code: '42501' }, 'mudar o status deste agendamento'));
@@ -436,22 +459,12 @@ export default function AgendamentoDetalhe() {
     invalidarFinanceiro(qc);   // concluir/cancelar/faltou muda receita, comissão e alertas
   }
 
-  function confirmarCancelamento() {
-    Alert.alert('Cancelar agendamento', 'Tem certeza? Esta ação não pode ser desfeita.', [
-      { text: 'Não', style: 'cancel' },
-      { text: 'Cancelar', style: 'destructive', onPress: () => atualizarStatus('cancelado') },
-    ]);
-  }
-
   // Agendamento de outra profissional sem 'agenda.gerenciar_outras': o banco recusaria o UPDATE
   // (policy "agendamentos: equipe atualiza"), então as ações de status nem aparecem.
   const podeAlterar = podeMexerNoAgendamento(
     ag.profissional_id ?? ag.profissional?.id, user?.id ?? '', pode('agenda.gerenciar_outras'),
   );
-  const podeConfirmar  = ag.status === 'agendado';
-  const podeConcluir   = ag.status === 'agendado' || ag.status === 'confirmado';
-  const podeFaltou     = ag.status === 'agendado' || ag.status === 'confirmado';
-  const podeCancelar   = ag.status !== 'cancelado' && ag.status !== 'concluido';
+  const podeEditar = podeAlterar && !(ag.status === 'concluido' && ag.comanda_id);
   const estaConcluido  = ag.status === 'concluido';
   const estaCancelado  = ag.status === 'cancelado';
 
@@ -465,7 +478,7 @@ export default function AgendamentoDetalhe() {
       .eq('id', id)
       .select('id');
     setAtualizando(false);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error) { Alert.alert('Erro', mensagemErroBanco(error, 'excluir este agendamento')); return; }
     if (!apagados || apagados.length === 0) {
       Alert.alert('Sem permissão', 'Você não tem permissão para excluir agendamentos.');
       return;
@@ -476,10 +489,21 @@ export default function AgendamentoDetalhe() {
     router.back();
   }
 
-  function confirmarExclusao() {
+  async function confirmarExclusao() {
+    // Mesmo aviso do web: taxa paga do atendimento some junto e sai do faturamento.
+    let aviso = '';
+    setAtualizando(true);
+    try {
+      aviso = await avisoTaxaPagaAoExcluir(id);
+    } catch (e) {
+      Alert.alert('Erro', (e as Error).message);
+      return;
+    } finally {
+      setAtualizando(false);
+    }
     Alert.alert(
       'Excluir agendamento',
-      `Excluir o agendamento de ${ag.cliente?.nome ?? 'cliente'}? Esta ação não pode ser desfeita. Taxas de reserva/cancelamento vinculadas também serão removidas.`,
+      `Excluir o agendamento de ${ag.cliente?.nome ?? 'cliente'}? Esta ação não pode ser desfeita.${aviso}`,
       [
         { text: 'Voltar', style: 'cancel' },
         { text: 'Excluir', style: 'destructive', onPress: excluirAgendamento },
@@ -544,11 +568,12 @@ export default function AgendamentoDetalhe() {
 
           {/* Ações rápidas */}
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {[
-              { icon: <Phone size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => ag.cliente?.telefone && Linking.openURL(`tel:${ag.cliente.telefone}`) },
-              { icon: <MessageCircle size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'WhatsApp', onPress: () => ag.cliente?.telefone && Linking.openURL(`https://wa.me/55${ag.cliente.telefone.replace(/\D/g, '')}`) },
-              { icon: <User size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Perfil', onPress: () => router.push(`/(empresa)/cliente/${ag.cliente_id}` as any) },
-            ].map((a) => (
+            {/* Mesma regra do web (contatosCliente): somem sem telefone; "Perfil" some sem cliente. */}
+            {([
+              contatos ? { icon: <Phone size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => Linking.openURL(contatos.ligar) } : null,
+              contatos ? { icon: <MessageCircle size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'WhatsApp', onPress: () => Linking.openURL(contatos.whatsapp) } : null,
+              clienteIdPerfil ? { icon: <User size={15} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Perfil', onPress: () => router.push(`/(empresa)/cliente/${clienteIdPerfil}` as any) } : null,
+            ] as (AcaoRapida | null)[]).filter((a): a is AcaoRapida => !!a).map((a) => (
               <TouchableOpacity
                 key={a.label}
                 onPress={a.onPress}
@@ -624,96 +649,29 @@ export default function AgendamentoDetalhe() {
         {/* ── Comanda: o que foi feito, fechamento e pagamento ── */}
         <SecoesComanda detalhe={detalhe} />
 
-        {/* ── Ações de status ── */}
-        {podeAlterar && !estaConcluido && !estaCancelado && (
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 350, delay: 120 }}
-            style={{ marginHorizontal: 24, marginBottom: 14 }}
+        {/* ── Editar: só quem pode mexer; atendimento concluído com comanda é editado pela comanda ── */}
+        {podeEditar && (
+          <TouchableOpacity
+            onPress={() => router.push(`/(empresa)/novo-agendamento?id=${id}` as any)}
+            style={{
+              marginHorizontal: 24, marginBottom: 14, paddingVertical: 14, borderRadius: 14,
+              backgroundColor: C.primarySoft, alignItems: 'center',
+            }}
           >
-            <Text style={{
-              fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11,
-              color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10,
-            }}>
-              Atualizar status
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>
+              Editar atendimento
             </Text>
-            <View style={{ gap: 8 }}>
-              {podeConfirmar && (
-                <TouchableOpacity
-                  onPress={() => atualizarStatus('confirmado')}
-                  disabled={atualizando}
-                  style={{
-                    backgroundColor: C.greenSoft, borderWidth: 1, borderColor: 'rgba(13,126,95,0.2)',
-                    borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
-                  }}
-                >
-                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(13,126,95,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                    <Check size={16} color={C.green} strokeWidth={2.5} />
-                  </View>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green, flex: 1 }}>
-                    Confirmar agendamento
-                  </Text>
-                  {atualizando && <ActivityIndicator color={C.green} size="small" />}
-                </TouchableOpacity>
-              )}
+          </TouchableOpacity>
+        )}
 
-              {podeConcluir && (
-                <TouchableOpacity
-                  onPress={() => atualizarStatus('concluido')}
-                  disabled={atualizando}
-                  style={{
-                    backgroundColor: C.primarySoft, borderWidth: 1, borderColor: 'rgba(44,22,84,0.15)',
-                    borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
-                  }}
-                >
-                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(44,22,84,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                    <Check size={16} color={C.primary} strokeWidth={2.5} />
-                  </View>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary, flex: 1 }}>
-                    Marcar como concluído
-                  </Text>
-                  {atualizando && <ActivityIndicator color={C.primary} size="small" />}
-                </TouchableOpacity>
-              )}
-
-              {podeFaltou && (
-                <TouchableOpacity
-                  onPress={() => atualizarStatus('faltou')}
-                  disabled={atualizando}
-                  style={{
-                    backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.15)',
-                    borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
-                  }}
-                >
-                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(180,83,9,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                    <AlertTriangle size={16} color={C.amber} strokeWidth={2} />
-                  </View>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber, flex: 1 }}>
-                    Cliente faltou
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {podeCancelar && (
-                <TouchableOpacity
-                  onPress={confirmarCancelamento}
-                  disabled={atualizando}
-                  style={{
-                    backgroundColor: C.redSoft, borderWidth: 1, borderColor: 'rgba(192,57,43,0.15)',
-                    borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
-                  }}
-                >
-                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(192,57,43,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                    <X size={16} color={C.red} strokeWidth={2.5} />
-                  </View>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.red, flex: 1 }}>
-                    Cancelar agendamento
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </MotiView>
+        {/* ── Ações de status: regra única de shared/agenda (concluído com comanda mostra o aviso) ── */}
+        {podeAlterar && (
+          <BotoesStatus
+            status={ag.status as StatusAg}
+            comandaFechada={!!ag.comanda_id}
+            atualizando={atualizando}
+            onEscolher={trocarStatus}
+          />
         )}
 
         {/* ── Status final ── */}
@@ -749,6 +707,15 @@ export default function AgendamentoDetalhe() {
               </View>
             </View>
           </MotiView>
+        )}
+
+        {/* ── Avaliação: só concluído e só para quem pode mexer no atendimento ── */}
+        {podeAlterar && ag.status === 'concluido' && !!(ag.cliente_id ?? ag.cliente?.id) && !!empresaAtiva?.id && (
+          <AvaliacaoAtendimento
+            empresaId={empresaAtiva.id}
+            agendamentoId={id}
+            clienteId={(ag.cliente_id ?? ag.cliente?.id) as string}
+          />
         )}
 
         {podeExcluir && (

@@ -16,6 +16,12 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import {
+  montarAgendamento, valorDigitadoValido, instanteBRT, conflitosDeHorario, instanteNoPassado,
+  msgConflito, MSG_HORARIO_PASSADO,
+} from '@shared/agenda';
+import { horaBRT } from '@shared/periodos';
+import { parseValorBR } from '@shared/comanda-fechamento';
 import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { mensagemErroBanco } from '@shared/erros';
@@ -29,10 +35,9 @@ import {
   ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES, TEXTO_DECLARACAO, type AnamneseRespostas,
 } from '@shared/anamnese';
-import {
-  descreverServicos, listarServicos, montarDetalheAtendimento,
-  type DetalheAtendimento,
-} from '@shared/atendimento-detalhe';
+import { descreverServicos, listarServicos, type DetalheAtendimento } from '@shared/atendimento-detalhe';
+import { carregarDetalheAtendimento } from '@shared/atendimento-detalhe-consultas';
+import { ConteudoComanda } from '@/components/ConteudoComanda';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 
@@ -146,7 +151,7 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
   const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(true);
   const [taxaReserva,        setTaxaReserva]        = useState('0');
-  const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+  const [taxaEditadaManual, setTaxaEditadaManual] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
   const [taxaReservaMetodo,  setTaxaReservaMetodo]  = useState<MetodoPagTaxa | null>(null);
 
@@ -189,18 +194,91 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   function onServicoChange(id: string) {
     setServicoId(id);
     const s = servicos.find(sv => sv.id === id);
-    if (s) { setDuracao(s.duracao_minutos); setValor(String(s.preco)); }
-    if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
-      const sugerido = valorTaxaReservaSugerida(taxaReservaCfg, s.preco);
-      setTaxaReserva(String(sugerido).replace('.', ','));
+    if (s) { setDuracao(s.duracao_minutos); setValor(s.preco.toFixed(2).replace('.', ',')); }
+  }
+
+  // Valor pela regra única (vazio = preço do serviço, "0" = cortesia). A taxa sugerida é sobre esse
+  // total e recalcula quando ele muda, até a pessoa digitar a taxa.
+  const precoServico = servicos.find(sv => sv.id === servicoId)?.preco ?? 0;
+  const valorOk = valorDigitadoValido(valor);
+  const montado = montarAgendamento({
+    linhas: servicoId ? [{ servico_id: servicoId, profissional_id: profId, valor, duracao_min: duracao, preco: precoServico }] : [],
+    inicioIso: new Date().toISOString(),
+  });
+  const { valorTotal } = montado;
+  useEffect(() => {
+    if (!taxaReservaCfg.ativa || taxaEditadaManual) return;
+    setTaxaReserva(String(valorTaxaReservaSugerida(taxaReservaCfg, valorTotal)).replace('.', ','));
+  }, [taxaReservaCfg, taxaEditadaManual, valorTotal]);
+
+  // Pergunta pendente antes de gravar (conflito de horário, depois horário passado) — mesmas regras
+  // e textos da agenda (shared/agenda).
+  const [pergunta, setPergunta] = useState<{ mensagem: string; titulo: string; seguir: () => void } | null>(null);
+  // Agendamento já gravado cuja linha de serviço falhou: a nova tentativa só regrava a linha
+  // (nunca cria um segundo agendamento nem uma segunda taxa).
+  const [idCriado, setIdCriado] = useState<string | null>(null);
+
+  async function gravarLinha(agId: string): Promise<boolean> {
+    const { error: errLinhas } = await supabase.from('agendamento_servicos').insert(
+      montado.linhas.map((l, i) => ({
+        agendamento_id: agId, servico_id: l.servico_id, valor: l.valor,
+        duracao_minutos: l.duracao_min, ordem: i, empresa_id: empresaId,
+      })),
+    );
+    if (errLinhas) {
+      setIdCriado(agId);
+      setErro(`O agendamento foi salvo, mas os serviços não: ${mensagemErroBanco(errLinhas, 'salvar os serviços do agendamento')}`);
+      return false;
     }
+    return true;
   }
 
   async function salvar(e: React.FormEvent) {
-    e.preventDefault(); setErro(''); setSalvando(true);
-    const [h, m] = hora.split(':').map(Number);
-    const inicio = new Date(`${data}T00:00:00`); inicio.setHours(h, m, 0, 0);
+    e.preventDefault(); setErro('');
+    if (idCriado) {
+      setSalvando(true);
+      const ok = await gravarLinha(idCriado);
+      setSalvando(false);
+      if (ok) onSalvo();
+      return;
+    }
+    if (!valorOk) { setErro('Corrija o valor do serviço (use 0 para cortesia).'); return; }
+    if (aplicarTaxaReserva && taxaReservaCfg.ativa && !valorDigitadoValido(taxaReserva)) { setErro('Corrija o valor da taxa de reserva.'); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^\d{2}:\d{2}$/.test(hora)) { setErro('Informe a data e o horário.'); return; }
+    // Dia e hora em Brasília, nunca no fuso do navegador.
+    const inicio = new Date(instanteBRT(data, hora));
     const fim    = addMinutes(inicio, duracao);
+
+    setSalvando(true);
+    const { data: conf, error: errConf } = await supabase
+      .from('agendamentos')
+      .select('id, profissional_id, data_hora_inicio, data_hora_fim, status')
+      .eq('empresa_id', empresaId).eq('profissional_id', profId)
+      .lt('data_hora_inicio', fim.toISOString()).gt('data_hora_fim', inicio.toISOString());
+    setSalvando(false);
+    if (errConf) { setErro(mensagemErroBanco(errConf, 'conferir a agenda')); return; }
+    const conflitos = conflitosDeHorario(
+      { profissional_id: profId, inicioIso: inicio.toISOString(), fimIso: fim.toISOString() },
+      ((conf ?? []) as { id: string; profissional_id: string; data_hora_inicio: string; data_hora_fim: string; status: string }[])
+        .map(a => ({ id: a.id, profissional_id: a.profissional_id, inicio: a.data_hora_inicio, fim: a.data_hora_fim, status: a.status })),
+    );
+    const nomeProf = profissionais.find(p => p.id === profId)?.nome ?? 'Profissional';
+    const depoisDoConflito = () => {
+      if (instanteNoPassado(inicio.toISOString(), Date.now())) {
+        setPergunta({ titulo: 'Horário passado', mensagem: MSG_HORARIO_PASSADO, seguir: () => void gravar(inicio, fim) });
+        return;
+      }
+      void gravar(inicio, fim);
+    };
+    if (conflitos.length > 0) {
+      setPergunta({ titulo: 'Conflito de horário', mensagem: msgConflito(nomeProf, horaBRT(conflitos[0].inicio)), seguir: depoisDoConflito });
+      return;
+    }
+    depoisDoConflito();
+  }
+
+  async function gravar(inicio: Date, fim: Date) {
+    setSalvando(true);
     // Id gerado aqui e SEM RETURNING: com "agenda.gerenciar_outras" e sem "agenda.ver_equipe" a
     // pessoa cria na agenda de outra profissional, mas não lê a linha nova — o RETURNING recusava.
     const ag = { id: novoUuid() };
@@ -209,13 +287,13 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
       empresa_id: empresaId, cliente_id: clienteId, profissional_id: profId,
       servico_id: servicoId, data_hora_inicio: inicio.toISOString(),
       data_hora_fim: fim.toISOString(), status: 'agendado',
-      valor: parseFloat(valor) || 0, observacao: obs.trim() || null,
+      valor: valorTotal, observacao: obs.trim() || null,
     });
     if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
 
     // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
     if (aplicarTaxaReserva) {
-      const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+      const taxaReservaValorNum = parseValorBR(taxaReserva);
       const taxaReservaPayload = buildTaxaReservaInsert({
         empresaId, agendamentoId: ag.id, clienteId, valor: taxaReservaValorNum,
         jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo, cobrar: aplicarTaxaReserva,
@@ -228,8 +306,9 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
       }
     }
 
+    const ok = await gravarLinha(ag.id);
     setSalvando(false);
-    onSalvo();
+    if (ok) onSalvo();
   }
 
   return (
@@ -281,7 +360,10 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
             </div>
             <div>
               <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Valor (R$)</label>
-              <input type="number" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" step="0.01" min="0" className={inputCls}/>
+              <input type="text" inputMode="decimal" value={valor} onChange={e => setValor(e.target.value)}
+                placeholder={precoServico.toFixed(2).replace('.', ',')} aria-invalid={!valorOk}
+                className={`${inputCls} ${valorOk ? '' : 'border-red'}`}/>
+              {!valorOk && <p className="text-[10px] text-red mt-0.5">Valor inválido (use 0 para cortesia)</p>}
             </div>
           </div>
           {taxaReservaCfg.ativa && (
@@ -301,12 +383,12 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
                     <input
                       value={taxaReserva}
-                      onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
+                      onChange={e => { setTaxaReserva(e.target.value); setTaxaEditadaManual(true); }}
                       inputMode="decimal" placeholder="0,00"
                       className={`${inputCls} pl-9`}
                     />
                   </div>
-                  {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+                  {parseValorBR(taxaReserva) > 0 && (
                     <>
                       <label className="flex items-center gap-2 mt-2 cursor-pointer">
                         <input
@@ -347,11 +429,20 @@ function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
           <div className="flex gap-3 mt-1">
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
             <button type="submit" disabled={salvando || !servicoId || !profId} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
-              {salvando ? 'Salvando...' : 'Agendar'}
+              {salvando ? 'Salvando...' : idCriado ? 'Salvar serviços' : 'Agendar'}
             </button>
           </div>
         </form>
       </div>
+      <ConfirmDialog
+        open={!!pergunta}
+        title={pergunta?.titulo ?? ''}
+        message={pergunta?.mensagem ?? ''}
+        confirmLabel={pergunta?.titulo === 'Horário passado' ? 'Registrar' : 'Agendar mesmo assim'}
+        variant="warning"
+        onConfirm={() => { const p = pergunta; setPergunta(null); p?.seguir(); }}
+        onCancel={() => setPergunta(null)}
+      />
     </div>
   );
 }
@@ -377,47 +468,15 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
   useScrollLock();
   const [carregando, setCarregando] = useState(true);
   const [detalhe, setDetalhe] = useState<DetalheAtendimento | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      if (!comandaId) {
-        setDetalhe(montarDetalheAtendimento({
-          agendamentoId, comandaIdEsperado: null, comanda: null,
-          itens: [], pagamentos: [], agendamentosDaComanda: [],
-        }));
-        setCarregando(false);
-        return;
-      }
-
-      const [rComanda, rItens, rPagamentos, rAgs] = await Promise.all([
-        supabase.from('comandas')
-          .select('id, valor_total, desconto, desconto_reserva, fechada_at, observacao')
-          .eq('id', comandaId).maybeSingle(),
-        supabase.from('comanda_itens')
-          .select('id, tipo, descricao, quantidade, valor_unit, profissional:users(nome)')
-          .eq('comanda_id', comandaId),
-        supabase.from('pagamentos')
-          .select('id, metodo, valor, bandeira, parcelas, taxa_perc, valor_liquido')
-          .eq('comanda_id', comandaId),
-        supabase.from('agendamentos')
-          .select(`id, data_hora_inicio, valor,
-            servico:servicos(nome),
-            agendamento_servicos(ordem, servico:servicos(nome)),
-            profissional:users!agendamentos_profissional_id_fkey(nome)`)
-          .eq('comanda_id', comandaId)
-          .order('data_hora_inicio'),
-      ]);
-
-      setDetalhe(montarDetalheAtendimento({
-        agendamentoId,
-        comandaIdEsperado: comandaId,
-        comanda: (rComanda.data ?? null) as any,
-        itens: (rItens.data ?? []) as any,
-        pagamentos: (rPagamentos.data ?? []) as any,
-        agendamentosDaComanda: (rAgs.data ?? []) as any,
-      }));
-      setCarregando(false);
-    })();
+    let vivo = true;
+    carregarDetalheAtendimento(supabase, agendamentoId, comandaId)
+      .then(d => { if (vivo) setDetalhe(d); })
+      .catch(e => { if (vivo) setErro((e as Error).message); })
+      .finally(() => { if (vivo) setCarregando(false); });
+    return () => { vivo = false; };
   }, [agendamentoId, comandaId]);
 
 
@@ -437,94 +496,7 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
-          {carregando ? (
-            <div className="flex flex-col gap-3">
-              <Sk className="h-4 w-40"/><Sk className="h-4 w-56"/><Sk className="h-4 w-32"/>
-            </div>
-          ) : detalhe?.situacao === 'bloqueado_por_rls' ? (
-            <p className="text-sm text-text-3">
-              Detalhes financeiros disponíveis apenas para quem atendeu ou para a gestão.
-            </p>
-          ) : detalhe?.situacao === 'sem_comanda' ? (
-            <p className="text-sm text-text-3">
-              Este atendimento ainda não foi fechado em comanda.
-            </p>
-          ) : detalhe && (
-            <>
-              <section className="flex flex-col gap-2">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">O que foi feito</p>
-                {detalhe.itens.map(item => (
-                  <div key={`${item.origem}-${item.id}`}
-                    className={`flex items-start justify-between gap-3 text-sm ${item.esteAtendimento ? 'font-semibold text-text' : 'text-text-2'}`}>
-                    <span className="min-w-0">
-                      {item.quantidade > 1 && `${item.quantidade}× `}{item.descricao}
-                      {item.profissional && (
-                        <span className="block text-xs text-text-4">com {item.profissional.split(' ')[0]}</span>
-                      )}
-                    </span>
-                    <span className="flex-shrink-0"><Secret>{fmtBRL(item.valorLinha)}</Secret></span>
-                  </div>
-                ))}
-              </section>
-
-              <section className="flex flex-col gap-1.5 border-t border-border pt-4">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Fechamento</p>
-                <div className="flex justify-between text-sm text-text-2">
-                  <span>Subtotal</span><span><Secret>{fmtBRL(detalhe.subtotal)}</Secret></span>
-                </div>
-                {detalhe.descontoManual > 0 && (
-                  <div className="flex justify-between text-sm text-text-2">
-                    <span>Desconto</span><span>− <Secret>{fmtBRL(detalhe.descontoManual)}</Secret></span>
-                  </div>
-                )}
-                {detalhe.descontoReserva > 0 && (
-                  <div className="flex justify-between text-sm text-text-2">
-                    <span>Taxa de reserva já paga</span><span>− <Secret>{fmtBRL(detalhe.descontoReserva)}</Secret></span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm font-bold text-text pt-1">
-                  <span>Total</span><span><Secret>{fmtBRL(detalhe.total)}</Secret></span>
-                </div>
-              </section>
-
-              <section className="flex flex-col gap-1.5 border-t border-border pt-4">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Como foi pago</p>
-                {detalhe.pagamentos.length === 0 ? (
-                  <p className="text-sm text-text-4">Nenhum pagamento registrado.</p>
-                ) : detalhe.pagamentos.map(p => (
-                  <div key={p.id} className="flex justify-between text-sm text-text-2">
-                    <span className="capitalize">
-                      {p.metodo}
-                      {p.bandeira && ` · ${p.bandeira}`}
-                      {p.parcelas > 1 && ` · ${p.parcelas}×`}
-                      {p.taxaPerc != null && (
-                        <span className="block text-xs text-text-4 normal-case">
-                          taxa <Secret>{p.taxaPerc}%</Secret> · líquido <Secret>{fmtBRL(p.valorLiquido ?? 0)}</Secret>
-                        </span>
-                      )}
-                    </span>
-                    <span><Secret>{fmtBRL(p.valor)}</Secret></span>
-                  </div>
-                ))}
-              </section>
-
-              {detalhe.outrosAtendimentos.length > 0 && (
-                <section className="border-t border-border pt-4">
-                  <p className="text-xs text-text-3">
-                    Esta comanda fechou {detalhe.outrosAtendimentos.length + 1} atendimentos do mesmo dia —
-                    os valores acima são do total da visita:
-                  </p>
-                  <ul className="mt-2 flex flex-col gap-1">
-                    {detalhe.outrosAtendimentos.map(o => (
-                      <li key={o.id} className="text-xs text-text-4">
-                        {format(parseISO(o.dataHoraInicio), 'HH:mm')} — {o.servicos ?? 'Serviço'}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </>
-          )}
+          <ConteudoComanda detalhe={detalhe} carregando={carregando} erro={erro}/>
         </div>
       </div>
     </div>

@@ -12,6 +12,7 @@ import Image from 'next/image';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { PermissoesPanel } from '@/components/permissoes/PermissoesPanel';
 import { mensagemErroBanco } from '@shared/erros';
+import { carregarPreferenciaAgenda, salvarPreferenciaAgenda, type PreferenciaAgenda } from '@shared/agenda-consultas';
 import { CartoesConfig } from '@/components/configuracoes/CartoesConfig';
 
 const supabase = createClient();
@@ -164,6 +165,67 @@ function ToggleLinha({ label, desc, checked, onToggle }: {
         <p style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, color: 'var(--color-ink3)' }}>{desc}</p>
       </div>
     </div>
+  );
+}
+
+/**
+ * "Minha agenda abre em": preferência da pessoa para a agenda da empresa (própria ou todas as
+ * profissionais). Só para quem tem `agenda.ver_equipe`. Salva na hora e mostra o retorno da
+ * gravação (inclusive o erro em português); a troca manual do filtro na agenda não altera isto.
+ */
+function CardAgendaAbreEm({ empresaId, userId }: { empresaId: string; userId: string }) {
+  const [valor, setValor] = useState<PreferenciaAgenda | null>('propria');
+  const [carregada, setCarregada] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  useEffect(() => {
+    if (!empresaId || !userId) return;
+    let ativo = true;
+    carregarPreferenciaAgenda(supabase, empresaId, userId)
+      .then(v => { if (ativo) { setValor(v); setCarregada(true); } })
+      .catch(e => { if (ativo) setMsg({ ok: false, texto: e instanceof Error ? e.message : 'Não foi possível carregar a preferência.' }); });
+    return () => { ativo = false; };
+  }, [empresaId, userId]);
+
+  async function escolher(novo: PreferenciaAgenda) {
+    if (valor === null || novo === valor || salvando) return;
+    const anterior = valor;
+    setValor(novo); setSalvando(true); setMsg(null);
+    try {
+      await salvarPreferenciaAgenda(supabase, empresaId, novo);
+      setMsg({ ok: true, texto: 'Preferência salva.' });
+    } catch (e) {
+      setValor(anterior);
+      setMsg({ ok: false, texto: e instanceof Error ? e.message : 'Não foi possível salvar a preferência.' });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // Sem a 094 (preferência null) o campo não existe: nada para salvar.
+  if (valor === null) return null;
+  const opcoes: { v: PreferenciaAgenda; label: string }[] = [
+    { v: 'propria', label: 'Minha agenda' },
+    { v: 'todas',   label: 'Todas as profissionais' },
+  ];
+  return (
+    <SectionCard title="Minha agenda abre em" icon={Clock} color="primary">
+      <div className="flex flex-wrap gap-2">
+        {opcoes.map(o => (
+          <button key={o.v} type="button" onClick={() => escolher(o.v)} disabled={salvando || (!carregada && !msg)}
+            className="press h-10 px-4 rounded-xl border text-sm font-semibold transition disabled:opacity-50"
+            style={valor === o.v
+              ? { background: 'var(--color-primary)', color: '#fff', borderColor: 'var(--color-primary)' }
+              : { background: 'var(--color-surface)', color: 'var(--color-ink2)', borderColor: 'var(--color-border)' }}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {msg && (
+        <p className="text-xs" role={msg.ok ? 'status' : 'alert'} style={{ color: msg.ok ? 'var(--color-green)' : 'var(--color-rose)' }}>{msg.texto}</p>
+      )}
+    </SectionCard>
   );
 }
 
@@ -1043,6 +1105,8 @@ function ConfiguracoesConteudo() {
           <CardPushDispositivo />
 
           <CardPreferenciasNotificacao notifResumo={notifResumo} notifLembrete={notifLembrete} onChange={alterarPrefNotif}/>
+
+          {pode('agenda.ver_equipe') && empresaId && userId && <CardAgendaAbreEm empresaId={empresaId} userId={userId}/>}
 
           {erro && (
             <div className="flex items-center gap-2 bg-red-soft rounded-xl px-3 py-2.5 border border-red/20">

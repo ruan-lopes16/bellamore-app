@@ -7,8 +7,13 @@
  * ## Componentes internos
  * - `AgCard`        — card de agendamento com dropdown de status
  * - `NovoAgModal`   — modal de criação/edição de agendamento
- * - `ListaDia`      — lista de agendamentos do dia selecionado
- * - `MesView`       — calendário mensal com dots indicadores
+ * - `ListaDia`      — lista de agendamentos (e bloqueios) do dia selecionado
+ * - `TimelineView`  — grade por hora; em "Todas as profissionais", uma coluna por profissional
+ *
+ * ## Arquivos ao lado
+ * - `visoes.ts`          — regras puras: janela do dia, posições, filtro "todas", semana/mês
+ * - `MesView.tsx`        — calendário mensal (atendimentos e bloqueios por dia)
+ * - `BloqueiosDoDia.tsx` — bloqueios do dia como itens nas visões Semana e Mês
  *
  * ## Otimistic UI
  * Mudanças de status são aplicadas na UI antes da confirmação do banco.
@@ -23,9 +28,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   format, addDays, addMonths, subMonths,
-  startOfDay, endOfDay, startOfMonth, endOfMonth,
-  startOfWeek, eachDayOfInterval,
-  isSameDay, isSameMonth, isToday, addMinutes, parseISO, isPast,
+  isSameDay, isToday, addMinutes, parseISO, isPast,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -45,6 +48,16 @@ import {
   resolverCategoriaServico, bgDaCor,
 } from '@shared/categorias';
 import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
+import {
+  linhasIniciaisEdicao, montarAgendamento, instanteNoPassado, msgConflito, msgBloqueio,
+  valorDigitadoValido, MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, janelaDoDia, horariosDoDia, instanteBRT,
+  statusPermitidos, precisaConfirmarStatus, resumoDoDia, MSG_REABRIR, type StatusAg,
+} from '@shared/agenda';
+import {
+  TODAS, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
+} from '@shared/agenda-grade';
+import { parseValorBR } from '@shared/comanda-fechamento';
+import { avisoTaxaPagaAoExcluir, carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas';
 import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -58,6 +71,15 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { chaveDiaBRT, chaveDiaExibido, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
+import {
+  TL_HOUR_H, alturaDaJanela, bloqueiosDoDia, bloqueiosVisiveis, buscarPaginas,
+  diasComBloqueio, filtroEfetivo, gradeDoMes, horaDoClique,
+  posicaoNaTimeline, semanaDoDia, topoAgora,
+} from './visoes';
+import { MesView } from './MesView';
+import { BloqueiosDoDia } from './BloqueiosDoDia';
+import { DetalheAtendimento, ResumoDoDiaCards, useDetalheComanda } from './DetalheAtendimento';
 
 const supabase = createClient();
 
@@ -69,6 +91,11 @@ type Ag = {
   id: string; data_hora_inicio: string; data_hora_fim: string;
   status: string; valor: number; observacao?: string;
   pacote_cliente_id?: string | null;
+  comanda_id?: string | null;
+  /** Coluna da linha (vem do `*` do fetchDia). */
+  profissional_id?: string | null;
+  /** Parte do desconto da comanda (090); só vem quando a coluna existe. */
+  desconto_rateado?: number | string | null;
   cliente: { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico: (AgServicoRef & { duracao_minutos: number }) | null;
@@ -166,19 +193,18 @@ function nomesServicosDoAg(ag: { agendamento_servicos?: { ordem: number; servico
 
 // ── Card de agendamento ───────────────────────────────────────
 
-const STATUS_OPCOES = [
-  { key: 'agendado',   label: 'Agendado',   cor: 'text-amber'   },
-  { key: 'confirmado', label: 'Confirmado', cor: 'text-primary' },
-  { key: 'concluido',  label: 'Concluído',  cor: 'text-green'   },
-  { key: 'cancelado',  label: 'Cancelado',  cor: 'text-red'     },
-  { key: 'faltou',     label: 'Faltou',     cor: 'text-red'     },
-];
+/** Cor do texto de cada status no seletor. As opções vêm de `statusPermitidos` (regra única com o app). */
+const STATUS_COR: Record<StatusAg, string> = {
+  agendado: 'text-amber', confirmado: 'text-primary', concluido: 'text-green', cancelado: 'text-red', faltou: 'text-red',
+};
 
-function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline = false, somenteLeitura = false }: {
+function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, onDetalhes, statusInline = false, somenteLeitura = false }: {
   ag: Ag;
   empresaId: string;
   onStatus: (id: string, s: string) => void;
   onEditar?: (ag: Ag) => void;
+  /** Abre o detalhe (contatos, comanda e pagamentos). Ausente dentro do próprio detalhe. */
+  onDetalhes?: (ag: Ag) => void;
   /** No modal mobile de Detalhes: mostra o status como lista embutida em vez de dropdown flutuante (que era cortado). */
   statusInline?: boolean;
   /**
@@ -189,9 +215,12 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
 }) {
   const onEditar = somenteLeitura ? undefined : onEditarProp;
   const [menuAberto, setMenuAberto] = useState(false);
-  const inicio = format(parseISO(ag.data_hora_inicio), 'HH:mm');
-  const fim    = format(parseISO(ag.data_hora_fim), 'HH:mm');
+  const inicio = horaBRT(ag.data_hora_inicio);
+  const fim    = horaBRT(ag.data_hora_fim);
   const st     = STATUS[ag.status] ?? { label: ag.status, bg: 'bg-bg', text: 'text-text-3' };
+  // Regra única com o app: concluído com comanda fechada não oferece nenhum status.
+  const opcoesStatus = statusPermitidos(ag.status as StatusAg, !!ag.comanda_id) ?? [];
+  const travadoPelaComanda = ag.status === 'concluido' && !!ag.comanda_id;
 
   function selecionarStatus(s: string) {
     setMenuAberto(false);
@@ -225,8 +254,9 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
                 </button>
               )}
               {/* Badge de status — dropdown no desktop, estático no modo inline ou somente leitura */}
-              {statusInline || somenteLeitura ? (
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${st.bg} ${st.text}`}>
+              {statusInline || somenteLeitura || opcoesStatus.length === 0 ? (
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${st.bg} ${st.text}`}
+                  title={travadoPelaComanda ? MSG_CONCLUIDO_COM_COMANDA : undefined}>
                   {st.label}
                 </span>
               ) : (
@@ -240,13 +270,10 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setMenuAberto(false)}/>
                       <div className="absolute right-0 top-full mt-1 z-20 bg-surface border border-border rounded-xl shadow-lg py-1 min-w-[130px]">
-                        {STATUS_OPCOES.map(({ key, label, cor }) => (
+                        {opcoesStatus.map(key => (
                           <button key={key} onClick={() => selecionarStatus(key)}
-                            className={`w-full text-left px-3 py-2 text-xs font-semibold hover:bg-bg transition flex items-center gap-2 ${
-                              ag.status === key ? 'opacity-40 cursor-default' : cor
-                            }`}>
-                            {ag.status === key && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0"/>}
-                            {label}
+                            className={`w-full text-left px-3 py-2 text-xs font-semibold hover:bg-bg transition flex items-center gap-2 ${STATUS_COR[key]}`}>
+                            {STATUS[key].label}
                           </button>
                         ))}
                       </div>
@@ -267,23 +294,31 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
             {ag.profissional && <span className="flex items-center gap-1"><User size={10} strokeWidth={2}/>{ag.profissional.nome.split(' ')[0]}</span>}
             <span className="ml-auto font-semibold text-text-2">{fmtBRL(ag.valor)}</span>
           </div>
-          {statusInline && !somenteLeitura && (
+          {onDetalhes && (
+            <button type="button" onClick={() => onDetalhes(ag)}
+              className="mt-2 text-xs font-semibold text-accent hover:underline">
+              Ver detalhes
+            </button>
+          )}
+          {!somenteLeitura && (statusInline || opcoesStatus.length === 0) && (
             <div className="mt-3 pt-3 border-t border-border">
-              <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1.5">Mudar status</p>
-              <div className="flex flex-col gap-1.5">
-                {STATUS_OPCOES.map(({ key, label, cor }) => (
-                  <button key={key} type="button" onClick={() => selecionarStatus(key)}
-                    disabled={ag.status === key}
-                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-2 ${
-                      ag.status === key
-                        ? 'border-accent bg-accent/10 text-text opacity-60 cursor-default'
-                        : `border-border bg-surface hover:bg-bg ${cor}`
-                    }`}>
-                    {ag.status === key && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0"/>}
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {opcoesStatus.length === 0 ? (
+                travadoPelaComanda && (
+                  <p className="text-xs text-text-3">{MSG_CONCLUIDO_COM_COMANDA}</p>
+                )
+              ) : (
+                <>
+                  <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1.5">Mudar status</p>
+                  <div className="flex flex-col gap-1.5">
+                    {opcoesStatus.map(key => (
+                      <button key={key} type="button" onClick={() => selecionarStatus(key)}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-2 border-border bg-surface hover:bg-bg ${STATUS_COR[key]}`}>
+                        {STATUS[key].label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -295,7 +330,10 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
 
 // ── Modal de novo agendamento ─────────────────────────────────
 
-type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: number };
+/** `valor` fica como texto digitado: vazio = preço do serviço; "0" = cortesia (regra de `montarAgendamento`). */
+type ServicoLinha = { uid: string; servico_id: string; duracao: number; valor: string };
+/** Valor em reais no formato do campo ("150,00"). */
+const valorCampo = (n: number) => n.toFixed(2).replace('.', ',');
 type ConflitoDet  = { inicio: string; fim: string; cliente: string; servico: string };
 
 function NovoAgModal({
@@ -316,10 +354,15 @@ function NovoAgModal({
   const [profissionais, setProfissionais] = useState<{ id: string; nome: string }[]>([]);
   const [servicos,      setServicos]      = useState<Servico[]>([]);
 
-  const [dataSel,   setDataSel]   = useState(() => agEditar ? parseISO(agEditar.data_hora_inicio) : data);
+  // `dataSel` é o dia do calendário (meia-noite local, igual ao seletor da agenda); o dia e a hora
+  // valem em Brasília: o instante é montado por `instanteBRT`, nunca no fuso do navegador.
+  const [dataSel,   setDataSel]   = useState(() => agEditar ? new Date(`${chaveDiaBRT(agEditar.data_hora_inicio)}T00:00:00`) : data);
   const [clienteId, setClienteId] = useState(() => agEditar?.cliente?.id ?? '');
   const [profId,    setProfId]    = useState(() => agEditar?.profissional?.id ?? (podeOutras ? (profIdInicial ?? '') : meuUserId));
-  const [hora,      setHora]      = useState(() => agEditar ? format(parseISO(agEditar.data_hora_inicio), 'HH:mm') : (horaInicial ?? '09:00'));
+  const [hora,      setHora]      = useState(() => agEditar ? horaBRT(agEditar.data_hora_inicio) : (horaInicial ?? '09:00'));
+  /** Instante (Date) do dia escolhido à hora `hhmm` de Brasília; null com hora incompleta. */
+  const inicioDe = (hhmm: string): Date | null =>
+    /^\d{2}:\d{2}$/.test(hhmm) ? new Date(instanteBRT(chaveDiaExibido(dataSel), hhmm)) : null;
   const [obs,       setObs]       = useState(() => agEditar?.observacao ?? '');
   const [salvando,  setSalvando]  = useState(false);
   const [erro,      setErro]      = useState('');
@@ -332,20 +375,15 @@ function NovoAgModal({
 
   async function abrirConfirmExcluir() {
     setAvisoTaxaExcluir('');
+    setErro('');
     if (!agEditar) return;
-    // Avisa se há taxa paga que sairá do faturamento junto
-    const [{ data: tr }, { data: tc }] = await Promise.all([
-      supabase.from('taxas_reserva').select('valor, status, paga_em').eq('agendamento_id', agEditar.id),
-      supabase.from('taxas_cancelamento').select('valor, status, paga_em').eq('agendamento_id', agEditar.id),
-    ]);
-    const pagas = [...(tr ?? []), ...(tc ?? [])].filter(
-      (t: any) => t.paga_em != null || t.status === 'pago' || t.status === 'paga',
-    );
-    const totalPago = pagas.reduce((s: number, t: any) => s + Number(t.valor || 0), 0);
-    if (totalPago > 0) {
-      setAvisoTaxaExcluir(
-        ` A taxa de ${fmtBRL(totalPago)} (paga) também será removida e sai do faturamento daquele período.`,
-      );
+    // Avisa se há taxa paga que sairá do faturamento junto (mesma função do app). Se a consulta
+    // falhar, mostra o erro e não abre a confirmação: nunca exclui receita sem conseguir avisar.
+    try {
+      setAvisoTaxaExcluir(await avisoTaxaPagaAoExcluir(supabase, agEditar.id));
+    } catch (e) {
+      setErro((e as Error).message);
+      return;
     }
     setConfirmarExcluir(true);
   }
@@ -360,7 +398,7 @@ function NovoAgModal({
       .select('id');
     setExcluindo(false);
     setConfirmarExcluir(false);
-    if (error) { setErro(`Erro ao excluir: ${error.message}`); return; }
+    if (error) { setErro(mensagemErroBanco(error, 'excluir este agendamento')); return; }
     if (!apagados || apagados.length === 0) {
       setErro('Você não tem permissão para excluir agendamentos.');
       return;
@@ -376,7 +414,7 @@ function NovoAgModal({
   const [taxaReservaCfg, setTaxaReservaCfg] = useState<{ ativa: boolean; modo: 'percentual' | 'fixo'; valor: number }>({ ativa: false, modo: 'percentual', valor: 0 });
   const [aplicarTaxaReserva, setAplicarTaxaReserva] = useState(true);
   const [taxaReserva,        setTaxaReserva]        = useState('0');
-  const [taxaReservaEditada, setTaxaReservaEditada] = useState(false);
+  const [taxaEditadaManual, setTaxaEditadaManual] = useState(false);
   const [taxaReservaCobrada, setTaxaReservaCobrada] = useState(false);
   const [taxaReservaMetodo,  setTaxaReservaMetodo]  = useState<MetodoPagTaxa | null>(null);
 
@@ -397,12 +435,23 @@ function NovoAgModal({
   const [clienteCriadoFlash,  setClienteCriadoFlash]  = useState('');
 
   const [linhas, setLinhas] = useState<ServicoLinha[]>(() => {
-    if (agEditar && (agEditar.agendamento_servicos ?? []).length > 0) {
-      return [...(agEditar.agendamento_servicos ?? [])]
+    if (agEditar) {
+      const salvas = [...(agEditar.agendamento_servicos ?? [])]
         .sort((a, b) => a.ordem - b.ordem)
-        .map(s => ({ uid: crypto.randomUUID(), servico_id: s.servico_id, duracao: s.duracao_minutos, valor: s.valor }));
+        .map(s => ({ servico_id: s.servico_id, profissional_id: agEditar.profissional?.id ?? '', valor: s.valor, duracao_min: s.duracao_minutos }));
+      // Atendimento antigo (sem linhas em agendamento_servicos) começa com o serviço principal, com a
+      // duração REAL do atendimento (igual ao app): editar só a observação não muda o horário de fim.
+      const duracaoReal = Math.round((new Date(agEditar.data_hora_fim).getTime() - new Date(agEditar.data_hora_inicio).getTime()) / 60000);
+      const duracaoAg = duracaoReal > 0 ? duracaoReal : (agEditar.servico?.duracao_minutos ?? 60);
+      const iniciais = linhasIniciaisEdicao(
+        { servico_id: agEditar.servico?.id ?? null, profissional_id: agEditar.profissional?.id ?? '', valor: agEditar.valor, duracao_min: duracaoAg },
+        salvas,
+      );
+      if (iniciais.length > 0) {
+        return iniciais.map(l => ({ uid: crypto.randomUUID(), servico_id: l.servico_id, duracao: l.duracao_min, valor: valorCampo(l.valor) }));
+      }
     }
-    return [{ uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 }];
+    return [{ uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: '' }];
   });
 
   // Conflito de horário detectado
@@ -411,9 +460,34 @@ function NovoAgModal({
   const [bloqueiosDia, setBloqueiosDia] = useState<Bloqueio[]>([]);
   const [pendInicio, setPendInicio] = useState<Date | null>(null);
   const [pendFim,    setPendFim]    = useState<Date | null>(null);
+  const [msgConflitoAtual, setMsgConflitoAtual] = useState('');
+  // Horário passado: pergunta MSG_HORARIO_PASSADO antes de gravar.
+  const [perguntaPassado, setPerguntaPassado] = useState<{ inicio: Date; fim: Date } | null>(null);
+  // Criação que gravou o agendamento mas falhou nos serviços: a nova tentativa só regrava as linhas
+  // guardadas desse id (nunca cria um segundo agendamento, uma segunda taxa nem vende o pacote 2x).
+  const [idCriado, setIdCriado] = useState<{ id: string; linhas: ReturnType<typeof montarAgendamento>['linhas']; inicio: Date; fim: Date } | null>(null);
+  const pacoteVendidoRef = useRef<string | null>(null);
+  // Atendimento já fechado na comanda: valor e serviços só mudam pela comanda (igual ao app).
+  const edicaoTravada = !!agEditar?.comanda_id;
 
   const totalDuracao = linhas.reduce((s, l) => s + (l.duracao || 0), 0);
-  const totalValor   = linhas.reduce((s, l) => s + (l.valor  || 0), 0);
+  const precoDe = (id: string) => servicos.find(x => x.id === id)?.preco ?? 0;
+  // Total pelas mesmas regras do app: vazio = preço do serviço, "0" = cortesia.
+  const montado = montarAgendamento({
+    linhas: linhas.filter(l => l.servico_id).map(l => ({
+      servico_id: l.servico_id, profissional_id: profId, valor: l.valor, duracao_min: l.duracao || 0, preco: precoDe(l.servico_id),
+    })),
+    inicioIso: new Date().toISOString(),
+  });
+  const valorTotal = montado.valorTotal;
+  const totalValor = valorTotal;
+  const valoresOk = linhas.filter(l => l.servico_id).every(l => valorDigitadoValido(l.valor));
+
+  // Taxa de reserva sugerida sobre o total; recalcula quando o total muda, até a pessoa digitar a taxa.
+  useEffect(() => {
+    if (!taxaReservaCfg.ativa || taxaEditadaManual) return;
+    setTaxaReserva(String(valorTaxaReservaSugerida(taxaReservaCfg, valorTotal)).replace('.', ','));
+  }, [taxaReservaCfg, taxaEditadaManual, valorTotal]);
 
   useEffect(() => {
     Promise.all([
@@ -439,14 +513,13 @@ function NovoAgModal({
 
   // Recarrega ao trocar a data dentro do modal (o campo de data é editável).
   useEffect(() => {
-    const d0 = new Date(dataSel); d0.setHours(0, 0, 0, 0);
-    const d1 = new Date(dataSel); d1.setHours(23, 59, 59, 999);
+    const dia = limitesDias(chaveDiaExibido(dataSel), chaveDiaExibido(dataSel));
     supabase
       .from('agenda_bloqueios')
       .select('id, escopo, profissional_id, situacao, motivo, titulo, data_inicio, data_fim')
       .eq('empresa_id', empresaId)
-      .lt('data_inicio', d1.toISOString())
-      .gt('data_fim', d0.toISOString())
+      .lt('data_inicio', dia.endIso)
+      .gt('data_fim', dia.startIso)
       .then(({ data }: { data: any[] | null }) => {
         setBloqueiosDia((data ?? []) as Bloqueio[]);
       });
@@ -493,7 +566,9 @@ function NovoAgModal({
           })
           .filter(p => p.restantes === null || p.restantes > 0);
         setPacotesCliente(opts);
-        setPacoteClienteId(prev => opts.some(o => o.id === prev) ? prev : '');
+        // Na edição, o pacote já vinculado ao atendimento (vencido, sem saldo ou de outra lista) nunca
+        // é desvinculado em silêncio — gravaria pacote_cliente_id nulo e o atendimento viraria cobrado (igual ao app).
+        setPacoteClienteId(prev => opts.some(o => o.id === prev) || (!!prev && prev === agEditar?.pacote_cliente_id) ? prev : '');
       });
   }, [empresaId, clienteId]);
 
@@ -501,13 +576,9 @@ function NovoAgModal({
     const s = servicos.find(x => x.id === id);
     setLinhas(prev => prev.map(l =>
       l.uid === uid
-        ? { ...l, servico_id: id, duracao: s?.duracao_minutos ?? 60, valor: s?.preco ?? 0 }
+        ? { ...l, servico_id: id, duracao: s?.duracao_minutos ?? 60, valor: s ? valorCampo(s.preco) : '' }
         : l
     ));
-    if (taxaReservaCfg.ativa && !taxaReservaEditada && s) {
-      const sugerido = valorTaxaReservaSugerida(taxaReservaCfg, s.preco);
-      setTaxaReserva(String(sugerido).replace('.', ','));
-    }
   }
 
   /** Preenche as linhas de serviço com os serviços inclusos num pacote (sem duplicar já adicionados) */
@@ -518,7 +589,7 @@ function NovoAgModal({
         .filter(s => !jaTem.has(s.servico_id))
         .map(s => {
           const info = servicos.find(x => x.id === s.servico_id);
-          return { uid: crypto.randomUUID(), servico_id: s.servico_id, duracao: info?.duracao_minutos ?? 60, valor: info?.preco ?? 0 };
+          return { uid: crypto.randomUUID(), servico_id: s.servico_id, duracao: info?.duracao_minutos ?? 60, valor: info ? valorCampo(info.preco) : '' };
         });
       if (novas.length === 0) return prev;
       const base = prev.filter(l => l.servico_id); // descarta a linha em branco inicial
@@ -565,7 +636,7 @@ function NovoAgModal({
   }
 
   function addLinha() {
-    setLinhas(prev => [...prev, { uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: 0 }]);
+    setLinhas(prev => [...prev, { uid: crypto.randomUUID(), servico_id: '', duracao: 60, valor: '' }]);
   }
 
   function removeLinha(uid: string) {
@@ -576,10 +647,24 @@ function NovoAgModal({
     setSalvando(true);
     const filled = linhas.filter(l => l.servico_id);
     let agId = '';
+    let linhasGravar = montado.linhas;
 
-    // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo
+    if (idCriado) {
+      // Nova tentativa: o agendamento existe; apaga o que tiver sobrado e regrava só as linhas.
+      const { error: errDelLinhas } = await supabase.from('agendamento_servicos').delete().eq('agendamento_id', idCriado.id);
+      if (errDelLinhas) {
+        setSalvando(false); setErro(mensagemErroBanco(errDelLinhas, 'salvar os serviços do agendamento')); return;
+      }
+      agId = idCriado.id;
+      linhasGravar = idCriado.linhas;
+    } else {
+
+    // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo (uma vez só,
+    // mesmo que a gravação do agendamento falhe e a pessoa tente de novo).
     let pacoteClienteIdFinal = pacoteClienteId || null;
-    if (pacoteVenderId) {
+    if (pacoteVenderId && pacoteVendidoRef.current) {
+      pacoteClienteIdFinal = pacoteVendidoRef.current;
+    } else if (pacoteVenderId) {
       const pacote = pacotesCatalogo.find(p => p.id === pacoteVenderId);
       if (pacote) {
         const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
@@ -593,8 +678,9 @@ function NovoAgModal({
           valor_pago:    pacote.preco,
           status:        'ativo',
         }).select('id').single();
-        if (errVenda || !novaVenda) { setSalvando(false); setErro(errVenda?.message ?? 'Erro ao vender pacote'); return; }
+        if (errVenda || !novaVenda) { setSalvando(false); setErro(mensagemErroBanco(errVenda, 'vender o pacote')); return; }
         pacoteClienteIdFinal = novaVenda.id;
+        pacoteVendidoRef.current = novaVenda.id;
 
         // Registra a venda do pacote como faturamento (uma vez, no ato). As
         // sessões consumidas depois não contam como receita.
@@ -617,7 +703,7 @@ function NovoAgModal({
         servico_id:        filled[0]?.servico_id ?? null,
         data_hora_inicio:  inicio.toISOString(),
         data_hora_fim:     fim.toISOString(),
-        valor:             filled.reduce((s, l) => s + l.valor, 0),
+        valor:             montado.valorTotal,
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       }).eq('id', agEditar.id).select('id');
@@ -645,16 +731,17 @@ function NovoAgModal({
         data_hora_inicio:  inicio.toISOString(),
         data_hora_fim:     fim.toISOString(),
         status:            'agendado',
-        valor:             filled.reduce((s, l) => s + l.valor, 0),
+        valor:             montado.valorTotal,
         observacao:        obs.trim() || null,
         pacote_cliente_id: pacoteClienteIdFinal,
       });
       if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
       agId = novoId;
+      pacoteVendidoRef.current = null;
 
       // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
       if (aplicarTaxaReserva) {
-        const taxaReservaValorNum = parseFloat(taxaReserva.replace(',', '.')) || 0;
+        const taxaReservaValorNum = parseValorBR(taxaReserva);
         const taxaReservaPayload = buildTaxaReservaInsert({
           empresaId, agendamentoId: agId, clienteId, valor: taxaReservaValorNum,
           jaCobrada: taxaReservaCobrada, metodo: taxaReservaMetodo, cobrar: aplicarTaxaReserva,
@@ -669,17 +756,20 @@ function NovoAgModal({
       }
     }
 
+    }
+
     const { error: errLinhas } = await supabase.from('agendamento_servicos').insert(
-      filled.map((l, i) => ({
+      linhasGravar.map((l, i) => ({
         agendamento_id:  agId,
         servico_id:      l.servico_id,
         valor:           l.valor,
-        duracao_minutos: l.duracao,
+        duracao_minutos: l.duracao_min,
         ordem:           i,
         empresa_id:      empresaId,
       }))
     );
     if (errLinhas) {
+      if (!agEditar) setIdCriado({ id: agId, linhas: linhasGravar, inicio, fim });
       setSalvando(false);
       setErro(`O agendamento foi salvo, mas os serviços não: ${mensagemErroBanco(errLinhas, 'salvar os serviços do agendamento')}`);
       return;
@@ -703,8 +793,11 @@ function NovoAgModal({
     e.preventDefault();
     setErro('');
     setConflitos([]);
+    setPerguntaPassado(null);
+    if (edicaoTravada) { setErro(MSG_CONCLUIDO_COM_COMANDA); return; }
+    if (idCriado) { await executarSalvar(idCriado.inicio, idCriado.fim); return; }
     if (bloqueioConflitante) {
-      setErro(`Horário bloqueado (${motivoBloqueioLabel(bloqueioConflitante.motivo)}). Remova o bloqueio para agendar nesse horário.`);
+      setErro(msgBloqueio(bloqueioConflitante.motivo));
       return;
     }
     const filled = linhas.filter(l => l.servico_id);
@@ -712,8 +805,12 @@ function NovoAgModal({
       setErro('Preencha cliente, pelo menos um serviço e profissional.');
       return;
     }
-    const [h, m] = hora.split(':').map(Number);
-    const inicio = new Date(dataSel); inicio.setHours(h, m, 0, 0);
+    if (!valoresOk) { setErro('Corrija o valor do serviço (use 0 para cortesia).'); return; }
+    if (aplicarTaxaReserva && taxaReservaCfg.ativa && !agEditar && !valorDigitadoValido(taxaReserva)) {
+      setErro('Corrija o valor da taxa de reserva.'); return;
+    }
+    const inicio = inicioDe(hora);
+    if (!inicio) { setErro('Informe o horário de início.'); return; }
     const fim    = addMinutes(inicio, totalDuracao || 60);
 
     let confQuery = supabase
@@ -727,17 +824,30 @@ function NovoAgModal({
       .lt('data_hora_inicio', fim.toISOString())
       .gt('data_hora_fim', inicio.toISOString());
     if (agEditar) confQuery = confQuery.neq('id', agEditar.id);
-    const { data: conf } = await confQuery;
+    const { data: conf, error: errConf } = await confQuery;
+    if (errConf) { setErro(mensagemErroBanco(errConf, 'conferir a agenda')); return; }
 
     if (conf && conf.length > 0) {
       setPendInicio(inicio);
       setPendFim(fim);
+      setMsgConflitoAtual(msgConflito(profissionais.find(p => p.id === profId)?.nome ?? 'Profissional', horaBRT(conf[0].data_hora_inicio)));
       setConflitos(conf.map((c: any) => ({
-        inicio:  format(parseISO(c.data_hora_inicio), 'HH:mm'),
-        fim:     format(parseISO(c.data_hora_fim),    'HH:mm'),
+        inicio:  horaBRT(c.data_hora_inicio),
+        fim:     horaBRT(c.data_hora_fim),
         cliente: c.cliente?.nome ?? '—',
         servico: c.servico?.nome  ?? '—',
       })));
+      return;
+    }
+    await seguirAposConflito(inicio, fim);
+  }
+
+  /** Depois do conflito (ou sem conflito): horário passado pede confirmação; senão grava. */
+  async function seguirAposConflito(inicio: Date, fim: Date) {
+    setConflitos([]);
+    const mudouInicio = !agEditar || inicio.getTime() !== parseISO(agEditar.data_hora_inicio).getTime();
+    if (mudouInicio && instanteNoPassado(inicio.toISOString(), Date.now())) {
+      setPerguntaPassado({ inicio, fim });
       return;
     }
     await executarSalvar(inicio, fim);
@@ -745,10 +855,9 @@ function NovoAgModal({
 
   // Bloqueio que colide com o intervalo que o formulário representa agora.
   const bloqueioConflitante = (() => {
-    if (!profId || !hora) return null;
-    const [bh, bm] = hora.split(':').map(Number);
-    if (Number.isNaN(bh) || Number.isNaN(bm)) return null;
-    const ini = new Date(dataSel); ini.setHours(bh, bm, 0, 0);
+    if (!profId) return null;
+    const ini = inicioDe(hora);
+    if (!ini) return null;
     const fim = addMinutes(ini, totalDuracao || 60);
     // Só trava a edição quando o intervalo/profissional REALMENTE mudou —
     // o trigger 074 usa a mesma condição (is not distinct from). Sem isto,
@@ -793,7 +902,7 @@ function NovoAgModal({
           <p className="text-sm text-text-2 truncate max-w-full">{sucesso.clienteNome}</p>
           <p className="text-xs text-text-4">{sucesso.servicosNomes.join(' + ')} · {sucesso.profNome}</p>
           <p className="text-xs text-text-4">
-            {format(sucesso.inicio, 'HH:mm')}–{format(sucesso.fim, 'HH:mm')}
+            {horaBRT(sucesso.inicio.toISOString())}–{horaBRT(sucesso.fim.toISOString())}
           </p>
           {avisoTaxaReserva && (
             <p className="text-xs text-amber mt-1">{avisoTaxaReserva}</p>
@@ -833,7 +942,7 @@ function NovoAgModal({
             </div>
             <p className="text-xs text-text-2 px-4 pb-4">
               {motivoBloqueioLabel(bloqueioConflitante.motivo)} ·{' '}
-              {format(parseISO(bloqueioConflitante.data_inicio), 'HH:mm')}–{format(parseISO(bloqueioConflitante.data_fim), 'HH:mm')}.
+              {horaBRT(bloqueioConflitante.data_inicio)}–{horaBRT(bloqueioConflitante.data_fim)}.
               {' '}Remova o bloqueio na agenda para poder agendar nesse horário.
             </p>
           </div>
@@ -846,7 +955,7 @@ function NovoAgModal({
               <AlertTriangle size={15} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
               <p className="text-sm font-bold text-amber">Conflito de horário</p>
             </div>
-            <p className="text-xs text-text-2 px-4 pb-2">Este profissional já tem agendamento(s) nesse intervalo:</p>
+            <p className="text-xs text-text-2 px-4 pb-2">{msgConflitoAtual}</p>
             <div className="px-4 pb-3 flex flex-col gap-1">
               {conflitos.map((c, i) => (
                 <p key={i} className="text-xs text-text-2">• {c.inicio}–{c.fim} · {c.cliente} ({c.servico})</p>
@@ -858,12 +967,46 @@ function NovoAgModal({
                 Cancelar
               </button>
               <button type="button" disabled={salvando}
-                onClick={() => pendInicio && pendFim && executarSalvar(pendInicio, pendFim)}
+                onClick={() => pendInicio && pendFim && seguirAposConflito(pendInicio, pendFim)}
                 className="flex-1 h-9 rounded-xl text-white text-xs font-bold transition disabled:opacity-60"
                 style={{ background: 'var(--color-amber)' }}>
                 {salvando ? 'Salvando...' : agEditar ? 'Salvar assim mesmo' : 'Agendar mesmo assim'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Horário passado: confirma antes de gravar */}
+        {perguntaPassado && (
+          <div className="mx-5 mt-5 rounded-2xl overflow-hidden border border-amber/30" style={{ background: 'var(--color-amber-soft)' }}>
+            <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+              <AlertTriangle size={15} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
+              <p className="text-sm font-bold text-amber">{MSG_HORARIO_PASSADO}</p>
+            </div>
+            <div className="flex gap-2 px-4 pb-4">
+              <button type="button" onClick={() => setPerguntaPassado(null)}
+                className="flex-1 h-9 rounded-xl border border-border text-xs font-semibold text-text-2 hover:bg-bg transition bg-surface">
+                Voltar
+              </button>
+              <button type="button" disabled={salvando}
+                onClick={() => { const p = perguntaPassado; setPerguntaPassado(null); executarSalvar(p.inicio, p.fim); }}
+                className="flex-1 h-9 rounded-xl text-white text-xs font-bold transition disabled:opacity-60"
+                style={{ background: 'var(--color-amber)' }}>
+                {salvando ? 'Salvando...' : 'Registrar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Comanda fechada / serviços pendentes de uma criação anterior */}
+        {edicaoTravada && (
+          <div role="alert" className="mx-5 mt-5 rounded-xl bg-red-soft text-red text-xs font-semibold px-4 py-3">
+            {MSG_CONCLUIDO_COM_COMANDA}
+          </div>
+        )}
+        {idCriado && (
+          <div role="alert" className="mx-5 mt-5 rounded-xl bg-red-soft text-red text-xs font-semibold px-4 py-3">
+            O agendamento já foi criado, mas os serviços não foram gravados. Clique em &quot;Salvar serviços&quot; para tentar de novo.
           </div>
         )}
 
@@ -1038,9 +1181,13 @@ function NovoAgModal({
                       </div>
                       <div className="min-w-0">
                         <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1">Valor (R$)</p>
-                        <input type="number" value={l.valor} min={0} step={0.01} placeholder="0,00"
-                          onChange={e => setLinhas(prev => prev.map(x => x.uid === l.uid ? { ...x, valor: Number(e.target.value) } : x))}
-                          className={inputClass} />
+                        <input type="text" inputMode="decimal" value={l.valor} placeholder={valorCampo(precoDe(l.servico_id))}
+                          onChange={e => setLinhas(prev => prev.map(x => x.uid === l.uid ? { ...x, valor: e.target.value } : x))}
+                          aria-invalid={!valorDigitadoValido(l.valor)}
+                          className={`${inputClass} ${valorDigitadoValido(l.valor) ? '' : 'border-red'}`} />
+                        {!valorDigitadoValido(l.valor) && (
+                          <p className="text-[10px] text-red mt-0.5">Valor inválido (use 0 para cortesia)</p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1074,11 +1221,15 @@ function NovoAgModal({
 
           <div>
             <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Horário de início</label>
-            <input type="time" value={hora} onChange={e => setHora(e.target.value)} required className={inputClass} />
+            {/* Sugestões de 15 em 15 min (horariosDoDia, igual ao app) e digitação livre de qualquer horário. */}
+            <input type="time" list="horarios-agendamento" value={hora} onChange={e => setHora(e.target.value)} required className={inputClass} />
+            <datalist id="horarios-agendamento">
+              {horariosDoDia(janelaDoDia([])).map(h => <option key={h} value={h} />)}
+            </datalist>
             {totalDuracao > 0 && (() => {
-              const [h, m] = hora.split(':').map(Number);
-              const fim = addMinutes(new Date(new Date(dataSel).setHours(h, m, 0, 0)), totalDuracao);
-              return <p className="text-xs text-text-3 mt-1">Término previsto: {format(fim, 'HH:mm')}</p>;
+              const ini = inicioDe(hora);
+              if (!ini) return null;
+              return <p className="text-xs text-text-3 mt-1">Término previsto: {horaBRT(addMinutes(ini, totalDuracao).toISOString())}</p>;
             })()}
           </div>
 
@@ -1099,12 +1250,12 @@ function NovoAgModal({
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
                     <input
                       value={taxaReserva}
-                      onChange={e => { setTaxaReserva(e.target.value); setTaxaReservaEditada(true); }}
+                      onChange={e => { setTaxaReserva(e.target.value); setTaxaEditadaManual(true); }}
                       inputMode="decimal" placeholder="0,00"
                       className={`${inputClass} pl-9`}
                     />
                   </div>
-                  {(parseFloat(taxaReserva.replace(',', '.')) || 0) > 0 && (
+                  {parseValorBR(taxaReserva) > 0 && (
                     <>
                       <label className="flex items-center gap-2 mt-2 cursor-pointer">
                         <input
@@ -1156,8 +1307,8 @@ function NovoAgModal({
               <span className="text-xs text-text-4" title={motivoBloqueioExcluir}>Não pode excluir</span>
             )}
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
-            <button type="submit" disabled={salvando || !!bloqueioConflitante} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
-              {salvando ? 'Salvando...' : agEditar ? 'Salvar alterações' : 'Agendar'}
+            <button type="submit" disabled={salvando || (!!bloqueioConflitante && !idCriado) || edicaoTravada || !valoresOk} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
+              {salvando ? 'Salvando...' : idCriado ? 'Salvar serviços' : agEditar ? 'Salvar alterações' : 'Agendar'}
             </button>
           </div>
         </form>
@@ -1183,37 +1334,8 @@ function NovoAgModal({
 
 // ── Timeline do dia ───────────────────────────────────────────
 
-/** Pixels por hora na timeline */
-const TL_HOUR_H  = 72;
-const TL_MIN_H   = TL_HOUR_H / 60;
-const TL_H_START = 7;
-const TL_H_END   = 22;
-const TL_HOURS   = Array.from({ length: TL_H_END - TL_H_START + 1 }, (_, i) => TL_H_START + i);
-const TL_TOTAL_H = (TL_H_END - TL_H_START) * TL_HOUR_H;
-
-/** Posição vertical (px) de um agendamento na timeline */
-function tlTop(ag: Ag): number {
-  const d = parseISO(ag.data_hora_inicio);
-  return ((d.getHours() - TL_H_START) * 60 + d.getMinutes()) * TL_MIN_H;
-}
-
-/** Altura (px) proporcional à duração; mínimo 26px */
-function tlHeight(ag: Ag): number {
-  const ms = parseISO(ag.data_hora_fim).getTime() - parseISO(ag.data_hora_inicio).getTime();
-  return Math.max((ms / 60000) * TL_MIN_H, 26);
-}
-
-/** Posição vertical (px) para um ISO string de hora */
-function tlTopISO(iso: string): number {
-  const d = parseISO(iso);
-  return Math.max(0, ((d.getHours() - TL_H_START) * 60 + d.getMinutes()) * TL_MIN_H);
-}
-
-/** Altura (px) entre dois ISO strings; mínimo 20px */
-function tlHeightISO(ini: string, fim: string): number {
-  const ms = parseISO(fim).getTime() - parseISO(ini).getTime();
-  return Math.max((ms / 60000) * TL_MIN_H, 20);
-}
+// Janela (horas visíveis), posições e clique vêm de `./visoes` — em Brasília, esticando a
+// janela 7h–21h para caber todo atendimento e bloqueio do dia (nenhum card cortado).
 
 /** Verifica se dois agendamentos se sobrepõem no tempo */
 function sobrepoem(a: Ag, b: Ag): boolean {
@@ -1281,8 +1403,12 @@ function NovoBloqueioModal({ data, empresaId, meuUserId, meuNome, membros, onClo
     e.preventDefault();
     setErro(''); setSalvando(true);
 
-    const dataInicio = new Date(`${dataBl}T${horaIni}:00`);
-    const dataFim    = new Date(`${dataBl}T${horaFim}:00`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataBl) || !/^\d{2}:\d{2}$/.test(horaIni) || !/^\d{2}:\d{2}$/.test(horaFim)) {
+      setErro('Informe a data e os horários do bloqueio.'); setSalvando(false); return;
+    }
+    // Em Brasília (instanteBRT), nunca no fuso do navegador.
+    const dataInicio = new Date(instanteBRT(dataBl, horaIni));
+    const dataFim    = new Date(instanteBRT(dataBl, horaFim));
     if (dataFim <= dataInicio) {
       setErro('O horário de fim deve ser após o início.'); setSalvando(false); return;
     }
@@ -1455,7 +1581,7 @@ function PendentesBloqueioBtn({ pendentes, onAprovar, onRecusar }: {
                 <div key={b.id} className="rounded-xl border border-border p-3">
                   <p className="font-semibold text-text text-sm">{b.autorNome}</p>
                   <p className="text-xs text-text-3 mt-0.5">
-                    {format(parseISO(b.data_inicio), "dd/MM 'às' HH:mm")}–{format(parseISO(b.data_fim), 'HH:mm')}
+                    {rotuloDataHoraBRT(b.data_inicio)}–{horaBRT(b.data_fim)}
                     {' · '}{motivoBloqueioLabel(b.motivo)}
                   </p>
                   {b.titulo && b.titulo !== motivoBloqueioLabel(b.motivo) && (
@@ -1495,28 +1621,47 @@ function PendentesBloqueioBtn({ pendentes, onAprovar, onRecusar }: {
 }
 
 /**
+ * Modal "Detalhes" do atendimento. `apenasMobile`: só aparece abaixo de `lg` (no desktop a Timeline
+ * usa o painel lateral) e por isso usa `.bm-modal-mobile`, que não trava a rolagem no desktop.
+ * Quem usa `apenasMobile` trava a rolagem por conta própria (hook de trava com `apenasMobile`).
+ */
+function ModalDetalhe({ apenasMobile = false, onClose, children }: {
+  apenasMobile?: boolean; onClose: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className={`${apenasMobile ? 'lg:hidden bm-modal-mobile' : 'bm-modal'} fixed inset-0 z-50 flex items-center justify-center p-4`}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[88dvh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
+          <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
+          <button onClick={onClose}
+            className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="p-4 overflow-y-auto flex-1">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * TimelineView — Visão por hora dos agendamentos do dia.
  *
- * Exibe uma coluna por profissional. Agendamentos são blocos
- * posicionados proporcionalmente ao horário e duração.
+ * Uma coluna por profissional (`colunasDaTimeline`): só a escolhida, ou todas em
+ * "Todas as profissionais", com o nome no topo e rolagem horizontal. Agendamentos são
+ * blocos posicionados pelo horário e duração (Brasília) dentro da janela do dia.
  * Sobreposições são detectadas e exibidas lado a lado.
  * Clicar num bloco abre o AgCard no painel lateral.
  */
-/** Snap Y para o horário mais próximo de 15 em 15 min e retorna "HH:mm" */
-function calcHoraTimeline(y: number): string {
-  const totalMins = Math.floor(y / TL_MIN_H);
-  const absM = TL_H_START * 60 + totalMins;
-  let h = Math.floor(absM / 60);
-  let m = Math.round((absM % 60) / 15) * 15;
-  if (m === 60) { m = 0; h += 1; }
-  h = Math.min(Math.max(h, TL_H_START), TL_H_END - 1);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
-
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuUserId, podeAlterar,
+  ags, bloqueios, profissionaisEmpresa, filtro, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuUserId, podeAlterar,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
+  /** Profissional escolhida ou "todas" (já validado contra `agenda.ver_equipe`). */
+  filtro: FiltroProfissional;
   loading: boolean; empresaId: string;
   categoriasCustom: CategoriaCustom[];
   onStatus: (id: string, s: string) => void;
@@ -1532,20 +1677,30 @@ function TimelineView({
   const { pode } = usePermissoes();
   const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
+  // Uma busca só para o modal (mobile) e o painel (desktop), que ficam montados juntos.
+  const comandaSel = useDetalheComanda(agSel);
   // O painel Detalhes so vira modal no mobile/tablet (lg:hidden). No desktop ele e um
   // painel lateral e travar a pagina seria bug — foi exatamente o problema que
   // motivou a variante .bm-modal-mobile no globals.css.
   useScrollLock(!!agSel, { apenasMobile: true });
   const [hoverInfo, setHoverInfo] = useState<{ profId: string; y: number; horaStr: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chaveDia = chaveDiaExibido(dataSel);
 
-  // Rola até o horário atual ao montar
+  // Janela do dia: 7h–21h esticada para caber todo atendimento e bloqueio visível.
+  const janela = useMemo(() => janelaDoDia(itensDaJanela(chaveDia, ags.map(a => ({ data_hora_inicio: a.data_hora_inicio, data_hora_fim: a.data_hora_fim })), bloqueios)), [ags, bloqueios, chaveDia]);
+  const alturaTotal = alturaDaJanela(janela);
+  const horas = horasDaJanela(janela);
+
+  // Rola até o horário atual (ou o começo da janela) quando a grade aparece — ao montar ela
+  // ainda é o esqueleto de carregamento, por isso depende de `loading`.
   useEffect(() => {
-    if (!scrollRef.current) return;
-    const now = new Date();
-    const top = ((now.getHours() - TL_H_START) * 60 + now.getMinutes()) * TL_MIN_H;
+    if (loading || !scrollRef.current) return;
+    const agoraIso = new Date().toISOString();
+    const top = topoAgora(agoraIso, chaveDiaBRT(agoraIso), janela) ?? 0;
     scrollRef.current.scrollTop = Math.max(0, top - 100);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   // Sincroniza agSel quando o ag sofre atualização de status (optimistic)
   useEffect(() => {
@@ -1554,28 +1709,14 @@ function TimelineView({
     if (atualizado) setAgSel(atualizado);
   }, [ags]);
 
-  // Colunas da timeline: profissionais da empresa (sempre, mesmo sem
+  // Colunas da timeline: a profissional escolhida, ou todas em "Todas" (sempre, mesmo sem
   // agendamento) + qualquer profissional que apareça só nos agendamentos do dia
   // e não esteja na lista (defensivo — ex.: profissional desativado depois).
-  const profissionais = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const p of profissionaisEmpresa) map.set(p.id, p.nome);
-    for (const ag of ags) {
-      if (ag.profissional && !map.has(ag.profissional.id)) map.set(ag.profissional.id, ag.profissional.nome);
-    }
-    return Array.from(map.entries()).map(([id, nome]) => ({ id, nome }));
-  }, [ags, profissionaisEmpresa]);
-
-  // Agendamentos agrupados por profissional
-  const agsByProf = useMemo(() => {
-    const map = new Map<string, Ag[]>();
-    for (const { id } of profissionais) map.set(id, []);
-    for (const ag of ags) {
-      const pid = ag.profissional?.id;
-      if (pid) map.get(pid)?.push(ag);
-    }
-    return map;
-  }, [ags, profissionais]);
+  const colunas = useMemo(
+    () => colunasComExtras(ags, profissionaisEmpresa, filtro, a => a.profissional),
+    [ags, profissionaisEmpresa, filtro],
+  );
+  const profissionais = colunas.map(c => c.profissional);
 
   // Categorias de serviço presentes no dia (para a legenda de cores)
   const categoriasPresentes = useMemo(() => {
@@ -1585,10 +1726,7 @@ function TimelineView({
   }, [ags, categoriasCustom]);
 
   // Linha de "agora"
-  const agora       = new Date();
-  const ehHoje      = isSameDay(dataSel, agora);
-  const agoraTop    = ((agora.getHours() - TL_H_START) * 60 + agora.getMinutes()) * TL_MIN_H;
-  const agoraVis    = agora.getHours() >= TL_H_START && agora.getHours() < TL_H_END;
+  const agoraTop = topoAgora(new Date().toISOString(), chaveDia, janela);
 
   if (loading) {
     return (
@@ -1626,10 +1764,15 @@ function TimelineView({
       <div className="flex gap-4 items-start min-w-0">
 
       {/* ── Grid de timeline ── */}
-      <div className="flex-1 border border-border rounded-2xl overflow-x-auto bg-surface min-w-0 w-full">
+      <div className="flex-1 border border-border rounded-2xl overflow-hidden bg-surface min-w-0 w-full">
 
-        {/* Cabeçalho com nomes dos profissionais */}
-        <div className="flex border-b border-border bg-bg">
+        {/* Área scrollável (nos dois sentidos). Cabeçalho e colunas ficam no mesmo container: em
+            "Todas", a rolagem horizontal move os nomes junto com as colunas. */}
+        <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: '62dvh' }}>
+          <div style={{ minWidth: 'max-content' }}>
+
+        {/* Cabeçalho com nomes dos profissionais — sticky top-0 na rolagem vertical */}
+        <div className="sticky top-0 z-40 flex border-b border-border bg-bg">
           <div className="w-10 md:w-12 flex-shrink-0 border-r border-border" />
           {profissionais.map(prof => {
             return (
@@ -1642,17 +1785,15 @@ function TimelineView({
           })}
         </div>
 
-        {/* Área scrollável */}
-        <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: '62dvh' }}>
           <div className="flex">
 
             {/* Coluna de horas */}
             <div
               className="w-10 md:w-12 flex-shrink-0 border-r border-border relative bg-bg/60"
-              style={{ height: TL_TOTAL_H }}>
-              {TL_HOURS.map(h => (
+              style={{ height: alturaTotal }}>
+              {horas.map(h => (
                 <div key={h}
-                  style={{ top: (h - TL_H_START) * TL_HOUR_H }}
+                  style={{ top: (h - janela.ini) * TL_HOUR_H }}
                   className="absolute inset-x-0 flex justify-center">
                   <span className="text-[10px] text-text-4 font-medium mt-0.5">
                     {String(h).padStart(2, '0')}h
@@ -1662,23 +1803,21 @@ function TimelineView({
             </div>
 
             {/* Colunas por profissional */}
-            {profissionais.map(prof => {
-              const colAgs  = agsByProf.get(prof.id) ?? [];
+            {colunas.map(({ profissional: prof, itens: colAgs }) => {
               const laneMap = computeLanes(colAgs);
 
               return (
                 <div key={prof.id}
                   className="flex-1 min-w-[140px] border-r border-border last:border-r-0 relative cursor-crosshair"
-                  style={{ height: TL_TOTAL_H }}
+                  style={{ height: alturaTotal }}
                   onClick={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
-                    const horaStr = calcHoraTimeline(e.clientY - rect.top);
-                    const [hh, mm] = horaStr.split(':').map(Number);
-                    const instante = new Date(dataSel);
-                    instante.setHours(hh, mm, 0, 0);
+                    const horaStr = horaDoClique(e.clientY - rect.top, janela);
+                    // Instante do clique em Brasília (mesmo fuso da grade).
+                    const instante = new Date(`${chaveDia}T${horaStr}:00-03:00`);
                     const bl = bloqueioNoInstante(bloqueios, prof.id, instante.toISOString());
                     if (bl) {
-                      onAvisoBloqueio(`Horário bloqueado (${motivoBloqueioLabel(bl.motivo)}). Remova o bloqueio para agendar aqui.`);
+                      onAvisoBloqueio(msgBloqueio(bl.motivo));
                       return;
                     }
                     onNovo({ hora: horaStr, profId: prof.id });
@@ -1686,26 +1825,26 @@ function TimelineView({
                   onMouseMove={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const y = e.clientY - rect.top;
-                    setHoverInfo({ profId: prof.id, y, horaStr: calcHoraTimeline(y) });
+                    setHoverInfo({ profId: prof.id, y, horaStr: horaDoClique(y, janela) });
                   }}
                   onMouseLeave={() => setHoverInfo(null)}>
 
                   {/* Linhas de hora */}
-                  {TL_HOURS.map(h => (
+                  {horas.map(h => (
                     <div key={h}
-                      style={{ top: (h - TL_H_START) * TL_HOUR_H }}
+                      style={{ top: (h - janela.ini) * TL_HOUR_H }}
                       className="absolute inset-x-0 border-t border-border/40" />
                   ))}
 
                   {/* Linhas de meia hora */}
-                  {TL_HOURS.slice(0, -1).map(h => (
+                  {horas.slice(0, -1).map(h => (
                     <div key={`${h}h30`}
-                      style={{ top: (h - TL_H_START) * TL_HOUR_H + TL_HOUR_H / 2 }}
+                      style={{ top: (h - janela.ini) * TL_HOUR_H + TL_HOUR_H / 2 }}
                       className="absolute inset-x-0 border-t border-dashed border-border/25" />
                   ))}
 
                   {/* Linha de agora */}
-                  {ehHoje && agoraVis && (
+                  {agoraTop !== null && (
                     <div style={{ top: agoraTop }}
                       className="absolute inset-x-0 z-20 pointer-events-none">
                       <div className="border-t-2 border-red">
@@ -1725,18 +1864,10 @@ function TimelineView({
                   )}
 
                   {/* Bloqueios de horário */}
-                  {bloqueios
-                    .filter(b => b.profissional_id === null || b.profissional_id === prof.id)
-                    .filter(b =>
-                      // aprovados: todos veem. Pendentes: só a gestão ou quem criou.
-                      // A RLS já filtra isso no servidor; este filtro é defesa em profundidade visual.
-                      b.situacao === 'aprovado'
-                      || podeAprovarBloqueios
-                      || b.criado_por === meuUserId,
-                    )
+                  {/* Quem chama já passa só os visíveis do dia (`bloqueiosVisiveis` + `bloqueiosDoDia`); aqui só os da coluna. */}
+                  {bloqueiosDaProfissional(bloqueios, prof.id)
                     .map(bl => {
-                      const topBl = tlTopISO(bl.data_inicio);
-                      const hBl   = tlHeightISO(bl.data_inicio, bl.data_fim);
+                      const { top: topBl, height: hBl } = posicaoNaTimeline(bl.data_inicio, bl.data_fim, chaveDia, janela, 20);
                       const pendente    = bl.situacao === 'pendente';
                       const podeRemover = podeAprovarBloqueios
                         || (pendente && bl.criado_por === meuUserId);
@@ -1778,8 +1909,7 @@ function TimelineView({
                   {colAgs.map(ag => {
                     const { lane, totalLanes } = laneMap.get(ag.id) ?? { lane: 0, totalLanes: 1 };
                     const pct      = 100 / totalLanes;
-                    const top      = tlTop(ag);
-                    const h        = tlHeight(ag);
+                    const { top, height: h } = posicaoNaTimeline(ag.data_hora_inicio, ag.data_hora_fim, chaveDia, janela, 26);
                     const cats     = categoriasDoAg(ag, categoriasCustom);
                     const infoCat  = infoCategoria(cats[0] ?? 'outros', categoriasCustom);
                     const corCat   = infoCat.cor;
@@ -1813,7 +1943,7 @@ function TimelineView({
                         <div className="px-1.5 py-1 h-full flex flex-col justify-start gap-0.5 min-w-0">
                           <div className="flex items-center gap-1 min-w-0">
                             <span className={`text-[10px] font-bold leading-none flex-shrink-0 whitespace-nowrap tabular-nums ${inativo ? 'text-text-4' : 'text-text-3'}`}>
-                              {format(parseISO(ag.data_hora_inicio), 'HH:mm')}–{format(parseISO(ag.data_hora_fim), 'HH:mm')}
+                              {horaBRT(ag.data_hora_inicio)}–{horaBRT(ag.data_hora_fim)}
                             </span>
                             <p className={`text-[11px] font-bold leading-tight truncate flex-1 ${inativo ? 'text-text-3 line-through' : 'text-text'}`}>
                               {ag.cliente?.nome ?? '—'}
@@ -1843,6 +1973,7 @@ function TimelineView({
             })}
 
           </div>
+          </div>
         </div>
       </div>
 
@@ -1850,27 +1981,16 @@ function TimelineView({
       {agSel && (
         <>
           {/* Mobile: modal centralizado — mesmo padrão dos modais de despesa */}
-          <div className="lg:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAgSel(null)} />
-            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[88dvh] flex flex-col">
-              <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
-                <button onClick={() => setAgSel(null)}
-                  className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="p-4 overflow-y-auto flex-1">
-                <AgCard ag={agSel} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agSel)}
-                  onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
-                  onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
-              </div>
-            </div>
-          </div>
+          <ModalDetalhe apenasMobile onClose={() => setAgSel(null)}>
+            <AgCard ag={agSel} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agSel)}
+              onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
+              onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
+            <DetalheAtendimento ag={agSel} comanda={comandaSel}/>
+          </ModalDetalhe>
 
           {/* Desktop: painel lateral */}
           <div className="hidden lg:block w-72 flex-shrink-0">
-            <div className="sticky top-4">
+            <div className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
               <div className="flex items-center justify-between mb-2 px-1">
                 <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
                 <button onClick={() => setAgSel(null)}
@@ -1881,6 +2001,7 @@ function TimelineView({
               <AgCard ag={agSel} empresaId={empresaId} somenteLeitura={!podeAlterar(agSel)}
                 onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                 onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
+              <DetalheAtendimento ag={agSel} comanda={comandaSel}/>
             </div>
           </div>
         </>
@@ -1893,15 +2014,35 @@ function TimelineView({
 
 // ── Lista do dia ─────────────────────────────────────────────
 
-function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar, podeAlterar }: {
-  ags: Ag[]; loading: boolean; dataSel: Date; empresaId: string;
+function ListaDia({ ags, bloqueios, loading, dataSel, empresaId, onNovo, onStatus, onEditar, podeAlterar, nomeProfissional, meuUserId, podeAprovar, onPedirRemoverBloqueio }: {
+  ags: Ag[];
+  /** Bloqueios visíveis do dia (mesmo filtro por profissional da Timeline). */
+  bloqueios: Bloqueio[];
+  loading: boolean; dataSel: Date; empresaId: string;
   onNovo: () => void; onStatus: (id: string, s: string) => void;
   onEditar?: (ag: Ag) => void;
   /** Falso = atendimento de outra profissional sem `agenda.gerenciar_outras` (só leitura). */
   podeAlterar: (ag: Ag) => boolean;
+  nomeProfissional: (id: string) => string | undefined;
+  meuUserId: string;
+  podeAprovar: boolean;
+  onPedirRemoverBloqueio: (b: Bloqueio) => void;
 }) {
+  // Detalhe (contatos, comanda e pagamentos): guarda só o id, para refletir a troca de status otimista.
+  const [agDetId, setAgDetId] = useState<string | null>(null);
+  const agDet = agDetId ? ags.find(a => a.id === agDetId) ?? null : null;
+  const comandaDet = useDetalheComanda(agDet);
+  useScrollLock(!!agDet);
   return (
     <div>
+      {agDet && (
+        <ModalDetalhe onClose={() => setAgDetId(null)}>
+          <AgCard ag={agDet} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agDet)}
+            onStatus={(id, st) => { setAgDetId(null); onStatus(id, st); }}
+            onEditar={onEditar ? ag => { setAgDetId(null); onEditar(ag); } : undefined}/>
+          <DetalheAtendimento ag={agDet} comanda={comandaDet}/>
+        </ModalDetalhe>
+      )}
       <p className="text-sm font-semibold text-text-2 mb-3">
         {isToday(dataSel) ? 'Hoje' : format(dataSel, "EEEE, dd 'de' MMMM", { locale: ptBR })}
         {!loading && (
@@ -1926,11 +2067,21 @@ function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar
             </div>
           ))}
         </div>
-      ) : ags.length > 0 ? (
+      ) : (
+        <>
+        <BloqueiosDoDia
+          bloqueios={bloqueios}
+          chaveDia={chaveDiaExibido(dataSel)}
+          nomeProfissional={nomeProfissional}
+          meuUserId={meuUserId}
+          podeAprovar={podeAprovar}
+          onPedirRemover={b => { const orig = bloqueios.find(x => x.id === b.id); if (orig) onPedirRemoverBloqueio(orig); }}
+        />
+        {ags.length > 0 ? (
         <div className="flex flex-col gap-3">
           {ags.map((ag, idx) => (
             <div key={ag.id} className="bm-stagger" style={{ '--bm-i': idx, '--bm-step': '60ms' } as React.CSSProperties}>
-              <AgCard ag={ag} empresaId={empresaId} onStatus={onStatus} onEditar={onEditar} somenteLeitura={!podeAlterar(ag)}/>
+              <AgCard ag={ag} empresaId={empresaId} onStatus={onStatus} onEditar={onEditar} onDetalhes={a => setAgDetId(a.id)} somenteLeitura={!podeAlterar(ag)}/>
             </div>
           ))}
           {/* Slot livre */}
@@ -1953,67 +2104,9 @@ function ListaDia({ ags, loading, dataSel, empresaId, onNovo, onStatus, onEditar
           <span>Nenhum agendamento para este dia.</span>
           <button onClick={onNovo} className="text-accent font-semibold hover:underline self-start whitespace-nowrap">+ Criar agendamento</button>
         </div>
+        )}
+        </>
       )}
-    </div>
-  );
-}
-
-// ── Visão mensal ──────────────────────────────────────────────
-
-function MesView({
-  mes, agsPorDia, diaSel, onDiaClick,
-}: {
-  mes: Date;
-  agsPorDia: Map<string, number>;
-  diaSel: Date;
-  onDiaClick: (d: Date) => void;
-}) {
-  const gridStart = startOfWeek(startOfMonth(mes), { weekStartsOn: 0 });
-  const gridEnd   = new Date(gridStart); gridEnd.setDate(gridEnd.getDate() + 41);
-  const dias      = eachDayOfInterval({ start: gridStart, end: gridEnd });
-
-  return (
-    <div>
-      <div className="grid grid-cols-7 gap-1 mb-1">
-        {DIAS.map(d => (
-          <div key={d} className="text-center text-[10px] font-semibold text-text-4 py-1">{d}</div>
-        ))}
-      </div>
-      <div className="grid grid-cols-7 gap-1">
-        {dias.map(d => {
-          const key     = format(d, 'yyyy-MM-dd');
-          const count   = agsPorDia.get(key) ?? 0;
-          const selDia  = isSameDay(d, diaSel);
-          const hojeDia = isToday(d);
-          const dMes    = isSameMonth(d, mes);
-          return (
-            <div key={key} className="relative group">
-              <button
-                onClick={() => onDiaClick(d)}
-                className={`w-full aspect-square flex items-center justify-center rounded-lg text-sm font-bold transition
-                  ${selDia  ? 'bg-primary text-white'
-                  : hojeDia ? 'bg-primary-soft text-primary'
-                  : dMes    ? 'hover:bg-bg text-text-2'
-                  :           'text-text-4 hover:bg-bg'}`}
-              >
-                {format(d, 'd')}
-                {/* dot indicator */}
-                {count > 0 && !selDia && (
-                  <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
-              {/* tooltip no hover */}
-              {count > 0 && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-10
-                  opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity
-                  bg-text text-white text-[10px] font-semibold px-2 py-1 rounded-lg whitespace-nowrap shadow-lg">
-                  {count} {count === 1 ? 'agendamento' : 'agendamentos'}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -2025,26 +2118,29 @@ export default function AgendaPage() {
 
   const [view,      setView]      = useState<'semana' | 'mes' | 'timeline'>('timeline');
   const [dataSel,   setDataSel]   = useState(new Date());
-  const [semana,    setSemana]    = useState(() =>
-    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
-  );
+  const [semana,    setSemana]    = useState(() => semanaDoDia(new Date()));
   const [ags,        setAgs]       = useState<Ag[]>([]);
   const [bloqueios,  setBloqueios] = useState<Bloqueio[]>([]);
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
+  /** Bloqueios da grade do mês (42 dias), para marcar os dias na visão Mês. */
+  const [bloqueiosMes, setBloqueiosMes] = useState<Bloqueio[]>([]);
   const [loading,    setLoading]   = useState(true);
   const [empresaId,  setEmpresaId] = useState<string | null>(null);
   const [meuUserId, setMeuUserId] = useState<string>('');
-  // Profissional cuja agenda está sendo exibida — sempre a própria pra quem
-  // é profissional (só ela mesma existe na lista pra escolher); pra
-  // gestão, começa nela mesma e pode trocar pelo seletor no header. Nunca
-  // existe modo "todas ao mesmo tempo" — sempre exatamente uma selecionada.
-  const [profFiltro, setProfFiltro] = useState<string>('');
+  // Agenda exibida: id de uma profissional ou "todas" (TODAS). Começa na própria
+  // pessoa ('' só enquanto a sessão e a preferência carregam). "Todas" só vale com
+  // `agenda.ver_equipe` — sem ela, `filtroEfetivo` volta para a própria pessoa. O valor inicial
+  // vem da preferência "Minha agenda abre em" (`filtroInicialAgenda`).
+  const [filtroProfissional, setFiltroProfissional] = useState<FiltroProfissional>('');
   const [modal,       setModal]      = useState(false);
   const [modalBloq,   setModalBloq]  = useState(false);
   const [modalParams, setModalParams] = useState<{ hora?: string; profId?: string }>({});
   const [agEditar,   setAgEditar]  = useState<Ag | null>(null);
   const [toastErro,    setToastErro]   = useState('');
-  const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string; profissionalId: string | null } | null>(null);
+  const [erroDia,      setErroDia]     = useState('');
+  /** Erro da carga do calendário do mês — aviso fixo no calendário (sem ele, dias sem marca pareceriam vazios). */
+  const [erroMes, setErroMes] = useState('');
+  const [avaliacaoAg,  setAvaliacaoAg] = useState<{ agId: string; clienteNome: string; clienteId: string } | null>(null);
   const [categoriasCustom, setCategoriasCustom] = useState<CategoriaCustom[]>([]);
   // Profissionais da empresa — base das colunas da timeline (independe de haver
   // agendamento no dia; sem isso a timeline e os bloqueios só apareciam em dias
@@ -2061,6 +2157,8 @@ export default function AgendaPage() {
   const podeOutras = pode('agenda.gerenciar_outras');
   /** Mesma regra da policy de UPDATE de agendamentos: própria agenda sempre; a de outra só com a chave. */
   const podeAlterarAg = (ag: Ag) => podeMexerNoAgendamento(ag.profissional?.id, meuUserId, podeOutras);
+  /** Filtro válido para a carga e as visões ("todas" sem `ver_equipe` vira a própria pessoa). */
+  const filtro = filtroEfetivo(filtroProfissional, ehGestao, meuUserId);
 
   // Cancelado não aparece na agenda — vive só no histórico da cliente.
   // `ags` cru continua sendo a fonte de verdade do revert otimista em
@@ -2068,6 +2166,17 @@ export default function AgendaPage() {
   const agsVisiveis = useMemo(
     () => ags.filter(a => a.status !== 'cancelado'),
     [ags],
+  );
+  /** Os 4 números do dia (Agendamentos, Receita prevista, Profissionais, Pendentes), iguais aos do app. */
+  const resumoDia = useMemo(
+    () => resumoDoDia(agsVisiveis.map(a => ({
+      status: a.status,
+      profissional_id: a.profissional_id ?? a.profissional?.id ?? '',
+      valor: a.valor,
+      pacote_cliente_id: a.pacote_cliente_id ?? null,
+      desconto_rateado: a.desconto_rateado ?? null,
+    }))),
+    [agsVisiveis],
   );
 
   function showErro(msg: string) {
@@ -2083,7 +2192,15 @@ export default function AgendaPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       setEmpresaId(membro?.empresa_id ?? null);
       setMeuUserId(user.id);
-      setProfFiltro(user.id);
+      // Valor inicial pela preferência "Minha agenda abre em" (Configurações → Meu perfil).
+      // Só aplica depois de carregar: o filtro fica '' (nada é buscado) até aqui. As permissões já
+      // vêm do provider; "Todas" exige `agenda.ver_equipe` mesmo com a preferência gravada.
+      // Erro ao ler a preferência = abre na própria pessoa. A troca manual não grava nada.
+      let preferencia: 'propria' | 'todas' | null = 'propria';
+      if (membro?.empresa_id) {
+        try { preferencia = await carregarPreferenciaAgenda(supabase, membro.empresa_id, user.id); } catch { /* própria */ }
+      }
+      setFiltroProfissional(filtroInicialAgenda(preferencia ?? 'propria', ehGestao, user.id));
       if (membro?.empresa_id) {
         const souGestao = ehGestao;
         const [{ data: cats }, { data: profs }] = await Promise.all([
@@ -2108,59 +2225,119 @@ export default function AgendaPage() {
     })();
   }, []);
 
-  // Busca agendamentos + bloqueios do dia selecionado
+  // Contadores de requisição: troca rápida de dia/filtro nunca mostra a resposta antiga.
+  const reqDia = useRef(0);
+  const reqMes = useRef(0);
+
+  // Busca agendamentos + bloqueios do dia selecionado (Brasília). Em "Todas", de todas as
+  // profissionais — paginado, porque o PostgREST corta em 1000 linhas sem avisar.
   const fetchDia = useCallback(async (data: Date, empId: string) => {
+    if (!filtro) return;
+    const req = ++reqDia.current;
     setLoading(true);
-    const iniDia = startOfDay(data).toISOString();
-    const fimDia = endOfDay(data).toISOString();
+    const { startIso: iniDia, endIso: fimDia } = limitesDias(chaveDiaExibido(data), chaveDiaExibido(data));
 
-    let queryAgs = supabase
-      .from('agendamentos')
-      .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,
-        cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
-        profissional:users!agendamentos_profissional_id_fkey(id,nome),
-        servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
-        agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria,categoria_id))`)
-      .eq('empresa_id', empId)
-      .gte('data_hora_inicio', iniDia)
-      .lte('data_hora_inicio', fimDia)
-      .neq('status', 'cancelado')
-      .order('data_hora_inicio');
-    if (profFiltro) queryAgs = queryAgs.eq('profissional_id', profFiltro);
-
-    const [{ data: rows }, { data: blRows }] = await Promise.all([
-      queryAgs,
-      supabase
-        .from('agenda_bloqueios')
-        .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
-        .eq('empresa_id', empId)
-        .lte('data_inicio', fimDia)
-        .gte('data_fim',    iniDia),
-    ]);
-
-    setAgs((rows ?? []) as unknown as Ag[]);
-    setBloqueios((blRows ?? []) as Bloqueio[]);
+    try {
+      const [rows, blRows] = await Promise.all([
+        buscarPaginas((de, ate) => {
+          let q = supabase
+            .from('agendamentos')
+            // `*` traz comanda_id, pacote_cliente_id e desconto_rateado (este só com a 090, sem quebrar antes
+            // dela) — o resumo do dia usa o valor cobrado, igual ao app.
+            .select(`*,
+              cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
+              profissional:users!agendamentos_profissional_id_fkey(id,nome),
+              servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
+              agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria,categoria_id))`)
+            .eq('empresa_id', empId)
+            .gte('data_hora_inicio', iniDia)
+            .lte('data_hora_inicio', fimDia)
+            .neq('status', 'cancelado');
+          if (filtro !== TODAS) q = q.eq('profissional_id', filtro);
+          return q.order('data_hora_inicio').order('id').range(de, ate);
+        }),
+        buscarPaginas((de, ate) => supabase
+          .from('agenda_bloqueios')
+          .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
+          .eq('empresa_id', empId)
+          .lte('data_inicio', fimDia)
+          .gte('data_fim',    iniDia)
+          .order('data_inicio').order('id')
+          .range(de, ate)),
+      ]);
+      if (req !== reqDia.current) return;
+      setErroDia('');
+      setAgs(rows as unknown as Ag[]);
+      setBloqueios(blRows as Bloqueio[]);
+    } catch (e) {
+      if (req !== reqDia.current) return;
+      // Mantém o que já estava na tela: lista vazia aqui pareceria "dia sem atendimentos".
+      setErroDia(mensagemErroBanco(e as { message?: string; code?: string }, 'carregar a agenda do dia'));
+    }
     setLoading(false);
-  }, [profFiltro]);
+  }, [filtro]);
 
-  // Busca contagem por dia para visão mensal
+  // Contagem por dia e bloqueios da grade da visão Mês (42 dias, domingo primeiro).
   const fetchMes = useCallback(async (mes: Date, empId: string) => {
-    let query = supabase
-      .from('agendamentos')
-      .select('data_hora_inicio')
-      .eq('empresa_id', empId)
-      .neq('status', 'cancelado')
-      .gte('data_hora_inicio', startOfMonth(mes).toISOString())
-      .lte('data_hora_inicio', endOfMonth(mes).toISOString());
-    if (profFiltro) query = query.eq('profissional_id', profFiltro);
-    const { data: rows } = await query;
-    const map = new Map<string, number>();
-    ((rows ?? []) as { data_hora_inicio: string }[]).forEach(r => {
-      const k = format(parseISO(r.data_hora_inicio), 'yyyy-MM-dd');
-      map.set(k, (map.get(k) ?? 0) + 1);
-    });
-    setAgsMes(map);
-  }, [profFiltro]);
+    if (!filtro) return;
+    const req = ++reqMes.current;
+    const grade = gradeDoMes(mes);
+    const { startIso, endIso } = limitesDias(chaveDiaExibido(grade[0]), chaveDiaExibido(grade[grade.length - 1]));
+    try {
+      const [rows, blRows] = await Promise.all([
+        buscarPaginas((de, ate) => {
+          let q = supabase
+            .from('agendamentos')
+            .select('id, data_hora_inicio')
+            .eq('empresa_id', empId)
+            .neq('status', 'cancelado')
+            .gte('data_hora_inicio', startIso)
+            .lte('data_hora_inicio', endIso);
+          if (filtro !== TODAS) q = q.eq('profissional_id', filtro);
+          return q.order('data_hora_inicio').order('id').range(de, ate);
+        }),
+        buscarPaginas((de, ate) => supabase
+          .from('agenda_bloqueios')
+          .select('id, profissional_id, titulo, data_inicio, data_fim, escopo, motivo, situacao, criado_por')
+          .eq('empresa_id', empId)
+          .lte('data_inicio', endIso)
+          .gte('data_fim',    startIso)
+          .order('data_inicio').order('id')
+          .range(de, ate)),
+      ]);
+      if (req !== reqMes.current) return;
+      const map = new Map<string, number>();
+      (rows as { data_hora_inicio: string }[]).forEach(r => {
+        const k = chaveDiaBRT(r.data_hora_inicio);
+        map.set(k, (map.get(k) ?? 0) + 1);
+      });
+      setErroMes('');
+      setAgsMes(map);
+      setBloqueiosMes(blRows as Bloqueio[]);
+    } catch (e) {
+      if (req !== reqMes.current) return;
+      setErroMes(mensagemErroBanco(e as { message?: string; code?: string }, 'carregar o calendário do mês'));
+    }
+  }, [filtro]);
+
+  // Bloqueios visíveis (mesmo filtro em Timeline, Semana e Mês).
+  const chaveDiaSel = chaveDiaExibido(dataSel);
+  const bloqueiosDaLista = useMemo(
+    () => bloqueiosDoDia(bloqueiosVisiveis(bloqueios, filtro, meuUserId, podeAprovarBloqueios), chaveDiaSel),
+    [bloqueios, filtro, meuUserId, podeAprovarBloqueios, chaveDiaSel],
+  );
+  const diasBloqueadosMes = useMemo(
+    () => diasComBloqueio(
+      bloqueiosVisiveis(bloqueiosMes, filtro, meuUserId, podeAprovarBloqueios),
+      gradeDoMes(dataSel).map(chaveDiaExibido),
+    ),
+    [bloqueiosMes, filtro, meuUserId, podeAprovarBloqueios, dataSel],
+  );
+  const nomeProfissional = useCallback(
+    (id: string) => profissionaisEmpresa.find(p => p.id === id)?.nome
+      ?? ags.find(a => a.profissional?.id === id)?.profissional?.nome,
+    [profissionaisEmpresa, ags],
+  );
 
   // Bloqueios pendentes de aprovação (só a gestão enxerga / faz polling)
   const recarregarPendentes = useCallback(async () => {
@@ -2210,7 +2387,7 @@ export default function AgendaPage() {
     const novaData = addDays(dataSel, dir);
     setDataSel(novaData);
     if (!semana.some(s => isSameDay(s, novaData)))
-      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(novaData, { weekStartsOn: 0 }), i)));
+      setSemana(semanaDoDia(novaData));
   }
 
   function navMes(dir: number) {
@@ -2220,7 +2397,7 @@ export default function AgendaPage() {
   function selecionarDia(d: Date) {
     setDataSel(d);
     if (!semana.some(s => isSameDay(s, d)))
-      setSemana(Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(d, { weekStartsOn: 0 }), i)));
+      setSemana(semanaDoDia(d));
   }
 
   /** Atendimento aguardando a resposta de "Cobrar taxa de cancelamento de R$ X?". */
@@ -2238,8 +2415,20 @@ export default function AgendaPage() {
       showErro(mensagemErroBanco({ code: '42501' }, 'mudar o status de agendamento de outra profissional'));
       return;
     }
-    if (status !== 'cancelado' && status !== 'faltou') { await aplicarStatus(id, status); return; }
-    if (!(await colunaCobrarTaxaExiste(supabase))) { await aplicarStatus(id, status); return; }
+    // Regra única (statusPermitidos): concluído com comanda fechada não muda por aqui.
+    if (ag && !(statusPermitidos(ag.status as StatusAg, !!ag.comanda_id) ?? []).includes(status as StatusAg)) {
+      showErro(ag.status === 'concluido' && ag.comanda_id ? MSG_CONCLUIDO_COM_COMANDA : 'Essa mudança de status não é permitida.');
+      return;
+    }
+    // Cancelar, marcar falta e reabrir pedem confirmação antes de gravar — exceto quando a pergunta
+    // da taxa de cancelamento aparece: ela já é a confirmação (nunca duas perguntas seguidas).
+    const confirmar = ag ? precisaConfirmarStatus(ag.status as StatusAg, status as StatusAg) : null;
+    const seguir = (cobrar?: boolean) => {
+      if (confirmar) { setConfirmStatus({ id, status, mensagem: confirmar, cobrar }); return; }
+      void aplicarStatus(id, status, cobrar);
+    };
+    if (status !== 'cancelado' && status !== 'faltou') { seguir(); return; }
+    if (!(await colunaCobrarTaxaExiste(supabase))) { seguir(); return; }
     let pergunta = { perguntar: false, valor: 0 };
     if (empresaId && ag?.cliente) {
       try {
@@ -2254,8 +2443,11 @@ export default function AgendaPage() {
       setPerguntaTaxa({ id, status, valor: pergunta.valor, clienteNome: ag?.cliente?.nome ?? '' });
       return;
     }
-    await aplicarStatus(id, status, true);
+    seguir(true);
   }
+
+  /** Troca de status aguardando o "sim" do ConfirmDialog (`precisaConfirmarStatus`). */
+  const [confirmStatus, setConfirmStatus] = useState<{ id: string; status: string; mensagem: string; cobrar?: boolean } | null>(null);
 
   async function responderPerguntaTaxa(cobrar: boolean) {
     if (!perguntaTaxa) return;
@@ -2287,9 +2479,13 @@ export default function AgendaPage() {
         agId: id,
         clienteNome: ag.cliente.nome,
         clienteId: ag.cliente.id,
-        profissionalId: ag.profissional?.id ?? null,
       });
     }
+  }
+
+  /** Recarrega as marcas de bloqueio do calendário (só na visão Mês) depois de mexer num bloqueio. */
+  function recarregarMes() {
+    if (empresaId && view === 'mes') fetchMes(dataSel, empresaId);
   }
 
   /** Remove um bloqueio. `.select('id')` + guarda de zero linhas transforma um bloqueio de RLS em mensagem visível, restaurando a lista otimista. */
@@ -2304,6 +2500,7 @@ export default function AgendaPage() {
       return;
     }
     setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
+    recarregarMes();
   }
 
   /** Aprova um pedido de bloqueio pendente. `.select('id')` + guarda de zero linhas para não engolir bloqueio de RLS. */
@@ -2319,6 +2516,7 @@ export default function AgendaPage() {
     }
     setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
     if (empresaId) fetchDia(dataSel, empresaId);
+    recarregarMes();
   }
 
   /** Recusa um pedido de bloqueio pendente apagando a linha. Mesma guarda de zero linhas do aprovar. */
@@ -2334,6 +2532,7 @@ export default function AgendaPage() {
     }
     setBloqueiosPendentes(prev => prev.filter(b => b.id !== id));
     if (empresaId) fetchDia(dataSel, empresaId);
+    recarregarMes();
   }
 
   return (
@@ -2342,6 +2541,12 @@ export default function AgendaPage() {
       {toastErro && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-red text-white px-5 py-3 rounded-2xl shadow-lg font-semibold text-sm pointer-events-none">
           {toastErro}
+        </div>
+      )}
+
+      {erroDia && (
+        <div role="alert" className="mb-4 rounded-xl bg-red-soft text-red text-sm font-semibold px-4 py-3">
+          {erroDia} Os dados abaixo podem estar desatualizados.
         </div>
       )}
 
@@ -2371,9 +2576,9 @@ export default function AgendaPage() {
           {ehGestao && profissionaisEmpresa.length > 1 && (
             <div className="bm-mobile-action-wide" style={{ minWidth: 200 }}>
               <SearchSelect
-                options={profissionaisEmpresa.map(p => ({ value: p.id, label: p.nome }))}
-                value={profFiltro}
-                onChange={setProfFiltro}
+                options={[...(ehGestao ? [{ value: TODAS, label: 'Todas as profissionais' }] : []), ...profissionaisEmpresa.map(p => ({ value: p.id, label: p.nome }))]}
+                value={filtro}
+                onChange={v => setFiltroProfissional(v as FiltroProfissional)}
                 placeholder="Ver agenda de..."
               />
             </div>
@@ -2439,13 +2644,19 @@ export default function AgendaPage() {
         </div>
       )}
 
+      {/* Resumo do dia — mesmos 4 números do app (resumoDoDia, sem cancelados) */}
+      {(view === 'semana' || view === 'timeline') && (
+        <ResumoDoDiaCards resumo={resumoDia} carregando={loading} erro={!!erroDia}/>
+      )}
+
       {view === 'semana' ? (
-        <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg}/>
+        <ListaDia ags={agsVisiveis} bloqueios={bloqueiosDaLista} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg} nomeProfissional={nomeProfissional} meuUserId={meuUserId} podeAprovar={podeAprovarBloqueios} onPedirRemoverBloqueio={setBloqueioParaRemover}/>
       ) : view === 'timeline' ? (
         <TimelineView
           ags={agsVisiveis}
-          bloqueios={bloqueios}
-          profissionaisEmpresa={profissionaisEmpresa.filter(p => p.id === profFiltro)}
+          bloqueios={bloqueiosDaLista}
+          profissionaisEmpresa={profissionaisEmpresa}
+          filtro={filtro}
           loading={loading}
           empresaId={empresaId ?? ''}
           categoriasCustom={categoriasCustom}
@@ -2481,10 +2692,15 @@ export default function AgendaPage() {
                 <ChevronRight size={16}/>
               </button>
             </div>
-            <MesView mes={dataSel} agsPorDia={agsMes} diaSel={dataSel} onDiaClick={selecionarDia}/>
+            {erroMes && (
+              <div role="alert" className="mb-3 rounded-xl bg-red-soft text-red text-xs font-semibold px-3 py-2">
+                {erroMes} As marcas do calendário podem estar incompletas.
+              </div>
+            )}
+            <MesView mes={dataSel} agsPorDia={agsMes} diasBloqueados={diasBloqueadosMes} diaSel={dataSel} onDiaClick={selecionarDia}/>
           </div>
           </div>
-          <ListaDia ags={agsVisiveis} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg}/>
+          <ListaDia ags={agsVisiveis} bloqueios={bloqueiosDaLista} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg} nomeProfissional={nomeProfissional} meuUserId={meuUserId} podeAprovar={podeAprovarBloqueios} onPedirRemoverBloqueio={setBloqueioParaRemover}/>
         </>
       )}
 
@@ -2526,6 +2742,26 @@ export default function AgendaPage() {
         />
       )}
 
+      {/* Confirmação de cancelar, marcar falta ou reabrir (precisaConfirmarStatus) */}
+      {confirmStatus && (() => {
+        const c = confirmStatus;
+        const ag = ags.find(a => a.id === c.id);
+        const reabrir = c.mensagem === MSG_REABRIR;
+        const quem = [ag?.cliente?.nome, ag ? horaBRT(ag.data_hora_inicio) : null].filter(Boolean).join(' · ');
+        return (
+          <ConfirmDialog
+            open
+            variant={reabrir ? 'warning' : 'danger'}
+            title={c.mensagem}
+            message={quem ? `${quem}.` : 'Confirme a mudança de status.'}
+            confirmLabel={reabrir ? 'Reabrir' : c.status === 'faltou' ? 'Marcar falta' : 'Cancelar atendimento'}
+            cancelLabel="Voltar"
+            onConfirm={() => { setConfirmStatus(null); void aplicarStatus(c.id, c.status, c.cobrar); }}
+            onCancel={() => setConfirmStatus(null)}
+          />
+        );
+      })()}
+
       {/* Confirmação ao remover bloqueio pela Timeline */}
       {bloqueioParaRemover && (() => {
         const b = bloqueioParaRemover;
@@ -2533,7 +2769,7 @@ export default function AgendaPage() {
           ? 'Toda a agenda'
           : (profissionaisEmpresa.find(p => p.id === b.profissional_id)?.nome ?? 'Profissional');
         const intervalo =
-          `${format(parseISO(b.data_inicio), "dd/MM 'às' HH:mm")}–${format(parseISO(b.data_fim), 'HH:mm')}`;
+          `${rotuloDataHoraBRT(b.data_inicio)}–${horaBRT(b.data_fim)}`;
         const pend = b.situacao === 'pendente' ? ' Este pedido ainda aguarda aprovação.' : '';
         return (
           <ConfirmDialog
@@ -2560,6 +2796,7 @@ export default function AgendaPage() {
           onSalvo={b => {
             setBloqueios(prev => [...prev, b]);
             setModalBloq(false);
+            recarregarMes();
             if (b.situacao === 'pendente') showErro('Pedido de bloqueio enviado para aprovação.');
           }}
         />
@@ -2571,13 +2808,9 @@ export default function AgendaPage() {
           clienteNome={avaliacaoAg.clienteNome}
           onClose={() => setAvaliacaoAg(null)}
           onSalvar={async (nota, comentario) => {
-            await supabase.from('avaliacoes').insert({
-              empresa_id:      empresaId,
-              agendamento_id:  avaliacaoAg.agId,
-              cliente_id:      avaliacaoAg.clienteId,
-              profissional_id: avaliacaoAg.profissionalId,
-              nota,
-              comentario: comentario || null,
+            // O banco preenche a profissional a partir do atendimento; o erro volta para o modal.
+            await salvarAvaliacao(supabase as unknown as Parameters<typeof salvarAvaliacao>[0], {
+              empresaId, agendamentoId: avaliacaoAg.agId, clienteId: avaliacaoAg.clienteId, nota, comentario,
             });
             setAvaliacaoAg(null);
           }}
@@ -2600,10 +2833,17 @@ function AvaliacaoModal({ clienteNome, onClose, onSalvar }: {
   const [comentario, setComentario] = useState('');
   const [salvando,   setSalvando]   = useState(false);
 
+  const [erro, setErro] = useState('');
+
   async function salvar() {
     if (nota === 0) return;
-    setSalvando(true);
-    await onSalvar(nota, comentario);
+    setSalvando(true); setErro('');
+    try {
+      await onSalvar(nota, comentario);
+    } catch (e) {
+      setErro((e as Error).message || 'Não foi possível salvar a avaliação.');
+      setSalvando(false);
+    }
   }
 
   const estrelaAtiva = hover || nota;
@@ -2655,6 +2895,8 @@ function AvaliacaoModal({ clienteNome, onClose, onSalvar }: {
             />
           </div>
         )}
+
+        {erro && <p className="text-xs font-semibold text-red text-center">{erro}</p>}
 
         <div className="flex gap-3">
           <button onClick={onClose}

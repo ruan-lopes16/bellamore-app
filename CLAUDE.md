@@ -1292,6 +1292,42 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-19/21 — Paridade Agenda (094)
+
+*Escopo: a agenda do web e a do app ficam iguais pelas mesmas regras de `shared/agenda.ts` (janela do dia, horários de 15 min,*
+*semana de domingo, data passada, status, montagem com vários serviços, conflito, resumo do dia, `instanteBRT`),*
+*`shared/agenda-grade.ts` (grade, colunas por profissional, bloqueio geral, filtro inicial) e `shared/agenda-consultas.ts`.*
+*App: agendar e editar com vários serviços, duração, cortesia R$ 0, conflito, bloqueio e horário passado; rota de agendar da*
+*profissional; semana de verdade, visão Mês, colunas em "Todas"; detalhe com status pela regra única, avaliação e aviso de taxa*
+*paga ao excluir. Web: "Todas as profissionais", janela que se estica, bloqueios em Semana/Mês, detalhe com comanda e pagamentos,*
+*Ligar/WhatsApp/Perfil, resumo do dia, hora sempre em Brasília. Migration 094: trava de Concluído com comanda; tirar de Concluído*
+*sem comanda desfaz a comissão pendente e a sessão de pacote (recusa se a comissão já foi paga); avaliação com a profissional*
+*certa (o web nunca gravou nenhuma) e policies restritas; preferência "Minha agenda abre em". 11 tasks + revisões por task +*
+*revisão final (opus). Spec e plano: `docs/superpowers/{specs,plans}/2026-10-19-paridade-agenda*`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 2199/2199; mobile com os mesmos 8 erros pré-existentes; `next build` OK |
+| UX / Padrões    | 9.0  | Mesmos textos e confirmações nas duas plataformas; erros na tela, nunca zeros nem agenda "livre" |
+| Segurança       | 9.0  | Policy ampla de `avaliacoes` substituída; triggers `security definer` com `search_path`; preferência só da própria linha e "todas" só com `agenda.ver_equipe` |
+| Documentação    | 9.0  | Spec, plano, nota de deploy com conferências, cabeçalho da 094 com rollback |
+| Arquitetura     | 9.5  | Regras únicas em shared (grade unificada depois de a revisão achar critérios diferentes de "bloqueio geral"); teste cruzado de paridade; 094 testada em cima da cadeia 090–093 |
+| Performance     | 9.0  | Cargas paginadas; detalhe da comanda só ao abrir; contagem do mês numa consulta |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | 24 itens do inventário + bugs achados nas revisões; registrados os menores abaixo |
+| **Proatividade**| 9.5  | Revisões acharam: avaliação do web nunca salva (FK errada, erro engolido); voltar de Concluído duplicava comissão; editar no web mexia em atendimento já fechado na comanda e desvinculava pacote; nova tentativa duplicava agendamento e taxa; hora no fuso do navegador; erro de carga virava agenda livre no app |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Decisões do dono (2026-10-19):** "Todas as profissionais" nas duas plataformas, abrindo pela preferência de cada pessoa (Configurações → Perfil); data passada com confirmação; status livre com trava de comanda fechada e confirmação para reabrir; janela 7h–21h que se estica e horários de 15 em 15 min; profissional agenda pela própria área do app (botão que já existia), travada nela mesma.
+
+**Pendências para produção:** seguir `docs/superpowers/notes/2026-10-21-deploy-agenda.md` — **094 antes do deploy** (sem ela, tirar de Concluído sem comanda deixaria a comissão presa e duplicaria).
+
+**Registrados, não corrigidos:** tirar `comanda_id` pela API contorna a trava (nenhuma tela faz); "Fat. hoje" da profissional sem desconto rateado; pacote com validade hoje some ao agendar; avaliação não editável no web; seletor de dia do web no calendário local; atendimento longo só na 1ª hora da grade do app; cancelado não aparece nas agendas (reabrir raro); contagem do mês do app não invalidada pelo detalhe/comanda.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
