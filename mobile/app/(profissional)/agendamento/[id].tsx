@@ -32,6 +32,10 @@ import type { AgendamentoStatus } from '@/types';
 import { formatarMoeda } from '@shared/moeda';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
 import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
+import { confirmarAlerta } from '@/lib/statusAtendimento';
+import { precisaConfirmarStatus, type StatusAg } from '@shared/agenda';
+import { BotoesStatus } from '@/components/atendimento/BotoesStatus';
+import { AvaliacaoAtendimento } from '@/components/atendimento/AvaliacaoAtendimento';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -131,21 +135,34 @@ export default function AgendamentoProfissional() {
   // Na ausência do dado, mostramos só o valor bruto
   const comissao = ag.valor; // simplificado — o cálculo real está em useProfissional
 
-  async function atualizarStatus(novoStatus: AgendamentoStatus) {
-    // Cancelado/faltou: com a 091, pergunta (ou envia true) o campo cobrar_taxa_cancelamento.
-    const { continuar, extra } = await escolherCobrancaCancelamento({
-      empresaId: empresaAtiva?.id, novoStatus,
-      clienteId: ag.cliente_id ?? ag.cliente?.id, valorAtendimento: Number(ag.valor),
-    });
-    if (!continuar) return;
+  /**
+   * Troca de status pela regra única (`statusPermitidos`, nos botões). Cancelar/faltar com taxa
+   * mostra só a pergunta da taxa (091); sem ela, a troca passa por `precisaConfirmarStatus`.
+   */
+  async function trocarStatus(novoStatus: StatusAg) {
+    if (atualizando) return;
     setAtualizando(true);
+    try {
+      const { continuar, extra, perguntou } = await escolherCobrancaCancelamento({
+        empresaId: empresaAtiva?.id, novoStatus,
+        clienteId: ag.cliente_id ?? ag.cliente?.id, valorAtendimento: Number(ag.valor),
+      });
+      if (!continuar) return;
+      const pergunta = perguntou ? null : precisaConfirmarStatus(ag.status as StatusAg, novoStatus);
+      if (pergunta && !(await confirmarAlerta('Atualizar status', pergunta))) return;
+      await atualizarStatus(novoStatus, extra);
+    } finally {
+      setAtualizando(false);
+    }
+  }
+
+  async function atualizarStatus(novoStatus: AgendamentoStatus, extra: { cobrar_taxa_cancelamento?: boolean }) {
     // .select('id'): RLS recusando o UPDATE devolve 0 linhas sem erro (sucesso falso).
     const { data: atualizados, error } = await supabase
       .from('agendamentos')
       .update({ status: novoStatus, ...extra })
       .eq('id', id)
       .select('id');
-    setAtualizando(false);
     if (error) { Alert.alert('Erro', error.message); return; }
     if (!atualizados || atualizados.length === 0) {
       Alert.alert('Sem permissão', 'Você não tem permissão para alterar este atendimento.');
@@ -156,20 +173,12 @@ export default function AgendamentoProfissional() {
     qc.invalidateQueries({ queryKey: ['prof-kpis-dia'] });
   }
 
-  function confirmarCancelamento() {
-    Alert.alert('Cancelar agendamento', 'Confirma o cancelamento?', [
-      { text: 'Não', style: 'cancel' },
-      { text: 'Cancelar', style: 'destructive', onPress: () => atualizarStatus('cancelado') },
-    ]);
-  }
-
   const estaConcluido = ag.status === 'concluido';
   const estaCancelado = ag.status === 'cancelado';
   const estaFaltou    = ag.status === 'faltou';
-  const ativo         = !estaConcluido && !estaCancelado && !estaFaltou;
   // A consulta já filtra por profissional_id = eu; a checagem fica explícita por segurança.
-  const podeEditar    = podeMexerNoAgendamento(ag.profissional_id, user?.id ?? '', false)
-    && !(ag.status === 'concluido' && ag.comanda_id);
+  const podeAlterar   = podeMexerNoAgendamento(ag.profissional_id, user?.id ?? '', false);
+  const podeEditar    = podeAlterar && !(ag.status === 'concluido' && ag.comanda_id);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -370,70 +379,14 @@ export default function AgendamentoProfissional() {
           </TouchableOpacity>
         )}
 
-        {/* ── Ações de status ── */}
-        {ativo && (
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 350, delay: 120 }}
-            style={{ marginHorizontal: 24, marginTop: 16 }}
-          >
-            <Text style={{
-              fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11,
-              color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10,
-            }}>
-              Atualizar status
-            </Text>
-            <View style={{ gap: 8 }}>
-              {ag.status === 'agendado' && (
-                <TouchableOpacity
-                  onPress={() => atualizarStatus('confirmado')}
-                  disabled={atualizando}
-                  style={{ backgroundColor: C.greenSoft, borderWidth: 1, borderColor: 'rgba(13,126,95,0.2)', borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-                >
-                  <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(13,126,95,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                    <Check size={16} color={C.green} strokeWidth={2.5} />
-                  </View>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green, flex: 1 }}>Confirmar presença</Text>
-                  {atualizando && <ActivityIndicator color={C.green} size="small" />}
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity
-                onPress={() => atualizarStatus('concluido')}
-                disabled={atualizando}
-                style={{ backgroundColor: C.primarySoft, borderWidth: 1, borderColor: 'rgba(44,22,84,0.15)', borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-              >
-                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(44,22,84,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                  <Check size={16} color={C.primary} strokeWidth={2.5} />
-                </View>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary, flex: 1 }}>Marcar como concluído</Text>
-                {atualizando && <ActivityIndicator color={C.primary} size="small" />}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => atualizarStatus('faltou')}
-                disabled={atualizando}
-                style={{ backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.15)', borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-              >
-                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(180,83,9,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                  <AlertTriangle size={16} color={C.amber} strokeWidth={2} />
-                </View>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber, flex: 1 }}>Cliente faltou</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={confirmarCancelamento}
-                disabled={atualizando}
-                style={{ backgroundColor: C.redSoft, borderWidth: 1, borderColor: 'rgba(192,57,43,0.15)', borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-              >
-                <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(192,57,43,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                  <X size={16} color={C.red} strokeWidth={2.5} />
-                </View>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.red, flex: 1 }}>Cancelar agendamento</Text>
-              </TouchableOpacity>
-            </View>
-          </MotiView>
+        {/* ── Ações de status: regra única de shared/agenda (concluído com comanda mostra o aviso) ── */}
+        {podeAlterar && (
+          <BotoesStatus
+            status={ag.status as StatusAg}
+            comandaFechada={!!ag.comanda_id}
+            atualizando={atualizando}
+            onEscolher={trocarStatus}
+          />
         )}
 
         {/* ── Estado cancelado / faltou ── */}
@@ -462,6 +415,15 @@ export default function AgendamentoProfissional() {
               </View>
             </View>
           </MotiView>
+        )}
+
+        {/* ── Avaliação: só concluído e só para quem pode mexer no atendimento ── */}
+        {podeAlterar && ag.status === 'concluido' && !!(ag.cliente_id ?? ag.cliente?.id) && !!empresaAtiva?.id && (
+          <AvaliacaoAtendimento
+            empresaId={empresaAtiva.id}
+            agendamentoId={id}
+            clienteId={(ag.cliente_id ?? ag.cliente?.id) as string}
+          />
         )}
 
       </ScrollView>
