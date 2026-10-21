@@ -8,6 +8,8 @@ interface ConfirmDialogProps {
   title:          string;
   message:        string;
   confirmLabel?:  string;
+  /** Rótulo do botão de desistir (padrão "Cancelar"; use "Voltar" quando a ação é cancelar algo). */
+  cancelLabel?:   string;
   variant?:       'danger' | 'warning';
   loading?:       boolean;
   onConfirm:      () => void;
@@ -17,6 +19,7 @@ interface ConfirmDialogProps {
 export function ConfirmDialog({
   open, title, message,
   confirmLabel = 'Confirmar',
+  cancelLabel = 'Cancelar',
   variant = 'danger',
   loading = false,
   onConfirm, onCancel,
@@ -77,7 +80,7 @@ export function ConfirmDialog({
               color:      'var(--color-ink2)',
             }}
           >
-            Cancelar
+            {cancelLabel}
           </button>
           <button
             type="button"

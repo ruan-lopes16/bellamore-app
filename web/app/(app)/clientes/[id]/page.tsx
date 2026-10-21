@@ -31,10 +31,9 @@ import {
   ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES, TEXTO_DECLARACAO, type AnamneseRespostas,
 } from '@shared/anamnese';
-import {
-  descreverServicos, listarServicos, montarDetalheAtendimento,
-  type DetalheAtendimento,
-} from '@shared/atendimento-detalhe';
+import { descreverServicos, listarServicos, type DetalheAtendimento } from '@shared/atendimento-detalhe';
+import { carregarDetalheAtendimento } from '@shared/atendimento-detalhe-consultas';
+import { ConteudoComanda } from '@/components/ConteudoComanda';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 
@@ -394,47 +393,15 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
   useScrollLock();
   const [carregando, setCarregando] = useState(true);
   const [detalhe, setDetalhe] = useState<DetalheAtendimento | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      if (!comandaId) {
-        setDetalhe(montarDetalheAtendimento({
-          agendamentoId, comandaIdEsperado: null, comanda: null,
-          itens: [], pagamentos: [], agendamentosDaComanda: [],
-        }));
-        setCarregando(false);
-        return;
-      }
-
-      const [rComanda, rItens, rPagamentos, rAgs] = await Promise.all([
-        supabase.from('comandas')
-          .select('id, valor_total, desconto, desconto_reserva, fechada_at, observacao')
-          .eq('id', comandaId).maybeSingle(),
-        supabase.from('comanda_itens')
-          .select('id, tipo, descricao, quantidade, valor_unit, profissional:users(nome)')
-          .eq('comanda_id', comandaId),
-        supabase.from('pagamentos')
-          .select('id, metodo, valor, bandeira, parcelas, taxa_perc, valor_liquido')
-          .eq('comanda_id', comandaId),
-        supabase.from('agendamentos')
-          .select(`id, data_hora_inicio, valor,
-            servico:servicos(nome),
-            agendamento_servicos(ordem, servico:servicos(nome)),
-            profissional:users!agendamentos_profissional_id_fkey(nome)`)
-          .eq('comanda_id', comandaId)
-          .order('data_hora_inicio'),
-      ]);
-
-      setDetalhe(montarDetalheAtendimento({
-        agendamentoId,
-        comandaIdEsperado: comandaId,
-        comanda: (rComanda.data ?? null) as any,
-        itens: (rItens.data ?? []) as any,
-        pagamentos: (rPagamentos.data ?? []) as any,
-        agendamentosDaComanda: (rAgs.data ?? []) as any,
-      }));
-      setCarregando(false);
-    })();
+    let vivo = true;
+    carregarDetalheAtendimento(supabase, agendamentoId, comandaId)
+      .then(d => { if (vivo) setDetalhe(d); })
+      .catch(e => { if (vivo) setErro((e as Error).message); })
+      .finally(() => { if (vivo) setCarregando(false); });
+    return () => { vivo = false; };
   }, [agendamentoId, comandaId]);
 
 
@@ -454,94 +421,7 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 flex flex-col gap-5">
-          {carregando ? (
-            <div className="flex flex-col gap-3">
-              <Sk className="h-4 w-40"/><Sk className="h-4 w-56"/><Sk className="h-4 w-32"/>
-            </div>
-          ) : detalhe?.situacao === 'bloqueado_por_rls' ? (
-            <p className="text-sm text-text-3">
-              Detalhes financeiros disponíveis apenas para quem atendeu ou para a gestão.
-            </p>
-          ) : detalhe?.situacao === 'sem_comanda' ? (
-            <p className="text-sm text-text-3">
-              Este atendimento ainda não foi fechado em comanda.
-            </p>
-          ) : detalhe && (
-            <>
-              <section className="flex flex-col gap-2">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">O que foi feito</p>
-                {detalhe.itens.map(item => (
-                  <div key={`${item.origem}-${item.id}`}
-                    className={`flex items-start justify-between gap-3 text-sm ${item.esteAtendimento ? 'font-semibold text-text' : 'text-text-2'}`}>
-                    <span className="min-w-0">
-                      {item.quantidade > 1 && `${item.quantidade}× `}{item.descricao}
-                      {item.profissional && (
-                        <span className="block text-xs text-text-4">com {item.profissional.split(' ')[0]}</span>
-                      )}
-                    </span>
-                    <span className="flex-shrink-0"><Secret>{fmtBRL(item.valorLinha)}</Secret></span>
-                  </div>
-                ))}
-              </section>
-
-              <section className="flex flex-col gap-1.5 border-t border-border pt-4">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Fechamento</p>
-                <div className="flex justify-between text-sm text-text-2">
-                  <span>Subtotal</span><span><Secret>{fmtBRL(detalhe.subtotal)}</Secret></span>
-                </div>
-                {detalhe.descontoManual > 0 && (
-                  <div className="flex justify-between text-sm text-text-2">
-                    <span>Desconto</span><span>− <Secret>{fmtBRL(detalhe.descontoManual)}</Secret></span>
-                  </div>
-                )}
-                {detalhe.descontoReserva > 0 && (
-                  <div className="flex justify-between text-sm text-text-2">
-                    <span>Taxa de reserva já paga</span><span>− <Secret>{fmtBRL(detalhe.descontoReserva)}</Secret></span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm font-bold text-text pt-1">
-                  <span>Total</span><span><Secret>{fmtBRL(detalhe.total)}</Secret></span>
-                </div>
-              </section>
-
-              <section className="flex flex-col gap-1.5 border-t border-border pt-4">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest mb-1">Como foi pago</p>
-                {detalhe.pagamentos.length === 0 ? (
-                  <p className="text-sm text-text-4">Nenhum pagamento registrado.</p>
-                ) : detalhe.pagamentos.map(p => (
-                  <div key={p.id} className="flex justify-between text-sm text-text-2">
-                    <span className="capitalize">
-                      {p.metodo}
-                      {p.bandeira && ` · ${p.bandeira}`}
-                      {p.parcelas > 1 && ` · ${p.parcelas}×`}
-                      {p.taxaPerc != null && (
-                        <span className="block text-xs text-text-4 normal-case">
-                          taxa <Secret>{p.taxaPerc}%</Secret> · líquido <Secret>{fmtBRL(p.valorLiquido ?? 0)}</Secret>
-                        </span>
-                      )}
-                    </span>
-                    <span><Secret>{fmtBRL(p.valor)}</Secret></span>
-                  </div>
-                ))}
-              </section>
-
-              {detalhe.outrosAtendimentos.length > 0 && (
-                <section className="border-t border-border pt-4">
-                  <p className="text-xs text-text-3">
-                    Esta comanda fechou {detalhe.outrosAtendimentos.length + 1} atendimentos do mesmo dia —
-                    os valores acima são do total da visita:
-                  </p>
-                  <ul className="mt-2 flex flex-col gap-1">
-                    {detalhe.outrosAtendimentos.map(o => (
-                      <li key={o.id} className="text-xs text-text-4">
-                        {format(parseISO(o.dataHoraInicio), 'HH:mm')} — {o.servicos ?? 'Serviço'}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </>
-          )}
+          <ConteudoComanda detalhe={detalhe} carregando={carregando} erro={erro}/>
         </div>
       </div>
     </div>

@@ -51,6 +51,7 @@ import { buildTaxaReservaInsert } from '@shared/taxa-reserva';
 import {
   linhasIniciaisEdicao, montarAgendamento, instanteNoPassado, msgConflito, msgBloqueio,
   valorDigitadoValido, MSG_HORARIO_PASSADO, MSG_CONCLUIDO_COM_COMANDA, janelaDoDia,
+  statusPermitidos, precisaConfirmarStatus, resumoDoDia, MSG_REABRIR, type StatusAg,
 } from '@shared/agenda';
 import {
   TODAS, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
@@ -78,6 +79,7 @@ import {
 } from './visoes';
 import { MesView } from './MesView';
 import { BloqueiosDoDia } from './BloqueiosDoDia';
+import { DetalheAtendimento, ResumoDoDiaCards, useDetalheComanda } from './DetalheAtendimento';
 
 const supabase = createClient();
 
@@ -90,6 +92,8 @@ type Ag = {
   status: string; valor: number; observacao?: string;
   pacote_cliente_id?: string | null;
   comanda_id?: string | null;
+  /** Parte do desconto da comanda (090); só vem quando a coluna existe. */
+  desconto_rateado?: number | string | null;
   cliente: { id: string; nome: string; telefone?: string } | null;
   profissional: { id: string; nome: string } | null;
   servico: (AgServicoRef & { duracao_minutos: number }) | null;
@@ -187,19 +191,18 @@ function nomesServicosDoAg(ag: { agendamento_servicos?: { ordem: number; servico
 
 // ── Card de agendamento ───────────────────────────────────────
 
-const STATUS_OPCOES = [
-  { key: 'agendado',   label: 'Agendado',   cor: 'text-amber'   },
-  { key: 'confirmado', label: 'Confirmado', cor: 'text-primary' },
-  { key: 'concluido',  label: 'Concluído',  cor: 'text-green'   },
-  { key: 'cancelado',  label: 'Cancelado',  cor: 'text-red'     },
-  { key: 'faltou',     label: 'Faltou',     cor: 'text-red'     },
-];
+/** Cor do texto de cada status no seletor. As opções vêm de `statusPermitidos` (regra única com o app). */
+const STATUS_COR: Record<StatusAg, string> = {
+  agendado: 'text-amber', confirmado: 'text-primary', concluido: 'text-green', cancelado: 'text-red', faltou: 'text-red',
+};
 
-function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline = false, somenteLeitura = false }: {
+function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, onDetalhes, statusInline = false, somenteLeitura = false }: {
   ag: Ag;
   empresaId: string;
   onStatus: (id: string, s: string) => void;
   onEditar?: (ag: Ag) => void;
+  /** Abre o detalhe (contatos, comanda e pagamentos). Ausente dentro do próprio detalhe. */
+  onDetalhes?: (ag: Ag) => void;
   /** No modal mobile de Detalhes: mostra o status como lista embutida em vez de dropdown flutuante (que era cortado). */
   statusInline?: boolean;
   /**
@@ -213,6 +216,9 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
   const inicio = format(parseISO(ag.data_hora_inicio), 'HH:mm');
   const fim    = format(parseISO(ag.data_hora_fim), 'HH:mm');
   const st     = STATUS[ag.status] ?? { label: ag.status, bg: 'bg-bg', text: 'text-text-3' };
+  // Regra única com o app: concluído com comanda fechada não oferece nenhum status.
+  const opcoesStatus = statusPermitidos(ag.status as StatusAg, !!ag.comanda_id) ?? [];
+  const travadoPelaComanda = ag.status === 'concluido' && !!ag.comanda_id;
 
   function selecionarStatus(s: string) {
     setMenuAberto(false);
@@ -246,8 +252,9 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
                 </button>
               )}
               {/* Badge de status — dropdown no desktop, estático no modo inline ou somente leitura */}
-              {statusInline || somenteLeitura ? (
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${st.bg} ${st.text}`}>
+              {statusInline || somenteLeitura || opcoesStatus.length === 0 ? (
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${st.bg} ${st.text}`}
+                  title={travadoPelaComanda ? MSG_CONCLUIDO_COM_COMANDA : undefined}>
                   {st.label}
                 </span>
               ) : (
@@ -261,13 +268,10 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setMenuAberto(false)}/>
                       <div className="absolute right-0 top-full mt-1 z-20 bg-surface border border-border rounded-xl shadow-lg py-1 min-w-[130px]">
-                        {STATUS_OPCOES.map(({ key, label, cor }) => (
+                        {opcoesStatus.map(key => (
                           <button key={key} onClick={() => selecionarStatus(key)}
-                            className={`w-full text-left px-3 py-2 text-xs font-semibold hover:bg-bg transition flex items-center gap-2 ${
-                              ag.status === key ? 'opacity-40 cursor-default' : cor
-                            }`}>
-                            {ag.status === key && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0"/>}
-                            {label}
+                            className={`w-full text-left px-3 py-2 text-xs font-semibold hover:bg-bg transition flex items-center gap-2 ${STATUS_COR[key]}`}>
+                            {STATUS[key].label}
                           </button>
                         ))}
                       </div>
@@ -288,23 +292,31 @@ function AgCard({ ag, empresaId, onStatus, onEditar: onEditarProp, statusInline 
             {ag.profissional && <span className="flex items-center gap-1"><User size={10} strokeWidth={2}/>{ag.profissional.nome.split(' ')[0]}</span>}
             <span className="ml-auto font-semibold text-text-2">{fmtBRL(ag.valor)}</span>
           </div>
-          {statusInline && !somenteLeitura && (
+          {onDetalhes && (
+            <button type="button" onClick={() => onDetalhes(ag)}
+              className="mt-2 text-xs font-semibold text-accent hover:underline">
+              Ver detalhes
+            </button>
+          )}
+          {!somenteLeitura && (statusInline || opcoesStatus.length === 0) && (
             <div className="mt-3 pt-3 border-t border-border">
-              <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1.5">Mudar status</p>
-              <div className="flex flex-col gap-1.5">
-                {STATUS_OPCOES.map(({ key, label, cor }) => (
-                  <button key={key} type="button" onClick={() => selecionarStatus(key)}
-                    disabled={ag.status === key}
-                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-2 ${
-                      ag.status === key
-                        ? 'border-accent bg-accent/10 text-text opacity-60 cursor-default'
-                        : `border-border bg-surface hover:bg-bg ${cor}`
-                    }`}>
-                    {ag.status === key && <span className="w-1.5 h-1.5 rounded-full bg-current flex-shrink-0"/>}
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {opcoesStatus.length === 0 ? (
+                travadoPelaComanda && (
+                  <p className="text-xs text-text-3">{MSG_CONCLUIDO_COM_COMANDA}</p>
+                )
+              ) : (
+                <>
+                  <p className="text-[10px] font-semibold text-text-3 uppercase tracking-wide mb-1.5">Mudar status</p>
+                  <div className="flex flex-col gap-1.5">
+                    {opcoesStatus.map(key => (
+                      <button key={key} type="button" onClick={() => selecionarStatus(key)}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-2 border-border bg-surface hover:bg-bg ${STATUS_COR[key]}`}>
+                        {STATUS[key].label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1598,6 +1610,33 @@ function PendentesBloqueioBtn({ pendentes, onAprovar, onRecusar }: {
 }
 
 /**
+ * Modal "Detalhes" do atendimento. `apenasMobile`: só aparece abaixo de `lg` (no desktop a Timeline
+ * usa o painel lateral) e por isso usa `.bm-modal-mobile`, que não trava a rolagem no desktop.
+ * Quem usa `apenasMobile` trava a rolagem por conta própria (hook de trava com `apenasMobile`).
+ */
+function ModalDetalhe({ apenasMobile = false, onClose, children }: {
+  apenasMobile?: boolean; onClose: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className={`${apenasMobile ? 'lg:hidden bm-modal-mobile' : 'bm-modal'} fixed inset-0 z-50 flex items-center justify-center p-4`}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[88dvh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
+          <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
+          <button onClick={onClose}
+            className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="p-4 overflow-y-auto flex-1">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * TimelineView — Visão por hora dos agendamentos do dia.
  *
  * Uma coluna por profissional (`colunasDaTimeline`): só a escolhida, ou todas em
@@ -1627,6 +1666,8 @@ function TimelineView({
   const { pode } = usePermissoes();
   const podeAprovarBloqueios = pode('agenda.aprovar_bloqueios');
   const [agSel,     setAgSel]     = useState<Ag | null>(null);
+  // Uma busca só para o modal (mobile) e o painel (desktop), que ficam montados juntos.
+  const comandaSel = useDetalheComanda(agSel);
   // O painel Detalhes so vira modal no mobile/tablet (lg:hidden). No desktop ele e um
   // painel lateral e travar a pagina seria bug — foi exatamente o problema que
   // motivou a variante .bm-modal-mobile no globals.css.
@@ -1929,27 +1970,16 @@ function TimelineView({
       {agSel && (
         <>
           {/* Mobile: modal centralizado — mesmo padrão dos modais de despesa */}
-          <div className="lg:hidden bm-modal-mobile fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAgSel(null)} />
-            <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm max-h-[88dvh] flex flex-col">
-              <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
-                <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
-                <button onClick={() => setAgSel(null)}
-                  className="w-7 h-7 rounded-lg hover:bg-bg flex items-center justify-center text-text-4 transition">
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="p-4 overflow-y-auto flex-1">
-                <AgCard ag={agSel} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agSel)}
-                  onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
-                  onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
-              </div>
-            </div>
-          </div>
+          <ModalDetalhe apenasMobile onClose={() => setAgSel(null)}>
+            <AgCard ag={agSel} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agSel)}
+              onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
+              onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
+            <DetalheAtendimento ag={agSel} comanda={comandaSel}/>
+          </ModalDetalhe>
 
           {/* Desktop: painel lateral */}
           <div className="hidden lg:block w-72 flex-shrink-0">
-            <div className="sticky top-4">
+            <div className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
               <div className="flex items-center justify-between mb-2 px-1">
                 <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Detalhes</p>
                 <button onClick={() => setAgSel(null)}
@@ -1960,6 +1990,7 @@ function TimelineView({
               <AgCard ag={agSel} empresaId={empresaId} somenteLeitura={!podeAlterar(agSel)}
                 onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                 onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
+              <DetalheAtendimento ag={agSel} comanda={comandaSel}/>
             </div>
           </div>
         </>
@@ -1986,8 +2017,21 @@ function ListaDia({ ags, bloqueios, loading, dataSel, empresaId, onNovo, onStatu
   podeAprovar: boolean;
   onPedirRemoverBloqueio: (b: Bloqueio) => void;
 }) {
+  // Detalhe (contatos, comanda e pagamentos): guarda só o id, para refletir a troca de status otimista.
+  const [agDetId, setAgDetId] = useState<string | null>(null);
+  const agDet = agDetId ? ags.find(a => a.id === agDetId) ?? null : null;
+  const comandaDet = useDetalheComanda(agDet);
+  useScrollLock(!!agDet);
   return (
     <div>
+      {agDet && (
+        <ModalDetalhe onClose={() => setAgDetId(null)}>
+          <AgCard ag={agDet} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agDet)}
+            onStatus={(id, st) => { setAgDetId(null); onStatus(id, st); }}
+            onEditar={onEditar ? ag => { setAgDetId(null); onEditar(ag); } : undefined}/>
+          <DetalheAtendimento ag={agDet} comanda={comandaDet}/>
+        </ModalDetalhe>
+      )}
       <p className="text-sm font-semibold text-text-2 mb-3">
         {isToday(dataSel) ? 'Hoje' : format(dataSel, "EEEE, dd 'de' MMMM", { locale: ptBR })}
         {!loading && (
@@ -2026,7 +2070,7 @@ function ListaDia({ ags, bloqueios, loading, dataSel, empresaId, onNovo, onStatu
         <div className="flex flex-col gap-3">
           {ags.map((ag, idx) => (
             <div key={ag.id} className="bm-stagger" style={{ '--bm-i': idx, '--bm-step': '60ms' } as React.CSSProperties}>
-              <AgCard ag={ag} empresaId={empresaId} onStatus={onStatus} onEditar={onEditar} somenteLeitura={!podeAlterar(ag)}/>
+              <AgCard ag={ag} empresaId={empresaId} onStatus={onStatus} onEditar={onEditar} onDetalhes={a => setAgDetId(a.id)} somenteLeitura={!podeAlterar(ag)}/>
             </div>
           ))}
           {/* Slot livre */}
@@ -2112,6 +2156,17 @@ export default function AgendaPage() {
     () => ags.filter(a => a.status !== 'cancelado'),
     [ags],
   );
+  /** Os 4 números do dia (Agendamentos, Receita prevista, Profissionais, Pendentes), iguais aos do app. */
+  const resumoDia = useMemo(
+    () => resumoDoDia(agsVisiveis.map(a => ({
+      status: a.status,
+      profissional_id: a.profissional?.id ?? '',
+      valor: a.valor,
+      pacote_cliente_id: a.pacote_cliente_id ?? null,
+      desconto_rateado: a.desconto_rateado ?? null,
+    }))),
+    [agsVisiveis],
+  );
 
   function showErro(msg: string) {
     setToastErro(msg);
@@ -2176,7 +2231,9 @@ export default function AgendaPage() {
         buscarPaginas((de, ate) => {
           let q = supabase
             .from('agendamentos')
-            .select(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,comanda_id,
+            // `*` traz comanda_id, pacote_cliente_id e desconto_rateado (este só com a 090, sem quebrar antes
+            // dela) — o resumo do dia usa o valor cobrado, igual ao app.
+            .select(`*,
               cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
               profissional:users!agendamentos_profissional_id_fkey(id,nome),
               servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
@@ -2347,8 +2404,20 @@ export default function AgendaPage() {
       showErro(mensagemErroBanco({ code: '42501' }, 'mudar o status de agendamento de outra profissional'));
       return;
     }
-    if (status !== 'cancelado' && status !== 'faltou') { await aplicarStatus(id, status); return; }
-    if (!(await colunaCobrarTaxaExiste(supabase))) { await aplicarStatus(id, status); return; }
+    // Regra única (statusPermitidos): concluído com comanda fechada não muda por aqui.
+    if (ag && !(statusPermitidos(ag.status as StatusAg, !!ag.comanda_id) ?? []).includes(status as StatusAg)) {
+      showErro(ag.status === 'concluido' && ag.comanda_id ? MSG_CONCLUIDO_COM_COMANDA : 'Essa mudança de status não é permitida.');
+      return;
+    }
+    // Cancelar, marcar falta e reabrir pedem confirmação antes de gravar — exceto quando a pergunta
+    // da taxa de cancelamento aparece: ela já é a confirmação (nunca duas perguntas seguidas).
+    const confirmar = ag ? precisaConfirmarStatus(ag.status as StatusAg, status as StatusAg) : null;
+    const seguir = (cobrar?: boolean) => {
+      if (confirmar) { setConfirmStatus({ id, status, mensagem: confirmar, cobrar }); return; }
+      void aplicarStatus(id, status, cobrar);
+    };
+    if (status !== 'cancelado' && status !== 'faltou') { seguir(); return; }
+    if (!(await colunaCobrarTaxaExiste(supabase))) { seguir(); return; }
     let pergunta = { perguntar: false, valor: 0 };
     if (empresaId && ag?.cliente) {
       try {
@@ -2363,8 +2432,11 @@ export default function AgendaPage() {
       setPerguntaTaxa({ id, status, valor: pergunta.valor, clienteNome: ag?.cliente?.nome ?? '' });
       return;
     }
-    await aplicarStatus(id, status, true);
+    seguir(true);
   }
+
+  /** Troca de status aguardando o "sim" do ConfirmDialog (`precisaConfirmarStatus`). */
+  const [confirmStatus, setConfirmStatus] = useState<{ id: string; status: string; mensagem: string; cobrar?: boolean } | null>(null);
 
   async function responderPerguntaTaxa(cobrar: boolean) {
     if (!perguntaTaxa) return;
@@ -2561,6 +2633,11 @@ export default function AgendaPage() {
         </div>
       )}
 
+      {/* Resumo do dia — mesmos 4 números do app (resumoDoDia, sem cancelados) */}
+      {(view === 'semana' || view === 'timeline') && (
+        <ResumoDoDiaCards resumo={resumoDia} carregando={loading} erro={!!erroDia}/>
+      )}
+
       {view === 'semana' ? (
         <ListaDia ags={agsVisiveis} bloqueios={bloqueiosDaLista} loading={loading} dataSel={dataSel} empresaId={empresaId ?? ''} onNovo={() => setModal(true)} onStatus={mudarStatus} onEditar={ag => setAgEditar(ag)} podeAlterar={podeAlterarAg} nomeProfissional={nomeProfissional} meuUserId={meuUserId} podeAprovar={podeAprovarBloqueios} onPedirRemoverBloqueio={setBloqueioParaRemover}/>
       ) : view === 'timeline' ? (
@@ -2653,6 +2730,26 @@ export default function AgendaPage() {
           onFechar={() => setPerguntaTaxa(null)}
         />
       )}
+
+      {/* Confirmação de cancelar, marcar falta ou reabrir (precisaConfirmarStatus) */}
+      {confirmStatus && (() => {
+        const c = confirmStatus;
+        const ag = ags.find(a => a.id === c.id);
+        const reabrir = c.mensagem === MSG_REABRIR;
+        const quem = [ag?.cliente?.nome, ag ? horaBRT(ag.data_hora_inicio) : null].filter(Boolean).join(' · ');
+        return (
+          <ConfirmDialog
+            open
+            variant={reabrir ? 'warning' : 'danger'}
+            title={c.mensagem}
+            message={quem ? `${quem}.` : 'Confirme a mudança de status.'}
+            confirmLabel={reabrir ? 'Reabrir' : c.status === 'faltou' ? 'Marcar falta' : 'Cancelar atendimento'}
+            cancelLabel="Voltar"
+            onConfirm={() => { setConfirmStatus(null); void aplicarStatus(c.id, c.status, c.cobrar); }}
+            onCancel={() => setConfirmStatus(null)}
+          />
+        );
+      })()}
 
       {/* Confirmação ao remover bloqueio pela Timeline */}
       {bloqueioParaRemover && (() => {

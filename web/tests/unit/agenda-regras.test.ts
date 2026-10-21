@@ -159,7 +159,7 @@ describe('colunasPorProfissional', () => {
 });
 
 describe('resumoDoDia', () => {
-  it('total, receita prevista (sem cancelado/faltou/pacote), profissionais e pendentes', () => {
+  it('total e profissionais sem cancelados; receita prevista sem cancelado/faltou/pacote; pendentes', () => {
     const r = resumoDoDia([
       { status: 'agendado', profissional_id: 'a', valor: 100 },
       { status: 'confirmado', profissional_id: 'a', valor: 50.5 },
@@ -167,7 +167,7 @@ describe('resumoDoDia', () => {
       { status: 'concluido', profissional_id: 'c', valor: 30, pacote_cliente_id: 'pc' },
       { status: 'agendado', profissional_id: 'b', valor: null },
     ]);
-    expect(r).toEqual({ total: 5, receitaPrevista: 150.5, profissionais: 3, pendentes: 2 });
+    expect(r).toEqual({ total: 4, receitaPrevista: 150.5, profissionais: 3, pendentes: 2 });
   });
   it('receita prevista desconta o desconto rateado da comanda (igual ao app e ao Financeiro)', () => {
     const r = resumoDoDia([

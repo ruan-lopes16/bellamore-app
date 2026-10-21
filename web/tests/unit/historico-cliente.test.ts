@@ -48,11 +48,15 @@ describe('modal de detalhe do atendimento no web', () => {
   it('consulta a comanda com maybeSingle para distinguir RLS de erro', () => {
     // .single() devolveria erro quando o RLS filtra a linha; .maybeSingle()
     // devolve null, que e o que montarDetalheAtendimento espera.
-    expect(read(arquivo)).toContain('.maybeSingle()');
+    // A consulta saiu para shared (Task 10 da Agenda: perfil e agenda usam a mesma).
+    expect(read(arquivo)).toContain('carregarDetalheAtendimento(');
+    expect(read('../shared/atendimento-detalhe-consultas.ts')).toContain('.maybeSingle()');
   });
 
   it('trata as tres situacoes possiveis do detalhe', () => {
-    const src = read(arquivo);
+    // O bloco saiu para components/ConteudoComanda.tsx (o mesmo do detalhe da Agenda).
+    expect(read(arquivo)).toContain('<ConteudoComanda');
+    const src = read('components/ConteudoComanda.tsx');
     expect(src).toContain("'bloqueado_por_rls'");
     expect(src).toContain("'sem_comanda'");
     expect(src).toContain('Detalhes financeiros disponíveis apenas para quem atendeu');

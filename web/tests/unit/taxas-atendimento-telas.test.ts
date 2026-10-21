@@ -76,8 +76,10 @@ describe('web', () => {
     expect(agenda).toContain('colunaCobrarTaxaExiste(supabase)');
     expect(agenda).toContain('carregarConfigTaxas(supabase, empresaId)');
     expect(agenda).toContain('perguntaTaxaCancelamento(');
-    // Sem a 091 não pergunta; com ela, sem pergunta envia true.
-    expect(agenda).toContain('await aplicarStatus(id, status, true)');
+    // Sem a 091 não pergunta; com ela, sem pergunta envia true — depois do ConfirmDialog de
+    // precisaConfirmarStatus (Task 10), que grava com o `cobrar` guardado.
+    expect(agenda).toContain('seguir(true)');
+    expect(agenda).toContain('aplicarStatus(c.id, c.status, c.cobrar)');
     expect(agenda).toMatch(/\.update\(cobrarTaxaCancelamento === undefined \? \{ status \} : \{ status, cobrar_taxa_cancelamento: cobrarTaxaCancelamento \}\)/);
     // Nenhum outro update de status no arquivo.
     expect(agenda.match(/\.update\(\{ status/g) ?? []).toHaveLength(0);

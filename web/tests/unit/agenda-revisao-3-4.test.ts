@@ -68,7 +68,8 @@ describe('web: valor da linha como texto (vazio = preço, "0" = cortesia)', () =
 
 describe('web: comanda fechada trava a edição (igual ao app)', () => {
   it('carrega comanda_id e mostra MSG_CONCLUIDO_COM_COMANDA', () => {
-    expect(web).toMatch(/select\(`id,data_hora_inicio,data_hora_fim,status,valor,observacao,pacote_cliente_id,comanda_id/);
+    // `*` traz comanda_id (e desconto_rateado com a 090); a Task 10 trocou a lista explícita por `*`.
+    expect(web).toMatch(/select\(`\*,\s*cliente:clientes!agendamentos_cliente_id_fkey\(id,nome,telefone\)/);
     expect(web).toContain('MSG_CONCLUIDO_COM_COMANDA');
     expect(web).toMatch(/edicaoTravada = !!agEditar\?\.comanda_id/);
   });

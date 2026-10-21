@@ -22,7 +22,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import {
   useAgendamentoDia, useProfissionais, useDiasComAgendamento,
-  useResumoDia, CATEGORIA_CONFIG,
+  CATEGORIA_CONFIG,
   useBloqueiosDia, useBloqueiosPendentes, useCriarBloqueio,
   useAprovarBloqueio, useRecusarBloqueio, useRemoverBloqueio,
   type AgendamentoCompleto, type ProfissionalAgenda, type BloqueioAgenda,
@@ -32,7 +32,7 @@ import { usePreferenciaAgenda } from '@/hooks/usePreferenciaAgenda';
 import { usePermissoes } from '@/lib/permissions';
 import { agendarLembretesLocais } from '@/lib/notifications';
 import { motivoBloqueioLabel } from '@shared/bloqueios';
-import { janelaDoDia } from '@shared/agenda';
+import { janelaDoDia, resumoDoDia } from '@shared/agenda';
 import { hojeBRT, horaBRT } from '@shared/periodos';
 import { FaixaSemana } from '@/components/agenda/FaixaSemana';
 import { VisaoMes } from '@/components/agenda/VisaoMes';
@@ -266,7 +266,8 @@ export default function Agenda() {
   const criarBloqueio = useCriarBloqueio();
   const aprovar = useAprovarBloqueio();
   const recusar = useRecusarBloqueio();
-  const resumo = useResumoDia(agendamentos);
+  // Mesmos 4 números do web (sem cancelados; receita prevista sem faltas e sessões de pacote).
+  const resumo = resumoDoDia(agendamentos);
 
   // Categorias personalizadas presentes no dia (para a legenda, além das 8 fixas)
   const customsNoDia = Array.from(
@@ -493,7 +494,7 @@ export default function Agenda() {
           }}>
             {[
               { value: erroDia ? '—' : String(resumo.total),           label: 'Agendamentos', color: C.text },
-              { value: erroDia ? '—' : formatarMoeda(resumo.receita),  label: 'Receita prev.',  color: C.green },
+              { value: erroDia ? '—' : formatarMoeda(resumo.receitaPrevista),  label: 'Receita prev.',  color: C.green },
               { value: erroDia ? '—' : String(resumo.profissionais),   label: 'Profissionais',  color: C.text },
               { value: erroDia ? '—' : String(resumo.pendentes),       label: 'Pendentes',      color: !erroDia && resumo.pendentes > 0 ? C.amber : C.text },
             ].map((s, i, arr) => (

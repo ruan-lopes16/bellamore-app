@@ -6,6 +6,7 @@ import { chaveDiaBRT, diaDaSemana, horaBRT, instanteMs, somarDias } from './peri
 import { parseValorBR } from './comanda-fechamento';
 import { faturamentoPrevistoDia } from './kpis-financeiros';
 import { MOTIVOS_BLOQUEIO } from './bloqueios';
+import { toWhatsApp } from './mascaras';
 
 /** Janela visível da timeline, em horas inteiras (0..24). */
 export type Janela = { ini: number; fim: number };
@@ -175,7 +176,8 @@ export function colunasPorProfissional<T extends { profissional_id: string }>(
 /**
  * Resumo do dia: total de atendimentos, receita prevista (`faturamentoPrevistoDia`: sem cancelados,
  * faltas e sessões de pacote, cada um pelo valor cobrado — valor − desconto_rateado da comanda),
- * nº de profissionais e pendentes (status agendado).
+ * nº de profissionais e pendentes (status agendado). Mesmos 4 números no web e no app.
+ * Cancelados não contam em nada (decisão do dono, 01/10); faltas contam no total e nas profissionais.
  */
 export function resumoDoDia(
   ags: {
@@ -183,12 +185,24 @@ export function resumoDoDia(
     desconto_rateado?: number | string | null;
   }[],
 ): { total: number; receitaPrevista: number; profissionais: number; pendentes: number } {
+  const validos = ags.filter((a) => a.status !== 'cancelado');
   return {
-    total: ags.length,
-    receitaPrevista: faturamentoPrevistoDia(ags.map((a) => ({
+    total: validos.length,
+    receitaPrevista: faturamentoPrevistoDia(validos.map((a) => ({
       valor: a.valor, status: a.status, pacote_cliente_id: a.pacote_cliente_id ?? null, desconto_rateado: a.desconto_rateado ?? null,
     }))),
-    profissionais: new Set(ags.map((a) => a.profissional_id)).size,
-    pendentes: ags.filter((a) => a.status === 'agendado').length,
+    profissionais: new Set(validos.map((a) => a.profissional_id)).size,
+    pendentes: validos.filter((a) => a.status === 'agendado').length,
   };
+}
+
+/**
+ * Links de contato da cliente no detalhe do atendimento: `tel:` e WhatsApp (`https://wa.me/55…`,
+ * sem duplicar o DDI de número já salvo com 55). Sem telefone (ou sem dígitos) devolve null e a
+ * tela esconde os dois botões.
+ */
+export function contatosCliente(telefone: string | null | undefined): { ligar: string; whatsapp: string } | null {
+  const digitos = (telefone ?? '').replace(/\D/g, '');
+  if (!digitos) return null;
+  return { ligar: `tel:${digitos}`, whatsapp: `https://wa.me/${toWhatsApp(digitos)}` };
 }
