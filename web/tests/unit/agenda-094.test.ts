@@ -42,6 +42,21 @@ describe('migration 094 — texto', () => {
     expect(migr(ARQ)).toContain('Já fechado na comanda. Para mudar, edite a comanda.');
   });
 
+  it('tirar de Concluído sem comanda: trigger AFTER UPDATE OF status, security definer com search_path fixo', () => {
+    expect(corpo).toContain('drop trigger if exists trg_desfaz_conclusao_sem_comanda on public.agendamentos;');
+    expect(corpo).toMatch(/create trigger trg_desfaz_conclusao_sem_comanda\s+after update of status on public\.agendamentos/);
+    const f = funcao('fn_desfaz_conclusao_sem_comanda');
+    expect(f).toContain('security definer');
+    expect(f).toContain('set search_path = public');
+    expect(f).toContain("old.status = 'concluido'");
+    expect(f).toContain('old.comanda_id is null');
+    expect(f).toContain("new.status <> 'concluido'");
+    expect(f).toContain('delete from public.comissoes');
+    expect(f).toContain("status = 'pendente'");
+    expect(f).toContain('delete from public.pacote_uso');
+    expect(migr(ARQ)).toContain('A comissão deste atendimento já foi paga. Não é possível tirar de Concluído.');
+  });
+
   it('avaliação: trigger BEFORE INSERT OR UPDATE, security definer com search_path fixo', () => {
     expect(corpo).toContain('drop trigger if exists trg_avaliacao_profissional on public.avaliacoes;');
     expect(corpo).toMatch(/create trigger trg_avaliacao_profissional\s+before insert or update on public\.avaliacoes/);
@@ -307,6 +322,111 @@ describe('094 em PGlite — preferência da agenda', () => {
   });
 });
 
+describe('094 em PGlite — tirar de Concluído sem comanda desfaz comissão e sessão de pacote', () => {
+  const SV = id('5', 1);
+  const PK = id('6', 1);
+  const PC = id('7', 1);
+  const comissoes = async (a: string) =>
+    admin<{ s: string }>(`select status::text s from comissoes where agendamento_id = $1 order by created_at`, [a]);
+  const usos = async () => (await admin<{ n: number }>(`select count(*)::int n from pacote_uso where pacote_cliente_id = $1`, [PC]))[0].n;
+  const status = async (a: string) => (await admin<{ s: string }>(`select status::text s from agendamentos where id = $1`, [a]))[0].s;
+  const mudar = (a: string, s: string) => q(`update agendamentos set status = '${s}' where id = $1`, [a]);
+
+  beforeAll(async () => {
+    await admin(`update empresa_membros set percentual_comissao = 40 where empresa_id = $1 and user_id = $2`, [E, P1]);
+    await db.exec(`reset role;
+      insert into servicos values ('${SV}', '${E}');
+      insert into pacotes values ('${PK}', '${E}', true);
+      insert into pacote_servicos values ('${PK}', '${SV}', 3);
+      insert into pacote_clientes (id, empresa_id, cliente_id, pacote_id) values ('${PC}', '${E}', '${CL}', '${PK}');
+      insert into agendamentos (id, empresa_id, profissional_id, cliente_id, comanda_id, status, valor, servico_id) values
+        ('${ag(10)}', '${E}', '${P1}', '${CL}', null, 'agendado', 100, null),
+        ('${ag(11)}', '${E}', '${P1}', '${CL}', null, 'agendado', 100, null),
+        ('${ag(12)}', '${E}', '${P1}', '${CL}', null, 'agendado', 100, '${SV}'),
+        ('${ag(13)}', '${E}', '${P1}', '${CL}', null, 'agendado', 100, '${SV}');
+    `);
+  });
+
+  it('concluir gera 1 comissão; voltar a agendado apaga; concluir de novo fica com 1, não 2', async () => {
+    await como(P1, PADRAO_PROFISSIONAL);
+    await mudar(ag(10), 'concluido');
+    expect(await comissoes(ag(10))).toEqual([{ s: 'pendente' }]);
+    await mudar(ag(10), 'agendado');
+    expect(await comissoes(ag(10))).toEqual([]);
+    await mudar(ag(10), 'concluido');
+    expect(await comissoes(ag(10))).toEqual([{ s: 'pendente' }]);
+  });
+
+  it('cancelado, faltou e confirmado também apagam a comissão pendente (profissional sem policy de DELETE)', async () => {
+    for (const s of ['cancelado', 'faltou', 'confirmado']) {
+      await como(P1, PADRAO_PROFISSIONAL);
+      await mudar(ag(10), 'concluido');
+      expect(await comissoes(ag(10))).toHaveLength(1);
+      await mudar(ag(10), s);
+      expect(await comissoes(ag(10)), s).toEqual([]);
+    }
+    await mudar(ag(10), 'concluido');
+    expect(await comissoes(ag(10))).toHaveLength(1);
+  });
+
+  it('com a comissão paga a volta é recusada (P0001), nada muda — nem para a dona', async () => {
+    await como(P1, PADRAO_PROFISSIONAL);
+    await mudar(ag(11), 'concluido');
+    await admin(`update comissoes set status = 'pago' where agendamento_id = $1`, [ag(11)]);
+    expect(await erro(() => mudar(ag(11), 'agendado')))
+      .toBe('A comissão deste atendimento já foi paga. Não é possível tirar de Concluído.');
+    await como(DONA);
+    let code = '';
+    try { await mudar(ag(11), 'cancelado'); } catch (e) { code = (e as { code?: string }).code ?? ''; }
+    expect(code).toBe('P0001');
+    expect(await status(ag(11))).toBe('concluido');
+    expect(await comissoes(ag(11))).toEqual([{ s: 'pago' }]);
+  });
+
+  it('sessão de pacote consumida na conclusão volta ao pacote e é consumida uma vez só na nova conclusão', async () => {
+    await como(P1, PADRAO_PROFISSIONAL);
+    await mudar(ag(12), 'concluido');
+    expect(await usos()).toBe(1);
+    await mudar(ag(12), 'faltou');
+    expect(await usos()).toBe(0);
+    await mudar(ag(12), 'concluido');
+    expect(await usos()).toBe(1);
+    await mudar(ag(13), 'concluido');
+    expect(await usos()).toBe(2);
+    await mudar(ag(12), 'agendado');
+    expect(await usos()).toBe(1);
+    expect(await admin(`select agendamento_id a from pacote_uso where pacote_cliente_id = $1`, [PC])).toEqual([{ a: ag(13) }]);
+  });
+
+  it('sessão com vínculo explícito (pacote_cliente_id, sem comissão) também volta ao pacote', async () => {
+    await admin(`update agendamentos set pacote_cliente_id = $1 where id = $2`, [PC, ag(12)]);
+    await como(P1, PADRAO_PROFISSIONAL);
+    await mudar(ag(12), 'concluido');
+    expect(await usos()).toBe(2);
+    expect(await comissoes(ag(12))).toEqual([]);
+    await mudar(ag(12), 'cancelado');
+    expect(await usos()).toBe(1);
+  });
+
+  it('com comanda a trava continua valendo e não apaga comissão nem sessão', async () => {
+    await admin(`insert into comissoes (empresa_id, profissional_id, agendamento_id, valor_servico, percentual)
+      values ($1, $2, $3, 80, 40)`, [E, P1, ag(1)]);
+    await admin(`insert into pacote_uso (empresa_id, pacote_cliente_id, agendamento_id) values ($1, $2, $3)`, [E, PC, ag(1)]);
+    await como(DONA);
+    expect(await erro(() => mudar(ag(1), 'agendado'))).toBe('Já fechado na comanda. Para mudar, edite a comanda.');
+    expect(await comissoes(ag(1))).toEqual([{ s: 'pendente' }]);
+    expect((await admin(`select id from pacote_uso where agendamento_id = $1`, [ag(1)])).length).toBe(1);
+  });
+
+  it('mudar outra coluna de um Concluído sem comanda não apaga nada', async () => {
+    await como(P1, PADRAO_PROFISSIONAL);
+    await q(`update agendamentos set valor = 90 where id = $1`, [ag(13)]);
+    await mudar(ag(13), 'concluido');
+    expect(await comissoes(ag(13))).toHaveLength(1);
+    expect((await admin(`select id from pacote_uso where agendamento_id = $1`, [ag(13)])).length).toBe(1);
+  });
+});
+
 describe('094 em PGlite — idempotência', () => {
   it('roda duas vezes sem erro e sem duplicar nada', async () => {
     await db.exec('reset role');
@@ -317,10 +437,15 @@ describe('094 em PGlite — idempotência', () => {
       'avaliacoes: gestor apaga', 'avaliacoes: membro ve', 'avaliacoes: quem atende altera', 'avaliacoes: quem atende grava',
     ]);
     const trg = await admin<{ t: string }>(`select tgname t from pg_trigger
-      where tgname in ('trg_trava_concluido_com_comanda', 'trg_avaliacao_profissional') order by 1`);
-    expect(trg.map(r => r.t)).toEqual(['trg_avaliacao_profissional', 'trg_trava_concluido_com_comanda']);
+      where tgname in ('trg_trava_concluido_com_comanda', 'trg_avaliacao_profissional', 'trg_desfaz_conclusao_sem_comanda') order by 1`);
+    expect(trg.map(r => r.t)).toEqual(['trg_avaliacao_profissional', 'trg_desfaz_conclusao_sem_comanda', 'trg_trava_concluido_com_comanda']);
     await como(DONA);
     expect(await erro(() => q(`update agendamentos set status = 'agendado' where id = $1`, [ag(1)])))
       .toBe('Já fechado na comanda. Para mudar, edite a comanda.');
+    // Depois de rodar de novo: voltar e concluir continua deixando 1 comissão só.
+    await como(P1, PADRAO_PROFISSIONAL);
+    await q(`update agendamentos set status = 'agendado' where id = $1`, [ag(10)]);
+    await q(`update agendamentos set status = 'concluido' where id = $1`, [ag(10)]);
+    expect(await admin(`select count(*)::int n from comissoes where agendamento_id = $1`, [ag(10)])).toEqual([{ n: 1 }]);
   });
 });

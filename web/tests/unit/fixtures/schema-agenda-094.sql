@@ -33,7 +33,8 @@ create table clientes (id uuid primary key, empresa_id uuid);
 create table comandas (id uuid primary key, empresa_id uuid);
 create table agendamentos (
   id uuid primary key, empresa_id uuid, profissional_id uuid, cliente_id uuid,
-  comanda_id uuid references comandas(id), status agendamento_status default 'agendado', valor numeric(10,2) default 0
+  comanda_id uuid references comandas(id), status agendamento_status default 'agendado', valor numeric(10,2) default 0,
+  servico_id uuid, pacote_cliente_id uuid, desconto_rateado numeric(10,2) default 0
 );
 create table equipe_historico (id uuid primary key default gen_random_uuid(), empresa_id uuid, alvo_user_id uuid, acao text, detalhe jsonb, feito_por uuid);
 
@@ -138,5 +139,107 @@ create trigger trg_equipe_historico_membro after update on empresa_membros
 
 alter table clientes enable row level security;
 create policy "clientes ver" on clientes for select using (empresa_id in (select minha_empresas()));
+
+-- Comissão do atendimento (001 + 085: agendamento_id opcional, comanda_item_id) e o trigger de
+-- conclusão com o corpo vigente (gerar_comissao da 090, trg_gerar_comissao da 065). Sem índice
+-- único por atendimento, igual a produção. RLS: só leitura e UPDATE de gestora/dona (083), nenhuma
+-- policy de DELETE — apagar só por função security definer.
+create type comissao_status as enum ('pendente', 'pago');
+create table comissoes (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid not null references empresas(id),
+  profissional_id uuid not null,
+  agendamento_id uuid references agendamentos(id),
+  comanda_item_id uuid,
+  valor_servico numeric(10,2) not null,
+  percentual numeric(5,2) not null,
+  valor_comissao numeric(10,2) generated always as (round(valor_servico * percentual / 100, 2)) stored,
+  status comissao_status default 'pendente',
+  created_at timestamptz default now()
+);
+alter table comissoes enable row level security;
+create policy "comissoes: ver" on comissoes for select
+  using (profissional_id = auth.uid() or is_gestor_ou_owner(empresa_id));
+create policy "comissoes: gestor ou owner atualiza" on comissoes for update
+  using (is_gestor_ou_owner(empresa_id)) with check (is_gestor_ou_owner(empresa_id));
+
+create function gerar_comissao() returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_percentual numeric(5,2);
+begin
+  if new.status = 'concluido' and old.status != 'concluido' then
+    if new.pacote_cliente_id is not null then
+      return new;
+    end if;
+    select percentual_comissao into v_percentual
+    from public.empresa_membros
+    where empresa_id = new.empresa_id and user_id = new.profissional_id;
+    if v_percentual is not null and v_percentual > 0 then
+      insert into public.comissoes (empresa_id, profissional_id, agendamento_id, valor_servico, percentual)
+      values (new.empresa_id, new.profissional_id, new.id,
+              greatest(new.valor - coalesce(new.desconto_rateado, 0), 0), v_percentual);
+    end if;
+  end if;
+  return new;
+end $$;
+create trigger trg_gerar_comissao after update on agendamentos
+  for each row execute function gerar_comissao();
+
+-- Pacotes (010, 011, 036, 037) e o trigger de sessão com o corpo vigente (078). O saldo é
+-- contagem de pacote_uso por pacote_cliente_id (não há coluna de saldo).
+create table servicos (id uuid primary key, empresa_id uuid);
+create table pacotes (id uuid primary key, empresa_id uuid, controla_sessoes boolean not null default true);
+create table pacote_servicos (pacote_id uuid references pacotes(id), servico_id uuid references servicos(id), quantidade int);
+create table pacote_clientes (
+  id uuid primary key, empresa_id uuid not null references empresas(id), cliente_id uuid, pacote_id uuid references pacotes(id),
+  status text not null default 'ativo', data_validade date
+);
+create table pacote_uso (
+  id uuid primary key default gen_random_uuid(),
+  empresa_id uuid not null references empresas(id),
+  pacote_cliente_id uuid not null references pacote_clientes(id) on delete cascade,
+  servico_id uuid references servicos(id),
+  agendamento_id uuid references agendamentos(id),
+  created_at timestamptz default now(),
+  constraint pacote_uso_agendamento_unico unique (agendamento_id)
+);
+alter table pacote_uso enable row level security;
+create policy "pacote_uso: membro ve" on pacote_uso for select using (empresa_id in (select minha_empresas()));
+
+create function fn_registrar_uso_pacote() returns trigger language plpgsql security definer as $$
+declare
+  v_pc_id      uuid;
+  v_empresa_id uuid;
+begin
+  if new.status <> 'concluido' or old.status = 'concluido' then
+    return new;
+  end if;
+  if new.pacote_cliente_id is not null then
+    select pc.id, pc.empresa_id into v_pc_id, v_empresa_id
+      from public.pacote_clientes pc join public.pacotes p on p.id = pc.pacote_id
+     where pc.id = new.pacote_cliente_id and pc.empresa_id = new.empresa_id and p.controla_sessoes = true;
+  elsif new.comanda_id is null then
+    select pc.id, pc.empresa_id into v_pc_id, v_empresa_id
+      from public.pacote_clientes pc
+      join public.pacotes p on p.id = pc.pacote_id and p.controla_sessoes = true
+      join public.pacote_servicos ps on ps.pacote_id = pc.pacote_id and ps.servico_id = new.servico_id
+     where pc.cliente_id = new.cliente_id and pc.empresa_id = new.empresa_id and pc.status = 'ativo'
+       and (pc.data_validade is null or pc.data_validade >= current_date)
+       and (ps.quantidade is null
+            or (select count(*) from public.pacote_uso pu where pu.pacote_cliente_id = pc.id)
+               < (select coalesce(sum(ps2.quantidade), 0) from public.pacote_servicos ps2
+                   where ps2.pacote_id = pc.pacote_id and ps2.quantidade is not null))
+     order by pc.data_validade asc nulls last
+     limit 1;
+  end if;
+  if v_pc_id is not null then
+    insert into public.pacote_uso (empresa_id, pacote_cliente_id, servico_id, agendamento_id)
+    values (v_empresa_id, v_pc_id, new.servico_id, new.id)
+    on conflict (agendamento_id) do nothing;
+  end if;
+  return new;
+end $$;
+create trigger trg_uso_pacote after update on agendamentos
+  for each row execute function fn_registrar_uso_pacote();
 
 grant select, insert, update, delete on all tables in schema public to authenticated;

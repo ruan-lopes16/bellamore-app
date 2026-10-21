@@ -34,6 +34,31 @@
 --    - Telas de status (web agenda, app agendamento/[id] da empresa e da profissional) são exatamente
 --      o que a trava passa a recusar quando o atendimento já tem comanda.
 --
+-- 1b) Tirar de Concluído SEM comanda desfaz a comissão e a sessão de pacote (revisão das tasks 9/10,
+--    item I1). Ao concluir sem comanda o banco grava duas coisas, e nada as desfazia na volta:
+--    - trg_gerar_comissao (065, corpo atual gerar_comissao da 090): insere a comissão quando
+--      `old.status <> 'concluido'`. NÃO há índice único nem conferência de existência em
+--      comissoes.agendamento_id (o único índice único é por comanda_item_id, 085) — concluir, voltar
+--      e concluir de novo gerava uma SEGUNDA comissão.
+--    - trg_uso_pacote (fn_registrar_uso_pacote, corpo atual na 078): insere em pacote_uso. Aqui a
+--      duplicata já era evitada (UNIQUE pacote_uso_agendamento_unico da 011 + ON CONFLICT DO
+--      NOTHING), mas a sessão ficava consumida com o atendimento cancelado/faltou/agendado.
+--      pacote_uso liga ao atendimento por agendamento_id; o saldo do pacote é a CONTAGEM de
+--      pacote_uso por pacote_cliente_id (078 e telas) — não existe coluna de saldo para ajustar.
+--      pacote_clientes.status ('concluido') só muda à mão na tela Pacotes, não é tocado aqui.
+--    - 075 (sincronizar_comissao_valor) só age em Concluído → Concluído; 085 é comissão de item de
+--      comanda (agendamento_id nulo) — nenhum dos dois entra neste caminho.
+--    O trigger AFTER UPDATE OF status trg_desfaz_conclusao_sem_comanda, para
+--    `old.status = 'concluido' and old.comanda_id is null and new.status <> 'concluido'`:
+--    - recusa com P0001 "A comissão deste atendimento já foi paga. Não é possível tirar de
+--      Concluído." se houver comissão paga do atendimento (vale para a dona também);
+--    - senão apaga as comissões PENDENTES do atendimento e as linhas de pacote_uso dele (a sessão
+--      volta ao pacote). Concluir de novo gera 1 comissão e consome 1 sessão, como na 1ª vez.
+--    security definer + search_path fixo: a profissional não tem DELETE em comissoes (nenhuma
+--    policy) e o DELETE de pacote_uso (093) exige permissão que ela pode não ter.
+--    Caminho da comanda intocado: com comanda_id a trava acima recusa antes (BEFORE), e a condição
+--    `old.comanda_id is null` não casa de qualquer forma.
+--
 -- 2) Avaliação. avaliacoes.profissional_id é FK para empresa_membros(id) (030), mas o web gravava
 --    agendamentos.profissional_id (users.id) — a FK recusava e as notas nunca foram salvas (0 linhas
 --    em produção). O trigger BEFORE INSERT OR UPDATE (security definer, search_path fixo: lê o
@@ -68,6 +93,10 @@
 -- Rollback:
 --   drop trigger if exists trg_trava_concluido_com_comanda on public.agendamentos;
 --   drop function if exists public.fn_trava_concluido_com_comanda();
+--   drop trigger if exists trg_desfaz_conclusao_sem_comanda on public.agendamentos;
+--   drop function if exists public.fn_desfaz_conclusao_sem_comanda();
+--     (comissões e sessões já apagadas por ele não voltam: o atendimento estava fora de Concluído;
+--      concluir de novo as recria pelos triggers da 065/078)
 --   drop trigger if exists trg_avaliacao_profissional on public.avaliacoes;
 --   drop function if exists public.fn_avaliacao_profissional();
 --   drop policy if exists "avaliacoes: membro ve" on public.avaliacoes;
@@ -98,6 +127,38 @@ drop trigger if exists trg_trava_concluido_com_comanda on public.agendamentos;
 create trigger trg_trava_concluido_com_comanda
   before update of status on public.agendamentos
   for each row execute function public.fn_trava_concluido_com_comanda();
+
+-- ── 1b. Tirar de Concluído sem comanda desfaz comissão e sessão ─
+-- security definer: a profissional não tem policy de DELETE em comissoes nem em pacote_uso.
+create or replace function public.fn_desfaz_conclusao_sem_comanda()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.status = 'concluido' and old.comanda_id is null and new.status <> 'concluido' then
+    if exists (select 1 from public.comissoes c
+                where c.agendamento_id = old.id and c.status = 'pago') then
+      raise exception 'A comissão deste atendimento já foi paga. Não é possível tirar de Concluído.'
+        using errcode = 'P0001';
+    end if;
+
+    delete from public.comissoes
+     where agendamento_id = old.id and status = 'pendente';
+
+    -- O saldo do pacote é a contagem de pacote_uso: apagar a linha devolve a sessão.
+    delete from public.pacote_uso
+     where agendamento_id = old.id;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists trg_desfaz_conclusao_sem_comanda on public.agendamentos;
+create trigger trg_desfaz_conclusao_sem_comanda
+  after update of status on public.agendamentos
+  for each row execute function public.fn_desfaz_conclusao_sem_comanda();
 
 -- ── 2. Avaliação com o profissional do atendimento ───────────
 create or replace function public.fn_avaliacao_profissional()
