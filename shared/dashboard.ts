@@ -9,7 +9,7 @@
  */
 import { chaveDiaBRT, diasEntre, somarDias, somarMeses, ultimoDiaDoMes } from './periodos';
 import { arredondar, variacaoPercentual, type KpisFinanceiros } from './kpis-financeiros';
-import { DIAS_EM_RISCO } from './clientes-segmentos';
+import { DIAS_EM_RISCO } from './clientes-constantes';
 
 /** Reconquista = o mesmo limite de "em risco" dos segmentos de clientes. */
 export const DIAS_RECONQUISTA = DIAS_EM_RISCO;

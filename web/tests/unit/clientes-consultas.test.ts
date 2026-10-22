@@ -108,7 +108,8 @@ describe('carregarHistoricoCliente', () => {
     expect(porId.a2).toMatchObject({ tipo: 'atendimento', servicos: 'Limpeza', profissional: null, valor: 0, pacote: true });
     expect(porId.x1).toEqual({ tipo: 'extra', id: 'x1', data: '2026-10-10T13:00:00Z', descricao: 'Sobrancelha', valor: 45, comandaId: 'k2' });
     expect(porId.v1).toEqual({ tipo: 'venda', id: 'v1', data: '2026-10-12T13:00:00Z', itens: [{ nome: 'Óleo', quantidade: 2 }, { nome: 'Produto', quantidade: 1 }], valor: 40 });
-    expect(porId.r1).toEqual({ tipo: 'taxa_reserva', id: 'r1', data: '2026-10-15T13:00:00Z', valor: 30, status: 'pago', metodo: 'pix' });
+    // paga: data do pagamento (paga_em, igual ao Financeiro); pendente: data de criação
+    expect(porId.r1).toEqual({ tipo: 'taxa_reserva', id: 'r1', data: '2026-10-15T14:00:00Z', valor: 30, status: 'pago', metodo: 'pix' });
     expect(porId.t1).toEqual({ tipo: 'taxa_cancelamento', id: 't1', data: '2026-08-01T13:00:00Z', valor: 50, status: 'pendente', metodo: null });
   });
 

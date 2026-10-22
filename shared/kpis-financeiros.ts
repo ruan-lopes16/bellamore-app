@@ -50,7 +50,7 @@ import {
   limitesDias, limitesMes, chaveDiaBRT, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto, rotuloMesAno,
 } from './periodos';
 import { type FinanceiroFechamentoRow, getFechamentoForMonth } from './fechamentos-mensais';
-import { DIAS_SUMIDA } from './clientes-segmentos';
+import { DIAS_SUMIDA } from './clientes-constantes';
 import {
   type RetiradaSociaRow, type RetiradaSociaDevolucaoRow, retiradasNoPeriodo, somaDevolucoesPorRetirada,
 } from './retiradas-socia';

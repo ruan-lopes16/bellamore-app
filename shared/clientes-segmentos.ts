@@ -7,14 +7,14 @@
  */
 import { chaveDiaBRT, chaveMesBRT, diasEntre, ultimoDiaDoMes } from './periodos';
 import { valorCobradoAtendimento } from './kpis-financeiros';
+import {
+  VIP_GASTO, VIP_ATENDIMENTOS, RECORRENTE_ATENDIMENTOS, DIAS_EM_RISCO, DIAS_SUMIDA, DIAS_RETORNO, DIAS_NUNCA_ATENDIDA,
+} from './clientes-constantes';
 
-export const VIP_GASTO = 2000;
-export const VIP_ATENDIMENTOS = 8;
-export const RECORRENTE_ATENDIMENTOS = 5;
-export const DIAS_EM_RISCO = 45;
-export const DIAS_SUMIDA = 60;
-export const DIAS_RETORNO = 30;
-export const DIAS_NUNCA_ATENDIDA = 30;
+// As constantes moram em clientes-constantes.ts (sem imports) para não haver ciclo com kpis-financeiros.
+export {
+  VIP_GASTO, VIP_ATENDIMENTOS, RECORRENTE_ATENDIMENTOS, DIAS_EM_RISCO, DIAS_SUMIDA, DIAS_RETORNO, DIAS_NUNCA_ATENDIDA,
+};
 
 export type Segmento = 'vip' | 'recorrente' | 'em_risco' | 'sumida' | 'nova' | 'nunca_atendida';
 export type FiltroClientes = 'todas' | 'novas' | 'aniversariantes' | 'retornos' | 'arquivadas' | Segmento;

@@ -104,7 +104,9 @@ type AtendHistRow = AtendBaseRow & {
 };
 type ExtraHistRow = ExtraBaseRow & { id: string; comanda_id: string; descricao: string | null; servico?: { nome: string } | null };
 type VendaHistRow = VendaBaseRow & { id: string; venda_itens?: { quantidade: Num; produto: { nome: string } | null }[] | null };
-type TaxaHistRow = { id: string; valor: Num; status: string; created_at: string; metodo: string | null };
+type TaxaHistRow = { id: string; valor: Num; status: string; created_at: string; paga_em: string | null; metodo: string | null };
+/** Data da taxa no histórico: a do pagamento quando paga (mesma data do Financeiro), senão a de criação. */
+const dataTaxa = (t: TaxaHistRow): string => t.paga_em ?? t.created_at;
 
 const RELACOES_ATEND_HIST = `servico:servicos(nome),
   agendamento_servicos(ordem, servico:servicos(nome)),
@@ -175,10 +177,10 @@ export async function carregarHistoricoCliente(
       itens: (v.venda_itens ?? []).map(i => ({ nome: i.produto?.nome ?? 'Produto', quantidade: num(i.quantidade) })),
     })),
     ...reservas.map((t): ItemHistorico => ({
-      tipo: 'taxa_reserva', id: t.id, data: t.created_at, valor: num(t.valor), status: t.status, metodo: t.metodo ?? null,
+      tipo: 'taxa_reserva', id: t.id, data: dataTaxa(t), valor: num(t.valor), status: t.status, metodo: t.metodo ?? null,
     })),
     ...cancelamentos.map((t): ItemHistorico => ({
-      tipo: 'taxa_cancelamento', id: t.id, data: t.created_at, valor: num(t.valor), status: t.status, metodo: t.metodo ?? null,
+      tipo: 'taxa_cancelamento', id: t.id, data: dataTaxa(t), valor: num(t.valor), status: t.status, metodo: t.metodo ?? null,
     })),
   ];
   // Mais recente primeiro; empate de instante desempata pelo id (ordem estável entre plataformas).
