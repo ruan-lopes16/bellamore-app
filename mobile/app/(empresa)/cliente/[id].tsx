@@ -11,7 +11,7 @@ import { MotiView } from 'moti';
 import {
   ChevronLeft, Phone, MessageCircle, CalendarPlus,
   MoreHorizontal, Edit3, AlertTriangle,
-  Archive, ArchiveRestore, Trash2, X, MapPin, FileText,
+  Archive, Trash2, X, MapPin, FileText,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -26,16 +26,17 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { useClienteDetalhe } from '@/hooks/useClientes';
 import { idadeCliente, formatarAniversario, parseEndereco, contatosCliente } from '@shared/clientes';
-import { arquivarCliente, reativarCliente, type ItemHistorico } from '@shared/clientes-consultas';
-import { tagsDaLinha } from '@shared/clientes-segmentos';
-import { PAGAMENTO_METODO_LABEL, type PagamentoMetodo } from '@shared/dominio';
-import { chaveDiaBRT, diasEntre, hojeBRT } from '@shared/periodos';
-import { mensagemErroBanco } from '@shared/erros';
+import {
+  arquivarCliente, reativarCliente, clienteTemHistorico, excluirCliente, textoItensVenda, textoTaxaHistorico,
+  MSG_EXCLUSAO_COM_HISTORICO, type ItemHistorico,
+} from '@shared/clientes-consultas';
+import { kpisPerfilCliente, tagsPerfilCliente, AVISO_CLIENTE_ARQUIVADA } from '@shared/clientes-segmentos';
+import { chaveDiaBRT, hojeBRT } from '@shared/periodos';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { SecretText } from '@/components/Secret';
 import { usePermissoes } from '@/lib/permissions';
-import { podeArquivarCliente, podeEditarAnamnese } from '@shared/permissoes';
+import { podeArquivarCliente, podeEditarAnamnese, opcoesRemoverCliente } from '@shared/permissoes';
 import {
   normalizarAnamnese, restricoesAnamnese, anamnesePreenchida, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES,
@@ -69,8 +70,6 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string }
   faltou:     { label: 'Faltou',     bg: C.amberSoft,  color: C.amber },
 };
 
-const TAXA_STATUS: Record<string, string> = { pago: 'Paga', pendente: 'Pendente', retida: 'Retida' };
-
 const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 type Aba = 'perfil' | 'historico' | 'anamnese';
@@ -83,19 +82,10 @@ function diaMesBRT(instante: string): { dia: string; mes: string; ano: string } 
   return { dia: d, mes: MESES_ABREV[Number(m) - 1] ?? '', ano: a };
 }
 
-/** "Paga · Pix", "Pendente", "Retida": status da taxa com a forma de pagamento quando paga. */
-function textoTaxa(status: string, metodo: string | null): string {
-  const st = TAXA_STATUS[status] ?? status;
-  const met = metodo ? PAGAMENTO_METODO_LABEL[metodo as PagamentoMetodo] ?? metodo : null;
-  return status === 'pago' && met ? `${st} · ${met}` : st;
-}
-
-/** Última visita no KPI: "hoje", "há Nd" (Brasília) ou "—". */
-function textoKpiUltimaVisita(ultimaVisita: string | null): string {
-  if (!ultimaVisita) return '—';
-  const dias = diasEntre(chaveDiaBRT(ultimaVisita), hojeBRT());
-  return dias <= 0 ? 'hoje' : `há ${dias}d`;
-}
+/** Cor de cada KPI do perfil (os textos vêm de `kpisPerfilCliente`, iguais aos do web). */
+const COR_KPI: Record<string, string> = {
+  Atendimentos: C.primary, 'Total gasto': C.green, 'Última visita': C.text, 'Serviço favorito': C.accent,
+};
 
 function avatarColors(nome: string): [string, string] {
   return AVATAR_COLORS[(nome?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length];
@@ -199,14 +189,17 @@ function LinhaHistorico({ item }: { item: ItemHistorico }) {
       destino = `/(empresa)/agendamento/${item.comandaId}?tipo=comanda`;
       break;
     case 'venda':
+      // Sem tela de detalhe de venda (nem no web): os itens ficam visíveis na própria linha.
       titulo = 'Venda avulsa';
-      subtitulo = item.itens.map((i) => `${i.quantidade}× ${i.nome}`).join(', ') || 'Sem itens';
+      subtitulo = textoItensVenda(item.itens);
       break;
     case 'taxa_reserva':
-    case 'taxa_cancelamento':
-      titulo = item.tipo === 'taxa_reserva' ? 'Taxa de reserva' : 'Taxa de cancelamento';
-      subtitulo = textoTaxa(item.status, item.metodo);
+    case 'taxa_cancelamento': {
+      const taxa = textoTaxaHistorico(item.tipo, item.status, item.metodo);
+      titulo = taxa.titulo;
+      subtitulo = taxa.detalhe;
       break;
+    }
   }
 
   const conteudo = (
@@ -320,24 +313,16 @@ export default function ClientePerfil() {
     invalidarClientes();
   }
 
-  async function temHistorico(): Promise<boolean> {
-    const [ags, comandas, vendas, pacotes, avals] = await Promise.all([
-      supabase.from('agendamentos').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
-      supabase.from('comandas').select('id', { count: 'exact', head: true }).eq('clientes_id', id),
-      supabase.from('vendas').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
-      supabase.from('pacote_clientes').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
-      supabase.from('avaliacoes').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
-    ]);
-    return [ags, comandas, vendas, pacotes, avals].some(r => (r.count ?? 0) > 0);
-  }
-
+  /** Exclusão definitiva: só sem histórico (mesma regra e textos do web, em shared). */
   async function pedirExclusao() {
     setModalRemover(false);
-    if (await temHistorico()) {
-      Alert.alert(
-        'Não é possível excluir',
-        'Esta cliente tem histórico de agendamentos, comandas, vendas, pacotes ou avaliações e não pode ser excluída definitivamente — os registros seriam perdidos. Arquive em vez disso.',
-      );
+    try {
+      if (await clienteTemHistorico(supabase as any, id)) {
+        Alert.alert('Não é possível excluir', MSG_EXCLUSAO_COM_HISTORICO);
+        return;
+      }
+    } catch (e) {
+      Alert.alert('Erro', e instanceof Error ? e.message : 'Não foi possível conferir o histórico da cliente.');
       return;
     }
     Alert.alert(
@@ -351,13 +336,16 @@ export default function ClientePerfil() {
   }
 
   async function confirmarExcluir() {
+    if (!empresaId) return;
     setExcluindo(true);
-    const { data, error } = await supabase.from('clientes').delete().eq('id', id).select('id');
-    setExcluindo(false);
-    if (error) { Alert.alert('Erro', mensagemErroBanco(error, 'excluir a cliente')); return; }
-    if (!data || data.length === 0) {
-      Alert.alert('Sem permissão', 'Você não tem permissão para excluir clientes definitivamente.');
+    try {
+      // .select('id') + conferência de linhas: RLS que recusa devolve sucesso com 0 linhas.
+      await excluirCliente(supabase as any, empresaId, id);
+    } catch (e) {
+      Alert.alert('Erro', e instanceof Error ? e.message : 'Não foi possível excluir a cliente.');
       return;
+    } finally {
+      setExcluindo(false);
     }
     invalidarClientes();
     router.back();
@@ -407,15 +395,12 @@ export default function ClientePerfil() {
   // Histórico e KPIs: fonte única de shared. Com erro de carga, "—" e aviso (nunca zero).
   const agregado = cliente.agregado;
   const erroHistorico = cliente.erroHistorico;
-  const tags = tagsDaLinha(cliente, agregado ?? undefined, hojeBRT());
+  // Tags e KPIs: os mesmos textos do web (shared/clientes-segmentos); sem agregado, "—" e sem segmento.
+  const tags = tagsPerfilCliente(cliente, agregado, hojeBRT());
+  const kpis = kpisPerfilCliente(agregado, hojeBRT());
   const contatos = contatosCliente(cliente.telefone);
   const arquivada = cliente.ativo === false;
-  const kpis = [
-    { value: agregado ? String(agregado.atendimentos) : '—', label: 'Atendimentos', color: C.primary, secreto: false },
-    { value: agregado ? formatarMoeda(agregado.totalGasto) : '—', label: 'Total gasto', color: C.green, secreto: !!agregado },
-    { value: agregado ? textoKpiUltimaVisita(agregado.ultimaVisita) : '—', label: 'Última visita', color: C.text, secreto: false },
-    { value: agregado ? (agregado.servicoFavorito?.nome ?? '—') : '—', label: 'Serviço favorito', color: C.accent, secreto: false },
-  ];
+  const remover = opcoesRemoverCliente(arquivada, pode);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -496,12 +481,14 @@ export default function ClientePerfil() {
           {/* Ações rápidas */}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
             {[
-              // tel: só com os dígitos e wa.me com o DDI, de `contatosCliente` (igual ao web).
-              { icon: <Phone size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => contatos && Linking.openURL(contatos.ligar) },
-              { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => contatos && Linking.openURL(contatos.whatsapp) },
+              // tel: só com os dígitos e wa.me com o DDI, de `contatosCliente`; sem telefone, somem (igual ao web).
+              ...(contatos ? [
+                { icon: <Phone size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => Linking.openURL(contatos.ligar) },
+                { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => Linking.openURL(contatos.whatsapp) },
+              ] : []),
               { icon: <CalendarPlus size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Agendar', onPress: () => router.push(`/(empresa)/novo-agendamento?clienteId=${id}` as any) },
-              // "Mais" só abre arquivar/excluir: some se a pessoa não pode nenhum dos dois.
-              ...((podeArquivarCliente(pode) || pode('clientes.excluir'))
+              // "Mais" só abre arquivar/excluir: some se a pessoa não pode nenhum dos dois (regra única).
+              ...(remover.algum
                 ? [{ icon: <MoreHorizontal size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mais', onPress: () => setModalRemover(true) }]
                 : []),
             ].map((a) => (
@@ -540,7 +527,7 @@ export default function ClientePerfil() {
           }}
         >
           {kpis.map((k) => (
-            <View key={k.label} style={{
+            <View key={k.rotulo} style={{
               flexBasis: '47%', flexGrow: 1, backgroundColor: C.surface,
               borderWidth: 1, borderColor: C.border,
               borderRadius: 14, padding: 12,
@@ -548,19 +535,19 @@ export default function ClientePerfil() {
               shadowOffset: { width: 0, height: 4 }, elevation: 3,
               alignItems: 'center',
             }}>
-              {k.secreto ? (
+              {k.secreto && k.valor !== '—' ? (
                 <SecretText
                   numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}
-                  style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, marginBottom: 2 }}
+                  style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: COR_KPI[k.rotulo] ?? C.text, letterSpacing: -0.5, marginBottom: 2 }}
                 >
-                  {k.value}
+                  {k.valor}
                 </SecretText>
               ) : (
                 <Text
                   numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}
-                  style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, marginBottom: 2 }}
+                  style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: COR_KPI[k.rotulo] ?? C.text, letterSpacing: -0.5, marginBottom: 2 }}
                 >
-                  {k.value}
+                  {k.valor}
                 </Text>
               )}
               <Text style={{
@@ -568,7 +555,7 @@ export default function ClientePerfil() {
                 fontSize: 9, color: C.text3,
                 textTransform: 'uppercase', letterSpacing: 0.8,
               }}>
-                {k.label}
+                {k.rotulo}
               </Text>
             </View>
           ))}
@@ -605,7 +592,7 @@ export default function ClientePerfil() {
           }}>
             <Archive size={14} color={C.amber} strokeWidth={2} />
             <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber }}>
-              Cliente arquivada: fora das listas e dos segmentos.
+              {AVISO_CLIENTE_ARQUIVADA}
             </Text>
             {podeArquivarCliente(pode) && (
               <TouchableOpacity
@@ -858,21 +845,22 @@ export default function ClientePerfil() {
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, marginBottom: 14 }}>
               O que você deseja fazer com "{cliente?.nome}"?
             </Text>
-            {podeArquivarCliente(pode) && (
-            <TouchableOpacity onPress={arquivada ? reativar : arquivar} disabled={gravandoAtivo}
+            {/* Arquivada não tem "Arquivar" aqui: reativa pelo aviso (igual ao web). */}
+            {remover.arquivar && (
+            <TouchableOpacity onPress={arquivar} disabled={gravandoAtivo}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10, opacity: gravandoAtivo ? 0.6 : 1 }}>
-              <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: arquivada ? C.greenSoft : C.amberSoft, alignItems: 'center', justifyContent: 'center' }}>
-                {arquivada ? <ArchiveRestore size={16} color={C.green} /> : <Archive size={16} color={C.amber} />}
+              <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.amberSoft, alignItems: 'center', justifyContent: 'center' }}>
+                <Archive size={16} color={C.amber} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{arquivada ? 'Reativar' : 'Arquivar'}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>Arquivar</Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>
-                  {arquivada ? 'Volta para as listas e os segmentos' : 'Some das listas, mas o histórico é mantido'}
+                  Some das listas, mas o histórico é mantido
                 </Text>
               </View>
             </TouchableOpacity>
             )}
-            {pode('clientes.excluir') && (
+            {remover.excluir && (
             <TouchableOpacity onPress={pedirExclusao} disabled={excluindo}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, opacity: excluindo ? 0.6 : 1 }}>
               <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.roseSoft, alignItems: 'center', justifyContent: 'center' }}>

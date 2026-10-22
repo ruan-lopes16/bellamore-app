@@ -20,7 +20,8 @@ const esperado: [string, string[]][] = [
 ];
 
 // Chaves conferidas em conjunto pelo banco passam pelas funções de shared/permissoes (matriz 2026-10-14).
-const CHAMADA: Record<string, string> = { 'clientes.arquivar': 'podeArquivarCliente(pode)', 'anamnese.editar': 'podeEditarAnamnese(pode)' };
+// clientes.excluir no perfil: pela regra única de shared (opcoesRemoverCliente usa p('clientes.excluir')).
+const CHAMADA: Record<string, string> = { 'clientes.arquivar': 'podeArquivarCliente(pode)', 'anamnese.editar': 'podeEditarAnamnese(pode)', 'clientes.excluir': 'opcoesRemoverCliente(arquivada, pode)' };
 
 describe('botões do web consultam a chave certa', () => {
   for (const [arq, chaves] of esperado) {

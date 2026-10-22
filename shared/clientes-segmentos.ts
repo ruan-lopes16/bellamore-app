@@ -7,6 +7,7 @@
  */
 import { chaveDiaBRT, chaveMesBRT, diasEntre, ultimoDiaDoMes } from './periodos';
 import { valorCobradoAtendimento } from './kpis-financeiros';
+import { formatarMoeda } from './moeda';
 import {
   VIP_GASTO, VIP_ATENDIMENTOS, RECORRENTE_ATENDIMENTOS, DIAS_EM_RISCO, DIAS_SUMIDA, DIAS_RETORNO, DIAS_NUNCA_ATENDIDA,
 } from './clientes-constantes';
@@ -209,6 +210,45 @@ export function textoUltimaVisita(ultimaVisita: string | null | undefined): stri
   const [a, m, d] = chaveDiaBRT(ultimaVisita).split('-');
   return `Última visita ${d}/${m}/${a.slice(2)}`;
 }
+
+/**
+ * "Última visita" no KPI do perfil (web e app): "Hoje", "Ontem", "há N dias" (Brasília) ou "—".
+ * A linha da lista usa `textoUltimaVisita` (com a data); o KPI do perfil, este.
+ */
+export function textoKpiUltimaVisita(ultimaVisita: string | null | undefined, hojeChave: string): string {
+  if (!ultimaVisita) return '—';
+  const dias = diasEntre(chaveDiaBRT(ultimaVisita), hojeChave);
+  return dias <= 0 ? 'Hoje' : dias === 1 ? 'Ontem' : `há ${dias} dias`;
+}
+
+/** Um KPI do perfil: rótulo, valor já formatado e se passa pelo modo privacidade. */
+export type KpiPerfilCliente = { rotulo: string; valor: string; secreto: boolean };
+
+/**
+ * Os 4 KPIs do perfil da cliente, na ordem única das duas plataformas. Sem agregado (carregando
+ * ou erro de carga) todos mostram "—": nunca um zero que parece dado real.
+ */
+export function kpisPerfilCliente(agregado: Agregado | null, hojeChave: string): KpiPerfilCliente[] {
+  const a = agregado;
+  return [
+    { rotulo: 'Atendimentos', valor: a ? String(a.atendimentos) : '—', secreto: true },
+    { rotulo: 'Total gasto', valor: a ? formatarMoeda(a.totalGasto) : '—', secreto: true },
+    { rotulo: 'Última visita', valor: a ? textoKpiUltimaVisita(a.ultimaVisita, hojeChave) : '—', secreto: false },
+    { rotulo: 'Serviço favorito', valor: a?.servicoFavorito?.nome ?? '—', secreto: false },
+  ];
+}
+
+/**
+ * Tags do cabeçalho do perfil: as da lista (`tagsDaLinha`) quando o agregado carregou; sem ele,
+ * só "Arquivada" (quando for), nunca um segmento calculado com dados faltando.
+ */
+export function tagsPerfilCliente(c: ClienteBase, agregado: Agregado | null, hojeChave: string): string[] {
+  if (agregado) return tagsDaLinha(c, agregado, hojeChave);
+  return c.ativo === false ? ['Arquivada'] : [];
+}
+
+/** Aviso único do perfil de uma cliente arquivada (web e app), ao lado do botão "Reativar". */
+export const AVISO_CLIENTE_ARQUIVADA = 'Cliente arquivada: fora da lista e dos segmentos. O histórico é mantido.';
 
 /** Texto da lista vazia (com erro de carga a tela mostra o aviso, nunca este texto). */
 export function textoListaVazia(filtro: FiltroClientes, busca: string): string {

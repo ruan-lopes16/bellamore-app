@@ -20,12 +20,12 @@ import {
   montarAgendamento, valorDigitadoValido, instanteBRT, conflitosDeHorario, instanteNoPassado,
   msgConflito, MSG_HORARIO_PASSADO,
 } from '@shared/agenda';
-import { horaBRT, hojeBRT, chaveDiaBRT, diasEntre } from '@shared/periodos';
+import { horaBRT, hojeBRT } from '@shared/periodos';
 import { parseValorBR } from '@shared/comanda-fechamento';
 import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { mensagemErroBanco } from '@shared/erros';
 import { novoUuid } from '@shared/uuid';
-import { podeArquivarCliente, podeEditarAnamnese } from '@shared/permissoes';
+import { podeArquivarCliente, podeEditarAnamnese, opcoesRemoverCliente } from '@shared/permissoes';
 import {
   aniversarioParaGravar, nomeClienteValido, parseEndereco, serializarEndereco,
   partesAniversario, diasNoMes, idadeCliente, erroTelefoneCliente, erroEmailCliente, contatosCliente,
@@ -37,11 +37,13 @@ import {
 import type { DetalheAtendimento } from '@shared/atendimento-detalhe';
 import { carregarDetalheAtendimento } from '@shared/atendimento-detalhe-consultas';
 import { ConteudoComanda } from '@/components/ConteudoComanda';
-import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import {
-  carregarHistoricoCliente, arquivarCliente, reativarCliente, type ItemHistorico,
+  carregarHistoricoCliente, arquivarCliente, reativarCliente, clienteTemHistorico, excluirCliente,
+  MSG_EXCLUSAO_COM_HISTORICO, type ItemHistorico,
 } from '@shared/clientes-consultas';
-import { tagsDaLinha, type Agregado } from '@shared/clientes-segmentos';
+import {
+  kpisPerfilCliente, tagsPerfilCliente, AVISO_CLIENTE_ARQUIVADA, type Agregado,
+} from '@shared/clientes-segmentos';
 import { HistoricoCliente, type AberturaDetalhe } from './HistoricoCliente';
 
 const supabase = createClient();
@@ -67,13 +69,6 @@ function DisplayRow({ label, value, placeholder = '—' }: {
       <p className={`text-sm ${value ? 'text-text' : 'text-text-4 italic'}`}>{value || placeholder}</p>
     </div>
   );
-}
-
-/** "Hoje", "Ontem" ou "há Nd" em Brasília; "—" sem visita. */
-function rotuloUltimaVisita(ultimaVisita: string | null): string {
-  if (!ultimaVisita) return '—';
-  const dias = diasEntre(chaveDiaBRT(ultimaVisita), hojeBRT());
-  return dias <= 0 ? 'Hoje' : dias === 1 ? 'Ontem' : `há ${dias}d`;
 }
 
 type ServicoOpt = { id: string; nome: string; preco: number; duracao_minutos: number };
@@ -475,6 +470,7 @@ export default function ClientePerfilPage() {
 
   const [cliente,  setCliente]  = useState<Cliente | null>(null);
   const [loading,  setLoading]  = useState(true);
+  const [erroCarga, setErroCarga] = useState('');
   const [abaAtiva, setAbaAtiva] = useState<'info' | 'historico' | 'anamnese'>(
     searchParams.get('aba') === 'anamnese' && pode('anamnese.ver') ? 'anamnese' : 'info'
   );
@@ -532,12 +528,14 @@ export default function ClientePerfilPage() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: clienteData }, rFicha, { data: { user } }] = await Promise.all([
-        supabase.from('clientes').select('*').eq('id', id).single(),
+      const [{ data: clienteData, error: erroCliente }, rFicha, { data: { user } }] = await Promise.all([
+        supabase.from('clientes').select('*').eq('id', id).maybeSingle(),
         supabase.from('anamnese_fichas').select('respostas').eq('cliente_id', id).maybeSingle(),
         supabase.auth.getUser(),
       ]);
 
+      // Falha ao ler a cliente não é "não encontrada" (igual ao app).
+      setErroCarga(erroCliente ? mensagemErroBanco(erroCliente, 'carregar a cliente') : '');
       setCliente(clienteData as Cliente);
       // Falha ao carregar não pode virar "ficha vazia": o usuário sobrescreveria uma ficha real.
       setErroCargaAn(rFicha.error ? rFicha.error.message : '');
@@ -653,40 +651,32 @@ export default function ClientePerfilPage() {
   }
 
   /** Verifica se a cliente tem qualquer histórico vinculado (bloqueia exclusão definitiva) */
-  async function temHistorico(): Promise<boolean> {
-    const [ags, comandas, vendas, pacotes, avals] = await Promise.all([
-      supabase.from('agendamentos').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
-      supabase.from('comandas').select('id', { count: 'exact', head: true }).eq('clientes_id', id),
-      supabase.from('vendas').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
-      supabase.from('pacote_clientes').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
-      supabase.from('avaliacoes').select('id', { count: 'exact', head: true }).eq('cliente_id', id),
-    ]);
-    return [ags, comandas, vendas, pacotes, avals].some(r => (r.count ?? 0) > 0);
-  }
-
+  /** Exclusão definitiva: só sem histórico (mesma regra e textos do app, em shared). */
   async function pedirExclusao() {
     setModalRemover(false);
     setErroExcluir('');
-    if (await temHistorico()) {
-      setErroExcluir('Esta cliente tem histórico de agendamentos, comandas, vendas, pacotes ou avaliações e não pode ser excluída definitivamente — os registros seriam perdidos. Arquive em vez disso.');
+    try {
+      if (await clienteTemHistorico(supabase, id)) { setErroExcluir(MSG_EXCLUSAO_COM_HISTORICO); return; }
+    } catch (e) {
+      setErroExcluir((e as Error).message);
       return;
     }
     setConfirmExcluir(true);
   }
 
   async function confirmarExcluir() {
+    if (!cliente) return;
     setExcluindo(true);
-    // .select() após o delete: RLS restringe exclusão ao owner da empresa —
-    // sem select() um delete bloqueado por RLS retorna sucesso com 0 linhas,
-    // dando falsa impressão de que funcionou.
-    const { data, error } = await supabase.from('clientes').delete().eq('id', id).select('id');
-    setExcluindo(false);
-    if (error) { setConfirmExcluir(false); setErroExcluir(error.message); return; }
-    if (!data || data.length === 0) {
+    try {
+      // .select('id') + conferência de linhas: RLS que recusa devolve sucesso com 0 linhas.
+      await excluirCliente(supabase, cliente.empresa_id, id);
+    } catch (e) {
+      setExcluindo(false);
       setConfirmExcluir(false);
-      setErroExcluir('Você não tem permissão para excluir clientes definitivamente.');
+      setErroExcluir((e as Error).message);
       return;
     }
+    setExcluindo(false);
     setConfirmExcluir(false);
     router.push('/clientes');
   }
@@ -766,7 +756,14 @@ export default function ClientePerfilPage() {
       </div>
     </div>
   );
-  if (!cliente) return <div className="text-center py-16 text-text-3">Cliente não encontrado.</div>;
+  if (!cliente) return (
+    <div className="text-center py-16 text-text-3">
+      {erroCarga
+        ? <p role="alert">Não foi possível carregar a cliente. {erroCarga}</p>
+        : <p>Cliente não encontrada.</p>}
+      <button onClick={() => router.push('/clientes')} className="mt-4 text-sm font-semibold text-primary">Voltar</button>
+    </div>
+  );
 
   const idade = idadeCliente(cliente.data_nascimento);
 
@@ -774,13 +771,15 @@ export default function ClientePerfilPage() {
   const temEndereco   = Object.values(enderecoAtual).some(Boolean);
   const contatos      = contatosCliente(cliente.telefone);
   const arquivada     = cliente.ativo === false;
-  // Tags = segmentos calculados (mesma regra da lista); só com o agregado carregado sem erro.
-  const tags = agregado ? tagsDaLinha({
+  const remover       = opcoesRemoverCliente(arquivada, pode);
+  // Erro ou carregamento: sem agregado → "—" nos KPIs (nunca zero) e nenhuma tag de segmento.
+  const agregadoPronto = !loadingHist && !erroHist ? agregado : null;
+  // Tags e KPIs: os mesmos textos do app (shared/clientes-segmentos).
+  const tags = tagsPerfilCliente({
     id: cliente.id, nome: cliente.nome, telefone: cliente.telefone ?? null, email: cliente.email ?? null,
     data_nascimento: cliente.data_nascimento ?? null, ativo: cliente.ativo, created_at: cliente.created_at,
-  }, agregado, hojeBRT()) : arquivada ? ['Arquivada'] : [];
-  // Erro ou carregamento: "—" (nunca zero).
-  const kpiPronto = !!agregado && !loadingHist && !erroHist;
+  }, agregadoPronto, hojeBRT());
+  const kpis = kpisPerfilCliente(agregadoPronto, hojeBRT());
 
   return (
     <div className="bm-page">
@@ -820,7 +819,7 @@ export default function ClientePerfilPage() {
                   </div>
                 )}
               </div>
-              {((!arquivada && podeArquivarCliente(pode)) || pode('clientes.excluir')) && (
+              {remover.algum && (
                 <button onClick={desativar}
                   className="press"
                   style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', border: 'none', flexShrink: 0 }}>
@@ -834,7 +833,7 @@ export default function ClientePerfilPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 12, padding: '10px 12px', marginBottom: 12 }}>
                 <Archive size={14} strokeWidth={2} style={{ color: '#FCD34D', flexShrink: 0 }}/>
                 <p style={{ flex: 1, fontFamily: 'var(--font-sans)', fontSize: 12.5, color: 'rgba(255,255,255,0.85)' }}>
-                  Cliente arquivada: fora da lista e dos segmentos. O histórico é mantido.
+                  {AVISO_CLIENTE_ARQUIVADA}
                 </p>
                 {podeArquivarCliente(pode) && (
                   <button onClick={reativar} disabled={reativando} className="press"
@@ -867,22 +866,17 @@ export default function ClientePerfilPage() {
 
             {erroHist && (
               <p role="alert" style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: '#FCA5A5', marginBottom: 8 }}>
-                Não foi possível carregar os números da cliente.
+                Não foi possível carregar o histórico. Os números aparecem como —.
               </p>
             )}
 
             {/* KPIs — mesmo agregado da lista (shared/clientes-segmentos) */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-              {[
-                { label: 'Atendimentos', value: kpiPronto && agregado ? String(agregado.atendimentos) : '—', secret: true },
-                { label: 'Total gasto', value: kpiPronto && agregado ? fmtBRL(agregado.totalGasto) : '—', secret: true },
-                { label: 'Última visita', value: kpiPronto && agregado ? rotuloUltimaVisita(agregado.ultimaVisita) : '—', secret: false },
-                { label: 'Serviço favorito', value: kpiPronto && agregado ? (agregado.servicoFavorito?.nome ?? '—') : '—', secret: false },
-              ].map((kpi, i) => (
-                <div key={kpi.label} className="bm-stagger"
+              {kpis.map((kpi, i) => (
+                <div key={kpi.rotulo} className="bm-stagger"
                   style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 14, padding: '10px 12px', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 16, fontWeight: 800, color: '#fff', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kpi.secret ? <Secret>{kpi.value}</Secret> : kpi.value}</p>
-                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 4, fontWeight: 600 }}>{kpi.label}</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 16, fontWeight: 800, color: '#fff', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{kpi.secreto ? <Secret>{kpi.valor}</Secret> : kpi.valor}</p>
+                  <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 4, fontWeight: 600 }}>{kpi.rotulo}</p>
                 </div>
               ))}
             </div>
@@ -1422,7 +1416,7 @@ export default function ClientePerfilPage() {
             </div>
             <div className="p-5 flex flex-col gap-3">
               <p className="text-sm text-text-3">O que você deseja fazer com "{cliente?.nome}"?</p>
-              {!arquivada && podeArquivarCliente(pode) && (
+              {remover.arquivar && (
               <button onClick={() => { setModalRemover(false); setConfirmArquivar(true); }}
                 className="flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-bg transition text-left">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-amber-soft)' }}>
@@ -1434,7 +1428,7 @@ export default function ClientePerfilPage() {
                 </div>
               </button>
               )}
-              {pode('clientes.excluir') && (
+              {remover.excluir && (
               <button onClick={pedirExclusao}
                 className="flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-rose-soft transition text-left">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-rose-soft)' }}>

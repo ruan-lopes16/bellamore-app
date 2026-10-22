@@ -29,11 +29,12 @@ describe('Clientes web: perfil pela fonte única de shared', () => {
 
   it('4 KPIs com os rótulos únicos, a partir do agregado', () => {
     const p = ler(PAGINA);
-    for (const r of ["'Atendimentos'", "'Total gasto'", "'Última visita'", "'Serviço favorito'"]) expect(p).toContain(r);
-    expect(p).toContain('agregado.atendimentos');
-    expect(p).toContain('agregado.totalGasto');
-    expect(p).toContain('agregado.ultimaVisita');
-    expect(p).toContain('agregado.servicoFavorito');
+    // rótulos e valores (atendimentos, total gasto, última visita, favorito) moram em shared,
+    // os mesmos do app; a tela só desenha o que kpisPerfilCliente devolve
+    expect(p).toContain('kpisPerfilCliente(');
+    expect(p).toContain('kpisPerfilCliente(agregadoPronto');
+    expect(p).toContain('kpi.rotulo');
+    expect(p).toContain('kpi.valor');
   });
 
   it('erro de carga mostra "—" e aviso, nunca zero', () => {
@@ -44,19 +45,20 @@ describe('Clientes web: perfil pela fonte única de shared', () => {
 
   it('tags do cabeçalho pelos segmentos de shared', () => {
     const p = ler(PAGINA);
-    expect(p).toContain('tagsDaLinha(');
+    expect(p).toContain('tagsPerfilCliente(');
     expect(p).toContain('@shared/clientes-segmentos');
   });
 
   it('histórico único: atendimento, extra, venda com itens e taxas com método', () => {
     const h = ler(HISTORICO);
     expect(h).toContain('ItemHistorico');
-    for (const t of ["'atendimento'", "'extra'", "'venda'", "'taxa_reserva'", "'taxa_cancelamento'"]) expect(h).toContain(t);
-    expect(h).toContain('PAGAMENTO_METODO_LABEL');
+    for (const t of ["'atendimento'", "'extra'", "'venda'", "'taxa_reserva'"]) expect(h).toContain(t);
+    // as duas taxas (reserva e cancelamento) com a forma de pagamento, pelo texto único de shared
+    expect(h).toContain('textoTaxaHistorico(item.tipo, item.status, item.metodo)');
     expect(h).toContain('Sessão de pacote');
     expect(h).toContain('<Secret>');
     // venda mostra os itens
-    expect(h).toMatch(/\.itens\.map/);
+    expect(h).toContain('textoItensVenda(item.itens)');
     // atendimento e extra abrem o detalhe da comanda que já existe
     expect(h).toContain('onAbrirDetalhe(');
     expect(ler(PAGINA)).toContain('setDetalheAberto(');
@@ -82,5 +84,38 @@ describe('Clientes web: perfil pela fonte única de shared', () => {
   it('o card de anamnese com restrições continua', () => {
     const p = ler(PAGINA);
     expect(p).toContain('restricoesAnamnese(anamnese)');
+  });
+});
+
+describe('Clientes web: perfil igual ao app (revisão das Tasks 5/6)', () => {
+  it('KPIs, tags e aviso de arquivada pelos textos únicos de shared', () => {
+    const p = ler(PAGINA);
+    expect(p).toContain('kpisPerfilCliente(');
+    expect(p).toContain('tagsPerfilCliente(');
+    expect(p).toContain('AVISO_CLIENTE_ARQUIVADA');
+    expect(p).not.toContain('function rotuloUltimaVisita');
+    expect(p).not.toContain('Cliente arquivada: fora');
+  });
+
+  it('histórico: venda e taxas pelos textos únicos', () => {
+    const h = ler(HISTORICO);
+    expect(h).toContain('textoItensVenda(');
+    expect(h).toContain('textoTaxaHistorico(');
+    expect(h).not.toContain('function rotuloTaxa');
+  });
+
+  it('remover/excluir pela mesma regra de shared', () => {
+    const p = ler(PAGINA);
+    expect(p).toContain('opcoesRemoverCliente(');
+    expect(p).toContain('clienteTemHistorico(');
+    expect(p).toContain('excluirCliente(');
+    expect(p).toContain('MSG_EXCLUSAO_COM_HISTORICO');
+    expect(p).not.toMatch(/from\('clientes'\)\.delete\(\)/);
+    expect(p).not.toContain('async function temHistorico');
+  });
+
+  it('erro ao ler a cliente não vira "não encontrada"', () => {
+    const p = ler(PAGINA);
+    expect(p).toContain('Não foi possível carregar a cliente.');
   });
 });

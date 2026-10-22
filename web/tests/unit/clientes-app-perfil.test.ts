@@ -24,10 +24,10 @@ describe('Clientes app: perfil pela fonte única de shared', () => {
 
   it('4 KPIs com os rótulos únicos, a partir do agregado', () => {
     const t = ler(TELA);
-    for (const r of ["'Atendimentos'", "'Total gasto'", "'Última visita'", "'Serviço favorito'"]) expect(t).toContain(r);
-    for (const c of ['agregado.atendimentos', 'agregado.totalGasto', 'agregado.ultimaVisita', 'agregado.servicoFavorito']) {
-      expect(t).toContain(c);
-    }
+    // rótulos e valores moram em shared (kpisPerfilCliente), os mesmos do web
+    expect(t).toContain('kpisPerfilCliente(agregado');
+    expect(t).toContain('k.rotulo');
+    expect(t).toContain('k.valor');
     expect(t).not.toContain("'Visitas'");
     expect(t).not.toContain('total_visitas');
   });
@@ -40,7 +40,7 @@ describe('Clientes app: perfil pela fonte única de shared', () => {
 
   it('tags do cabeçalho pelos segmentos de shared', () => {
     const t = ler(TELA);
-    expect(t).toContain('tagsDaLinha(');
+    expect(t).toContain('tagsPerfilCliente(');
     expect(t).toContain('@shared/clientes-segmentos');
     expect(t).not.toContain('TAG_CONFIG');
   });
@@ -49,10 +49,10 @@ describe('Clientes app: perfil pela fonte única de shared', () => {
     const t = ler(TELA);
     expect(t).toContain('ItemHistorico');
     for (const tp of ["'atendimento'", "'extra'", "'venda'", "'taxa_reserva'", "'taxa_cancelamento'"]) expect(t).toContain(tp);
-    expect(t).toContain('PAGAMENTO_METODO_LABEL');
-    expect(t).toContain('@shared/dominio');
+    // forma de pagamento das taxas pelo texto único de shared (PAGAMENTO_METODO_LABEL lá dentro)
+    expect(t).toContain('textoTaxaHistorico(item.tipo, item.status, item.metodo)');
     expect(t).toContain('Sessão de pacote');
-    expect(t).toMatch(/\.itens\.map/);
+    expect(t).toContain('textoItensVenda(item.itens)');
     expect(t).toMatch(/<SecretText/);
     // atendimento abre o detalhe; extra abre a comanda (modo comanda da tela de detalhe)
     expect(t).toMatch(/agendamento\/\$\{item\.id\}/);
@@ -89,5 +89,38 @@ describe('Clientes app: perfil pela fonte única de shared', () => {
 
   it('na edição, o rótulo do telefone ganha "*"', () => {
     expect(ler(EDITAR)).toContain('label="Telefone / WhatsApp *"');
+  });
+});
+
+describe('Clientes app: perfil igual ao web (revisão das Tasks 5/6)', () => {
+  it('KPIs, tags e aviso de arquivada pelos textos únicos de shared', () => {
+    const t = ler(TELA);
+    expect(t).toContain('kpisPerfilCliente(');
+    expect(t).toContain('tagsPerfilCliente(');
+    expect(t).toContain('AVISO_CLIENTE_ARQUIVADA');
+    expect(t).not.toContain('function textoKpiUltimaVisita');
+    expect(t).not.toContain('Cliente arquivada: fora');
+  });
+
+  it('histórico: venda e taxas pelos textos únicos', () => {
+    const t = ler(TELA);
+    expect(t).toContain('textoItensVenda(');
+    expect(t).toContain('textoTaxaHistorico(');
+    expect(t).not.toContain('function textoTaxa(');
+  });
+
+  it('remover/excluir pela mesma regra de shared (arquivada reativa pelo aviso, não pelo menu)', () => {
+    const t = ler(TELA);
+    expect(t).toContain('opcoesRemoverCliente(');
+    expect(t).toContain('clienteTemHistorico(');
+    expect(t).toContain('excluirCliente(');
+    expect(t).toContain('MSG_EXCLUSAO_COM_HISTORICO');
+    expect(t).not.toMatch(/from\('clientes'\)\.delete\(\)/);
+    expect(t).not.toContain('async function temHistorico');
+    expect(t).not.toContain('arquivada ? reativar : arquivar');
+  });
+
+  it('Ligar e Mensagem só aparecem com telefone', () => {
+    expect(ler(TELA)).toMatch(/contatos\s*\?\s*\[/);
   });
 });

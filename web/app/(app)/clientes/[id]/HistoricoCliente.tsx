@@ -3,8 +3,7 @@
 import { Calendar, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, Banknote, Package, Sparkles } from 'lucide-react';
 import { Sk } from '@/components/Skeleton';
 import { Secret } from '@/components/privacy';
-import type { ItemHistorico } from '@shared/clientes-consultas';
-import { PAGAMENTO_METODO_LABEL, type PagamentoMetodo } from '@shared/dominio';
+import { textoItensVenda, textoTaxaHistorico, type ItemHistorico } from '@shared/clientes-consultas';
 import { chaveDiaBRT, horaBRT } from '@shared/periodos';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 
@@ -23,18 +22,6 @@ const STATUS_CFG: Record<string, { label: string; bg: string; text: string; icon
 function dataHoraBRT(iso: string): string {
   const [a, m, d] = chaveDiaBRT(iso).split('-');
   return `${d}/${m}/${a} às ${horaBRT(iso)}`;
-}
-
-/** Rótulo da forma de pagamento da taxa (null quando não registrada). */
-function rotuloMetodo(metodo: string | null): string | null {
-  if (!metodo) return null;
-  return PAGAMENTO_METODO_LABEL[metodo as PagamentoMetodo] ?? metodo;
-}
-
-function rotuloTaxa(tipo: 'taxa_reserva' | 'taxa_cancelamento', status: string): string {
-  const nome = tipo === 'taxa_reserva' ? 'Taxa de reserva' : 'Taxa de cancelamento';
-  const situacao = status === 'pago' ? 'paga' : status === 'retida' ? 'retida' : 'pendente';
-  return `${nome} ${situacao}`;
 }
 
 /**
@@ -133,7 +120,8 @@ function LinhaHistorico({ item, onAbrirDetalhe }: { item: ItemHistorico; onAbrir
   }
 
   if (item.tipo === 'venda') {
-    const itensDesc = item.itens.map(i => `${i.quantidade}× ${i.nome}`).join(', ');
+    // Sem tela de detalhe de venda (nem no app): os itens ficam visíveis na própria linha.
+    const itensDesc = textoItensVenda(item.itens);
     return (
       <div className="flex items-start gap-3 px-5 py-4">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-accent-soft">
@@ -142,14 +130,14 @@ function LinhaHistorico({ item, onAbrirDetalhe }: { item: ItemHistorico; onAbrir
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-text truncate">Venda avulsa</p>
           <p className="text-xs text-text-3 mt-0.5">{quando}</p>
-          {itensDesc && <p className="text-xs text-text-4 mt-0.5 truncate">{itensDesc}</p>}
+          <p className="text-xs text-text-4 mt-0.5">{itensDesc}</p>
         </div>
         <span className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(item.valor)}</Secret></span>
       </div>
     );
   }
 
-  const metodo = item.status === 'pago' ? rotuloMetodo(item.metodo) : null;
+  const taxa = textoTaxaHistorico(item.tipo, item.status, item.metodo);
   const reserva = item.tipo === 'taxa_reserva';
   return (
     <div className="flex items-start gap-3 px-5 py-4">
@@ -159,8 +147,8 @@ function LinhaHistorico({ item, onAbrirDetalhe }: { item: ItemHistorico; onAbrir
           : <XCircle size={14} strokeWidth={2} className="text-red"/>}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-text truncate">{rotuloTaxa(item.tipo, item.status)}</p>
-        <p className="text-xs text-text-3 mt-0.5">{quando}{metodo ? ` · ${metodo}` : ''}</p>
+        <p className="text-sm font-semibold text-text truncate">{taxa.titulo}</p>
+        <p className="text-xs text-text-3 mt-0.5">{quando} · {taxa.detalhe}</p>
       </div>
       <span className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(item.valor)}</Secret></span>
     </div>

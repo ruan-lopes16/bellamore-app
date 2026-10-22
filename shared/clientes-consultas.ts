@@ -11,6 +11,7 @@ import { buscarComDescontoRateado, buscarTodasOuLancar, type ClienteDb } from '.
 import { valorCobradoAtendimento } from './kpis-financeiros';
 import { descreverServicos } from './atendimento-detalhe';
 import { mensagemErroBanco } from './erros';
+import { PAGAMENTO_METODO_LABEL, type PagamentoMetodo } from './dominio';
 import {
   agregarClientes, type Agregado, type AtendimentoBase, type ClienteBase, type ExtraBase, type VendaBase,
 } from './clientes-segmentos';
@@ -218,4 +219,56 @@ export async function arquivarCliente(db: ClienteDb, empresaId: string, id: stri
 /** Reativa uma cliente arquivada (`ativo = true`). Mesma permissão de arquivar. */
 export async function reativarCliente(db: ClienteDb, empresaId: string, id: string): Promise<void> {
   return gravarAtivo(db, empresaId, id, true);
+}
+
+// ── Textos do histórico (iguais no web e no app) ─────────────
+
+/** Itens da venda avulsa na própria linha do histórico: "2× Óleo, 1× Creme" ou "Sem itens". */
+export function textoItensVenda(itens: { nome: string; quantidade: number }[]): string {
+  return itens.map(i => `${i.quantidade}× ${i.nome}`).join(', ') || 'Sem itens';
+}
+
+const SITUACAO_TAXA: Record<string, string> = { pago: 'Paga', pendente: 'Pendente', retida: 'Retida' };
+
+/**
+ * Título e situação da taxa no histórico: "Taxa de reserva" + "Paga · Pix" (forma de pagamento
+ * só quando paga e registrada), "Pendente" ou "Retida".
+ */
+export function textoTaxaHistorico(
+  tipo: 'taxa_reserva' | 'taxa_cancelamento', status: string, metodo: string | null,
+): { titulo: string; detalhe: string } {
+  const titulo = tipo === 'taxa_reserva' ? 'Taxa de reserva' : 'Taxa de cancelamento';
+  const situacao = SITUACAO_TAXA[status] ?? status;
+  const met = status === 'pago' && metodo ? PAGAMENTO_METODO_LABEL[metodo as PagamentoMetodo] ?? metodo : null;
+  return { titulo, detalhe: met ? `${situacao} · ${met}` : situacao };
+}
+
+// ── Exclusão definitiva (mesma regra no web e no app) ────────
+
+export const MSG_EXCLUSAO_COM_HISTORICO =
+  'Esta cliente tem histórico de agendamentos, comandas, vendas, pacotes ou avaliações e não pode ser excluída definitivamente — os registros seriam perdidos. Arquive em vez disso.';
+export const MSG_SEM_PERMISSAO_EXCLUIR = 'Você não tem permissão para excluir clientes definitivamente.';
+
+/**
+ * A cliente tem algum vínculo (agendamento, comanda, venda, pacote ou avaliação)? Bloqueia a
+ * exclusão definitiva. Erro de leitura LANÇA: "não sei" nunca vira "pode apagar".
+ */
+export async function clienteTemHistorico(db: ClienteDb, clienteId: string): Promise<boolean> {
+  const checar = async (tabela: string, coluna: string): Promise<boolean> => {
+    const { data, error } = await db.from(tabela).select('id').eq(coluna, clienteId).limit(1);
+    if (error) throw new Error(mensagemErroBanco(error, 'conferir o histórico da cliente'));
+    return (data?.length ?? 0) > 0;
+  };
+  const r = await Promise.all([
+    checar('agendamentos', 'cliente_id'), checar('comandas', 'clientes_id'), checar('vendas', 'cliente_id'),
+    checar('pacote_clientes', 'cliente_id'), checar('avaliacoes', 'cliente_id'),
+  ]);
+  return r.some(Boolean);
+}
+
+/** Exclui a cliente da empresa (`.select('id')`: RLS que recusa devolve 0 linhas, nunca "excluída"). */
+export async function excluirCliente(db: ClienteDb, empresaId: string, id: string): Promise<void> {
+  const { data, error } = await db.from('clientes').delete().eq('id', id).eq('empresa_id', empresaId).select('id');
+  if (error) throw new Error(mensagemErroBanco(error, 'excluir a cliente'));
+  if (!data || data.length === 0) throw new Error(MSG_SEM_PERMISSAO_EXCLUIR);
 }

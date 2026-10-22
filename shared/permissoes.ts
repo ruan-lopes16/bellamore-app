@@ -111,6 +111,16 @@ export function podeArquivarCliente(p: PodeFn): boolean {
 }
 
 /**
+ * Opções do "remover" no perfil da cliente (web e app): arquivar só uma cliente ativa (a arquivada
+ * tem o botão "Reativar" no aviso); excluir com `clientes.excluir`. `algum` mostra o botão.
+ */
+export function opcoesRemoverCliente(arquivada: boolean, p: PodeFn): { arquivar: boolean; excluir: boolean; algum: boolean } {
+  const arquivar = !arquivada && podeArquivarCliente(p);
+  const excluir = p('clientes.excluir');
+  return { arquivar, excluir, algum: arquivar || excluir };
+}
+
+/**
  * Salvar a ficha é um upsert com RETURNING: o caminho de UPDATE do ON CONFLICT e o RETURNING
  * exigem a policy de SELECT ("anamnese.ver"). Sem ver, a tela abriria a ficha em branco e
  * sobrescreveria a real — e o banco recusaria. Editar exige também ver.

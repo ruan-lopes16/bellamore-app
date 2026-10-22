@@ -23,7 +23,8 @@ describe('historico da cliente no web', () => {
   it('servico favorito vem do agregado de shared, sem contagem local', () => {
     const src = read(arquivo);
     expect(src).not.toContain('svcCount');
-    expect(src).toContain('agregado.servicoFavorito');
+    expect(src).toContain('kpisPerfilCliente(');
+    expect(read('../shared/clientes-segmentos.ts')).toContain('a?.servicoFavorito?.nome');
   });
 });
 
