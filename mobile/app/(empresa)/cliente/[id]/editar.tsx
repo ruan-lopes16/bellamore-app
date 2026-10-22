@@ -151,7 +151,7 @@ export default function EditarCliente() {
 
         <View style={{ padding: 24 }}>
           <Campo label="Nome completo *" value={nome} onChangeText={setNome} placeholder="Nome da cliente" autoCapitalize="words" icon={<User size={16} color={C.text4} strokeWidth={1.8} />} />
-          <Campo label="Telefone / WhatsApp" value={telefone} onChangeText={(v) => setTelefone(maskPhone(v))} maxLength={15} placeholder="(11) 98765-4321" keyboardType="phone-pad" icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />} />
+          <Campo label="Telefone / WhatsApp *"value={telefone} onChangeText={(v) => setTelefone(maskPhone(v))} maxLength={15} placeholder="(11) 98765-4321" keyboardType="phone-pad" icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />} />
           <Campo label="E-mail" value={email} onChangeText={setEmail} placeholder="email@exemplo.com" keyboardType="email-address" icon={<Mail size={16} color={C.text4} strokeWidth={1.8} />} />
           <AniversarioChips mes={nascMes} dia={nascDia} onMes={setNascMes} onDia={setNascDia} />
           <Campo label="Logradouro" value={endereco.logradouro} onChangeText={(v) => setEndereco((e) => ({ ...e, logradouro: v }))} placeholder="Rua, avenida…" autoCapitalize="words" icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />} />

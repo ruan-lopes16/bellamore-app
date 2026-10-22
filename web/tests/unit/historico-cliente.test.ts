@@ -76,8 +76,9 @@ describe('historico da cliente no mobile', () => {
     expect(leMobile(hook)).not.toContain('.limit(20)');
   });
 
-  it('inclui os servicos lancados direto na comanda', () => {
-    const src = leMobile(hook);
+  it('inclui os servicos lancados direto na comanda (fonte unica de shared)', () => {
+    expect(leMobile(hook)).toContain('carregarHistoricoCliente(');
+    const src = leMobile('shared/clientes-consultas.ts');
     expect(src).toContain("from('comanda_itens')");
     expect(src).toContain("eq('comanda.clientes_id'");
   });
@@ -86,11 +87,12 @@ describe('historico da cliente no mobile', () => {
     const src = leMobile(hook);
     // A agregacao antiga somava so `agendamentos`, ja truncado em 20
     expect(src).not.toContain('const concluidos = agendamentos.filter');
-    expect(src).toContain('linhasDeVisita');
+    expect(src).toContain('carregarHistoricoCliente(');
   });
 
   it('web e mobile usam o mesmo paginador', () => {
-    expect(leMobile(hook)).toContain("from '@shared/paginacao'");
+    // o app pagina pela fonte unica de shared (buscarTodasOuLancar, por @shared/paginacao)
+    expect(leMobile('shared/clientes-consultas.ts')).toContain('buscarTodasOuLancar');
     expect(read('app/(app)/clientes/[id]/page.tsx')).toContain("from '@shared/paginacao'");
     // a copia local do web nao pode sobreviver
     expect(read('app/(app)/clientes/[id]/page.tsx')).not.toContain('async function buscarTodasPaginas');
@@ -102,8 +104,9 @@ describe('lista do historico no mobile', () => {
 
   it('mostra todos os servicos do atendimento', () => {
     const src = leMobile(tela);
-    expect(src).toContain("from '@shared/atendimento-detalhe'");
-    expect(src).toContain('descreverServicos(ag)');
+    // descreverServicos roda na fonte unica de shared; a tela mostra item.servicos
+    expect(leMobile('shared/clientes-consultas.ts')).toContain('descreverServicos(a)');
+    expect(src).toContain('item.servicos');
     expect(src).not.toContain("{ag.servico?.nome ?? 'Serviço'}");
   });
 
@@ -111,7 +114,7 @@ describe('lista do historico no mobile', () => {
     // Passar um id de comanda_itens para /agendamento/[id] abriria tela quebrada
     const src = leMobile(tela);
     expect(src).toContain('tipo=comanda');
-    expect(src).toContain('eExtraDeComanda');
+    expect(src).toContain('item.comandaId');
   });
 });
 

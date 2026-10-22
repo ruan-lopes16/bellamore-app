@@ -10,8 +10,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import {
   ChevronLeft, Phone, MessageCircle, CalendarPlus,
-  MoreHorizontal, Edit3, AlertTriangle, Camera,
-  Archive, Trash2, X, MapPin, FileText,
+  MoreHorizontal, Edit3, AlertTriangle,
+  Archive, ArchiveRestore, Trash2, X, MapPin, FileText,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -24,15 +24,16 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { format, differenceInDays } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-
-import { useClienteDetalhe, type ClienteTag } from '@/hooks/useClientes';
-import { descreverServicos } from '@shared/atendimento-detalhe';
-import { toWhatsApp } from '@shared/mascaras';
-import { idadeCliente, formatarAniversario, parseEndereco } from '@shared/clientes';
+import { useClienteDetalhe } from '@/hooks/useClientes';
+import { idadeCliente, formatarAniversario, parseEndereco, contatosCliente } from '@shared/clientes';
+import { arquivarCliente, reativarCliente, type ItemHistorico } from '@shared/clientes-consultas';
+import { tagsDaLinha } from '@shared/clientes-segmentos';
+import { PAGAMENTO_METODO_LABEL, type PagamentoMetodo } from '@shared/dominio';
+import { chaveDiaBRT, diasEntre, hojeBRT } from '@shared/periodos';
 import { mensagemErroBanco } from '@shared/erros';
 import { supabase } from '@/lib/supabase';
+import { useAuthStore } from '@/stores/authStore';
+import { SecretText } from '@/components/Secret';
 import { usePermissoes } from '@/lib/permissions';
 import { podeArquivarCliente, podeEditarAnamnese } from '@shared/permissoes';
 import {
@@ -60,14 +61,7 @@ const AVATAR_COLORS: [string, string][] = [
   ['#1D4ED8', '#60A5FA'], ['#7C2D12', '#EA580C'],
 ];
 
-const TAG_CONFIG: Record<ClienteTag, { label: string; bg: string; color: string }> = {
-  vip:        { label: 'VIP',        bg: C.amberSoft,  color: C.amber },
-  nova:       { label: 'Nova',       bg: C.greenSoft,  color: C.green },
-  recorrente: { label: 'Recorrente', bg: C.primarySoft, color: C.primary },
-  sumida:     { label: 'Sumida',     bg: C.redSoft,    color: C.red },
-};
-
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string }> = {
   agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primary },
   confirmado: { label: 'Confirmado', bg: C.greenSoft,  color: C.green },
   concluido:  { label: 'Concluído',  bg: C.greenSoft,  color: C.green },
@@ -75,9 +69,33 @@ const STATUS_CONFIG = {
   faltou:     { label: 'Faltou',     bg: C.amberSoft,  color: C.amber },
 };
 
-type Aba = 'perfil' | 'historico' | 'anamnese' | 'fotos';
+const TAXA_STATUS: Record<string, string> = { pago: 'Paga', pendente: 'Pendente', retida: 'Retida' };
+
+const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+type Aba = 'perfil' | 'historico' | 'anamnese';
 
 // ── Helpers ──────────────────────────────────────────────────
+
+/** Dia e mês (Brasília) de um instante, para a coluna de data do histórico. */
+function diaMesBRT(instante: string): { dia: string; mes: string; ano: string } {
+  const [a, m, d] = chaveDiaBRT(instante).split('-');
+  return { dia: d, mes: MESES_ABREV[Number(m) - 1] ?? '', ano: a };
+}
+
+/** "Paga · Pix", "Pendente", "Retida": status da taxa com a forma de pagamento quando paga. */
+function textoTaxa(status: string, metodo: string | null): string {
+  const st = TAXA_STATUS[status] ?? status;
+  const met = metodo ? PAGAMENTO_METODO_LABEL[metodo as PagamentoMetodo] ?? metodo : null;
+  return status === 'pago' && met ? `${st} · ${met}` : st;
+}
+
+/** Última visita no KPI: "hoje", "há Nd" (Brasília) ou "—". */
+function textoKpiUltimaVisita(ultimaVisita: string | null): string {
+  if (!ultimaVisita) return '—';
+  const dias = diasEntre(chaveDiaBRT(ultimaVisita), hojeBRT());
+  return dias <= 0 ? 'hoje' : `há ${dias}d`;
+}
 
 function avatarColors(nome: string): [string, string] {
   return AVATAR_COLORS[(nome?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length];
@@ -150,6 +168,105 @@ function AnamneseRow({ pergunta, resposta, tipo }: {
   );
 }
 
+// ── Linha do histórico ───────────────────────────────────────
+
+/**
+ * Uma linha do histórico único (`ItemHistorico` de shared/clientes-consultas):
+ * atendimento e serviço extra abrem o detalhe (o extra pela comanda, `?tipo=comanda`);
+ * venda mostra os itens; taxas mostram o status e a forma de pagamento.
+ */
+function LinhaHistorico({ item }: { item: ItemHistorico }) {
+  const { dia, mes } = diaMesBRT(item.data);
+
+  let titulo: string;
+  let subtitulo: string;
+  let badge: { label: string; bg: string; color: string } | null = null;
+  let valor: string | null = formatarMoeda(item.valor);
+  let destino: string | null = null;
+
+  switch (item.tipo) {
+    case 'atendimento':
+      titulo = item.servicos || 'Serviço';
+      subtitulo = item.profissional ?? 'Profissional';
+      badge = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.agendado;
+      // Sessão de pacote vale R$ 0 no total gasto: mostra o rótulo em vez do valor.
+      if (item.pacote) valor = null;
+      destino = `/(empresa)/agendamento/${item.id}`;
+      break;
+    case 'extra':
+      titulo = item.descricao;
+      subtitulo = 'Serviço extra da comanda';
+      destino = `/(empresa)/agendamento/${item.comandaId}?tipo=comanda`;
+      break;
+    case 'venda':
+      titulo = 'Venda avulsa';
+      subtitulo = item.itens.map((i) => `${i.quantidade}× ${i.nome}`).join(', ') || 'Sem itens';
+      break;
+    case 'taxa_reserva':
+    case 'taxa_cancelamento':
+      titulo = item.tipo === 'taxa_reserva' ? 'Taxa de reserva' : 'Taxa de cancelamento';
+      subtitulo = textoTaxa(item.status, item.metodo);
+      break;
+  }
+
+  const conteudo = (
+    <>
+      <View style={{ minWidth: 42, alignItems: 'center' }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: C.text, lineHeight: 20 }}>
+          {dia}
+        </Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {mes}
+        </Text>
+      </View>
+      <View style={{ width: 1, height: 32, backgroundColor: C.border }} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
+          {titulo}
+        </Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+          {subtitulo}
+        </Text>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        {valor !== null ? (
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text, marginBottom: badge ? 4 : 0 }}>
+            {valor}
+          </SecretText>
+        ) : (
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.accent, marginBottom: badge ? 4 : 0 }}>
+            Sessão de pacote
+          </Text>
+        )}
+        {badge && (
+          <View style={{ backgroundColor: badge.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: badge.color, textTransform: 'uppercase' }}>
+              {badge.label}
+            </Text>
+          </View>
+        )}
+      </View>
+    </>
+  );
+
+  const estilo = {
+    backgroundColor: C.surface, borderWidth: 1,
+    borderColor: C.border, borderRadius: 14,
+    padding: 13, flexDirection: 'row' as const,
+    alignItems: 'center' as const, gap: 12,
+    shadowColor: C.primary, shadowOpacity: 0.04,
+    shadowRadius: 6, elevation: 1,
+  };
+
+  if (!destino) return <View style={estilo}>{conteudo}</View>;
+  const rota = destino;
+  return (
+    <TouchableOpacity onPress={() => router.push(rota as any)} style={estilo}>
+      {conteudo}
+    </TouchableOpacity>
+  );
+}
+
 // ── Tela principal ───────────────────────────────────────────
 
 export default function ClientePerfil() {
@@ -158,18 +275,49 @@ export default function ClientePerfil() {
   const [aba, setAba] = useState<Aba>('perfil');
   const qc = useQueryClient();
   const { pode } = usePermissoes();
+  const empresaId = useAuthStore((s) => s.empresaAtiva?.id);
 
-  const { data: cliente, isLoading } = useClienteDetalhe(id);
+  const { data: cliente, isLoading, isError, refetch } = useClienteDetalhe(id);
 
   const [modalRemover, setModalRemover] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
+  const [gravandoAtivo, setGravandoAtivo] = useState(false);
+
+  /** Lista (segmentos/arquivadas) e perfil mudam juntos ao arquivar ou reativar. */
+  function invalidarClientes() {
+    qc.invalidateQueries({ queryKey: ['clientes'] });
+    qc.invalidateQueries({ queryKey: ['cliente-detalhe'] });
+  }
 
   async function arquivar() {
     setModalRemover(false);
-    const { data, error } = await supabase.from('clientes').update({ ativo: false }).eq('id', id).select('id');
-    if (error || !data || data.length === 0) { Alert.alert('Erro', mensagemErroBanco(error ?? { code: '42501' }, 'arquivar cliente')); return; }
-    qc.invalidateQueries({ queryKey: ['clientes'] });
+    if (!empresaId || gravandoAtivo) return;
+    setGravandoAtivo(true);
+    try {
+      await arquivarCliente(supabase as any, empresaId, id);
+    } catch (e) {
+      Alert.alert('Erro', e instanceof Error ? e.message : 'Não foi possível arquivar a cliente.');
+      return;
+    } finally {
+      setGravandoAtivo(false);
+    }
+    invalidarClientes();
     router.back();
+  }
+
+  async function reativar() {
+    setModalRemover(false);
+    if (!empresaId || gravandoAtivo) return;
+    setGravandoAtivo(true);
+    try {
+      await reativarCliente(supabase as any, empresaId, id);
+    } catch (e) {
+      Alert.alert('Erro', e instanceof Error ? e.message : 'Não foi possível reativar a cliente.');
+      return;
+    } finally {
+      setGravandoAtivo(false);
+    }
+    invalidarClientes();
   }
 
   async function temHistorico(): Promise<boolean> {
@@ -206,12 +354,12 @@ export default function ClientePerfil() {
     setExcluindo(true);
     const { data, error } = await supabase.from('clientes').delete().eq('id', id).select('id');
     setExcluindo(false);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error) { Alert.alert('Erro', mensagemErroBanco(error, 'excluir a cliente')); return; }
     if (!data || data.length === 0) {
       Alert.alert('Sem permissão', 'Você não tem permissão para excluir clientes definitivamente.');
       return;
     }
-    qc.invalidateQueries({ queryKey: ['clientes'] });
+    invalidarClientes();
     router.back();
   }
 
@@ -229,7 +377,14 @@ export default function ClientePerfil() {
   if (!cliente) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 15, color: C.text }}>Cliente não encontrada.</Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 15, color: C.text, textAlign: 'center' }}>
+          {isError ? 'Não foi possível carregar a cliente.' : 'Cliente não encontrada.'}
+        </Text>
+        {isError && (
+          <TouchableOpacity onPress={() => refetch()} style={{ marginTop: 16 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primary }}>Tentar novamente</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primary }}>Voltar</Text>
         </TouchableOpacity>
@@ -248,6 +403,19 @@ export default function ClientePerfil() {
   const fichaAnamnese = normalizarAnamnese(cliente.anamnese?.respostas);
   const restricoes = restricoesAnamnese(fichaAnamnese);
   const temAnamnese = anamnesePreenchida(fichaAnamnese);
+
+  // Histórico e KPIs: fonte única de shared. Com erro de carga, "—" e aviso (nunca zero).
+  const agregado = cliente.agregado;
+  const erroHistorico = cliente.erroHistorico;
+  const tags = tagsDaLinha(cliente, agregado ?? undefined, hojeBRT());
+  const contatos = contatosCliente(cliente.telefone);
+  const arquivada = cliente.ativo === false;
+  const kpis = [
+    { value: agregado ? String(agregado.atendimentos) : '—', label: 'Atendimentos', color: C.primary, secreto: false },
+    { value: agregado ? formatarMoeda(agregado.totalGasto) : '—', label: 'Total gasto', color: C.green, secreto: !!agregado },
+    { value: agregado ? textoKpiUltimaVisita(agregado.ultimaVisita) : '—', label: 'Última visita', color: C.text, secreto: false },
+    { value: agregado ? (agregado.servicoFavorito?.nome ?? '—') : '—', label: 'Serviço favorito', color: C.accent, secreto: false },
+  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -304,8 +472,7 @@ export default function ClientePerfil() {
                 {cliente.telefone ?? 'Sem telefone'}
               </Text>
               <View style={{ flexDirection: 'row', gap: 5 }}>
-                {cliente.tags?.map((tag) => {
-                  const cfg = TAG_CONFIG[tag];
+                {tags.map((tag) => {
                   return (
                     <View key={tag} style={{
                       backgroundColor: 'rgba(255,255,255,0.1)',
@@ -317,7 +484,7 @@ export default function ClientePerfil() {
                         fontSize: 9, color: '#fff',
                         textTransform: 'uppercase', letterSpacing: 0.5,
                       }}>
-                        {cfg.label}
+                        {tag}
                       </Text>
                     </View>
                   );
@@ -329,8 +496,9 @@ export default function ClientePerfil() {
           {/* Ações rápidas */}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
             {[
-              { icon: <Phone size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => cliente.telefone && Linking.openURL(`tel:${cliente.telefone}`) },
-              { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => cliente.telefone && Linking.openURL(`https://wa.me/${toWhatsApp(cliente.telefone ?? '')}`) },
+              // tel: só com os dígitos e wa.me com o DDI, de `contatosCliente` (igual ao web).
+              { icon: <Phone size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Ligar', onPress: () => contatos && Linking.openURL(contatos.ligar) },
+              { icon: <MessageCircle size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Mensagem', onPress: () => contatos && Linking.openURL(contatos.whatsapp) },
               { icon: <CalendarPlus size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />, label: 'Agendar', onPress: () => router.push(`/(empresa)/novo-agendamento?clienteId=${id}` as any) },
               // "Mais" só abre arquivar/excluir: some se a pessoa não pode nenhum dos dois.
               ...((podeArquivarCliente(pode) || pode('clientes.excluir'))
@@ -368,29 +536,33 @@ export default function ClientePerfil() {
           transition={{ type: 'timing', duration: 350 }}
           style={{
             marginHorizontal: 24, marginTop: -16,
-            flexDirection: 'row', gap: 8,
+            flexDirection: 'row', flexWrap: 'wrap', gap: 8,
           }}
         >
-          {[
-            { value: String(cliente.total_visitas), label: 'Visitas', color: C.primary },
-            { value: formatarMoeda(cliente.total_gasto), label: 'Total gasto', color: C.green },
-            { value: cliente.ultima_visita ? `há ${differenceInDays(new Date(), new Date(cliente.ultima_visita))}d` : '—', label: 'Última visita', color: C.text },
-          ].map((k) => (
+          {kpis.map((k) => (
             <View key={k.label} style={{
-              flex: 1, backgroundColor: C.surface,
+              flexBasis: '47%', flexGrow: 1, backgroundColor: C.surface,
               borderWidth: 1, borderColor: C.border,
               borderRadius: 14, padding: 12,
               shadowColor: C.primary, shadowOpacity: 0.08, shadowRadius: 8,
               shadowOffset: { width: 0, height: 4 }, elevation: 3,
               alignItems: 'center',
             }}>
-              <Text style={{
-                fontFamily: 'PlusJakartaSans_700Bold',
-                fontSize: 16, color: k.color,
-                letterSpacing: -0.5, marginBottom: 2,
-              }}>
-                {k.value}
-              </Text>
+              {k.secreto ? (
+                <SecretText
+                  numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}
+                  style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, marginBottom: 2 }}
+                >
+                  {k.value}
+                </SecretText>
+              ) : (
+                <Text
+                  numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}
+                  style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: k.color, letterSpacing: -0.5, marginBottom: 2 }}
+                >
+                  {k.value}
+                </Text>
+              )}
               <Text style={{
                 fontFamily: 'PlusJakartaSans_500Medium',
                 fontSize: 9, color: C.text3,
@@ -402,6 +574,51 @@ export default function ClientePerfil() {
           ))}
         </MotiView>
 
+        {/* ── Aviso de erro do histórico (KPIs mostram "—") ── */}
+        {!!erroHistorico && (
+          <TouchableOpacity
+            onPress={() => refetch()}
+            style={{
+              marginHorizontal: 24, marginTop: 12,
+              backgroundColor: C.redSoft, borderWidth: 1, borderColor: 'rgba(192,57,43,0.15)',
+              borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10,
+            }}
+          >
+            <AlertTriangle size={14} color={C.red} strokeWidth={2} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red }}>
+                Não foi possível carregar o histórico.
+              </Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
+                {erroHistorico} Toque para tentar novamente.
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* ── Cliente arquivada: Reativar (mesma permissão de arquivar) ── */}
+        {arquivada && (
+          <View style={{
+            marginHorizontal: 24, marginTop: 12,
+            backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.15)',
+            borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10,
+          }}>
+            <Archive size={14} color={C.amber} strokeWidth={2} />
+            <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber }}>
+              Cliente arquivada: fora das listas e dos segmentos.
+            </Text>
+            {podeArquivarCliente(pode) && (
+              <TouchableOpacity
+                onPress={reativar}
+                disabled={gravandoAtivo}
+                style={{ backgroundColor: C.amber, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7, opacity: gravandoAtivo ? 0.6 : 1 }}
+              >
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: '#fff' }}>Reativar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         {/* ── Tabs internos ── */}
         <View style={{
           marginHorizontal: 24, marginTop: 16, marginBottom: 16,
@@ -409,7 +626,7 @@ export default function ClientePerfil() {
           borderRadius: 12, padding: 3, flexDirection: 'row',
           shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
         }}>
-          {(['perfil', 'historico', 'anamnese', 'fotos'] as Aba[]).filter((a) => a !== 'anamnese' || pode('anamnese.ver')).map((a) => (
+          {(['perfil', 'historico', 'anamnese'] as Aba[]).filter((a) => a !== 'anamnese' || pode('anamnese.ver')).map((a) => (
             <TouchableOpacity
               key={a}
               onPress={() => setAba(a)}
@@ -510,132 +727,33 @@ export default function ClientePerfil() {
           </MotiView>
         )}
 
-        {/* ── Aba: Histórico ── */}
+        {/* ── Aba: Histórico (lista única por data, fonte única de shared) ── */}
         {aba === 'historico' && (
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300 }}>
             <View style={{ paddingHorizontal: 24, gap: 6 }}>
-              {(cliente.historico ?? []).length === 0 ? (
+              {erroHistorico ? (
+                <View style={{
+                  backgroundColor: C.redSoft, borderWidth: 1, borderColor: 'rgba(192,57,43,0.15)',
+                  borderRadius: 16, padding: 24, alignItems: 'center', gap: 10,
+                }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.red, textAlign: 'center' }}>
+                    Não foi possível carregar o histórico.
+                  </Text>
+                  <TouchableOpacity onPress={() => refetch()}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primary }}>Tentar novamente</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : cliente.historico.length === 0 ? (
                 <View style={{
                   backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
                   borderRadius: 16, padding: 24, alignItems: 'center',
                 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
-                    Nenhum atendimento registrado
+                    Nenhum registro no histórico
                   </Text>
                 </View>
               ) : (
-                (cliente.historico ?? []).map((ag, i) => {
-                  const statusCfg = STATUS_CONFIG[ag.status] ?? STATUS_CONFIG.agendado;
-                  const data = new Date(ag.data_hora_inicio);
-                  return (
-                    <TouchableOpacity
-                      key={ag.id}
-                      onPress={() => router.push(
-                        ((ag as any).eExtraDeComanda
-                          ? `/(empresa)/agendamento/${(ag as any).comanda_id}?tipo=comanda`
-                          : `/(empresa)/agendamento/${ag.id}`) as any
-                      )}
-                      style={{
-                        backgroundColor: C.surface, borderWidth: 1,
-                        borderColor: C.border, borderRadius: 14,
-                        padding: 13, flexDirection: 'row',
-                        alignItems: 'center', gap: 12,
-                        shadowColor: C.primary, shadowOpacity: 0.04,
-                        shadowRadius: 6, elevation: 1,
-                      }}
-                    >
-                      <View style={{ minWidth: 42, alignItems: 'center' }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: C.text, lineHeight: 20 }}>
-                          {format(data, 'dd')}
-                        </Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                          {format(data, 'MMM', { locale: ptBR })}
-                        </Text>
-                      </View>
-                      <View style={{ width: 1, height: 32, backgroundColor: C.border }} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
-                          {descreverServicos(ag) ?? 'Serviço'}
-                        </Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
-                          {ag.profissional?.nome ?? 'Profissional'}
-                        </Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text, marginBottom: 4 }}>
-                          {formatarMoeda(ag.valor)}
-                        </Text>
-                        <View style={{ backgroundColor: statusCfg.bg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: statusCfg.color, textTransform: 'uppercase' }}>
-                            {statusCfg.label}
-                          </Text>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-
-              {(cliente.taxasCancelamento ?? []).length > 0 && (
-                <>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text3, marginTop: 14, marginBottom: 4 }}>
-                    TAXAS DE CANCELAMENTO
-                  </Text>
-                  {(cliente.taxasCancelamento ?? []).map(t => (
-                    <View
-                      key={t.id}
-                      style={{
-                        backgroundColor: C.surface, borderWidth: 1,
-                        borderColor: C.border, borderRadius: 14,
-                        padding: 13, flexDirection: 'row',
-                        alignItems: 'center', gap: 12,
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
-                          {t.status === 'pago' ? 'Taxa paga' : 'Taxa pendente'}
-                        </Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
-                          {format(new Date(t.created_at), 'dd/MM/yyyy')}
-                        </Text>
-                      </View>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
-                        {formatarMoeda(t.valor)}
-                      </Text>
-                    </View>
-                  ))}
-                </>
-              )}
-
-              {(cliente.taxasReserva ?? []).length > 0 && (
-                <>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text3, marginTop: 14, marginBottom: 4 }}>
-                    TAXAS DE RESERVA
-                  </Text>
-                  {(cliente.taxasReserva ?? []).map(t => (
-                    <View
-                      key={t.id}
-                      style={{
-                        backgroundColor: C.surface, borderWidth: 1,
-                        borderColor: C.border, borderRadius: 14,
-                        padding: 13, flexDirection: 'row',
-                        alignItems: 'center', gap: 12,
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, marginBottom: 2 }}>
-                          {t.status === 'pago' ? 'Taxa paga' : t.status === 'retida' ? 'Taxa retida' : 'Taxa pendente'}
-                        </Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
-                          {format(new Date(t.created_at), 'dd/MM/yyyy')}
-                        </Text>
-                      </View>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
-                        {formatarMoeda(t.valor)}
-                      </Text>
-                    </View>
-                  ))}
-                </>
+                cliente.historico.map((item) => <LinhaHistorico key={`${item.tipo}-${item.id}`} item={item} />)
               )}
             </View>
           </MotiView>
@@ -720,31 +838,6 @@ export default function ClientePerfil() {
           </MotiView>
         )}
 
-        {/* ── Aba: Fotos ── */}
-        {aba === 'fotos' && (
-          <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 300 }}>
-            <View style={{ paddingHorizontal: 24 }}>
-              <TouchableOpacity style={{
-                backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-                borderRadius: 16, padding: 32, alignItems: 'center', gap: 12,
-              }}>
-                <Camera size={28} color={C.text4} strokeWidth={1.5} />
-                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
-                  Nenhuma foto registrada
-                </Text>
-                <View style={{
-                  backgroundColor: C.primary, borderRadius: 10,
-                  paddingHorizontal: 20, paddingVertical: 10,
-                }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#fff' }}>
-                    Adicionar foto
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </MotiView>
-        )}
-
       </ScrollView>
 
       {/* Modal de escolha: arquivar ou excluir */}
@@ -766,14 +859,16 @@ export default function ClientePerfil() {
               O que você deseja fazer com "{cliente?.nome}"?
             </Text>
             {podeArquivarCliente(pode) && (
-            <TouchableOpacity onPress={arquivar}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 }}>
-              <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.amberSoft, alignItems: 'center', justifyContent: 'center' }}>
-                <Archive size={16} color={C.amber} />
+            <TouchableOpacity onPress={arquivada ? reativar : arquivar} disabled={gravandoAtivo}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10, opacity: gravandoAtivo ? 0.6 : 1 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: arquivada ? C.greenSoft : C.amberSoft, alignItems: 'center', justifyContent: 'center' }}>
+                {arquivada ? <ArchiveRestore size={16} color={C.green} /> : <Archive size={16} color={C.amber} />}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>Arquivar</Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>Some das listas, mas o histórico é mantido</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{arquivada ? 'Reativar' : 'Arquivar'}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>
+                  {arquivada ? 'Volta para as listas e os segmentos' : 'Some das listas, mas o histórico é mantido'}
+                </Text>
               </View>
             </TouchableOpacity>
             )}

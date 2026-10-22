@@ -29,7 +29,8 @@ describe('mobile grava cliente em public.clientes no formato do web', () => {
   });
   it('perfil usa idade/aniversário/endereço/WhatsApp do shared', () => {
     const src = ler('mobile/app/(empresa)/cliente/[id].tsx');
-    for (const f of ['idadeCliente(', 'formatarAniversario(', 'parseEndereco(', 'toWhatsApp(']) expect(src).toContain(f);
+    // WhatsApp/telefone por contatosCliente (que usa toWhatsApp em shared)
+    for (const f of ['idadeCliente(', 'formatarAniversario(', 'parseEndereco(', 'contatosCliente(']) expect(src).toContain(f);
   });
   it('após cadastrar, vai para a anamnese (igual ao web)', () => {
     expect(ler('mobile/app/(empresa)/novo-cliente.tsx')).toMatch(/cliente\/\$\{[^}]+\}\/anamnese/);

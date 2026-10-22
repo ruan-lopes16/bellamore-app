@@ -1,53 +1,28 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import { buscarTodasPaginas } from '@shared/paginacao';
-import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
-import { carregarBaseClientes } from '@shared/clientes-consultas';
+import { carregarBaseClientes, carregarHistoricoCliente, type ItemHistorico } from '@shared/clientes-consultas';
 import { agregarClientes, type Agregado, type ClienteBase } from '@shared/clientes-segmentos';
-import type { Cliente, AnamneseFicha, Agendamento, TaxaCancelamento, TaxaReserva } from '@/types';
+import { mensagemErroBanco } from '@shared/erros';
+import type { Cliente, AnamneseFicha } from '@/types';
 
 // ── Tipos ────────────────────────────────────────────────────
 
-export type ClienteTag = 'vip' | 'nova' | 'recorrente' | 'sumida';
-
-export interface ClienteResumo extends Cliente {
-  total_gasto: number;
-  total_visitas: number;
-  ultima_visita: string | null;
-  tags: ClienteTag[];
-}
-
-export interface ClienteDetalhe extends ClienteResumo {
+/**
+ * Perfil da cliente no app. Histórico e KPIs vêm da fonte única `carregarHistoricoCliente`
+ * (a mesma do web). Erro no histórico NÃO derruba o perfil: fica em `erroHistorico`, com
+ * `agregado` nulo, para a tela mostrar "—" e um aviso em vez de zeros.
+ */
+export interface ClienteDetalhe extends Cliente {
   anamnese?: AnamneseFicha;
   /** Mensagem de erro se a ficha de anamnese falhou ao carregar (não permitir edição). */
   erroAnamnese?: string;
-  historico?: (Agendamento & {
-    servico: { nome: string };
-    profissional: { nome: string };
-  })[];
-  taxasCancelamento?: TaxaCancelamento[];
-  taxasReserva?: TaxaReserva[];
-}
-
-// ── Helpers ──────────────────────────────────────────────────
-
-function calcularTags(
-  totalVisitas: number,
-  totalGasto: number,
-  ultimaVisita: string | null
-): ClienteTag[] {
-  const tags: ClienteTag[] = [];
-  const diasSemVisita = ultimaVisita
-    ? Math.floor((Date.now() - new Date(ultimaVisita).getTime()) / 86400000)
-    : 999;
-
-  if (totalGasto >= 2000 || totalVisitas >= 20) tags.push('vip');
-  if (totalVisitas === 1) tags.push('nova');
-  else if (totalVisitas >= 5 && diasSemVisita <= 45) tags.push('recorrente');
-  if (diasSemVisita > 60 && totalVisitas > 1) tags.push('sumida');
-
-  return tags;
+  /** Lista única por data: atendimentos, extras de comanda, vendas avulsas e taxas. */
+  historico: ItemHistorico[];
+  /** Atendimentos, total gasto, última visita e serviço favorito; null se o histórico falhou. */
+  agregado: Agregado | null;
+  /** Mensagem do erro de carga do histórico (a tela mostra "—", nunca zero). */
+  erroHistorico?: string;
 }
 
 // ── Lista de clientes ────────────────────────────────────────
@@ -79,6 +54,14 @@ export function useClientes() {
 
 // ── Detalhe de um cliente ────────────────────────────────────
 
+type ResultadoHistorico =
+  | { ok: true; itens: ItemHistorico[]; agregado: Agregado }
+  | { ok: false; erro: string };
+
+/**
+ * Cliente + ficha de anamnese + histórico único (`carregarHistoricoCliente`, mesma fonte do web).
+ * A edição e a anamnese também usam este hook (só leem a cliente e a ficha).
+ */
 export function useClienteDetalhe(clienteId: string) {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
@@ -88,93 +71,32 @@ export function useClienteDetalhe(clienteId: string) {
     enabled: !!empresaId && !!clienteId,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      const [userRes, agLinhas, comandaItens, anamneseRes, taxasRes, reservaRes] = await Promise.all([
+      const [clienteRes, anamneseRes, historicoRes] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', clienteId).eq('empresa_id', empresaId!).maybeSingle(),
-        buscarTodasPaginas<any>((from, to) =>
-          supabase
-            .from('agendamentos')
-            .select(`*, comanda_id,
-              servico:servicos(nome),
-              agendamento_servicos(ordem, servico:servicos(nome)),
-              profissional:users!agendamentos_profissional_id_fkey(nome)`)
-            .eq('empresa_id', empresaId!)
-            .eq('cliente_id', clienteId)
-            .order('data_hora_inicio', { ascending: false })
-            .order('id')
-            .range(from, to) as any
-        ),
-        // Servicos lancados direto na comanda (cliente sem hora marcada) — o web
-        // ja contava como visita; sem isso os totais divergem entre plataformas.
-        buscarTodasPaginas<any>((from, to) =>
-          supabase
-            .from('comanda_itens')
-            .select(`*,
-              servico:servicos(nome),
-              profissional:users(nome),
-              comanda:comandas!inner(fechada_at, clientes_id)`)
-            .eq('tipo', 'servico')
-            .eq('comanda.clientes_id', clienteId)
-            .order('created_at', { ascending: false })
-            .range(from, to) as any
-        ),
         supabase
           .from('anamnese_fichas')
           .select('*')
           .eq('empresa_id', empresaId!)
           .eq('cliente_id', clienteId)
           .maybeSingle(),
-        supabase
-          .from('taxas_cancelamento')
-          .select('*')
-          .eq('empresa_id', empresaId!)
-          .eq('cliente_id', clienteId)
-          .neq('status', 'cancelada')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('taxas_reserva')
-          .select('*')
-          .eq('empresa_id', empresaId!)
-          .eq('cliente_id', clienteId)
-          .neq('status', 'cancelada')   // encerradas ao concluir o atendimento (migration 061)
-          .order('created_at', { ascending: false }),
+        carregarHistoricoCliente(supabase as any, empresaId!, clienteId)
+          .then((h): ResultadoHistorico => ({ ok: true, ...h }))
+          .catch((e: unknown): ResultadoHistorico => ({ ok: false, erro: e instanceof Error ? e.message : String(e) })),
       ]);
 
-      const user = userRes.data;
-      if (!user) return null;
-      const agendamentos = agLinhas;
-      const anamnese = anamneseRes.data ?? undefined;
-      const erroAnamnese = anamneseRes.error?.message;
-
-      // Extras de comanda (servico lancado sem hora marcada) tambem sao visita —
-      // e a lista nao e mais truncada, entao os totais batem com os do web.
-      const extrasDeComanda = comandaItens.map((cs: any) => ({
-        ...cs,
-        status: 'concluido',
-        valor: Number(cs.valor_unit) * Number(cs.quantidade),
-        data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
-        eExtraDeComanda: true,
-      }));
-
-      const historicoCompleto = [...agendamentos, ...extrasDeComanda]
-        .sort((a: any, b: any) => String(b.data_hora_inicio).localeCompare(String(a.data_hora_inicio)));
-
-      const linhasDeVisita = historicoCompleto.filter((a: any) => a.status === 'concluido');
-      // Valor cobrado (com a parte do desconto da comanda, 090), igual ao Financeiro.
-      const totalGasto = linhasDeVisita.reduce((acc: number, a: any) => acc + valorCobradoAtendimento(a), 0);
-      const ultimaVisita = linhasDeVisita[0]?.data_hora_inicio ?? null;
+      // Falha ao ler a cliente não é "não encontrada": vira erro da consulta.
+      if (clienteRes.error) throw new Error(mensagemErroBanco(clienteRes.error, 'carregar a cliente'));
+      const cliente = clienteRes.data as Cliente | null;
+      if (!cliente) return null;
 
       return {
-        ...user,
-        total_gasto: totalGasto,
-        total_visitas: linhasDeVisita.length,
-        ultima_visita: ultimaVisita,
-        tags: calcularTags(linhasDeVisita.length, totalGasto, ultimaVisita),
-        historico: historicoCompleto,
-        anamnese,
-        erroAnamnese,
-        taxasCancelamento: (taxasRes.data ?? []) as TaxaCancelamento[],
-        taxasReserva: (reservaRes.data ?? []) as TaxaReserva[],
-      } as ClienteDetalhe;
+        ...cliente,
+        anamnese: (anamneseRes.data as AnamneseFicha | null) ?? undefined,
+        erroAnamnese: anamneseRes.error?.message,
+        historico: historicoRes.ok ? historicoRes.itens : [],
+        agregado: historicoRes.ok ? historicoRes.agregado : null,
+        erroHistorico: historicoRes.ok ? undefined : historicoRes.erro,
+      };
     },
   });
 }
