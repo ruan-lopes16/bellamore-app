@@ -8,7 +8,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import {
-  Search, Plus, SlidersHorizontal,
+  Search, Plus,
   Gift, ChevronRight,
 } from 'lucide-react-native';
 import {
@@ -23,17 +23,19 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoClientes } from '@shared/exportacao/clientes';
 import { SecretText } from '@/components/Secret';
 import { useClientes } from '@/hooks/useClientes';
 import { formatarMoeda } from '@shared/moeda';
-import { chaveDiaBRT, hojeBRT, diasEntre } from '@shared/periodos';
+import { hojeBRT } from '@shared/periodos';
 import {
-  contarSegmentos, filtrarClientes, segmentosDaCliente, aniversariantesDoMes,
-  ROTULO_FILTRO, ROTULO_SEGMENTO,
-  type Agregado, type ClienteBase, type FiltroClientes, type Segmento,
+  contarSegmentos, filtrarClientes, segmentosDaCliente, aniversariantesDoMes, tagsDaLinha,
+  textoUltimaVisita, textoListaVazia,
+  ROTULO_FILTRO, ROTULO_SEGMENTO, FILTROS_CLIENTES, CARTOES_CLIENTES,
+  type Agregado, type ClienteBase, type FiltroClientes, type ChaveCartaoClientes,
 } from '@shared/clientes-segmentos';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -54,29 +56,22 @@ const AVATAR_COLORS: [string, string][] = [
   ['#1D4ED8', '#60A5FA'], ['#7C2D12', '#EA580C'],
 ];
 
-/** Tags mostradas na linha (a "Nunca atendida" aparece só como filtro/cartão). */
-const TAG_CONFIG: Partial<Record<Segmento, { bg: string; color: string }>> = {
-  vip:        { bg: C.amberSoft,   color: C.amber },
-  nova:       { bg: C.greenSoft,   color: C.green },
-  recorrente: { bg: C.primarySoft, color: C.primary },
-  em_risco:   { bg: C.amberSoft,   color: C.amber },
-  sumida:     { bg: '#FEF2F2',     color: '#C0392B' },
+/** Cor de cada tag (pelo rótulo de `tagsDaLinha`; "Arquivada" usa a padrão). */
+const COR_TAG: Record<string, { bg: string; color: string }> = {
+  [ROTULO_SEGMENTO.vip]:        { bg: C.amberSoft,   color: C.amber },
+  [ROTULO_SEGMENTO.nova]:       { bg: C.greenSoft,   color: C.green },
+  [ROTULO_SEGMENTO.recorrente]: { bg: C.primarySoft, color: C.primary },
+  [ROTULO_SEGMENTO.em_risco]:   { bg: C.amberSoft,   color: C.amber },
+  [ROTULO_SEGMENTO.sumida]:     { bg: '#FEF2F2',     color: '#C0392B' },
 };
-const ORDEM_TAGS: Segmento[] = ['vip', 'recorrente', 'em_risco', 'sumida', 'nova'];
+const COR_TAG_PADRAO = { bg: C.bg, color: C.text3 };
 
-const FILTROS: { key: FiltroClientes; label: string }[] = (
-  ['todas', 'novas', 'aniversariantes', 'retornos', 'vip', 'recorrente', 'em_risco', 'sumida', 'nunca_atendida', 'arquivadas'] as FiltroClientes[]
-).map((key) => ({ key, label: ROTULO_FILTRO[key] }));
+const FILTROS: { key: FiltroClientes; label: string }[] = FILTROS_CLIENTES.map((key) => ({ key, label: ROTULO_FILTRO[key] }));
 
-/** Cartões de KPI; cada um aplica o filtro correspondente. */
-const CARTOES: { filtro: FiltroClientes; label: string; cor: string; valor: (c: ReturnType<typeof contarSegmentos>) => number }[] = [
-  { filtro: 'todas',          label: 'Total',           cor: C.text,  valor: (c) => c.total },
-  { filtro: 'novas',          label: 'Novas no mês',    cor: C.green, valor: (c) => c.novasMes },
-  { filtro: 'vip',            label: 'VIP',             cor: C.amber, valor: (c) => c.vip },
-  { filtro: 'em_risco',       label: 'Em risco',        cor: C.amber, valor: (c) => c.em_risco },
-  { filtro: 'sumida',         label: 'Sumidas',         cor: C.rose,  valor: (c) => c.sumida },
-  { filtro: 'nunca_atendida', label: 'Nunca atendidas', cor: C.text2, valor: (c) => c.nunca_atendida },
-];
+/** Cor do número de cada cartão (rótulo e filtro vêm de `CARTOES_CLIENTES`). */
+const COR_CARTAO: Record<ChaveCartaoClientes, string> = {
+  total: C.text, novasMes: C.green, vip: C.amber, em_risco: C.amber, sumida: C.rose, nunca_atendida: C.text2,
+};
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -88,22 +83,12 @@ function iniciaisNome(nome: string) {
   return nome.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
 
-function formatUltimaVisita(ultimaVisita: string | null | undefined, hoje: string): string {
-  if (!ultimaVisita) return 'Sem visita';
-  const dias = diasEntre(chaveDiaBRT(ultimaVisita), hoje);
-  if (dias <= 0) return 'hoje';
-  if (dias === 1) return 'ontem';
-  if (dias < 30) return `há ${dias} dias`;
-  if (dias < 60) return 'há 1 mês';
-  return `há ${Math.floor(dias / 30)} meses`;
-}
-
 // ── Componente de item ───────────────────────────────────────
 
 function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agregado: Agregado | undefined; hoje: string; index: number }) {
-  const [c1, c2] = avatarColors(item.nome);
+  const [c1] = avatarColors(item.nome);
   const segmentos = segmentosDaCliente(item, agregado, hoje);
-  const tags = ORDEM_TAGS.filter((t) => segmentos.has(t));
+  const tags = tagsDaLinha(item, agregado, hoje);
 
   return (
     <MotiView
@@ -163,7 +148,7 @@ function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agreg
           </Text>
           <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
             {tags.map((tag) => {
-              const cfg = TAG_CONFIG[tag]!;
+              const cfg = COR_TAG[tag] ?? COR_TAG_PADRAO;
               return (
                 <View key={tag} style={{
                   backgroundColor: cfg.bg, borderRadius: 6,
@@ -174,7 +159,7 @@ function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agreg
                     fontSize: 9, color: cfg.color,
                     textTransform: 'uppercase', letterSpacing: 0.3,
                   }}>
-                    {ROTULO_SEGMENTO[tag]}
+                    {tag}
                   </Text>
                 </View>
               );
@@ -188,7 +173,7 @@ function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agreg
             fontFamily: 'PlusJakartaSans_400Regular',
             fontSize: 11, color: C.text3, marginBottom: 3,
           }}>
-            {formatUltimaVisita(agregado?.ultimaVisita, hoje)}
+            {textoUltimaVisita(agregado?.ultimaVisita)}
           </Text>
           <SecretText style={{
             fontFamily: 'PlusJakartaSans_700Bold',
@@ -207,6 +192,7 @@ function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agreg
 export default function Clientes() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
 
   const [filtro, setFiltro] = useState<FiltroClientes>('todas');
   const [busca, setBusca] = useState('');
@@ -286,14 +272,7 @@ export default function Clientes() {
                   getLinhas={() => clientes.map((c) => ({ nome: c.nome, telefone: c.telefone ?? null, email: c.email ?? null, dataNascimento: c.data_nascimento ?? null, criadoEm: c.created_at }))}
                   cor={C.text2}
                 />
-                <TouchableOpacity style={{
-                  width: 38, height: 38, borderRadius: 12,
-                  backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-                  alignItems: 'center', justifyContent: 'center',
-                  shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-                }}>
-                  <SlidersHorizontal size={16} color={C.text2} strokeWidth={1.8} />
-                </TouchableOpacity>
+                {pode('clientes.cadastrar') && (
                 <TouchableOpacity
                   onPress={() => router.push('/(empresa)/novo-cliente' as any)}
                   style={{
@@ -306,6 +285,7 @@ export default function Clientes() {
                 >
                   <Plus size={18} color="#fff" strokeWidth={2.5} />
                 </TouchableOpacity>
+                )}
               </View>
             </MotiView>
 
@@ -385,14 +365,14 @@ export default function Clientes() {
                 flexDirection: 'row', flexWrap: 'wrap', gap: 8,
               }}
             >
-              {CARTOES.map((k) => {
+              {CARTOES_CLIENTES.map((k) => {
                 const ativo = filtro === k.filtro;
                 return (
                   <Pressable
-                    key={k.label}
+                    key={k.rotulo}
                     onPress={() => setFiltro(k.filtro)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Filtrar: ${k.label}`}
+                    accessibilityLabel={`Filtrar: ${k.rotulo}`}
                     style={({ pressed }) => ({
                       flexBasis: '31%', flexGrow: 1,
                       backgroundColor: ativo ? C.primarySoft : C.surface,
@@ -404,17 +384,17 @@ export default function Clientes() {
                   >
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_700Bold',
-                      fontSize: 22, color: k.cor,
+                      fontSize: 22, color: COR_CARTAO[k.chave],
                       letterSpacing: -0.5, lineHeight: 24, marginBottom: 3,
                     }}>
-                      {contagem ? k.valor(contagem) : '—'}
+                      {contagem && !isError ? contagem[k.chave] : '—'}
                     </Text>
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_500Medium',
                       fontSize: 9, color: C.text3,
                       textTransform: 'uppercase', letterSpacing: 0.8,
                     }}>
-                      {k.label}
+                      {k.rotulo}
                     </Text>
                   </Pressable>
                 );
@@ -476,13 +456,13 @@ export default function Clientes() {
                 fontSize: 11, color: C.text3,
                 textTransform: 'uppercase', letterSpacing: 1.5,
               }}>
-                {isError ? '—' : clientes.length} {filtro === 'todas' ? 'clientes' : ROTULO_FILTRO[filtro].toLowerCase()}
+                {isError || !base ? '—' : clientes.length} {filtro === 'todas' ? 'clientes' : ROTULO_FILTRO[filtro].toLowerCase()}
               </Text>
               <Text style={{
                 fontFamily: 'PlusJakartaSans_600SemiBold',
                 fontSize: 11, color: C.accent,
               }}>
-                A–Z
+                {filtro === 'aniversariantes' ? 'Por dia' : 'A–Z'}
               </Text>
             </View>
           </>
@@ -503,7 +483,7 @@ export default function Clientes() {
               fontFamily: 'PlusJakartaSans_400Regular',
               fontSize: 14, color: C.text3, marginTop: 10,
             }}>
-              Nenhuma cliente encontrada
+              {textoListaVazia(filtro, busca)}
             </Text>
           </View>
         )}

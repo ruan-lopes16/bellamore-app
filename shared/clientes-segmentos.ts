@@ -28,10 +28,32 @@ export const ROTULO_SEGMENTO: Record<Segmento, string> = {
   vip: 'VIP', recorrente: 'Recorrente', em_risco: 'Em risco', sumida: 'Sumida', nova: 'Nova', nunca_atendida: 'Nunca atendida',
 };
 
+/** Rótulos dos FILTROS (plural). As tags da linha usam `ROTULO_SEGMENTO` (singular). */
 export const ROTULO_FILTRO: Record<FiltroClientes, string> = {
   todas: 'Todas', novas: 'Novas', aniversariantes: 'Aniversariantes', retornos: 'Retornos', arquivadas: 'Arquivadas',
-  ...ROTULO_SEGMENTO,
+  vip: 'VIP', recorrente: 'Recorrentes', em_risco: 'Em risco', sumida: 'Sumidas', nova: 'Novas', nunca_atendida: 'Nunca atendidas',
 };
+
+/** Ordem única dos filtros nas duas listas. */
+export const FILTROS_CLIENTES: FiltroClientes[] = [
+  'todas', 'novas', 'aniversariantes', 'retornos', 'vip', 'recorrente', 'em_risco', 'sumida', 'nunca_atendida', 'arquivadas',
+];
+
+/** Chave de `contarSegmentos` mostrada em cada cartão. */
+export type ChaveCartaoClientes = 'total' | 'novasMes' | 'vip' | 'em_risco' | 'sumida' | 'nunca_atendida';
+
+/** Os 6 cartões de KPI das duas listas; cada um aplica o filtro. */
+export const CARTOES_CLIENTES: { rotulo: string; filtro: FiltroClientes; chave: ChaveCartaoClientes }[] = [
+  { rotulo: 'Total',           filtro: 'todas',          chave: 'total' },
+  { rotulo: 'Novas no mês',    filtro: 'novas',          chave: 'novasMes' },
+  { rotulo: 'VIP',             filtro: 'vip',            chave: 'vip' },
+  { rotulo: 'Em risco',        filtro: 'em_risco',       chave: 'em_risco' },
+  { rotulo: 'Sumidas',         filtro: 'sumida',         chave: 'sumida' },
+  { rotulo: 'Nunca atendidas', filtro: 'nunca_atendida', chave: 'nunca_atendida' },
+];
+
+/** Segmentos que viram tag na linha, nesta ordem ("Nunca atendida" é só filtro/cartão). */
+export const TAGS_LINHA: Segmento[] = ['vip', 'recorrente', 'em_risco', 'sumida', 'nova'];
 
 const centavos = (v: number): number => Math.round(v * 100);
 
@@ -172,4 +194,23 @@ export function filtrarClientes(clientes: ClienteBase[], ag: Map<string, Agregad
   }
   lista = lista.filter(passaBusca);
   return filtro === 'aniversariantes' ? lista : [...lista].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+/** Tags da linha da lista: "Arquivada" para arquivada; senão os segmentos de `TAGS_LINHA`, na ordem. */
+export function tagsDaLinha(c: ClienteBase, a: Agregado | undefined, hojeChave: string): string[] {
+  if (c.ativo === false) return ['Arquivada'];
+  const segs = segmentosDaCliente(c, a, hojeChave);
+  return TAGS_LINHA.filter(s => segs.has(s)).map(s => ROTULO_SEGMENTO[s]);
+}
+
+/** "Última visita dd/mm/aa" (Brasília) ou "Sem atendimento". */
+export function textoUltimaVisita(ultimaVisita: string | null | undefined): string {
+  if (!ultimaVisita) return 'Sem atendimento';
+  const [a, m, d] = chaveDiaBRT(ultimaVisita).split('-');
+  return `Última visita ${d}/${m}/${a.slice(2)}`;
+}
+
+/** Texto da lista vazia (com erro de carga a tela mostra o aviso, nunca este texto). */
+export function textoListaVazia(filtro: FiltroClientes, busca: string): string {
+  return busca.trim() || filtro !== 'todas' ? 'Nenhuma cliente encontrada.' : 'Nenhuma cliente cadastrada ainda.';
 }

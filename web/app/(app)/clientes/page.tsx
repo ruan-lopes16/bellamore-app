@@ -10,9 +10,13 @@ import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { maskPhone } from '@/lib/masks';
 import { montarAniversario, diasNoMes, nomeClienteValido, erroTelefoneCliente, erroEmailCliente, serializarEndereco } from '@shared/clientes';
-import { contarSegmentos, filtrarClientes, segmentosDaCliente, agregarClientes, ROTULO_FILTRO, ROTULO_SEGMENTO, type Agregado, type ClienteBase, type FiltroClientes, type Segmento } from '@shared/clientes-segmentos';
+import {
+  contarSegmentos, filtrarClientes, agregarClientes, tagsDaLinha, textoUltimaVisita, textoListaVazia,
+  ROTULO_FILTRO, ROTULO_SEGMENTO, FILTROS_CLIENTES, CARTOES_CLIENTES,
+  type Agregado, type ClienteBase, type FiltroClientes, type ChaveCartaoClientes,
+} from '@shared/clientes-segmentos';
 import { carregarBaseClientes, type BaseClientes } from '@shared/clientes-consultas';
-import { hojeBRT, chaveDiaBRT } from '@shared/periodos';
+import { hojeBRT } from '@shared/periodos';
 import { formatarMoeda } from '@shared/moeda';
 import { Secret } from '@/components/privacy';
 import { mensagemErroBanco } from '@shared/erros';
@@ -197,33 +201,35 @@ function NovoClienteModal({ empresaId, onClose }: {
 
 // ── Lista ─────────────────────────────────────────────────────
 
-const ORDEM_SEGMENTOS: Segmento[] = ['vip', 'recorrente', 'em_risco', 'sumida', 'nova', 'nunca_atendida'];
-const COR_SEGMENTO: Record<Segmento, { cor: string; bg: string }> = {
-  vip:            { cor: 'var(--color-amber)',   bg: 'var(--color-amber-soft)' },
-  recorrente:     { cor: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
-  em_risco:       { cor: 'var(--color-rose)',    bg: 'var(--color-rose-soft)' },
-  sumida:         { cor: 'var(--color-rose)',    bg: 'var(--color-rose-soft)' },
-  nova:           { cor: 'var(--color-green)',   bg: 'var(--color-green-soft)' },
-  nunca_atendida: { cor: 'var(--color-ink3)',    bg: 'var(--color-bg)' },
+/** Cor de cada tag (pelo rótulo de `tagsDaLinha`). */
+const COR_TAG: Record<string, { cor: string; bg: string }> = {
+  [ROTULO_SEGMENTO.vip]:        { cor: 'var(--color-amber)',   bg: 'var(--color-amber-soft)' },
+  [ROTULO_SEGMENTO.recorrente]: { cor: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
+  [ROTULO_SEGMENTO.em_risco]:   { cor: 'var(--color-rose)',    bg: 'var(--color-rose-soft)' },
+  [ROTULO_SEGMENTO.sumida]:     { cor: 'var(--color-rose)',    bg: 'var(--color-rose-soft)' },
+  [ROTULO_SEGMENTO.nova]:       { cor: 'var(--color-green)',   bg: 'var(--color-green-soft)' },
 };
-const FILTROS: FiltroClientes[] = ['todas', 'novas', 'aniversariantes', 'retornos', 'vip', 'recorrente', 'em_risco', 'sumida', 'nunca_atendida', 'arquivadas'];
+const COR_TAG_PADRAO = { cor: 'var(--color-ink3)', bg: 'var(--color-bg)' };
 
-/** dd/MM/aa da última visita em Brasília. */
-function dataCurta(iso: string): string {
-  const [a, m, d] = chaveDiaBRT(iso).split('-');
-  return `${d}/${m}/${a.slice(2)}`;
-}
+/** Visual de cada cartão (rótulo e filtro vêm de `CARTOES_CLIENTES`). */
+const VISUAL_CARTAO: Record<ChaveCartaoClientes, { color: string; bg: string; icon: typeof Users }> = {
+  total:          { color: 'var(--color-primary)', bg: 'var(--color-primary-soft)', icon: Users },
+  novasMes:       { color: 'var(--color-green)',   bg: 'var(--color-green-soft)',   icon: CalendarPlus },
+  vip:            { color: 'var(--color-amber)',   bg: 'var(--color-amber-soft)',   icon: Crown },
+  em_risco:       { color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)',    icon: AlertTriangle },
+  sumida:         { color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)',    icon: UserX },
+  nunca_atendida: { color: 'var(--color-ink3)',    bg: 'var(--color-bg)',           icon: Hourglass },
+};
 
-/** Tags de segmento da linha (ou "Arquivada"). */
+/** Tags da linha (segmentos ou "Arquivada"), por `tagsDaLinha`. */
 function Tags({ cliente, agregado, hojeChave }: { cliente: ClienteBase; agregado: Agregado | undefined; hojeChave: string }) {
   const estilo = (cor: string, bg: string): React.CSSProperties => ({ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: bg, color: cor, whiteSpace: 'nowrap' });
-  if (cliente.ativo === false) return <span className="flex-shrink-0" style={estilo('var(--color-ink3)', 'var(--color-bg)')}>Arquivada</span>;
-  const segs = segmentosDaCliente(cliente, agregado, hojeChave);
   return (
     <>
-      {ORDEM_SEGMENTOS.filter(s => segs.has(s)).map(s => (
-        <span key={s} className="flex-shrink-0" style={estilo(COR_SEGMENTO[s].cor, COR_SEGMENTO[s].bg)}>{ROTULO_SEGMENTO[s]}</span>
-      ))}
+      {tagsDaLinha(cliente, agregado, hojeChave).map(t => {
+        const { cor, bg } = COR_TAG[t] ?? COR_TAG_PADRAO;
+        return <span key={t} className="flex-shrink-0" style={estilo(cor, bg)}>{t}</span>;
+      })}
     </>
   );
 }
@@ -270,18 +276,13 @@ export default function ClientesPage() {
     [base, agregados, filtro, busca, hojeChave],
   );
 
-  const cartoes: { label: string; filtro: FiltroClientes; value: number | null; color: string; bg: string; icon: typeof Users }[] = [
-    { label: 'Total',           filtro: 'todas',          value: contagem?.total ?? null,          color: 'var(--color-primary)', bg: 'var(--color-primary-soft)', icon: Users },
-    { label: 'Novas no mês',    filtro: 'novas',          value: contagem?.novasMes ?? null,       color: 'var(--color-green)',   bg: 'var(--color-green-soft)',   icon: CalendarPlus },
-    { label: 'VIP',             filtro: 'vip',            value: contagem?.vip ?? null,            color: 'var(--color-amber)',   bg: 'var(--color-amber-soft)',   icon: Crown },
-    { label: 'Em risco',        filtro: 'em_risco',       value: contagem?.em_risco ?? null,       color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)',    icon: AlertTriangle },
-    { label: 'Sumidas',         filtro: 'sumida',         value: contagem?.sumida ?? null,         color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)',    icon: UserX },
-    { label: 'Nunca atendidas', filtro: 'nunca_atendida', value: contagem?.nunca_atendida ?? null, color: 'var(--color-ink3)',    bg: 'var(--color-bg)',           icon: Hourglass },
-  ];
+  const cartoes = CARTOES_CLIENTES.map(c => ({
+    label: c.rotulo, filtro: c.filtro, value: contagem ? contagem[c.chave] : null, ...VISUAL_CARTAO[c.chave],
+  }));
 
   const infoLinha = (c: ClienteBase) => {
     const ag = agregados.get(c.id);
-    return { ag, gasto: ag?.totalGasto ?? 0, visita: ag?.ultimaVisita ? dataCurta(ag.ultimaVisita) : 'Sem atendimento' };
+    return { ag, gasto: ag?.totalGasto ?? 0, visita: textoUltimaVisita(ag?.ultimaVisita) };
   };
   const estiloAvatar = (nome: string, tam: number) => {
     let h = 0;
@@ -379,7 +380,7 @@ export default function ClientesPage() {
         <SmoothTabs
           variant="pill"
           className="mb-5 -mx-4 px-4 sm:mx-0 sm:px-0"
-          tabs={FILTROS.map(f => ({ key: f, label: ROTULO_FILTRO[f] }))}
+          tabs={FILTROS_CLIENTES.map(f => ({ key: f, label: ROTULO_FILTRO[f] }))}
           active={filtro}
           onChange={key => setFiltro(key as FiltroClientes)}
         />
@@ -399,7 +400,7 @@ export default function ClientesPage() {
         <div className="rounded-2xl p-12 text-center" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
           <Users size={32} style={{ color: 'var(--color-ink4)', margin: '0 auto 12px' }} strokeWidth={1.5}/>
           <p style={{ fontFamily: 'var(--font-sans)', color: 'var(--color-ink3)', fontSize: 14, marginBottom: 8 }}>
-            {busca || filtro !== 'todas' ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado ainda.'}
+            {textoListaVazia(filtro, busca)}
           </p>
           {!busca && filtro === 'todas' && pode('clientes.cadastrar') && (
             <button onClick={() => setModal(true)} style={{ fontFamily: 'var(--font-sans)', color: 'var(--color-accent)', fontSize: 13, fontWeight: 700 }}>
@@ -445,7 +446,7 @@ export default function ClientesPage() {
                   <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                     {c.telefone && <span className="flex items-center gap-1" style={{ fontSize: 12, color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}><Phone size={11} strokeWidth={2}/>{c.telefone}</span>}
                     <span style={{ fontSize: 12, color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}>Gasto: <Secret>{formatarMoeda(gasto)}</Secret></span>
-                    <span style={{ fontSize: 12, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}>{ag?.ultimaVisita ? `Última visita ${visita}` : visita}</span>
+                    <span style={{ fontSize: 12, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}>{visita}</span>
                   </div>
                 </div>
                 <ChevronRight size={16} style={{ color: 'var(--color-ink4)', flexShrink: 0 }} strokeWidth={2}/>

@@ -156,3 +156,34 @@ describe('rótulos', () => {
     expect(ROTULO_FILTRO.todas).toBe('Todas'); expect(ROTULO_SEGMENTO.vip).toBe('VIP');
   });
 });
+
+describe('textos únicos da lista (web e app)', () => {
+  it('filtros no plural; segmentos (tags) no singular', async () => {
+    const { FILTROS_CLIENTES } = await import('@shared/clientes-segmentos');
+    expect(FILTROS_CLIENTES.map(f => ROTULO_FILTRO[f])).toEqual(
+      ['Todas', 'Novas', 'Aniversariantes', 'Retornos', 'VIP', 'Recorrentes', 'Em risco', 'Sumidas', 'Nunca atendidas', 'Arquivadas'],
+    );
+    expect([ROTULO_SEGMENTO.recorrente, ROTULO_SEGMENTO.sumida, ROTULO_SEGMENTO.nunca_atendida]).toEqual(['Recorrente', 'Sumida', 'Nunca atendida']);
+  });
+  it('cartões: os 6 da spec, cada um com o filtro', async () => {
+    const { CARTOES_CLIENTES } = await import('@shared/clientes-segmentos');
+    expect(CARTOES_CLIENTES.map(c => [c.rotulo, c.filtro])).toEqual([
+      ['Total', 'todas'], ['Novas no mês', 'novas'], ['VIP', 'vip'], ['Em risco', 'em_risco'], ['Sumidas', 'sumida'], ['Nunca atendidas', 'nunca_atendida'],
+    ]);
+  });
+  it('tags da linha: segmentos na ordem fixa, sem "Nunca atendida"; arquivada só "Arquivada"', async () => {
+    const { tagsDaLinha } = await import('@shared/clientes-segmentos');
+    const ag = agregarClientes(Array.from({ length: 8 }, () => at('2026-10-20')), [], []);
+    expect(tagsDaLinha(cli({ created_at: '2026-10-02T12:00:00Z' }), ag.get('c1'), HOJE)).toEqual(['VIP', 'Recorrente', 'Nova']);
+    expect(tagsDaLinha(cli(), undefined, HOJE)).toEqual([]);
+    expect(tagsDaLinha(cli({ ativo: false }), ag.get('c1'), HOJE)).toEqual(['Arquivada']);
+  });
+  it('última visita em Brasília e lista vazia', async () => {
+    const { textoUltimaVisita, textoListaVazia } = await import('@shared/clientes-segmentos');
+    expect(textoUltimaVisita('2026-10-21T02:00:00Z')).toBe('Última visita 20/10/26');
+    expect(textoUltimaVisita(null)).toBe('Sem atendimento');
+    expect(textoListaVazia('todas', '')).toBe('Nenhuma cliente cadastrada ainda.');
+    expect(textoListaVazia('todas', 'ana')).toBe('Nenhuma cliente encontrada.');
+    expect(textoListaVazia('vip', '')).toBe('Nenhuma cliente encontrada.');
+  });
+});

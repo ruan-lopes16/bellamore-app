@@ -9,7 +9,7 @@ describe('Clientes web: lista com segmentos únicos', () => {
   it('usa as funções de shared em vez de regra local', () => {
     expect(pagina).toContain('@shared/clientes-segmentos');
     expect(pagina).toContain('@shared/clientes-consultas');
-    for (const f of ['contarSegmentos', 'filtrarClientes', 'segmentosDaCliente', 'agregarClientes', 'carregarBaseClientes', 'ROTULO_FILTRO', 'ROTULO_SEGMENTO']) {
+    for (const f of ['contarSegmentos', 'filtrarClientes', 'tagsDaLinha', 'agregarClientes', 'carregarBaseClientes', 'ROTULO_FILTRO', 'ROTULO_SEGMENTO']) {
       expect(pagina).toContain(f);
     }
     expect(pagina).not.toMatch(/limit\(5000\)/);
@@ -18,12 +18,10 @@ describe('Clientes web: lista com segmentos únicos', () => {
   });
 
   it('cartões clicáveis, busca e filtros', () => {
-    for (const t of ['Total', 'Novas no mês', 'VIP', 'Em risco', 'Sumidas', 'Nunca atendidas']) expect(pagina).toContain(t);
+    expect(pagina).toContain('CARTOES_CLIENTES'); // rótulos dos 6 cartões em shared (clientes-segmentos.test)
     expect(pagina).toContain('Buscar por nome, telefone ou e-mail');
     expect(pagina).toMatch(/setFiltro\(/);
-    expect(pagina).toContain('aniversariantes');
-    expect(pagina).toContain('retornos');
-    expect(pagina).toContain('arquivadas');
+    expect(pagina).toContain('FILTROS_CLIENTES'); // ordem e rótulos dos filtros em shared
   });
 
   it('linha mostra tags, total gasto escondível e última visita; erro vira aviso', () => {
