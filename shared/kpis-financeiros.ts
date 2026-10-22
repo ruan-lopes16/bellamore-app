@@ -50,6 +50,7 @@ import {
   limitesDias, limitesMes, chaveDiaBRT, somarDias, diasEntre, diaDaSemana, ultimoDiaDoMes, rotuloMesCurto, rotuloMesAno,
 } from './periodos';
 import { type FinanceiroFechamentoRow, getFechamentoForMonth } from './fechamentos-mensais';
+import { DIAS_SUMIDA } from './clientes-segmentos';
 import {
   type RetiradaSociaRow, type RetiradaSociaDevolucaoRow, retiradasNoPeriodo, somaDevolucoesPorRetirada,
 } from './retiradas-socia';
@@ -663,7 +664,7 @@ export function metricasRetorno(
 export function clientesSumidas(
   ultimaVisitaPorCliente: Map<string, string> | Record<string, string>,
   fimIso: string,
-  dias = 60,
+  dias = DIAS_SUMIDA,
 ): number {
   const ultimas = ultimaVisitaPorCliente instanceof Map
     ? [...ultimaVisitaPorCliente.values()]
