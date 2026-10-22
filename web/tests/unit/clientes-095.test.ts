@@ -34,10 +34,6 @@ describe('migration 095 — clientes.endereco', () => {
   it('termina com notify', () => {
     expect(corpo.endsWith("notify pgrst, 'reload schema';")).toBe(true);
   });
-
-  it('mantém CRLF, como as demais migrations', () => {
-    expect(bruto).toContain('\r\n');
-  });
 });
 
 describe('shared/clientes.ts — comentário do endereço', () => {

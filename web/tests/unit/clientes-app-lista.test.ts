@@ -40,6 +40,11 @@ describe('Clientes app: lista com segmentos únicos', () => {
     expect(tela).toContain('Não foi possível carregar');
   });
 
+  it('cabeçalho da lista (com a busca) é elemento, não função inline: senão remonta a cada tecla e fecha o teclado', () => {
+    expect(tela).toContain('ListHeaderComponent');
+    expect(tela).not.toMatch(/ListHeaderComponent=\{\s*\(\)\s*=>/);
+  });
+
   it('banner de aniversariantes é o filtro do mês', () => {
     expect(tela).toContain('aniversariantesDoMes');
     expect(tela).toMatch(/setFiltro\('aniversariantes'\)/);

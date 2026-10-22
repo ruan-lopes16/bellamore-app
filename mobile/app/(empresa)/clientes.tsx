@@ -235,7 +235,9 @@ export default function Clientes() {
           <RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.accent} />
         }
         contentContainerStyle={{ paddingBottom: 100 }}
-        ListHeaderComponent={() => (
+        // Elemento (não função inline): uma função nova a cada render remontaria o cabeçalho a cada
+        // tecla da busca, fechando o teclado e repetindo as animações de entrada.
+        ListHeaderComponent={(
           <>
             {/* Header */}
             <MotiView
