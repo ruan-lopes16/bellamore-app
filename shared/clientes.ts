@@ -1,13 +1,17 @@
 /**
  * @file clientes.ts
- * Formato de dados da cliente, igual em web e mobile. É o formato que está em
- * produção desde a migration 006 (tabela `public.clientes`):
+ * Formato de dados da cliente, igual em web e mobile (tabela `public.clientes`,
+ * criada na migration 006):
  * - `data_nascimento` = '1904-MM-DD' (novos) ou '1900-MM-DD' (legado) quando só
  *   dia/mês são conhecidos (o cadastro pede só aniversário); um ano real (> 1905)
  *   permite calcular idade. 1904 é bissexto, então aceita 29/02.
  * - `endereco` = JSON {logradouro, numero, bairro, complemento}. Texto livre
- *   antigo é tratado como logradouro.
+ *   antigo é tratado como logradouro. A coluna NÃO veio da 006: existia em
+ *   produção sem nenhuma migration (conferido em 22/10/2026) e só foi versionada
+ *   na 095 (`095_clientes_endereco.sql`).
  */
+
+import { toWhatsApp } from './mascaras';
 
 export type EnderecoCliente = { logradouro: string; numero: string; bairro: string; complemento: string };
 
@@ -142,4 +146,15 @@ export function erroEmailCliente(email: string): string | null {
     && /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(e)
     && !e.includes('..') && !e.startsWith('.') && !e.split('@')[0].endsWith('.');
   return ok ? null : 'E-mail inválido: use o formato nome@exemplo.com.';
+}
+
+/**
+ * Links de contato da cliente (perfil e detalhe do atendimento, web e app): `tel:` só com
+ * os dígitos e WhatsApp (`https://wa.me/55…`, sem duplicar o DDI de número já salvo com 55).
+ * Sem telefone (ou sem dígitos) devolve null e a tela esconde os dois botões.
+ */
+export function contatosCliente(telefone: string | null | undefined): { ligar: string; whatsapp: string } | null {
+  const digitos = (telefone ?? '').replace(/\D/g, '');
+  if (!digitos) return null;
+  return { ligar: `tel:${digitos}`, whatsapp: `https://wa.me/${toWhatsApp(digitos)}` };
 }

@@ -6,7 +6,6 @@ import { chaveDiaBRT, diaDaSemana, horaBRT, instanteMs, somarDias } from './peri
 import { parseValorBR } from './comanda-fechamento';
 import { faturamentoPrevistoDia } from './kpis-financeiros';
 import { MOTIVOS_BLOQUEIO } from './bloqueios';
-import { toWhatsApp } from './mascaras';
 
 /** Janela visível da timeline, em horas inteiras (0..24). */
 export type Janela = { ini: number; fim: number };
@@ -205,13 +204,5 @@ export function resumoDoDia(
   };
 }
 
-/**
- * Links de contato da cliente no detalhe do atendimento: `tel:` e WhatsApp (`https://wa.me/55…`,
- * sem duplicar o DDI de número já salvo com 55). Sem telefone (ou sem dígitos) devolve null e a
- * tela esconde os dois botões.
- */
-export function contatosCliente(telefone: string | null | undefined): { ligar: string; whatsapp: string } | null {
-  const digitos = (telefone ?? '').replace(/\D/g, '');
-  if (!digitos) return null;
-  return { ligar: `tel:${digitos}`, whatsapp: `https://wa.me/${toWhatsApp(digitos)}` };
-}
+/** Links de contato da cliente: a regra mora em `shared/clientes.ts`; reexportada para a agenda. */
+export { contatosCliente } from './clientes';
