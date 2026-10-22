@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { ChevronLeft, Phone, Mail, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, Clock, CheckCircle2, XCircle, AlertCircle, ShoppingBag, MessageCircle, Archive, Banknote } from 'lucide-react';
+import { ChevronLeft, Phone, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, AlertCircle, MessageCircle, Archive, RotateCcw } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
-import type { Cliente, TaxaCancelamento, TaxaReserva } from '@/types';
-import { format, differenceInDays, addMinutes, parseISO } from 'date-fns';
-import { maskPhone, toWhatsApp } from '@/lib/masks';
+import type { Cliente } from '@/types';
+import { format, addMinutes } from 'date-fns';
+import { maskPhone } from '@/lib/masks';
 import { avancarComEnter } from '@/lib/formNav';
 import { ptBR } from 'date-fns/locale';
 import { Sk } from '@/components/Skeleton';
@@ -20,26 +20,29 @@ import {
   montarAgendamento, valorDigitadoValido, instanteBRT, conflitosDeHorario, instanteNoPassado,
   msgConflito, MSG_HORARIO_PASSADO,
 } from '@shared/agenda';
-import { horaBRT } from '@shared/periodos';
+import { horaBRT, hojeBRT, chaveDiaBRT, diasEntre } from '@shared/periodos';
 import { parseValorBR } from '@shared/comanda-fechamento';
 import { valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
-import { buscarTodasPaginas } from '@shared/paginacao';
 import { mensagemErroBanco } from '@shared/erros';
 import { novoUuid } from '@shared/uuid';
 import { podeArquivarCliente, podeEditarAnamnese } from '@shared/permissoes';
 import {
   aniversarioParaGravar, nomeClienteValido, parseEndereco, serializarEndereco,
-  partesAniversario, diasNoMes, idadeCliente, erroTelefoneCliente, erroEmailCliente,
+  partesAniversario, diasNoMes, idadeCliente, erroTelefoneCliente, erroEmailCliente, contatosCliente,
 } from '@shared/clientes';
 import {
   ANAMNESE_VAZIA, normalizarAnamnese, anamnesePreenchida, restricoesAnamnese, ehRestricao,
   PERGUNTAS_SIM_NAO, PERGUNTAS_OPCOES, TEXTO_DECLARACAO, type AnamneseRespostas,
 } from '@shared/anamnese';
-import { descreverServicos, listarServicos, type DetalheAtendimento } from '@shared/atendimento-detalhe';
+import type { DetalheAtendimento } from '@shared/atendimento-detalhe';
 import { carregarDetalheAtendimento } from '@shared/atendimento-detalhe-consultas';
 import { ConteudoComanda } from '@/components/ConteudoComanda';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
-import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
+import {
+  carregarHistoricoCliente, arquivarCliente, reativarCliente, type ItemHistorico,
+} from '@shared/clientes-consultas';
+import { tagsDaLinha, type Agregado } from '@shared/clientes-segmentos';
+import { HistoricoCliente, type AberturaDetalhe } from './HistoricoCliente';
 
 const supabase = createClient();
 
@@ -66,40 +69,12 @@ function DisplayRow({ label, value, placeholder = '—' }: {
   );
 }
 
-// ── Tipos auxiliares ──────────────────────────────────────────
-
-type ClienteStats = {
-  totalVisitas: number;
-  totalGasto: number;
-  ultimaVisita: string | null;
-  servicoFavorito: string | null;
-};
-
-type HistAg = {
-  id: string; data_hora_inicio: string; data_hora_fim: string;
-  status: string; valor: number; observacao?: string;
-  servico: { nome: string } | null;
-  profissional: { nome: string } | null;
-  agendamento_servicos?: { ordem: number; servico: { nome: string } | null }[] | null;
-  /** comanda que fechou este atendimento — null enquanto nao foi fechado */
-  comanda_id?: string | null;
-  /** true quando a linha veio de comanda_itens (servico avulso, sem agendamento) */
-  eExtraDeComanda?: boolean;
-};
-
-type HistVenda = {
-  id: string; created_at: string; valor_final: number; observacao?: string;
-  venda_itens: { quantidade: number; preco_unitario: number; produto: { nome: string } | null }[];
-};
-
-/** Serviço extra lançado direto na comanda (sem agendamento prévio) — ex: cliente sem hora marcada */
-type HistComandaServico = {
-  id: string; comanda_id: string; descricao: string; valor_unit: number;
-  quantidade: number; created_at: string;
-  servico: { nome: string } | null;
-  profissional: { nome: string } | null;
-  comanda: { fechada_at: string | null } | null;
-};
+/** "Hoje", "Ontem" ou "há Nd" em Brasília; "—" sem visita. */
+function rotuloUltimaVisita(ultimaVisita: string | null): string {
+  if (!ultimaVisita) return '—';
+  const dias = diasEntre(chaveDiaBRT(ultimaVisita), hojeBRT());
+  return dias <= 0 ? 'Hoje' : dias === 1 ? 'Ontem' : `há ${dias}d`;
+}
 
 type ServicoOpt = { id: string; nome: string; preco: number; duracao_minutos: number };
 
@@ -114,17 +89,6 @@ const METODOS_TAXA: { key: MetodoPagTaxa; label: string }[] = [
   { key: 'debito',   label: 'Débito' },
   { key: 'cortesia', label: 'Cortesia' },
 ];
-function labelMetodo(m?: MetodoPagTaxa | null) {
-  return METODOS_TAXA.find(x => x.key === m)?.label ?? null;
-}
-
-const STATUS_CFG: Record<string, { label: string; bg: string; text: string; icon: React.ElementType }> = {
-  agendado:   { label: 'Agendado',   bg: 'bg-amber-soft',   text: 'text-amber',   icon: Clock        },
-  confirmado: { label: 'Confirmado', bg: 'bg-primary-soft', text: 'text-primary', icon: CheckCircle2 },
-  concluido:  { label: 'Concluído',  bg: 'bg-green-soft',   text: 'text-green',   icon: CheckCircle2 },
-  cancelado:  { label: 'Cancelado',  bg: 'bg-red-soft',     text: 'text-red',     icon: XCircle      },
-  faltou:     { label: 'Faltou',     bg: 'bg-red-soft',     text: 'text-red',     icon: AlertCircle  },
-};
 
 function NovoAgModal({ empresaId, clienteId, clienteNome, onClose, onSalvo }: {
   empresaId: string; clienteId: string; clienteNome: string;
@@ -533,55 +497,44 @@ export default function ClientePerfilPage() {
   const [erroCargaAn, setErroCargaAn] = useState('');
   const [salvandoAn, setSalvandoAn] = useState(false);
 
-  // ── Histórico ───────────────────────────────────────────────
-  const [historico,     setHistorico]     = useState<HistAg[]>([]);
-  const [vendas,        setVendas]        = useState<HistVenda[]>([]);
-  const [taxas,         setTaxas]         = useState<TaxaCancelamento[]>([]);
-  const [taxasReserva,  setTaxasReserva]  = useState<TaxaReserva[]>([]);
-  const [loadingHist,   setLoadingHist]   = useState(false);
-  const [histCarregado, setHistCarregado] = useState(false);
-
-  // ── Modal novo agendamento ──────────────────────────────────
-  const [stats, setStats] = useState<ClienteStats>({
-    totalVisitas: 0, totalGasto: 0, ultimaVisita: null, servicoFavorito: null,
-  });
+  // ── Histórico + KPIs (fonte única: carregarHistoricoCliente) ─
+  // Carregado junto com o perfil: os 4 KPIs saem do mesmo `agregado` da lista de Clientes.
+  const [itensHist,   setItensHist]   = useState<ItemHistorico[]>([]);
+  const [agregado,    setAgregado]    = useState<Agregado | null>(null);
+  const [loadingHist, setLoadingHist] = useState(true);
+  const [erroHist,    setErroHist]    = useState('');
 
   const [empresaId,       setEmpresaId]       = useState<string | null>(null);
   const [modalAg,         setModalAg]         = useState(false);
   const [confirmArquivar, setConfirmArquivar] = useState(false);
+  const [arquivando,      setArquivando]      = useState(false);
+  const [reativando,      setReativando]      = useState(false);
   const [modalRemover,    setModalRemover]    = useState(false);
   useScrollLock(modalRemover);
-  const [detalheAberto,   setDetalheAberto]   = useState<
-    { agendamentoId: string | null; comandaId: string | null; titulo: string } | null
-  >(null);
+  const [detalheAberto,   setDetalheAberto]   = useState<AberturaDetalhe | null>(null);
   const [confirmExcluir,  setConfirmExcluir]  = useState(false);
   const [excluindo,       setExcluindo]       = useState(false);
   const [erroExcluir,     setErroExcluir]     = useState('');
 
+  /** (Re)carrega histórico e KPIs. Erro vira aviso e KPIs "—", nunca zeros nem lista vazia. */
+  async function carregarHistorico(empresa: string) {
+    setLoadingHist(true); setErroHist('');
+    try {
+      const { itens, agregado: ag } = await carregarHistoricoCliente(supabase, empresa, id);
+      setItensHist(itens); setAgregado(ag);
+    } catch (e) {
+      setItensHist([]); setAgregado(null);
+      setErroHist((e as Error).message || 'erro desconhecido');
+    } finally {
+      setLoadingHist(false);
+    }
+  }
+
   useEffect(() => {
     (async () => {
-      const [{ data: clienteData }, rFicha, agsStats, comSvcsStats, { data: { user } }] = await Promise.all([
+      const [{ data: clienteData }, rFicha, { data: { user } }] = await Promise.all([
         supabase.from('clientes').select('*').eq('id', id).single(),
         supabase.from('anamnese_fichas').select('respostas').eq('cliente_id', id).maybeSingle(),
-        buscarTodasPaginas<{ valor: number | null; desconto_rateado?: number | string | null; data_hora_inicio: string; servico: { nome: string } | null;
-          agendamento_servicos: { ordem: number; servico: { nome: string } | null }[] | null }>((from, to) =>
-          supabase.from('agendamentos')
-            // `*` traz desconto_rateado quando a 090 existe (sem quebrar antes dela)
-            .select('*, servico:servicos(nome), agendamento_servicos(ordem, servico:servicos(nome))')
-            .eq('cliente_id', id)
-            .eq('status', 'concluido')
-            .order('data_hora_inicio', { ascending: false })
-            .range(from, to)
-        ),
-        // Serviços lançados direto na comanda (sem agendamento prévio) também contam como visita
-        buscarTodasPaginas<{ valor_unit: number; quantidade: number; desconto_rateado?: number | string | null; created_at: string; servico: { nome: string } | null; comanda: { fechada_at: string | null } | null }>((from, to) =>
-          supabase.from('comanda_itens')
-            .select('*, servico:servicos(nome), comanda:comandas!inner(fechada_at)')
-            .eq('tipo', 'servico')
-            .eq('comanda.clientes_id', id)
-            .order('created_at', { ascending: false })
-            .range(from, to) as unknown as PromiseLike<{ data: any[] | null; error: unknown }>
-        ),
         supabase.auth.getUser(),
       ]);
 
@@ -592,28 +545,9 @@ export default function ClientePerfilPage() {
       setAnamnese(ficha); setRascunho(ficha);
       setLoading(false);
 
-      const rows = [
-        ...agsStats,
-        ...comSvcsStats.map(cs => ({
-          valor: cs.valor_unit * cs.quantidade,
-          desconto_rateado: cs.desconto_rateado,
-          data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
-          servico: cs.servico,
-          agendamento_servicos: null,   // extra de comanda nunca e multi-servico
-        })),
-      ].sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
-      const totalVisitas = rows.length;
-      // Valor cobrado (com a parte do desconto da comanda, 090), igual ao Financeiro.
-      const totalGasto = rows.reduce((s, a) => s + valorCobradoAtendimento(a), 0);
-      const ultimaVisita = rows[0]?.data_hora_inicio ?? null;
-      // Um atendimento multi-servico conta uma vez para CADA servico feito —
-      // contar so o servico legado subestimava todos os demais.
-      const svcCount: Record<string, number> = {};
-      rows.forEach(a => {
-        listarServicos(a).forEach(nome => { svcCount[nome] = (svcCount[nome] ?? 0) + 1; });
-      });
-      const servicoFavorito = Object.entries(svcCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-      setStats({ totalVisitas, totalGasto, ultimaVisita, servicoFavorito });
+      // A empresa do histórico é a da própria cliente (nunca a 1ª empresa do usuário).
+      if (clienteData) void carregarHistorico((clienteData as Cliente).empresa_id);
+      else setLoadingHist(false);
 
       if (!user) return;
       const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
@@ -643,89 +577,6 @@ export default function ClientePerfilPage() {
       bairro: end.bairro, complemento: end.complemento,
     });
   }
-
-  async function carregarHistorico() {
-    if (histCarregado) return;
-    setLoadingHist(true);
-    const [ags, vds, txs, trs, comSvcs] = await Promise.all([
-      buscarTodasPaginas<HistAg>((from, to) =>
-        supabase
-          .from('agendamentos')
-          .select(`id, data_hora_inicio, data_hora_fim, status, valor, observacao, comanda_id,
-            servico:servicos(nome),
-            agendamento_servicos(ordem, servico:servicos(nome)),
-            profissional:users!agendamentos_profissional_id_fkey(nome)`)
-          .eq('cliente_id', id)
-          .order('data_hora_inicio', { ascending: false })
-          .range(from, to) as unknown as PromiseLike<{ data: HistAg[] | null; error: unknown }>
-      ),
-      buscarTodasPaginas<HistVenda>((from, to) =>
-        supabase
-          .from('vendas')
-          .select(`id, created_at, valor_final, observacao,
-            venda_itens(quantidade, preco_unitario, produto:produtos(nome))`)
-          .eq('cliente_id', id)
-          .order('created_at', { ascending: false })
-          .range(from, to) as unknown as PromiseLike<{ data: HistVenda[] | null; error: unknown }>
-      ),
-      buscarTodasPaginas<TaxaCancelamento>((from, to) =>
-        supabase
-          .from('taxas_cancelamento')
-          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em, metodo')
-          .eq('cliente_id', id)
-          .neq('status', 'cancelada')
-          .order('created_at', { ascending: false })
-          .range(from, to) as unknown as PromiseLike<{ data: TaxaCancelamento[] | null; error: unknown }>
-      ),
-      buscarTodasPaginas<TaxaReserva>((from, to) =>
-        supabase
-          .from('taxas_reserva')
-          .select('id, empresa_id, agendamento_id, cliente_id, valor, status, created_at, paga_em, metodo')
-          .eq('cliente_id', id)
-          .neq('status', 'cancelada')   // encerradas ao concluir o atendimento (migration 061)
-          .order('created_at', { ascending: false })
-          .range(from, to) as unknown as PromiseLike<{ data: TaxaReserva[] | null; error: unknown }>
-      ),
-      // Serviços lançados direto na comanda (sem agendamento prévio, ex: cliente sem hora marcada)
-      buscarTodasPaginas<HistComandaServico>((from, to) =>
-        supabase
-          .from('comanda_itens')
-          .select(`id, comanda_id, descricao, valor_unit, quantidade, created_at,
-            servico:servicos(nome),
-            profissional:users(nome),
-            comanda:comandas!inner(fechada_at)`)
-          .eq('tipo', 'servico')
-          .eq('comanda.clientes_id', id)
-          .order('created_at', { ascending: false })
-          .range(from, to) as unknown as PromiseLike<{ data: HistComandaServico[] | null; error: unknown }>
-      ),
-    ]);
-
-    const extras: HistAg[] = comSvcs.map(cs => ({
-      id: cs.id,
-      data_hora_inicio: cs.comanda?.fechada_at ?? cs.created_at,
-      data_hora_fim: cs.comanda?.fechada_at ?? cs.created_at,
-      status: 'concluido',
-      valor: cs.valor_unit * cs.quantidade,
-      servico: cs.servico ?? { nome: cs.descricao },
-      profissional: cs.profissional,
-      comanda_id: cs.comanda_id ?? null,
-      eExtraDeComanda: true,
-    }));
-    const historicoCompleto = [...ags, ...extras]
-      .sort((a, b) => b.data_hora_inicio.localeCompare(a.data_hora_inicio));
-
-    setHistorico(historicoCompleto);
-    setVendas(vds);
-    setTaxas(txs);
-    setTaxasReserva(trs);
-    setLoadingHist(false);
-    setHistCarregado(true);
-  }
-
-  useEffect(() => {
-    if (abaAtiva === 'historico') carregarHistorico();
-  }, [abaAtiva]);
 
   async function salvarInfo() {
     if (!nomeClienteValido(rascunhoInfo.nome)) return;
@@ -773,10 +624,32 @@ export default function ClientePerfilPage() {
   }
 
   async function confirmarArquivar() {
-    const { data, error } = await supabase.from('clientes').update({ ativo: false }).eq('id', id).select('id');
-    setConfirmArquivar(false);
-    if (error || !data || data.length === 0) { setErroExcluir(mensagemErroBanco(error ?? { code: '42501' }, 'arquivar cliente')); return; }
-    router.push('/clientes');
+    if (!cliente) return;
+    setArquivando(true);
+    try {
+      await arquivarCliente(supabase, cliente.empresa_id, id);
+      setConfirmArquivar(false);
+      router.push('/clientes');
+    } catch (e) {
+      setConfirmArquivar(false);
+      setErroExcluir((e as Error).message);
+    } finally {
+      setArquivando(false);
+    }
+  }
+
+  /** Reativa a cliente arquivada e fica no perfil (ela volta à lista e aos segmentos). */
+  async function reativar() {
+    if (!cliente) return;
+    setReativando(true); setErroExcluir('');
+    try {
+      await reativarCliente(supabase, cliente.empresa_id, id);
+      setCliente(prev => prev ? { ...prev, ativo: true } : prev);
+    } catch (e) {
+      setErroExcluir((e as Error).message);
+    } finally {
+      setReativando(false);
+    }
   }
 
   /** Verifica se a cliente tem qualquer histórico vinculado (bloqueia exclusão definitiva) */
@@ -899,6 +772,15 @@ export default function ClientePerfilPage() {
 
   const enderecoAtual = parseEndereco(cliente.endereco);
   const temEndereco   = Object.values(enderecoAtual).some(Boolean);
+  const contatos      = contatosCliente(cliente.telefone);
+  const arquivada     = cliente.ativo === false;
+  // Tags = segmentos calculados (mesma regra da lista); só com o agregado carregado sem erro.
+  const tags = agregado ? tagsDaLinha({
+    id: cliente.id, nome: cliente.nome, telefone: cliente.telefone ?? null, email: cliente.email ?? null,
+    data_nascimento: cliente.data_nascimento ?? null, ativo: cliente.ativo, created_at: cliente.created_at,
+  }, agregado, hojeBRT()) : arquivada ? ['Arquivada'] : [];
+  // Erro ou carregamento: "—" (nunca zero).
+  const kpiPronto = !!agregado && !loadingHist && !erroHist;
 
   return (
     <div className="bm-page">
@@ -906,11 +788,6 @@ export default function ClientePerfilPage() {
       {(() => {
         let hue = 0;
         for (let i = 0; i < cliente.nome.length; i++) hue = (hue * 31 + cliente.nome.charCodeAt(i)) % 360;
-        const diasUltima = stats.ultimaVisita ? differenceInDays(new Date(), parseISO(stats.ultimaVisita)) : null;
-        const ultimaLabel = diasUltima === null ? '—'
-          : diasUltima === 0 ? 'Hoje'
-          : diasUltima === 1 ? 'Ontem'
-          : `há ${diasUltima}d`;
         return (
           <div style={{ background: 'linear-gradient(135deg, #2C1750 0%, #4A2A86 100%)', borderRadius: 24, padding: '28px 28px 20px', marginBottom: 20, position: 'relative', overflow: 'hidden' }}>
             <button onClick={() => router.push('/clientes')}
@@ -933,8 +810,17 @@ export default function ClientePerfilPage() {
                     <Phone size={12} strokeWidth={2}/>{cliente.telefone}
                   </p>
                 )}
+                {tags.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 7 }}>
+                    {tags.map(t => (
+                      <span key={t} style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: '#fff', background: t === 'Arquivada' ? 'rgba(245,158,11,0.35)' : 'rgba(255,255,255,0.14)', borderRadius: 8, padding: '2px 8px' }}>
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              {(podeArquivarCliente(pode) || pode('clientes.excluir')) && (
+              {((!arquivada && podeArquivarCliente(pode)) || pode('clientes.excluir')) && (
                 <button onClick={desativar}
                   className="press"
                   style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', border: 'none', flexShrink: 0 }}>
@@ -943,33 +829,55 @@ export default function ClientePerfilPage() {
               )}
             </div>
 
+            {/* Arquivada: aviso e Reativar (mesma permissão de arquivar) */}
+            {arquivada && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 12, padding: '10px 12px', marginBottom: 12 }}>
+                <Archive size={14} strokeWidth={2} style={{ color: '#FCD34D', flexShrink: 0 }}/>
+                <p style={{ flex: 1, fontFamily: 'var(--font-sans)', fontSize: 12.5, color: 'rgba(255,255,255,0.85)' }}>
+                  Cliente arquivada: fora da lista e dos segmentos. O histórico é mantido.
+                </p>
+                {podeArquivarCliente(pode) && (
+                  <button onClick={reativar} disabled={reativando} className="press"
+                    style={{ height: 32, padding: '0 12px', borderRadius: 10, background: '#fff', color: 'var(--color-primary)', fontFamily: 'var(--font-sans)', fontSize: 12.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, border: 'none', flexShrink: 0, opacity: reativando ? 0.6 : 1 }}>
+                    <RotateCcw size={13} strokeWidth={2.5}/>{reativando ? 'Reativando...' : 'Reativar'}
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Action buttons */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
               <button onClick={() => setModalAg(true)} className="press"
                 style={{ flex: 1, height: 38, borderRadius: 12, background: '#fff', color: 'var(--color-primary)', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: 'none' }}>
                 <Calendar size={14} strokeWidth={2.5}/>Agendar
               </button>
-              {cliente.telefone && (
-                <a href={`https://wa.me/${toWhatsApp(cliente.telefone)}`} target="_blank" rel="noopener noreferrer" className="press"
+              {contatos && (
+                <a href={contatos.whatsapp} target="_blank" rel="noopener noreferrer" className="press"
                   style={{ flex: 1, height: 38, borderRadius: 12, background: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid rgba(255,255,255,0.1)', textDecoration: 'none' }}>
                   <MessageCircle size={14} strokeWidth={2.5}/>WhatsApp
                 </a>
               )}
-              {cliente.telefone && (
-                <a href={`tel:${cliente.telefone}`} className="press"
+              {contatos && (
+                <a href={contatos.ligar} className="press"
                   style={{ flex: 1, height: 38, borderRadius: 12, background: 'rgba(255,255,255,0.12)', color: '#fff', fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid rgba(255,255,255,0.1)', textDecoration: 'none' }}>
                   <Phone size={14} strokeWidth={2.5}/>Ligar
                 </a>
               )}
             </div>
 
-            {/* KPIs */}
+            {erroHist && (
+              <p role="alert" style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: '#FCA5A5', marginBottom: 8 }}>
+                Não foi possível carregar os números da cliente.
+              </p>
+            )}
+
+            {/* KPIs — mesmo agregado da lista (shared/clientes-segmentos) */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
               {[
-                { label: 'Visitas', value: stats.totalVisitas > 0 ? String(stats.totalVisitas) : '—', secret: true },
-                { label: 'Total gasto', value: stats.totalGasto > 0 ? fmtBRL(stats.totalGasto) : '—', secret: true },
-                { label: 'Última visita', value: ultimaLabel, secret: false },
-                { label: 'Serv. favorito', value: stats.servicoFavorito ?? '—', secret: false },
+                { label: 'Atendimentos', value: kpiPronto && agregado ? String(agregado.atendimentos) : '—', secret: true },
+                { label: 'Total gasto', value: kpiPronto && agregado ? fmtBRL(agregado.totalGasto) : '—', secret: true },
+                { label: 'Última visita', value: kpiPronto && agregado ? rotuloUltimaVisita(agregado.ultimaVisita) : '—', secret: false },
+                { label: 'Serviço favorito', value: kpiPronto && agregado ? (agregado.servicoFavorito?.nome ?? '—') : '—', secret: false },
               ].map((kpi, i) => (
                 <div key={kpi.label} className="bm-stagger"
                   style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 14, padding: '10px 12px', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
@@ -1156,190 +1064,14 @@ export default function ClientePerfilPage() {
             </div>
           )}
 
-          {/* Aba: Histórico */}
+          {/* Aba: Histórico — lista única (shared/clientes-consultas) */}
           {abaAtiva === 'historico' && (
-            <div className="flex flex-col gap-5">
-            <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-                <p className="font-semibold text-text text-sm">Atendimentos</p>
-                {!loadingHist && (
-                  <span className="text-xs text-text-4">{historico.length} {historico.length === 1 ? 'atendimento' : 'atendimentos'}</span>
-                )}
-              </div>
-
-              {loadingHist ? (
-                <div className="p-4 flex flex-col gap-3">
-                  {[1,2,3].map(i => (
-                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-bg border border-border">
-                      <Sk className="w-10 h-10 rounded-xl flex-shrink-0"/>
-                      <div className="flex-1 flex flex-col gap-2">
-                        <Sk className="h-3.5 w-32"/><Sk className="h-3 w-20"/>
-                      </div>
-                      <Sk className="h-5 w-20 rounded-lg"/>
-                    </div>
-                  ))}
-                </div>
-              ) : historico.length === 0 ? (
-                <div className="text-center py-10 text-text-4 text-sm">
-                  <Calendar size={24} className="mx-auto mb-3 text-text-4" strokeWidth={1.5}/>
-                  Nenhum atendimento registrado ainda.
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {historico.map(ag => {
-                    const cfg = STATUS_CFG[ag.status] ?? STATUS_CFG.agendado;
-                    const Icon = cfg.icon;
-                    const dataFmt = format(parseISO(ag.data_hora_inicio), "dd/MM/yyyy 'às' HH:mm");
-                    return (
-                      <button key={ag.id} type="button"
-                        onClick={() => setDetalheAberto({
-                          agendamentoId: ag.eExtraDeComanda ? null : ag.id,
-                          comandaId: ag.comanda_id ?? null,
-                          titulo: descreverServicos(ag) ?? 'Atendimento',
-                        })}
-                        className="w-full text-left flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${cfg.bg}`}>
-                          <Icon size={14} strokeWidth={2} className={cfg.text}/>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-text truncate">
-                            {descreverServicos(ag) ?? '—'}
-                          </p>
-                          <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
-                          {ag.profissional && (
-                            <p className="text-xs text-text-4 mt-0.5">
-                              Com {(ag.profissional as any)?.nome?.split(' ')[0]}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${cfg.bg} ${cfg.text}`}>{cfg.label}</span>
-                          <span className="text-xs font-bold text-text-2"><Secret>{fmtBRL(ag.valor)}</Secret></span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* ── Vendas avulsas ── */}
-            <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-                <p className="font-semibold text-text text-sm">Vendas avulsas</p>
-                {!loadingHist && (
-                  <span className="text-xs text-text-4">{vendas.length} {vendas.length === 1 ? 'venda' : 'vendas'}</span>
-                )}
-              </div>
-
-              {loadingHist ? (
-                <div className="p-4 flex flex-col gap-3">
-                  {[1,2].map(i => (
-                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-bg border border-border">
-                      <Sk className="w-9 h-9 rounded-xl flex-shrink-0"/>
-                      <div className="flex-1 flex flex-col gap-2">
-                        <Sk className="h-3.5 w-40"/><Sk className="h-3 w-24"/>
-                      </div>
-                      <Sk className="h-5 w-16 rounded-lg"/>
-                    </div>
-                  ))}
-                </div>
-              ) : vendas.length === 0 ? (
-                <div className="text-center py-10 text-text-4 text-sm">
-                  <ShoppingBag size={24} className="mx-auto mb-3 text-text-4" strokeWidth={1.5}/>
-                  Nenhuma venda avulsa registrada.
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {vendas.map(v => {
-                    const dataFmt = format(parseISO(v.created_at), "dd/MM/yyyy 'às' HH:mm");
-                    const itensDesc = v.venda_itens
-                      .map(vi => `${vi.quantidade}× ${(vi.produto as any)?.nome ?? '—'}`)
-                      .join(', ');
-                    return (
-                      <div key={v.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
-                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-accent-soft">
-                          <ShoppingBag size={14} strokeWidth={2} className="text-accent"/>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-text truncate">
-                            {itensDesc || 'Venda avulsa'}
-                          </p>
-                          <p className="text-xs text-text-3 mt-0.5">{dataFmt}</p>
-                          {v.observacao && (
-                            <p className="text-xs text-text-4 mt-0.5 truncate">{v.observacao}</p>
-                          )}
-                        </div>
-                        <span className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(v.valor_final)}</Secret></span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* ── Taxas de cancelamento ── */}
-            {taxas.length > 0 && (
-              <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-                  <p className="font-semibold text-text text-sm">Taxas de cancelamento</p>
-                  <span className="text-xs text-text-4">{taxas.length} {taxas.length === 1 ? 'taxa' : 'taxas'}</span>
-                </div>
-                <div className="divide-y divide-border">
-                  {taxas.map(t => {
-                    const dataFmt = format(parseISO(t.created_at), "dd/MM/yyyy 'às' HH:mm");
-                    return (
-                      <div key={t.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
-                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-red-soft">
-                          <XCircle size={14} strokeWidth={2} className="text-red"/>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-text truncate">
-                            {t.status === 'pago' ? 'Taxa paga' : 'Taxa pendente'}
-                          </p>
-                          <p className="text-xs text-text-3 mt-0.5">
-                            {dataFmt}{t.status === 'pago' && labelMetodo(t.metodo) ? ` · ${labelMetodo(t.metodo)}` : ''}
-                          </p>
-                        </div>
-                        <span className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(t.valor)}</Secret></span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ── Taxas de reserva ── */}
-            {taxasReserva.length > 0 && (
-              <div className="bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-                  <p className="font-semibold text-text text-sm">Taxas de reserva</p>
-                  <span className="text-xs text-text-4">{taxasReserva.length} {taxasReserva.length === 1 ? 'taxa' : 'taxas'}</span>
-                </div>
-                <div className="divide-y divide-border">
-                  {taxasReserva.map(t => {
-                    const dataFmt = format(parseISO(t.created_at), "dd/MM/yyyy 'às' HH:mm");
-                    return (
-                      <div key={t.id} className="flex items-start gap-3 px-5 py-4 hover:bg-bg transition">
-                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-accent-soft">
-                          <Banknote size={14} strokeWidth={2} className="text-accent"/>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-text truncate">
-                            {t.status === 'pago' ? 'Taxa paga' : t.status === 'retida' ? 'Taxa retida' : 'Taxa pendente'}
-                          </p>
-                          <p className="text-xs text-text-3 mt-0.5">
-                            {dataFmt}{t.status === 'pago' && labelMetodo(t.metodo) ? ` · ${labelMetodo(t.metodo)}` : ''}
-                          </p>
-                        </div>
-                        <span className="text-xs font-bold text-text-2 flex-shrink-0"><Secret>{fmtBRL(t.valor)}</Secret></span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            </div>
+            <HistoricoCliente
+              itens={itensHist}
+              carregando={loadingHist}
+              erro={erroHist}
+              onAbrirDetalhe={d => setDetalheAberto(d)}
+            />
           )}
 
           {/* Aba: Anamnese */}
@@ -1568,7 +1300,9 @@ export default function ClientePerfilPage() {
               {cliente.telefone && (
                 <div>
                   <p className="text-xs text-text-4 mb-0.5">Telefone</p>
-                  <a href={`tel:${cliente.telefone}`} className="text-sm font-medium text-primary hover:underline">{cliente.telefone}</a>
+                  {contatos
+                    ? <a href={contatos.ligar} className="text-sm font-medium text-primary hover:underline">{cliente.telefone}</a>
+                    : <p className="text-sm font-medium text-text-2">{cliente.telefone}</p>}
                 </div>
               )}
               {cliente.email && (
@@ -1637,11 +1371,8 @@ export default function ClientePerfilPage() {
           onClose={() => setModalAg(false)}
           onSalvo={() => {
             setModalAg(false);
-            // Recarrega histórico se estiver na aba
-            if (abaAtiva === 'historico') {
-              setHistCarregado(false);
-              carregarHistorico();
-            }
+            // Recarrega histórico e KPIs (o agendamento novo entra na lista)
+            void carregarHistorico(cliente.empresa_id);
           }}
         />
       )}
@@ -1649,9 +1380,10 @@ export default function ClientePerfilPage() {
       <ConfirmDialog
         open={confirmArquivar}
         title="Arquivar cliente"
-        message={`"${cliente?.nome}" será arquivado e não aparecerá nas listas. O histórico é mantido.`}
+        message={`"${cliente?.nome}" será arquivada e não aparecerá nas listas. O histórico é mantido.`}
         confirmLabel="Arquivar"
         variant="danger"
+        loading={arquivando}
         onConfirm={confirmarArquivar}
         onCancel={() => setConfirmArquivar(false)}
       />
@@ -1690,7 +1422,7 @@ export default function ClientePerfilPage() {
             </div>
             <div className="p-5 flex flex-col gap-3">
               <p className="text-sm text-text-3">O que você deseja fazer com "{cliente?.nome}"?</p>
-              {podeArquivarCliente(pode) && (
+              {!arquivada && podeArquivarCliente(pode) && (
               <button onClick={() => { setModalRemover(false); setConfirmArquivar(true); }}
                 className="flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-bg transition text-left">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-amber-soft)' }}>

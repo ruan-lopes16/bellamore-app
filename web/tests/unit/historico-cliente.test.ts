@@ -7,31 +7,23 @@ const read = (file: string) => readFileSync(resolve(__dirname, '../..', file), '
 describe('historico da cliente no web', () => {
   const arquivo = 'app/(app)/clientes/[id]/page.tsx';
 
-  it('busca agendamento_servicos nas duas consultas do perfil', () => {
-    const src = read(arquivo);
-    // Uma para o histórico, outra para as estatísticas — as duas precisam,
-    // senão o serviço favorito continua contando só o serviço legado.
-    const ocorrencias = src.match(/agendamento_servicos\(ordem, ?servico:servicos\(nome\)\)/g) ?? [];
-    expect(ocorrencias.length).toBeGreaterThanOrEqual(2);
+  // Paridade Clientes (Task 5): histórico e KPIs saem de carregarHistoricoCliente (shared),
+  // que busca agendamento_servicos e descreve os serviços com descreverServicos.
+  it('busca agendamento_servicos na fonte única do perfil', () => {
+    expect(read(arquivo)).toContain('carregarHistoricoCliente(');
+    expect(read('../shared/clientes-consultas.ts')).toMatch(/agendamento_servicos\(ordem, ?servico:servicos\(nome\)\)/);
   });
 
   it('usa descreverServicos em vez do servico legado na lista', () => {
-    const src = read(arquivo);
-    // Sem fixar o formato do import: a Task 4 agrupou os simbolos do modulo
-    // numa importacao multilinha, e isso nao muda o que este teste garante.
-    expect(src).toMatch(/import \{[\s\S]{0,200}descreverServicos[\s\S]{0,200}\} from '@shared\/atendimento-detalhe';/);
-    expect(src).toContain('descreverServicos(ag)');
+    expect(read('../shared/clientes-consultas.ts')).toContain('descreverServicos(a)');
     // O acesso direto ao servico legado na renderizacao da lista nao pode voltar
-    expect(src).not.toContain("{(ag.servico as any)?.nome ?? '—'}");
+    expect(read('app/(app)/clientes/[id]/HistoricoCliente.tsx')).not.toContain('servico as any');
   });
 
-  it('conta cada servico do agendamento no servico favorito', () => {
+  it('servico favorito vem do agregado de shared, sem contagem local', () => {
     const src = read(arquivo);
-    // A agregacao antiga somava so a.servico?.nome — um servico por atendimento.
-    expect(src).not.toContain('if (a.servico?.nome) svcCount[a.servico.nome]');
-    // A contagem usa o mesmo helper da exibicao, para a regra de fallback
-    // nao existir escrita em dois lugares.
-    expect(src).toContain('listarServicos(a)');
+    expect(src).not.toContain('svcCount');
+    expect(src).toContain('agregado.servicoFavorito');
   });
 });
 
@@ -93,7 +85,8 @@ describe('historico da cliente no mobile', () => {
   it('web e mobile usam o mesmo paginador', () => {
     // o app pagina pela fonte unica de shared (buscarTodasOuLancar, por @shared/paginacao)
     expect(leMobile('shared/clientes-consultas.ts')).toContain('buscarTodasOuLancar');
-    expect(read('app/(app)/clientes/[id]/page.tsx')).toContain("from '@shared/paginacao'");
+    // o web pagina pela consulta única de shared (que usa o paginador comum)
+    expect(read('app/(app)/clientes/[id]/page.tsx')).toContain("from '@shared/clientes-consultas'");
     // a copia local do web nao pode sobreviver
     expect(read('app/(app)/clientes/[id]/page.tsx')).not.toContain('async function buscarTodasPaginas');
   });
