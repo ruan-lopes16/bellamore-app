@@ -25,7 +25,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import AniversarioChips from '@/components/AniversarioChips';
 import { maskPhone } from '@shared/mascaras';
-import { aniversarioParaGravar, nomeClienteValido, partesAniversario, parseEndereco, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
+import { aniversarioParaGravar, nomeClienteValido, erroTelefoneCliente, erroEmailCliente, partesAniversario, parseEndereco, serializarEndereco, type EnderecoCliente } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
@@ -114,6 +114,10 @@ export default function EditarCliente() {
   async function salvar() {
     if (!nomeClienteValido(nome)) { Alert.alert('Atenção', 'O nome é obrigatório.'); return; }
     if (!empresaAtiva) return;
+    const erroTel = erroTelefoneCliente(telefone);
+    if (erroTel) { Alert.alert('Telefone', erroTel); return; }
+    const erroMail = erroEmailCliente(email);
+    if (erroMail) { Alert.alert('E-mail', erroMail); return; }
     if (!!nascMes !== !!nascDia) {
       Alert.alert('Aniversário', 'Escolha o mês e o dia do aniversário, ou deixe os dois em branco.');
       return;
@@ -121,7 +125,7 @@ export default function EditarCliente() {
     setSalvando(true);
 
     const { data, error } = await supabase.from('clientes').update({
-      nome: nome.trim(), telefone: telefone.trim() || null, email: email.trim() || null,
+      nome: nome.trim(), telefone: telefone.trim(), email: email.trim() || null,
       data_nascimento: aniversarioParaGravar(cliente?.data_nascimento, nascMes, nascDia),
       endereco: serializarEndereco(endereco), observacoes: obs.trim() || null,
     }).eq('id', id).eq('empresa_id', empresaAtiva.id).select('id');
@@ -147,7 +151,7 @@ export default function EditarCliente() {
 
         <View style={{ padding: 24 }}>
           <Campo label="Nome completo *" value={nome} onChangeText={setNome} placeholder="Nome da cliente" autoCapitalize="words" icon={<User size={16} color={C.text4} strokeWidth={1.8} />} />
-          <Campo label="Telefone / WhatsApp" value={telefone} onChangeText={(v) => setTelefone(maskPhone(v))} maxLength={15} placeholder="(00) 00000-0000" keyboardType="phone-pad" icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />} />
+          <Campo label="Telefone / WhatsApp" value={telefone} onChangeText={(v) => setTelefone(maskPhone(v))} maxLength={15} placeholder="(11) 98765-4321" keyboardType="phone-pad" icon={<Phone size={16} color={C.text4} strokeWidth={1.8} />} />
           <Campo label="E-mail" value={email} onChangeText={setEmail} placeholder="email@exemplo.com" keyboardType="email-address" icon={<Mail size={16} color={C.text4} strokeWidth={1.8} />} />
           <AniversarioChips mes={nascMes} dia={nascDia} onMes={setNascMes} onDia={setNascDia} />
           <Campo label="Logradouro" value={endereco.logradouro} onChangeText={(v) => setEndereco((e) => ({ ...e, logradouro: v }))} placeholder="Rua, avenida…" autoCapitalize="words" icon={<MapPin size={16} color={C.text4} strokeWidth={1.8} />} />

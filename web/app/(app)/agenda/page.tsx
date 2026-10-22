@@ -62,6 +62,7 @@ import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, 
 import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
 import { mensagemErroBanco } from '@shared/erros';
+import { erroTelefoneCliente } from '@shared/clientes';
 import { novoUuid } from '@shared/uuid';
 import {
   MOTIVOS_BLOQUEIO, motivoBloqueioLabel, podeSelecionarEscopoGeral,
@@ -617,12 +618,14 @@ function NovoAgModal({
 
   async function salvarNovoCliente() {
     if (!novoClienteNome.trim()) return;
+    const erroTel = erroTelefoneCliente(novoClienteTelefone);
+    if (erroTel) { setErroCliente(erroTel); return; }
     setErroCliente('');
     setSalvandoCliente(true);
     const { data, error } = await supabase.from('clientes').insert({
       empresa_id: empresaId,
       nome: novoClienteNome.trim(),
-      telefone: novoClienteTelefone.trim() || null,
+      telefone: novoClienteTelefone.trim(),
     }).select('id, nome, telefone').single();
     setSalvandoCliente(false);
     if (error || !data) { setErroCliente(mensagemErroBanco(error, 'cadastrar cliente')); return; }
@@ -1044,7 +1047,7 @@ function NovoAgModal({
                 <input
                   value={novoClienteTelefone}
                   onChange={e => setNovoClienteTelefone(maskPhone(e.target.value))}
-                  placeholder="Telefone (opcional)"
+                  placeholder="Telefone / WhatsApp *"
                   type="tel"
                   maxLength={15}
                   className="w-full h-9 px-3 rounded-lg border border-border bg-surface text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
