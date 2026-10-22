@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
+  View, Text, TextInput, TouchableOpacity, Pressable,
   RefreshControl, StatusBar,
 } from 'react-native';
 import { router } from 'expo-router';
@@ -21,15 +21,20 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { format, differenceInDays } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoClientes } from '@shared/exportacao/clientes';
-import { useClientes, useClientesStats, type ClienteResumo, type FiltroClientes } from '@/hooks/useClientes';
+import { SecretText } from '@/components/Secret';
+import { useClientes } from '@/hooks/useClientes';
 import { formatarMoeda } from '@shared/moeda';
+import { chaveDiaBRT, hojeBRT, diasEntre } from '@shared/periodos';
+import {
+  contarSegmentos, filtrarClientes, segmentosDaCliente, aniversariantesDoMes,
+  ROTULO_FILTRO, ROTULO_SEGMENTO,
+  type Agregado, type ClienteBase, type FiltroClientes, type Segmento,
+} from '@shared/clientes-segmentos';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -49,18 +54,28 @@ const AVATAR_COLORS: [string, string][] = [
   ['#1D4ED8', '#60A5FA'], ['#7C2D12', '#EA580C'],
 ];
 
-const TAG_CONFIG = {
-  vip:        { label: 'VIP',        bg: C.amberSoft, color: C.amber },
-  nova:       { label: 'Nova',       bg: C.greenSoft,  color: C.green },
-  recorrente: { label: 'Recorrente', bg: C.primarySoft, color: C.primary },
-  sumida:     { label: 'Sumida',     bg: '#FEF2F2',    color: '#C0392B' },
+/** Tags mostradas na linha (a "Nunca atendida" aparece só como filtro/cartão). */
+const TAG_CONFIG: Partial<Record<Segmento, { bg: string; color: string }>> = {
+  vip:        { bg: C.amberSoft,   color: C.amber },
+  nova:       { bg: C.greenSoft,   color: C.green },
+  recorrente: { bg: C.primarySoft, color: C.primary },
+  em_risco:   { bg: C.amberSoft,   color: C.amber },
+  sumida:     { bg: '#FEF2F2',     color: '#C0392B' },
 };
+const ORDEM_TAGS: Segmento[] = ['vip', 'recorrente', 'em_risco', 'sumida', 'nova'];
 
-const FILTROS: { key: FiltroClientes; label: string }[] = [
-  { key: 'todas',       label: 'Todas' },
-  { key: 'retornos',    label: 'Retornos' },
-  { key: 'sumidas',     label: 'Sumidas' },
-  { key: 'aniversarios', label: 'Aniversários' },
+const FILTROS: { key: FiltroClientes; label: string }[] = (
+  ['todas', 'novas', 'aniversariantes', 'retornos', 'vip', 'recorrente', 'em_risco', 'sumida', 'nunca_atendida', 'arquivadas'] as FiltroClientes[]
+).map((key) => ({ key, label: ROTULO_FILTRO[key] }));
+
+/** Cartões de KPI; cada um aplica o filtro correspondente. */
+const CARTOES: { filtro: FiltroClientes; label: string; cor: string; valor: (c: ReturnType<typeof contarSegmentos>) => number }[] = [
+  { filtro: 'todas',          label: 'Total',           cor: C.text,  valor: (c) => c.total },
+  { filtro: 'novas',          label: 'Novas no mês',    cor: C.green, valor: (c) => c.novasMes },
+  { filtro: 'vip',            label: 'VIP',             cor: C.amber, valor: (c) => c.vip },
+  { filtro: 'em_risco',       label: 'Em risco',        cor: C.amber, valor: (c) => c.em_risco },
+  { filtro: 'sumida',         label: 'Sumidas',         cor: C.rose,  valor: (c) => c.sumida },
+  { filtro: 'nunca_atendida', label: 'Nunca atendidas', cor: C.text2, valor: (c) => c.nunca_atendida },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -73,10 +88,10 @@ function iniciaisNome(nome: string) {
   return nome.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
 
-function formatUltimaVisita(data: string | null): string {
-  if (!data) return 'Sem visita';
-  const dias = differenceInDays(new Date(), new Date(data));
-  if (dias === 0) return 'hoje';
+function formatUltimaVisita(ultimaVisita: string | null | undefined, hoje: string): string {
+  if (!ultimaVisita) return 'Sem visita';
+  const dias = diasEntre(chaveDiaBRT(ultimaVisita), hoje);
+  if (dias <= 0) return 'hoje';
   if (dias === 1) return 'ontem';
   if (dias < 30) return `há ${dias} dias`;
   if (dias < 60) return 'há 1 mês';
@@ -85,8 +100,10 @@ function formatUltimaVisita(data: string | null): string {
 
 // ── Componente de item ───────────────────────────────────────
 
-function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
+function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agregado: Agregado | undefined; hoje: string; index: number }) {
   const [c1, c2] = avatarColors(item.nome);
+  const segmentos = segmentosDaCliente(item, agregado, hoje);
+  const tags = ORDEM_TAGS.filter((t) => segmentos.has(t));
 
   return (
     <MotiView
@@ -109,7 +126,7 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
           shadowOpacity: 0.04,
           shadowRadius: 6,
           elevation: 1,
-          opacity: item.tags.includes('sumida') ? 0.75 : 1,
+          opacity: item.ativo === false ? 0.6 : segmentos.has('sumida') ? 0.75 : 1,
         }}
       >
         {/* Avatar */}
@@ -145,8 +162,8 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
             {item.telefone ?? 'Sem telefone'}
           </Text>
           <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
-            {item.tags.map((tag) => {
-              const cfg = TAG_CONFIG[tag];
+            {tags.map((tag) => {
+              const cfg = TAG_CONFIG[tag]!;
               return (
                 <View key={tag} style={{
                   backgroundColor: cfg.bg, borderRadius: 6,
@@ -157,7 +174,7 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
                     fontSize: 9, color: cfg.color,
                     textTransform: 'uppercase', letterSpacing: 0.3,
                   }}>
-                    {cfg.label}
+                    {ROTULO_SEGMENTO[tag]}
                   </Text>
                 </View>
               );
@@ -171,14 +188,14 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
             fontFamily: 'PlusJakartaSans_400Regular',
             fontSize: 11, color: C.text3, marginBottom: 3,
           }}>
-            {formatUltimaVisita(item.ultima_visita)}
+            {formatUltimaVisita(agregado?.ultimaVisita, hoje)}
           </Text>
-          <Text style={{
+          <SecretText style={{
             fontFamily: 'PlusJakartaSans_700Bold',
             fontSize: 13, color: C.text,
           }}>
-            {formatarMoeda(item.total_gasto)}
-          </Text>
+            {formatarMoeda(agregado?.totalGasto ?? 0)}
+          </SecretText>
         </View>
       </TouchableOpacity>
     </MotiView>
@@ -194,8 +211,19 @@ export default function Clientes() {
   const [filtro, setFiltro] = useState<FiltroClientes>('todas');
   const [busca, setBusca] = useState('');
 
-  const { data: clientes = [], isLoading, refetch } = useClientes(filtro, busca);
-  const { data: stats } = useClientesStats();
+  const { data: base, isLoading, isError, refetch } = useClientes();
+  const hoje = hojeBRT();
+  const todas = base?.clientes;
+  const agregados = base?.agregados;
+  const contagem = useMemo(
+    () => (todas && agregados ? contarSegmentos(todas, agregados, hoje) : null),
+    [todas, agregados, hoje],
+  );
+  const clientes = useMemo(
+    () => (todas && agregados ? filtrarClientes(todas, agregados, filtro, busca, hoje) : []),
+    [todas, agregados, filtro, busca, hoje],
+  );
+  const aniversariantes = useMemo(() => (todas ? aniversariantesDoMes(todas, hoje) : []), [todas, hoje]);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -203,17 +231,6 @@ export default function Clientes() {
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
     PlusJakartaSans_700Bold,
-  });
-
-  // Aniversariantes de hoje
-  const hoje = new Date();
-  const aniversariantesHoje = clientes.filter((c) => {
-    if (!c.data_nascimento) return false;
-    const [, m, d] = c.data_nascimento.split('-');
-    return (
-      Number(m) === hoje.getMonth() + 1 &&
-      Number(d) === hoje.getDate()
-    );
   });
 
   const onRefresh = useCallback(() => { refetch(); }, [refetch]);
@@ -309,7 +326,7 @@ export default function Clientes() {
                 <TextInput
                   value={busca}
                   onChangeText={setBusca}
-                  placeholder="Buscar por nome ou telefone…"
+                  placeholder="Buscar por nome, telefone ou e-mail"
                   placeholderTextColor={C.text4}
                   style={{
                     backgroundColor: C.surface,
@@ -343,47 +360,69 @@ export default function Clientes() {
               />
             </MotiView>
 
-            {/* Stats */}
+            {/* Aviso de erro de carga */}
+            {isError && (
+              <View
+                accessibilityRole="alert"
+                style={{
+                  marginHorizontal: 24, marginBottom: 16, padding: 12, borderRadius: 14,
+                  backgroundColor: C.roseSoft, borderWidth: 1, borderColor: 'rgba(212,96,138,0.25)',
+                }}
+              >
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.rose }}>
+                  Não foi possível carregar os clientes. Puxe para atualizar.
+                </Text>
+              </View>
+            )}
+
+            {/* Cartões de KPI (clicáveis: aplicam o filtro) */}
             <MotiView
               from={{ opacity: 0, translateY: 6 }}
               animate={{ opacity: 1, translateY: 0 }}
               transition={{ type: 'timing', duration: 380, delay: 100 }}
               style={{
                 marginHorizontal: 24, marginBottom: 16,
-                flexDirection: 'row', gap: 8,
+                flexDirection: 'row', flexWrap: 'wrap', gap: 8,
               }}
             >
-              {[
-                { value: stats?.total ?? 0,     label: 'Total',      color: C.text },
-                { value: stats?.novasMes ?? 0,  label: 'Novas · mês', color: C.green },
-                { value: stats?.sumidas ?? 0,   label: 'Sumidas',    color: C.rose },
-              ].map((s) => (
-                <View key={s.label} style={{
-                  flex: 1, backgroundColor: C.surface,
-                  borderWidth: 1, borderColor: C.border,
-                  borderRadius: 14, padding: 12,
-                  shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-                }}>
-                  <Text style={{
-                    fontFamily: 'PlusJakartaSans_700Bold',
-                    fontSize: 22, color: s.color,
-                    letterSpacing: -0.5, lineHeight: 24, marginBottom: 3,
-                  }}>
-                    {s.value}
-                  </Text>
-                  <Text style={{
-                    fontFamily: 'PlusJakartaSans_500Medium',
-                    fontSize: 9, color: C.text3,
-                    textTransform: 'uppercase', letterSpacing: 0.8,
-                  }}>
-                    {s.label}
-                  </Text>
-                </View>
-              ))}
+              {CARTOES.map((k) => {
+                const ativo = filtro === k.filtro;
+                return (
+                  <Pressable
+                    key={k.label}
+                    onPress={() => setFiltro(k.filtro)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Filtrar: ${k.label}`}
+                    style={({ pressed }) => ({
+                      flexBasis: '31%', flexGrow: 1,
+                      backgroundColor: ativo ? C.primarySoft : C.surface,
+                      borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                      borderRadius: 14, padding: 12,
+                      opacity: pressed ? 0.7 : 1,
+                      shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+                    })}
+                  >
+                    <Text style={{
+                      fontFamily: 'PlusJakartaSans_700Bold',
+                      fontSize: 22, color: k.cor,
+                      letterSpacing: -0.5, lineHeight: 24, marginBottom: 3,
+                    }}>
+                      {contagem ? k.valor(contagem) : '—'}
+                    </Text>
+                    <Text style={{
+                      fontFamily: 'PlusJakartaSans_500Medium',
+                      fontSize: 9, color: C.text3,
+                      textTransform: 'uppercase', letterSpacing: 0.8,
+                    }}>
+                      {k.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </MotiView>
 
             {/* Banner aniversariantes */}
-            {aniversariantesHoje.length > 0 && (
+            {aniversariantes.length > 0 && (
               <MotiView
                 from={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -391,7 +430,7 @@ export default function Clientes() {
                 style={{ marginHorizontal: 24, marginBottom: 16 }}
               >
                 <TouchableOpacity
-                  onPress={() => setFiltro('aniversarios')}
+                  onPress={() => setFiltro('aniversariantes')}
                   style={{
                     backgroundColor: C.roseSoft,
                     borderWidth: 1, borderColor: 'rgba(212,96,138,0.15)',
@@ -411,15 +450,15 @@ export default function Clientes() {
                       fontFamily: 'PlusJakartaSans_700Bold',
                       fontSize: 12, color: C.rose,
                     }}>
-                      {aniversariantesHoje.length === 1
-                        ? `${aniversariantesHoje[0].nome.split(' ')[0]} faz aniversário hoje`
-                        : `${aniversariantesHoje.length} aniversariantes hoje`}
+                      {aniversariantes.length === 1
+                        ? '1 aniversariante neste mês'
+                        : `${aniversariantes.length} aniversariantes neste mês`}
                     </Text>
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_400Regular',
                       fontSize: 10, color: C.text3, marginTop: 1,
                     }}>
-                      {aniversariantesHoje.map((c) => c.nome.split(' ')[0]).join(', ')}
+                      {aniversariantes.slice(0, 4).map((c) => c.nome.split(' ')[0]).join(', ')}{aniversariantes.length > 4 ? '…' : ''}
                     </Text>
                   </View>
                   <ChevronRight size={14} color={C.rose} strokeWidth={2} />
@@ -437,7 +476,7 @@ export default function Clientes() {
                 fontSize: 11, color: C.text3,
                 textTransform: 'uppercase', letterSpacing: 1.5,
               }}>
-                {clientes.length} {filtro === 'todas' ? 'clientes' : FILTROS.find(f => f.key === filtro)?.label.toLowerCase()}
+                {isError ? '—' : clientes.length} {filtro === 'todas' ? 'clientes' : ROTULO_FILTRO[filtro].toLowerCase()}
               </Text>
               <Text style={{
                 fontFamily: 'PlusJakartaSans_600SemiBold',
@@ -450,10 +489,10 @@ export default function Clientes() {
         )}
         renderItem={({ item, index }) => (
           <View style={{ paddingHorizontal: 24, marginBottom: 6 }}>
-            <ClienteItem item={item} index={index} />
+            <ClienteItem item={item} agregado={agregados?.get(item.id)} hoje={hoje} index={index} />
           </View>
         )}
-        ListEmptyComponent={() => (
+        ListEmptyComponent={() => (isError || isLoading) ? null : (
           <View style={{
             marginHorizontal: 24, backgroundColor: C.surface,
             borderWidth: 1, borderColor: C.border,

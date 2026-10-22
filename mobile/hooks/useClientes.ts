@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { subDays, startOfDay } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
+import { carregarBaseClientes } from '@shared/clientes-consultas';
+import { agregarClientes, type Agregado, type ClienteBase } from '@shared/clientes-segmentos';
 import type { Cliente, AnamneseFicha, Agendamento, TaxaCancelamento, TaxaReserva } from '@/types';
 
 // ── Tipos ────────────────────────────────────────────────────
@@ -51,144 +52,27 @@ function calcularTags(
 
 // ── Lista de clientes ────────────────────────────────────────
 
-export type FiltroClientes = 'todas' | 'retornos' | 'sumidas' | 'aniversarios';
+/** Base da lista: clientes (ativas e arquivadas) e o agregado de cada uma (atendimentos, gasto, última visita). */
+export interface BaseListaClientes {
+  clientes: ClienteBase[];
+  agregados: Map<string, Agregado>;
+}
 
-export function useClientes(filtro: FiltroClientes = 'todas', busca = '') {
+/**
+ * Carrega a base de clientes UMA vez (mesma consulta do web, `carregarBaseClientes`). Busca e filtros
+ * rodam no cliente com `filtrarClientes`/`contarSegmentos`, sem refazer consulta a cada tecla.
+ */
+export function useClientes() {
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
 
-  return useQuery({
-    queryKey: ['clientes', empresaId, filtro, busca],
+  return useQuery<BaseListaClientes>({
+    queryKey: ['clientes', empresaId],
     enabled: !!empresaId,
     staleTime: 1000 * 60 * 3,
     queryFn: async () => {
-      const { data: base, error } = await supabase
-        .from('clientes')
-        .select('*')
-        .eq('empresa_id', empresaId!)
-        .eq('ativo', true)
-        .order('nome');
-      if (error) throw error;
-      if (!base?.length) return [];
-
-      const clienteIds = base.map((c) => c.id);
-
-      // Agregados de atendimentos concluídos, paginados (PostgREST corta em 1000).
-      const agendamentos = await buscarTodasPaginas<{ cliente_id: string; valor: number; data_hora_inicio: string }>(
-        (from, to) => supabase
-          .from('agendamentos')
-          .select('cliente_id, valor, data_hora_inicio')
-          .eq('empresa_id', empresaId!)
-          .eq('status', 'concluido')
-          .not('cliente_id', 'is', null)
-          .order('data_hora_inicio')
-          .order('id')
-          .range(from, to) as any,
-      );
-
-      // Agrega por cliente
-      const agregado: Record<string, { total: number; visitas: number; ultima: string | null }> = {};
-
-      const idsValidos = new Set(clienteIds);
-      agendamentos.forEach((a) => {
-        if (!idsValidos.has(a.cliente_id)) return;
-        if (!agregado[a.cliente_id]) {
-          agregado[a.cliente_id] = { total: 0, visitas: 0, ultima: null };
-        }
-        agregado[a.cliente_id].total += Number(a.valor);
-        agregado[a.cliente_id].visitas += 1;
-        if (!agregado[a.cliente_id].ultima || a.data_hora_inicio > agregado[a.cliente_id].ultima!) {
-          agregado[a.cliente_id].ultima = a.data_hora_inicio;
-        }
-      });
-
-      // Monta lista final com tags
-      let clientes: ClienteResumo[] = base.map((u) => {
-        const ag = agregado[u.id] ?? { total: 0, visitas: 0, ultima: null };
-        return {
-          ...u,
-          total_gasto: ag.total,
-          total_visitas: ag.visitas,
-          ultima_visita: ag.ultima,
-          tags: calcularTags(ag.visitas, ag.total, ag.ultima),
-        };
-      });
-
-      // Filtros
-      if (busca) {
-        const b = busca.toLowerCase();
-        clientes = clientes.filter(
-          (c) => c.nome.toLowerCase().includes(b) || (c.telefone ?? '').includes(b) || (c.email ?? '').toLowerCase().includes(b),
-        );
-      }
-
-      if (filtro === 'sumidas') {
-        clientes = clientes.filter((c) => c.tags.includes('sumida'));
-      } else if (filtro === 'retornos') {
-        // Clientes que vieram nos últimos 30 dias
-        const limite = subDays(new Date(), 30).toISOString();
-        clientes = clientes.filter(
-          (c) => c.ultima_visita && c.ultima_visita >= limite
-        );
-      } else if (filtro === 'aniversarios') {
-        // Filtra por mês/dia de nascimento (simplificado)
-        const hoje = new Date();
-        const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-        const dia = String(hoje.getDate()).padStart(2, '0');
-        clientes = clientes.filter((c) => {
-          if (!c.data_nascimento) return false;
-          const [, m, d] = c.data_nascimento.split('-');
-          return m === mes && d === dia;
-        });
-      }
-
-      // Ordena: VIPs primeiro, depois por nome
-      return clientes.sort((a, b) => {
-        const aVip = a.tags.includes('vip') ? 0 : 1;
-        const bVip = b.tags.includes('vip') ? 0 : 1;
-        if (aVip !== bVip) return aVip - bVip;
-        return a.nome.localeCompare(b.nome);
-      });
-    },
-  });
-}
-
-// ── Stats de clientes ────────────────────────────────────────
-
-export function useClientesStats() {
-  const { empresaAtiva } = useAuthStore();
-  const empresaId = empresaAtiva?.id;
-
-  return useQuery({
-    queryKey: ['clientes-stats', empresaId],
-    enabled: !!empresaId,
-    staleTime: 1000 * 60 * 10,
-    queryFn: async () => {
-      const { data: base } = await supabase
-        .from('clientes')
-        .select('id, created_at')
-        .eq('empresa_id', empresaId!)
-        .eq('ativo', true);
-
-      if (!base?.length) return { total: 0, novasMes: 0, sumidas: 0 };
-      const clienteIds = base.map((c) => c.id);
-      const inicioMes = startOfDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1)).toISOString();
-      const novasMes = base.filter((c) => c.created_at >= inicioMes).length;
-
-      // Sumidas: sem visita há mais de 60 dias
-      const limite60 = subDays(new Date(), 60).toISOString();
-      const { data: recentes } = await supabase
-        .from('agendamentos')
-        .select('cliente_id')
-        .eq('empresa_id', empresaId!)
-        .in('cliente_id', clienteIds)
-        .gte('data_hora_inicio', limite60)
-        .eq('status', 'concluido');
-
-      const idsRecentes = new Set(recentes?.map((a) => a.cliente_id) ?? []);
-      const sumidas = clienteIds.filter((id) => !idsRecentes.has(id)).length;
-
-      return { total: base.length, novasMes, sumidas };
+      const base = await carregarBaseClientes(supabase as any, empresaId!);
+      return { clientes: base.clientes, agregados: agregarClientes(base.atendimentos, base.extras, base.vendas) };
     },
   });
 }
