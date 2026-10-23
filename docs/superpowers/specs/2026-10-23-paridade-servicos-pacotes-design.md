@@ -86,9 +86,13 @@ Agenda, Comanda e Pacotes, nas duas plataformas, usam só essas funções. Saem 
 - **Excluir:** só é permitido se o serviço **nunca foi usado** (nenhum atendimento, `agendamento_servicos`, item de comanda, pacote ou `pacote_uso`). Senão, a mensagem é "Este serviço já foi usado. Desative em vez de excluir." e o botão Desativar fica disponível.
   - Função `excluir_servico` na 096 confere tudo isso e apaga numa transação.
   - O CASCADE de `pacote_servicos` deixa de ser alcançável por esse caminho.
+  - Sem a 096, web e app fazem a mesma checagem no cliente antes do delete, numa função única (`shared/servicos-consultas.ts`: `excluirServicoConferido`); falha em qualquer conferência nunca apaga.
 - **Duração:** botões, mais "Personalizada" em horas e minutos, nas duas plataformas (`shared/servicos.ts`: `DURACOES_PADRAO`, `duracaoValida`).
 - **Insumos (`servico_produtos`):** o app ganha o mesmo editor do web (produto, quantidade, unidade).
-- **Validação única do cadastro** (`shared/servicos.ts`: `validarServico`): nome ≥ 2 caracteres, preço > 0, duração 5–600 min.
+  - Gravação única por diferença nas duas plataformas (`shared/servicos-consultas.ts`: `sincronizarInsumos`): upsert pela chave única (servico_id, produto_id) e só depois o delete do que saiu — uma falha nunca apaga a receita inteira. Quantidade ≤ 0 conta como removido.
+  - Em edição, salvar só é possível depois que os insumos carregaram (web e app).
+- **Validação única do cadastro** (`shared/servicos.ts`: `validarServico`): nome ≥ 2 caracteres, preço > 0, duração 5–600 min. Preço lido por `lerPrecoServico` (formato brasileiro) nas duas plataformas.
+  - **Preço 0 é recusado** ("Informe um preço maior que zero. A cortesia é dada no atendimento."): a cortesia já existe no atendimento (valor 0 na agenda/comanda); um serviço de catálogo a R$ 0 entraria de graça em todo agendamento novo. Serviço antigo com preço 0 precisa de preço ao ser editado.
 - Ao criar um serviço pelo "+" de um grupo, a categoria do grupo vem preenchida (web; o app ganha o mesmo).
 
 ### Pacotes (cadastro)

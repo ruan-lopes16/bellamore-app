@@ -46,31 +46,40 @@ describe('app: Serviços (paridade com o web)', () => {
     }
   });
 
-  it('insumos: mesmo editor e mesma gravação do web (servico_produtos), erros conferidos', () => {
+  it('insumos: mesmo editor e mesma gravação do web (shared, por diferença), erros conferidos', () => {
     expect(comp).toContain("from('produtos').select('id, nome, unidade')");
-    expect(comp).toContain("select('produto_id, quantidade, produto:produtos(nome, unidade)')");
-    expect(comp).toContain(".from('servico_produtos').delete().eq('servico_id'");
-    expect(comp).toContain(".from('servico_produtos').insert(");
-    for (const campo of ['servico_id:', 'produto_id:', 'quantidade:']) expect(comp).toContain(campo);
-    expect(comp).toContain("mensagemErroBanco(errDel, 'salvar os insumos do serviço')");
-    expect(comp).toContain("mensagemErroBanco(errIns, 'salvar os insumos do serviço')");
+    expect(comp).toContain("from '@shared/servicos-consultas'");
+    expect(comp).toContain('sincronizarInsumos(supabase');
+    expect(comp).toContain('SELECT_INSUMOS_SERVICO');
+    expect(comp).toContain('mapearInsumosCarregados(');
+    expect(comp).not.toContain(".from('servico_produtos').delete()");
+    expect(comp).not.toContain(".from('servico_produtos').insert(");
     expect(comp).toContain('Insumos consumidos');
     expect(comp).toContain('mas os insumos não');
   });
 
-  it('excluir pela função, com a mensagem exata, e o botão Desativar', () => {
-    expect(cadastro).toContain("from '@shared/pacotes-venda'");
-    expect(cadastro).toContain('excluirServico(');
-    expect(cadastro).toContain('SemMigration096');
-    expect(cadastro).toContain('ErroPacote');
-    expect(cadastro).toContain('Este serviço já foi usado. Desative em vez de excluir.');
+  it('salvar fica bloqueado até os insumos carregarem (não apaga a receita)', () => {
+    expect(comp).toMatch(/insumosOriginais/);
+    expect(comp).toContain('if (carregando) {');
+    expect(comp).toContain('if (!empresaId || salvando || carregando) return;');
+  });
+
+  it('excluir pela função (shared), com a mensagem exata, e o botão Desativar', () => {
+    expect(cadastro).toContain('excluirServicoConferido(supabase');
+    expect(cadastro).toContain('MSG_SERVICO_USADO');
     expect(cadastro).toMatch(/text: 'Desativar'/);
     expect(cadastro).toMatch(/Excluir serviço/);
-    // Sem a 096: mesma checagem de uso da função antes do delete direto, com linhas conferidas.
-    for (const t of ['agendamentos', 'agendamento_servicos', 'comanda_itens', 'pacote_servicos', 'pacote_uso']) {
-      expect(comp).toContain(`from('${t}')`);
-    }
-    expect(comp).toMatch(/\.from\('servicos'\)\.delete\(\)[\s\S]{0,200}\.select\('id'\)/);
+    expect(comp).not.toContain(".from('servicos').delete()");
+  });
+
+  it('preço lido e validado pela regra única', () => {
+    expect(comp).toContain('lerPrecoServico(');
+    expect(comp).not.toMatch(/function precoDigitado/);
+  });
+
+  it('ativar/desativar na lista usa a mensagem traduzida', () => {
+    expect(lista).not.toContain("Alert.alert('Erro', error.message)");
+    expect(lista).toContain('definirAtivoServico(');
   });
 
   it('"+" do grupo abre o cadastro com a categoria do grupo', () => {
@@ -89,6 +98,8 @@ describe('app: Serviços (paridade com o web)', () => {
     expect(comp).toContain("mensagemErroBanco(errProd, 'carregar os produtos')");
     expect(comp).toContain("mensagemErroBanco(errInsumos, 'carregar os insumos do serviço')");
     expect(comp).toContain("mensagemErroBanco(errCat, 'carregar as categorias')");
+    // Contadores nunca mostram zero com erro ou carregando.
+    expect(lista).toContain("isError || isLoading ? '—' : total");
   });
 
   it('lista mostra a duração formatada', () => {

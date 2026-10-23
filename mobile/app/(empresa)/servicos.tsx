@@ -35,6 +35,7 @@ import { definicaoServicos } from '@shared/exportacao/servicos';
 import { formatarDuracao } from '@shared/dominio';
 import { formatarMoeda } from '@shared/moeda';
 import { mensagemErroBanco } from '@shared/erros';
+import { definirAtivoServico } from '@/components/servicos/servicos-gravacao';
 
 /** Cor/fundo/label/ícone de uma chave de categoria resolvida (built-in ou id de personalizada). */
 function infoChave(chave: string, customs: CategoriaCustom[]): {
@@ -199,13 +200,9 @@ export default function Servicos() {
   const ativos = servicos.filter((s) => s.ativo).length;
 
   async function toggleServico(s: Servico) {
-    const { data: alterados, error } = await supabase
-      .from('servicos')
-      .update({ ativo: !s.ativo })
-      .eq('id', s.id)
-      .select('id');
-    if (error) { Alert.alert('Erro', error.message); return; }
-    if (!alterados || alterados.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar serviços.'); return; }
+    // Mesma gravação do cadastro: linhas conferidas e erro traduzido (mensagemErroBanco).
+    const err = await definirAtivoServico(s.id, !s.ativo);
+    if (err) { Alert.alert('Não foi possível alterar o serviço', err); return; }
     qc.invalidateQueries({ queryKey: ['servicos-gestao'] });
     qc.invalidateQueries({ queryKey: ['servicos-empresa'] });
   }
@@ -277,9 +274,10 @@ export default function Servicos() {
           style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 20 }}
         >
           {[
-            { value: total,           label: 'Total',    color: C.primary },
-            { value: ativos,          label: 'Ativos',   color: C.green },
-            { value: total - ativos,  label: 'Inativos', color: C.text3 },
+            // Carregando ou com erro: "—", nunca zeros.
+            { value: isError || isLoading ? '—' : total,          label: 'Total',    color: C.primary },
+            { value: isError || isLoading ? '—' : ativos,         label: 'Ativos',   color: C.green },
+            { value: isError || isLoading ? '—' : total - ativos, label: 'Inativos', color: C.text3 },
           ].map((s) => (
             <View key={s.label} style={{
               flex: 1, backgroundColor: C.surface,

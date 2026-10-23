@@ -118,8 +118,6 @@ describe('matriz de permissões — UPDATE/DELETE sempre com .select (sem sucess
     'web/app/(app)/pacotes/page.tsx agendamentos.update': 'excluir venda: desvincular 0 atendimentos é legítimo; o DELETE seguinte confere',
     'web/app/(app)/pacotes/page.tsx pacote_clientes.delete': 'pacote_clientes liberado a todo membro (F7)',
     'web/app/(app)/pacotes/page.tsx pacote_clientes.update': 'pacote_clientes liberado a todo membro (F7)',
-    'web/app/(app)/servicos/page.tsx servico_produtos.delete': 'apagar 0 insumos é legítimo; erro conferido (D5)',
-    'mobile/components/servicos/servicos-gravacao.ts servico_produtos.delete': 'mesma gravação do web: apagar 0 insumos é legítimo; erro conferido (D5)',
     'web/app/api/convites/route.ts users.update': 'service role',
     'web/app/api/cron/lembretes/route.ts web_push_subscriptions.delete': 'service role',
     'web/app/api/cron/lembretes/route.ts agendamentos.update': 'service role',
@@ -210,9 +208,12 @@ describe('matriz de permissões — correções de tela', () => {
   });
 
   it('insumos do serviço conferem o erro (D5)', () => {
-    const src = tela('web/app/(app)/servicos/page.tsx');
-    expect(src).toContain('async function sincronizarInsumos(servicoId: string): Promise<string | null>');
-    expect(src).toMatch(/const errIns = await sincronizarInsumos/);
+    // Gravação única em shared (web e app), por diferença e com o erro conferido.
+    const shared = readFileSync(join(raiz, 'shared/servicos-consultas.ts'), 'utf8');
+    expect(shared).toMatch(/export async function sincronizarInsumos\([\s\S]*?\): Promise<string \| null>/);
+    for (const p of ['web/app/(app)/servicos/page.tsx', 'mobile/components/servicos/ServicoForm.tsx']) {
+      expect(tela(p)).toMatch(/const errIns = await sincronizarInsumos\(supabase/);
+    }
   });
 });
 

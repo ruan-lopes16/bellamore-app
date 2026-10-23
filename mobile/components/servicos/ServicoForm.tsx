@@ -26,16 +26,18 @@ import { CategoriaIcon, CategoriaIconCustom } from '@/components/CategoriaIcon';
 import { CategoriaPicker } from '@/components/CategoriaPicker';
 import SuccessCheck from '@/components/SuccessCheck';
 import { resolverCategoriaServico, type CategoriaCustom } from '@shared/categorias';
-import { validarServico } from '@shared/servicos';
+import { validarServico, lerPrecoServico } from '@shared/servicos';
 import { parseValorBR } from '@shared/comanda-fechamento';
+import {
+  sincronizarInsumos, diffInsumos, excluirServicoConferido, MSG_SERVICO_USADO,
+} from '@shared/servicos-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { formatarDuracao } from '@shared/dominio';
 import { DuracaoSeletor } from './DuracaoSeletor';
 import { InsumosEditor } from './InsumosEditor';
 import {
-  carregarCategorias, carregarProdutosInsumo, carregarServicoComInsumos,
-  sincronizarInsumos, definirAtivoServico, excluirServicoConferido, MSG_SERVICO_USADO,
+  carregarCategorias, carregarProdutosInsumo, carregarServicoComInsumos, definirAtivoServico,
   type InsumoItem, type ProdutoInsumo,
 } from './servicos-gravacao';
 
@@ -60,11 +62,6 @@ const inputStyle = {
   borderRadius: 12, paddingHorizontal: 14, height: 48,
   fontFamily: 'PlusJakartaSans_500Medium', fontSize: 15, color: C.text,
 } as const;
-
-/** Preço digitado → número; sem nenhum dígito → NaN (vira "Informe um preço válido."). Zero é cortesia. */
-function precoDigitado(txt: string): number {
-  return /\d/.test(txt) ? parseValorBR(txt) : NaN;
-}
 
 /**
  * Cadastro de serviço do app (criar e editar), igual ao modal do web: nome, descrição, categoria,
@@ -95,6 +92,9 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
   const [duracao,     setDuracao]     = useState(60);
   const [ativo,       setAtivo]       = useState(true);
   const [insumos,     setInsumos]     = useState<InsumoItem[]>([]);
+  // Receita gravada (ids de produto): a gravação é por diferença contra ela (igual ao web).
+  // O form inteiro só aparece depois da carga (if (carregando)), então salvar nunca roda antes.
+  const [insumosOriginais, setInsumosOriginais] = useState<string[]>([]);
   const [produtos,    setProdutos]    = useState<ProdutoInsumo[]>([]);
 
   const [carregando,   setCarregando]   = useState(true);
@@ -136,6 +136,7 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
       setDuracao(s.duracao_minutos ?? 60);
       setAtivo(s.ativo);
       setInsumos(ins);
+      setInsumosOriginais(ins.map((i) => i.produto_id));
     }
     setCarregando(false);
   }, [empresaId, servicoId]);
@@ -148,8 +149,8 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
   }
 
   async function salvar() {
-    if (!empresaId || salvando) return;
-    const precoNum = precoDigitado(preco);
+    if (!empresaId || salvando || carregando) return;
+    const precoNum = lerPrecoServico(preco);
     const msg = validarServico({ nome, preco: precoNum, duracao });
     if (msg) { setErro(msg); return; }
     setErro(''); setSalvando(true);
@@ -186,13 +187,14 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
       setIdAtual(id);
     }
 
-    const errIns = await sincronizarInsumos(id, insumos);
+    const errIns = await sincronizarInsumos(supabase, id, insumosOriginais, insumos);
     setSalvando(false);
     invalidar();
     if (errIns) {
       setErro(`${editando ? 'Serviço salvo' : 'Serviço criado'}, mas os insumos não: ${errIns}`);
       return;
     }
+    setInsumosOriginais(diffInsumos(insumosOriginais, insumos).gravar.map((g) => g.produto_id));
     setSucesso(true);
     setTimeout(() => router.back(), 1300);
   }
@@ -229,7 +231,12 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
           text: 'Excluir', style: 'destructive',
           onPress: async () => {
             setOcupado(true);
-            const err = await excluirServicoConferido(empresaId, idAtual);
+            let err: string | null = null;
+            try {
+              await excluirServicoConferido(supabase, empresaId, idAtual);
+            } catch (e) {
+              err = e instanceof Error ? e.message : 'Não foi possível excluir o serviço.';
+            }
             setOcupado(false);
             if (err === MSG_SERVICO_USADO && ativo) {
               Alert.alert('Não foi possível excluir', err, [
@@ -291,7 +298,7 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
   }
 
   const catRes = resolverCategoriaServico(categoria, categoriaId, customs);
-  const precoPreview = precoDigitado(preco);
+  const precoPreview = lerPrecoServico(preco);
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: C.bg }}>

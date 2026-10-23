@@ -1,56 +1,41 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { excluirServicoConferido, MSG_SERVICO_USADO } from '@/lib/servicos-web';
 
+// As gravações (exclusão conferida, insumos por diferença) estão em shared/servicos-consultas.ts,
+// testadas em servicos-consultas.test.ts. Aqui: a tela do web usa a regra única.
 const pagina = readFileSync(resolve(__dirname, '../../app/(app)/servicos/page.tsx'), 'utf8');
-
-function dbFake(opts: { rpcErro?: { code?: string; message?: string } | null; usos?: Record<string, number>; apagados?: number }) {
-  const chamadas: string[] = [];
-  return {
-    chamadas,
-    rpc: async () => ({ error: opts.rpcErro ?? null }),
-    from: (t: string) => ({
-      select: () => ({ eq: async () => { chamadas.push('count:' + t); return { count: opts.usos?.[t] ?? 0, error: null }; } }),
-      delete: () => ({ eq: () => ({ eq: () => ({ select: async () => { chamadas.push('delete'); return { data: Array.from({ length: opts.apagados ?? 1 }, () => ({ id: 'x' })), error: null }; } }) }) }),
-    }),
-  };
-}
-
-describe('excluirServicoConferido', () => {
-  it('usa a função da 096 quando existe', async () => {
-    const db = dbFake({});
-    await expect(excluirServicoConferido(db, 'e', 's')).resolves.toBeUndefined();
-    expect(db.chamadas).toEqual([]);
-  });
-  it('mostra a mensagem do banco quando o serviço foi usado', async () => {
-    const db = dbFake({ rpcErro: { code: 'P0001', message: MSG_SERVICO_USADO } });
-    await expect(excluirServicoConferido(db, 'e', 's')).rejects.toThrow(MSG_SERVICO_USADO);
-  });
-  it('sem a 096, recusa serviço usado sem apagar', async () => {
-    const db = dbFake({ rpcErro: { code: 'PGRST202' }, usos: { comanda_itens: 2 } });
-    await expect(excluirServicoConferido(db, 'e', 's')).rejects.toThrow(MSG_SERVICO_USADO);
-    expect(db.chamadas).not.toContain('delete');
-  });
-  it('sem a 096, apaga serviço nunca usado e avisa se não apagou nada', async () => {
-    const ok = dbFake({ rpcErro: { code: 'PGRST202' } });
-    await expect(excluirServicoConferido(ok, 'e', 's')).resolves.toBeUndefined();
-    expect(ok.chamadas).toContain('delete');
-    const sem = dbFake({ rpcErro: { code: 'PGRST202' }, apagados: 0 });
-    await expect(excluirServicoConferido(sem, 'e', 's')).rejects.toThrow('Você não tem permissão para excluir serviços.');
-  });
-});
 
 describe('tela de Serviços (web)', () => {
   it('usa as regras compartilhadas', () => {
     expect(pagina).toContain('validarServico');
     expect(pagina).toContain('DURACOES_PADRAO');
-    expect(pagina).toContain('excluirServicoConferido');
+    expect(pagina).toContain('lerPrecoServico(');
+    expect(pagina).toContain("from '@shared/servicos-consultas'");
+    expect(pagina).toContain('excluirServicoConferido(supabase');
+    expect(pagina).toContain('sincronizarInsumos(supabase');
+    expect(pagina).toContain('mapearInsumosCarregados(');
     expect(pagina).not.toContain("supabase.from('servicos').delete()");
+    expect(pagina).not.toContain("from('servico_produtos').delete()");
+    expect(existsSync(resolve(__dirname, '../../lib/servicos-web.ts'))).toBe(false);
   });
-  it('confere o erro das cargas de serviços, insumos e produtos', () => {
+  it('mesmo texto do app no atalho de duração livre', () => {
+    expect(pagina).toContain('Personalizada');
+    expect(pagina).not.toMatch(/>\s*Personalizado\s*</);
+  });
+  it('exclusão recusada por uso oferece Desativar', () => {
+    expect(pagina).toContain('MSG_SERVICO_USADO');
+    expect(pagina).toMatch(/usadoServico[\s\S]{0,1500}Desativar/);
+  });
+  it('confere o erro das cargas (serviços, categorias, produtos, insumos) e nunca mostra zeros com erro', () => {
     expect(pagina).toMatch(/errServs/);
+    expect(pagina).toMatch(/errCats/);
     expect(pagina).toMatch(/errProds/);
-    expect(pagina).toMatch(/errIns\w*Carga|errInsCarga/);
+    expect(pagina).toMatch(/errInsCarga/);
+    expect(pagina).toMatch(/erroCarga \?/);
+  });
+  it('erros de gravação passam por mensagemErroBanco (nunca o texto cru)', () => {
+    expect(pagina).not.toMatch(/setErro\(error\.message\)/);
+    expect(pagina).toContain("mensagemErroBanco(error ?? { code: '42501' }, 'salvar o serviço')");
   });
 });
