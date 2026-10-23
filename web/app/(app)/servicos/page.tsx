@@ -23,6 +23,8 @@ import {
 } from '@shared/categorias';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { formatarDuracao } from '@shared/dominio';
+import { validarServico, DURACOES_PADRAO } from '@shared/servicos';
+import { excluirServicoConferido } from '@/lib/servicos-web';
 
 const supabase = createClient();
 
@@ -52,14 +54,8 @@ const CATEGORIAS: { key: CategoriaKey; label: string; icon: React.ElementType; c
 ];
 
 
-const DURACOES = [
-  { label: '30 min', valor: 30  },
-  { label: '45 min', valor: 45  },
-  { label: '1h',     valor: 60  },
-  { label: '1h30',   valor: 90  },
-  { label: '2h',     valor: 120 },
-  { label: '3h',     valor: 180 },
-];
+/** Atalhos de duração vindos da regra única (shared/servicos.ts). */
+const DURACOES = DURACOES_PADRAO.map(valor => ({ label: formatarDuracao(valor), valor }));
 
 
 // ── Inputs ────────────────────────────────────────────────────
@@ -117,19 +113,27 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
   const [produtos,    setProdutos]    = useState<{ id: string; nome: string; unidade: string }[]>([]);
   const [insumos,     setInsumos]     = useState<InsumoItem[]>([]);
   const [addProdId,   setAddProdId]   = useState('');
+  // Em edição, só deixa salvar depois de carregar os insumos (senão a sincronização apagaria a receita).
+  const [insumosCarregados, setInsumosCarregados] = useState(!editando);
 
   useEffect(() => {
     (async () => {
       // Busca produtos da empresa para o select
-      const { data: prods } = await supabase.from('produtos').select('id, nome, unidade')
+      const { data: prods, error: errProds } = await supabase.from('produtos').select('id, nome, unidade')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome');
+      if (errProds) setErro(mensagemErroBanco(errProds, 'carregar os produtos'));
       setProdutos((prods ?? []) as { id: string; nome: string; unidade: string }[]);
 
       // Busca insumos já vinculados (só no modo editar)
       if (editando) {
-        const { data: ins } = await supabase.from('servico_produtos')
+        const { data: ins, error: errInsCarga } = await supabase.from('servico_produtos')
           .select('produto_id, quantidade, produto:produtos(nome, unidade)')
           .eq('servico_id', editando.id);
+        if (errInsCarga) {
+          setErro(mensagemErroBanco(errInsCarga, 'carregar os insumos do serviço') + ' Feche e abra o serviço de novo para editar.');
+          return;
+        }
+        setInsumosCarregados(true);
         setInsumos(((ins ?? []) as any[]).map(r => ({
           produto_id: r.produto_id,
           nome:       r.produto.nome,
@@ -176,12 +180,14 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
     return errIns ? mensagemErroBanco(errIns, 'salvar os insumos do serviço') : null;
   }
 
-  const podeSalvar = nome.trim().length > 0 && parseFloat(preco.replace(',', '.')) > 0;
+  const podeSalvar = nome.trim().length > 0 && preco.trim().length > 0 && insumosCarregados;
 
   function parseValor(v: string) { return parseFloat(v.replace(',', '.')) || 0; }
 
   async function salvar() {
     if (!podeSalvar) return;
+    const msgInvalido = validarServico({ nome, preco: parseValor(preco), duracao });
+    if (msgInvalido) { setErro(msgInvalido); return; }
     setErro(''); setSalvando(true);
 
     const payload = {
@@ -580,6 +586,7 @@ export default function ServicosPage() {
   const [colapsos,    setColapsos]    = useState<Set<string>>(new Set(CATEGORIAS.map(c => c.key)));
   const [excluindoId,   setExcluindoId]   = useState<string | null>(null);
   const [toastErro,     setToastErro]     = useState('');
+  const [erroCarga,     setErroCarga]     = useState('');
   const [toastSucesso,  setToastSucesso]  = useState('');
 
   const { pode } = usePermissoes();
@@ -601,12 +608,13 @@ export default function ServicosPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (!membro) return;
       setEmpresaId(membro.empresa_id);
-      const [{ data: servs }, { data: cats }] = await Promise.all([
+      const [{ data: servs, error: errServs }, { data: cats }] = await Promise.all([
         supabase.from('servicos').select('*')
           .eq('empresa_id', membro.empresa_id).order('categoria').order('nome'),
         supabase.from('categorias_servico').select('*')
           .eq('empresa_id', membro.empresa_id).order('nome'),
       ]);
+      if (errServs) setErroCarga(mensagemErroBanco(errServs, 'carregar os serviços'));
       setServicos((servs ?? []) as Servico[]);
       const catsList = (cats ?? []) as CategoriaCustom[];
       setCategorias(catsList);
@@ -617,14 +625,11 @@ export default function ServicosPage() {
 
   async function excluirServico(s: Servico) {
     setExcluindoId(null);
-    const { data: apagados, error } = await supabase.from('servicos').delete().eq('id', s.id).select('id');
-    if (!error && (!apagados || apagados.length === 0)) {
-      setToastErro('Você não tem permissão para excluir serviços.');
-      setTimeout(() => setToastErro(''), 4500);
-      return;
-    }
-    if (error) {
-      setToastErro('Serviço possui atendimentos vinculados — desative-o em vez de excluir.');
+    if (!empresaId) return;
+    try {
+      await excluirServicoConferido(supabase, empresaId, s.id);
+    } catch (e) {
+      setToastErro(e instanceof Error ? e.message : 'Não foi possível excluir o serviço.');
       setTimeout(() => setToastErro(''), 4500);
       return;
     }
@@ -690,6 +695,8 @@ export default function ServicosPage() {
           {toastSucesso}
         </div>
       )}
+
+      {erroCarga && <p className="text-red text-sm mb-4">{erroCarga}</p>}
 
       {/* Header Bellamore */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6 bm-mobile-page-header">
