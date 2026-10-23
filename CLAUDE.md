@@ -1328,6 +1328,39 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-22/23 — Paridade Clientes (095)
+
+*Escopo: lista e perfil de clientes iguais no web e no app pelas mesmas funções de `shared/clientes-segmentos.ts`*
+*(segmentos, filtros, tags, KPIs, textos), `shared/clientes-constantes.ts` (sem imports, quebra o ciclo com kpis/dashboard) e*
+*`shared/clientes-consultas.ts` (base paginada, histórico único, arquivar/reativar/excluir com linhas conferidas). Lista: 6 cartões*
+*clicáveis, filtros Novas/Aniversariantes do mês/Retornos/segmentos/Arquivadas, tags, total gasto e última visita, busca por*
+*nome/telefone/e-mail. Perfil: 4 KPIs (com serviço favorito), histórico com atendimentos, extras, vendas avulsas e taxas com forma de*
+*pagamento, Reativar; aba Fotos (placeholder) removida do app. Migration 095 só versiona `clientes.endereco` (já existia em produção).*
+*7 tasks + revisões + revisão final (opus). Spec e plano: `docs/superpowers/{specs,plans}/2026-10-22-paridade-clientes*`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 2354/2354; mobile com os mesmos 8 erros pré-existentes; `next build` OK |
+| UX / Padrões    | 9.0  | Mesmos textos, cartões, filtros e avisos nas duas plataformas; "—" em carga/erro, nunca zero |
+| Segurança       | 9.0  | Sem RLS nova (083 cobre ver/editar/arquivar/excluir); exclusão filtra empresa e confere linhas; erro de leitura não libera mais "Excluir para sempre" |
+| Documentação    | 9.0  | Spec, plano, JSDoc pt-BR nos módulos novos; comentário errado do endereço corrigido |
+| Arquitetura     | 9.5  | Regra única de segmento usada também pelo Dashboard (constantes); teste cruzado de paridade |
+| Performance     | 9.0  | Base em 4 consultas paginadas com poucas colunas; busca filtra no aparelho (sem refazer consultas por tecla) |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Todos os itens do inventário de Clientes, exceto empresa ativa no web (fase própria) |
+| **Proatividade**| 9.5  | Revisões acharam: segmentos do web subcontados (limite de 1000 linhas); erro de leitura liberando exclusão definitiva; ciclo de import em shared; busca do app que fechava o teclado a cada tecla |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Decisões do dono (2026-10-22):** VIP = R$ 2.000 ou 8+ atendimentos; Recorrente = 5+ e ≤ 45 dias; Em risco = 45–60 dias; Sumida = 60+ dias; Nova = cadastrada no mês; Nunca atendida = 30+ dias sem atendimento; total gasto = valor cobrado + extras + vendas avulsas. Arquivadas com filtro e Reativar; aba Fotos removida; empresa ativa no web fica para fase própria.
+
+**Pendências para produção:** rodar `095_clientes_endereco.sql` quando for conveniente (ordem livre; em produção não muda nada).
+
+**Registrados, não corrigidos:** total gasto sem taxas (decisão do dono, se quiser); Retornos aceita data futura; Exportar com erro de carga gera arquivo vazio; mensagens de erro de carga diferentes; `novo-agendamento` do app carrega a base inteira e falha sem aviso; agenda web lista clientes sem paginação; perfis com acesso restrito calculam segmentos só com o que a RLS mostra; empresa ativa no web.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
