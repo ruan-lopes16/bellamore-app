@@ -6,7 +6,8 @@ const mob = join(__dirname, '..', '..', '..', 'mobile');
 const ler = (p: string) => readFileSync(join(mob, p), 'utf8');
 
 // Chaves conferidas em conjunto pelo banco passam pelas funções de shared/permissoes (matriz 2026-10-14).
-const CHAMADA: Record<string, string> = { 'clientes.arquivar': 'podeArquivarCliente(pode)', 'anamnese.editar': 'podeEditarAnamnese(pode)' };
+// clientes.excluir no perfil: pela regra única de shared (opcoesRemoverCliente usa p('clientes.excluir')).
+const CHAMADA: Record<string, string> = { 'clientes.arquivar': 'podeArquivarCliente(pode)', 'anamnese.editar': 'podeEditarAnamnese(pode)', 'clientes.excluir': 'opcoesRemoverCliente(arquivada, pode)' };
 
 describe('app: permissões na sessão', () => {
   it('authStore carrega e recarrega as permissões efetivas', () => {

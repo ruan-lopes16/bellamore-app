@@ -2,15 +2,23 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, UserPlus, Phone, Mail, X, ChevronRight, ChevronLeft, Users, UserCheck, CalendarPlus, Crown, AlertTriangle, Sparkles, LayoutGrid, List } from 'lucide-react';
+import { Search, UserPlus, Phone, X, ChevronRight, Users, CalendarPlus, Crown, AlertTriangle, UserX, Hourglass, LayoutGrid, List, MapPin } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import type { Cliente } from '@/types';
-import { format, startOfMonth } from 'date-fns';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { maskPhone } from '@/lib/masks';
-import { montarAniversario, diasNoMes, nomeClienteValido, erroTelefoneCliente, erroEmailCliente } from '@shared/clientes';
+import { montarAniversario, diasNoMes, nomeClienteValido, erroTelefoneCliente, erroEmailCliente, serializarEndereco } from '@shared/clientes';
+import {
+  contarSegmentos, filtrarClientes, agregarClientes, tagsDaLinha, textoUltimaVisita, textoListaVazia,
+  ROTULO_FILTRO, ROTULO_SEGMENTO, FILTROS_CLIENTES, CARTOES_CLIENTES,
+  type Agregado, type ClienteBase, type FiltroClientes, type ChaveCartaoClientes,
+} from '@shared/clientes-segmentos';
+import { carregarBaseClientes, type BaseClientes } from '@shared/clientes-consultas';
+import { hojeBRT } from '@shared/periodos';
+import { formatarMoeda } from '@shared/moeda';
+import { Secret } from '@/components/privacy';
 import { mensagemErroBanco } from '@shared/erros';
 import { avancarComEnter } from '@/lib/formNav';
 import { ExportButton } from '@/components/ExportButton';
@@ -44,6 +52,10 @@ function NovoClienteModal({ empresaId, onClose }: {
   const [nascMes,  setNascMes]  = useState('');
   const [nascDia,  setNascDia]  = useState('');
   const [obs,      setObs]      = useState('');
+  const [logradouro,  setLogradouro]  = useState('');
+  const [numero,      setNumero]      = useState('');
+  const [bairro,      setBairro]      = useState('');
+  const [complemento, setComplemento] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro,     setErro]     = useState('');
   const [sucesso,  setSucesso]  = useState<{ nome: string; id: string } | null>(null);
@@ -64,6 +76,7 @@ function NovoClienteModal({ empresaId, onClose }: {
       email: email.trim() || null,
       data_nascimento,
       observacoes: obs.trim() || null,
+      endereco: serializarEndereco({ logradouro, numero, bairro, complemento }),
     }).select().single();
     setSalvando(false);
     if (error) { setErro(mensagemErroBanco(error, 'cadastrar cliente')); return; }
@@ -143,6 +156,33 @@ function NovoClienteModal({ empresaId, onClose }: {
               placeholder="Ex: preferências, restrições, como nos conheceu…"
               className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none"/>
           </div>
+          <div className="border-t border-border pt-3">
+            <p className="text-xs font-semibold text-text-3 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+              <MapPin size={12} strokeWidth={2}/> Endereço (opcional)
+            </p>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Logradouro</label>
+                <input value={logradouro} onChange={e => setLogradouro(e.target.value)} placeholder="Rua, avenida, estrada..." className={inputClass}/>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Número</label>
+                  <input value={numero} onChange={e => setNumero(e.target.value)} placeholder="Ex: 123" className={inputClass}/>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Bairro</label>
+                  <input value={bairro} onChange={e => setBairro(e.target.value)} placeholder="Ex: Centro" className={inputClass}/>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">
+                  Complemento <span className="text-text-4 normal-case font-normal">(opcional)</span>
+                </label>
+                <input value={complemento} onChange={e => setComplemento(e.target.value)} placeholder="Ap. 12, Bloco B..." className={inputClass}/>
+              </div>
+            </div>
+          </div>
           {erro && <p className="text-red text-sm">{erro}</p>}
           <p className="text-xs text-text-4 -mt-1">
             Após cadastrar, você será direcionado para completar o perfil e preencher a anamnese.
@@ -159,99 +199,96 @@ function NovoClienteModal({ empresaId, onClose }: {
   );
 }
 
-// ── Tela principal ────────────────────────────────────────────
+// ── Lista ─────────────────────────────────────────────────────
+
+/** Cor de cada tag (pelo rótulo de `tagsDaLinha`). */
+const COR_TAG: Record<string, { cor: string; bg: string }> = {
+  [ROTULO_SEGMENTO.vip]:        { cor: 'var(--color-amber)',   bg: 'var(--color-amber-soft)' },
+  [ROTULO_SEGMENTO.recorrente]: { cor: 'var(--color-primary)', bg: 'var(--color-primary-soft)' },
+  [ROTULO_SEGMENTO.em_risco]:   { cor: 'var(--color-rose)',    bg: 'var(--color-rose-soft)' },
+  [ROTULO_SEGMENTO.sumida]:     { cor: 'var(--color-rose)',    bg: 'var(--color-rose-soft)' },
+  [ROTULO_SEGMENTO.nova]:       { cor: 'var(--color-green)',   bg: 'var(--color-green-soft)' },
+};
+const COR_TAG_PADRAO = { cor: 'var(--color-ink3)', bg: 'var(--color-bg)' };
+
+/** Visual de cada cartão (rótulo e filtro vêm de `CARTOES_CLIENTES`). */
+const VISUAL_CARTAO: Record<ChaveCartaoClientes, { color: string; bg: string; icon: typeof Users }> = {
+  total:          { color: 'var(--color-primary)', bg: 'var(--color-primary-soft)', icon: Users },
+  novasMes:       { color: 'var(--color-green)',   bg: 'var(--color-green-soft)',   icon: CalendarPlus },
+  vip:            { color: 'var(--color-amber)',   bg: 'var(--color-amber-soft)',   icon: Crown },
+  em_risco:       { color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)',    icon: AlertTriangle },
+  sumida:         { color: 'var(--color-rose)',    bg: 'var(--color-rose-soft)',    icon: UserX },
+  nunca_atendida: { color: 'var(--color-ink3)',    bg: 'var(--color-bg)',           icon: Hourglass },
+};
+
+/** Tags da linha (segmentos ou "Arquivada"), por `tagsDaLinha`. */
+function Tags({ cliente, agregado, hojeChave }: { cliente: ClienteBase; agregado: Agregado | undefined; hojeChave: string }) {
+  const estilo = (cor: string, bg: string): React.CSSProperties => ({ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: bg, color: cor, whiteSpace: 'nowrap' });
+  return (
+    <>
+      {tagsDaLinha(cliente, agregado, hojeChave).map(t => {
+        const { cor, bg } = COR_TAG[t] ?? COR_TAG_PADRAO;
+        return <span key={t} className="flex-shrink-0" style={estilo(cor, bg)}>{t}</span>;
+      })}
+    </>
+  );
+}
 
 export default function ClientesPage() {
   const router    = useRouter();
   const { pode } = usePermissoes();
-  const [clientes,       setClientes]       = useState<Cliente[]>([]);
-  const [loading,        setLoading]        = useState(true);
-  const [busca,          setBusca]          = useState('');
-  const [filtro,         setFiltro]         = useState<'todas' | 'novas' | 'aniver' | 'segmentos'>('todas');
-  const [empresaId,      setEmpresaId]      = useState<string | null>(null);
-  const [modal,          setModal]          = useState(false);
-  const [viewMode,       setViewMode]       = useState<'lista' | 'grade'>('lista');
-  const [visitaMap,      setVisitaMap]      = useState<Map<string, { lastVisit: Date; total: number }> | null>(null);
-  const [loadingVisitas, setLoadingVisitas] = useState(false);
-  const [segmentoAtivo,  setSegmentoAtivo]  = useState<string | null>(null);
+  const [base,      setBase]      = useState<BaseClientes | null>(null);
+  const [erroCarga, setErroCarga] = useState('');
+  const [busca,     setBusca]     = useState('');
+  const [filtro,    setFiltro]    = useState<FiltroClientes>('todas');
+  const [empresaId, setEmpresaId] = useState<string | null>(null);
+  const [modal,     setModal]     = useState(false);
+  const [viewMode,  setViewMode]  = useState<'lista' | 'grade'>('lista');
+  const loading = base === null && !erroCarga;
+  const hojeChave = hojeBRT();
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (!membro) return;
-      setEmpresaId(membro.empresa_id);
-      const { data: clData } = await supabase.from('clientes')
-        .select('id, empresa_id, nome, telefone, email, data_nascimento, ativo, created_at')
-        .eq('empresa_id', membro.empresa_id).eq('ativo', true).order('nome');
-      setClientes((clData ?? []) as Cliente[]);
-      setLoading(false);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setErroCarga('Sessão expirada. Entre de novo.'); return; }
+        const { data: membro, error } = await supabase.from('empresa_membros').select('empresa_id')
+          .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+        if (error || !membro) { setErroCarga('Não foi possível identificar a empresa.'); return; }
+        setEmpresaId(membro.empresa_id);
+        setBase(await carregarBaseClientes(supabase, membro.empresa_id));
+      } catch (e) {
+        setErroCarga(mensagemErroBanco(e as { message?: string }, 'carregar as clientes'));
+      }
     })();
   }, []);
 
-  useEffect(() => {
-    if (filtro !== 'segmentos') setSegmentoAtivo(null);
-  }, [filtro]);
+  const agregados = useMemo(
+    () => (base ? agregarClientes(base.atendimentos, base.extras, base.vendas) : new Map<string, Agregado>()),
+    [base],
+  );
+  const contagem = useMemo(
+    () => (base ? contarSegmentos(base.clientes, agregados, hojeChave) : null),
+    [base, agregados, hojeChave],
+  );
+  const filtrados = useMemo(
+    () => (base ? filtrarClientes(base.clientes, agregados, filtro, busca, hojeChave) : []),
+    [base, agregados, filtro, busca, hojeChave],
+  );
 
-  useEffect(() => {
-    if (filtro !== 'segmentos' || !empresaId || visitaMap !== null) return;
-    (async () => {
-      setLoadingVisitas(true);
-      const { data } = await supabase.from('agendamentos')
-        .select('cliente_id, data_hora_inicio')
-        .eq('empresa_id', empresaId)
-        .eq('status', 'concluido')
-        .order('data_hora_inicio', { ascending: false })
-        .limit(5000);
-      const map = new Map<string, { lastVisit: Date; total: number }>();
-      for (const ag of (data ?? [])) {
-        if (!ag.cliente_id) continue;
-        const d = new Date(ag.data_hora_inicio);
-        if (!map.has(ag.cliente_id)) map.set(ag.cliente_id, { lastVisit: d, total: 0 });
-        map.get(ag.cliente_id)!.total++;
-      }
-      setVisitaMap(map);
-      setLoadingVisitas(false);
-    })();
-  }, [filtro, empresaId, visitaMap]);
+  const cartoes = CARTOES_CLIENTES.map(c => ({
+    label: c.rotulo, filtro: c.filtro, value: contagem ? contagem[c.chave] : null, ...VISUAL_CARTAO[c.chave],
+  }));
 
-  const filtrados = useMemo(() => {
-    let list = clientes;
-    if (filtro === 'novas') {
-      list = list.filter(c => new Date(c.created_at) >= startOfMonth(new Date()));
-    } else if (filtro === 'aniver') {
-      const mes = new Date().getMonth();
-      list = list.filter(c => {
-        if (!c.data_nascimento) return false;
-        return new Date(c.data_nascimento + 'T00:00:00').getMonth() === mes;
-      });
-    }
-    const q = busca.toLowerCase().trim();
-    if (q) {
-      list = list.filter(c =>
-        c.nome.toLowerCase().includes(q) || c.telefone?.includes(q) || c.email?.toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [clientes, busca, filtro]);
-
-  const novosEsteMes = clientes.filter(c =>
-    new Date(c.created_at) >= startOfMonth(new Date())
-  ).length;
-
-  function onClienteSalvo(c: Cliente) {
-    setClientes(prev => [...prev, c].sort((a, b) => a.nome.localeCompare(b.nome)));
-    setModal(false);
-  }
-  // onClienteSalvo mantido para compatibilidade, mas o redirect agora é feito dentro do modal
-
-  const aniversariantes = clientes.filter(c => {
-    if (!c.data_nascimento) return false;
-    const hoje = new Date(); const nasc = new Date(c.data_nascimento + 'T00:00:00');
-    return nasc.getMonth() === hoje.getMonth();
-  }).length;
+  const infoLinha = (c: ClienteBase) => {
+    const ag = agregados.get(c.id);
+    return { ag, gasto: ag?.totalGasto ?? 0, visita: textoUltimaVisita(ag?.ultimaVisita) };
+  };
+  const estiloAvatar = (nome: string, tam: number) => {
+    let h = 0;
+    for (let i = 0; i < nome.length; i++) h = (h * 31 + nome.charCodeAt(i)) % 360;
+    return { width: tam, height: tam, borderRadius: tam * 0.32, flexShrink: 0, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: tam > 50 ? 18 : 15 } as React.CSSProperties;
+  };
 
   return (
     <div className="bm-page">
@@ -298,28 +335,31 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {/* Stats */}
+      {erroCarga && (
+        <div role="alert" className="rounded-2xl p-4 mb-5 text-sm" style={{ background: 'var(--color-rose-soft)', border: '1px solid var(--color-border)', color: 'var(--color-rose)', fontFamily: 'var(--font-sans)' }}>
+          {erroCarga} Os números ficam em &quot;—&quot; até carregar de novo.
+        </div>
+      )}
+
+      {/* Cartões clicáveis: aplicam o filtro correspondente */}
       {loading ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-          {[1,2,3].map(i => <div key={i} className="rounded-2xl p-4" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}><Sk className="h-6 w-16 mb-2"/><Sk className="h-3 w-24"/></div>)}
+          {[1,2,3,4,5,6].map(i => <div key={i} className="rounded-2xl p-4" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}><Sk className="h-6 w-16 mb-2"/><Sk className="h-3 w-24"/></div>)}
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-          {[
-            { label: 'Total de clientes', value: clientes.length, color: 'var(--color-primary)', bg: 'var(--color-primary-soft)', icon: Users },
-            { label: 'Novos este mês',    value: novosEsteMes,    color: 'var(--color-green)',   bg: 'var(--color-green-soft)',   icon: CalendarPlus },
-            { label: 'Aniversariantes',   value: aniversariantes, color: 'var(--color-accent)',  bg: 'var(--color-accent-soft)',  icon: UserCheck },
-          ].map(({ label, value, color, bg, icon: Icon }, i) => (
-            <div key={label} className="bm-stagger rounded-2xl p-4 flex items-center gap-3"
-              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
+          {cartoes.map(({ label, filtro: alvo, value, color, bg, icon: Icon }, i) => (
+            <button key={label} type="button" onClick={() => setFiltro(alvo)} aria-pressed={filtro === alvo}
+              className="press bm-stagger rounded-2xl p-4 flex items-center gap-3 text-left"
+              style={{ background: 'var(--color-surface)', border: `1px solid ${filtro === alvo ? color : 'var(--color-border)'}`, boxShadow: '0 2px 6px rgba(44,23,80,0.06)', '--bm-i': i, '--bm-step': '55ms' } as React.CSSProperties}>
               <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
                 <Icon size={18} style={{ color }} strokeWidth={2}/>
               </div>
               <div>
-                <p className="text-2xl font-bold leading-none" style={{ fontFamily: 'var(--font-sans)', color }}>{value}</p>
+                <p className="text-2xl font-bold leading-none" style={{ fontFamily: 'var(--font-sans)', color }}>{value ?? '—'}</p>
                 <p className="text-xs mt-0.5" style={{ color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}>{label}</p>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -328,7 +368,7 @@ export default function ClientesPage() {
       <div className="relative mb-5">
         <Search size={16} style={{ color: 'var(--color-ink4)', position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} strokeWidth={2}/>
         <input value={busca} onChange={e => setBusca(e.target.value)}
-          placeholder="Buscar por nome, telefone ou e-mail..."
+          placeholder="Buscar por nome, telefone ou e-mail"
           style={{ width: '100%', height: 48, paddingLeft: 44, paddingRight: 16, borderRadius: 16, border: '1px solid var(--color-border)', background: 'var(--color-surface)', fontFamily: 'var(--font-sans)', fontSize: 14, color: 'var(--color-ink)', outline: 'none', boxSizing: 'border-box' }}
           onFocus={e => { e.target.style.borderColor = 'var(--color-accent)'; e.target.style.boxShadow = '0 0 0 3px var(--color-accent-soft)'; }}
           onBlur={e => { e.target.style.borderColor = 'var(--color-border)'; e.target.style.boxShadow = 'none'; }}
@@ -340,146 +380,14 @@ export default function ClientesPage() {
         <SmoothTabs
           variant="pill"
           className="mb-5 -mx-4 px-4 sm:mx-0 sm:px-0"
-          tabs={[
-            { key: 'todas',     label: 'Todas' },
-            { key: 'novas',     label: 'Novas' },
-            { key: 'aniver',    label: 'Aniversariantes' },
-            { key: 'segmentos', label: 'Segmentos' },
-          ]}
+          tabs={FILTROS_CLIENTES.map(f => ({ key: f, label: ROTULO_FILTRO[f] }))}
           active={filtro}
-          onChange={key => setFiltro(key as typeof filtro)}
+          onChange={key => setFiltro(key as FiltroClientes)}
         />
       )}
 
-      {/* Segmentos */}
-      {filtro === 'segmentos' && !loading && (() => {
-        if (loadingVisitas || visitaMap === null) {
-          return (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
-              {[1,2,3].map(i => <div key={i} className="rounded-2xl p-5" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}><Sk className="h-6 w-12 mb-2"/><Sk className="h-3 w-28"/></div>)}
-            </div>
-          );
-        }
-        const agora = new Date();
-        const cutoffRisco = new Date(agora.getTime() - 45 * 86400000);
-        const cutoffNovos = new Date(agora.getTime() - 30 * 86400000);
-
-        const vip       = clientes.filter(c => (visitaMap.get(c.id)?.total ?? 0) >= 8);
-        const emRisco   = clientes.filter(c => {
-          const v = visitaMap.get(c.id);
-          if (!v) return false; // sem visitas = já nunca voltou, mas não tem data
-          return v.lastVisit < cutoffRisco;
-        });
-        const semVisita = clientes.filter(c => !visitaMap.has(c.id) && new Date(c.created_at) < cutoffNovos);
-        const novos     = clientes.filter(c => new Date(c.created_at) >= cutoffNovos);
-
-        const segmentos = [
-          { label: 'VIP', desc: '8+ atendimentos', icon: Crown,        cor: 'var(--color-amber)',   bg: 'var(--color-amber-soft)',   clientes: vip,       qtd: vip.length },
-          { label: 'Em risco', desc: 'Sem visita há +45 dias', icon: AlertTriangle, cor: 'var(--color-rose)', bg: 'var(--color-rose-soft)', clientes: emRisco,   qtd: emRisco.length },
-          { label: 'Nunca retornou', desc: 'Cadastrado há +30 dias sem atendimento', icon: Users,        cor: 'var(--color-ink3)',    bg: 'var(--color-bg)',           clientes: semVisita, qtd: semVisita.length },
-          { label: 'Novos', desc: 'Cadastrados há menos de 30 dias', icon: Sparkles,    cor: 'var(--color-green)', bg: 'var(--color-green-soft)', clientes: novos,     qtd: novos.length },
-        ];
-
-        function itemCliente(c: Cliente) {
-          let h = 0;
-          for (let i = 0; i < c.nome.length; i++) h = (h * 31 + c.nome.charCodeAt(i)) % 360;
-          const inits = c.nome.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
-          const v = visitaMap!.get(c.id);
-          return (
-            <button key={c.id} onClick={() => router.push(`/clientes/${c.id}`)}
-              className="press w-full text-left flex items-center gap-3 p-3 rounded-xl"
-              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 1px 4px rgba(44,23,80,0.04)' }}>
-              <div style={{ width: 36, height: 36, borderRadius: 12, flexShrink: 0, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 13 }}>
-                {inits}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-text truncate" style={{ fontFamily: 'var(--font-sans)' }}>{c.nome}</p>
-                <p className="text-xs text-text-4 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>
-                  {v ? `${v.total} atend. · último ${format(v.lastVisit, 'dd/MM/yy')}` : 'Sem atendimento'}
-                </p>
-              </div>
-              <ChevronRight size={14} className="text-text-4 flex-shrink-0"/>
-            </button>
-          );
-        }
-
-        const segAtivo = segmentos.find(s => s.label === segmentoAtivo) ?? null;
-
-        // ── Vista de um segmento único, com todos os clientes ──
-        if (segAtivo) {
-          const q = busca.toLowerCase().trim();
-          const lista = q
-            ? segAtivo.clientes.filter(c =>
-                c.nome.toLowerCase().includes(q) || c.telefone?.includes(q) || c.email?.toLowerCase().includes(q))
-            : segAtivo.clientes;
-          return (
-            <div className="mb-5">
-              <button onClick={() => setSegmentoAtivo(null)}
-                className="press flex items-center gap-1 mb-4 text-sm font-semibold" style={{ color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}>
-                <ChevronLeft size={16}/> Todos os segmentos
-              </button>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: segAtivo.bg }}>
-                  <segAtivo.icon size={16} style={{ color: segAtivo.cor }} strokeWidth={1.8}/>
-                </div>
-                <div className="min-w-0">
-                  <p className="font-bold text-lg leading-none" style={{ color: segAtivo.cor, fontFamily: 'var(--font-sans)' }}>{segAtivo.label} · {lista.length}</p>
-                  <p className="text-xs text-text-4 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>{segAtivo.desc}</p>
-                </div>
-              </div>
-              {lista.length === 0 ? (
-                <div className="rounded-2xl p-8 text-center" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
-                  <p className="text-sm text-text-3" style={{ fontFamily: 'var(--font-sans)' }}>Nenhum cliente encontrado.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {lista.map(itemCliente)}
-                </div>
-              )}
-            </div>
-          );
-        }
-
-        // ── Visão geral: 4 KPIs clicáveis + prévia de cada segmento ──
-        return (
-          <div className="mb-5">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-              {segmentos.map(({ label, desc, icon: Icon, cor, bg, qtd }) => (
-                <button key={label} onClick={() => setSegmentoAtivo(label)} disabled={qtd === 0}
-                  className="press rounded-2xl p-4 flex items-center gap-3 text-left"
-                  style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: '0 2px 6px rgba(44,23,80,0.05)', opacity: qtd === 0 ? 0.6 : 1, cursor: qtd === 0 ? 'default' : 'pointer' }}>
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
-                    <Icon size={16} style={{ color: cor }} strokeWidth={1.8}/>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-bold text-lg leading-none" style={{ color: cor, fontFamily: 'var(--font-sans)' }}>{qtd}</p>
-                    <p className="text-xs font-semibold text-text-2 mt-0.5" style={{ fontFamily: 'var(--font-sans)' }}>{label}</p>
-                    <p className="text-[10px] text-text-4 mt-0.5 truncate" style={{ fontFamily: 'var(--font-sans)' }}>{desc}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {segmentos.filter(s => s.qtd > 0).map(({ label, cor, clientes: list }) => (
-              <div key={label} className="mb-4">
-                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: cor, fontFamily: 'var(--font-sans)' }}>{label}</p>
-                <div className="flex flex-col gap-2">
-                  {list.slice(0, 5).map(itemCliente)}
-                  {list.length > 5 && (
-                    <button onClick={() => setSegmentoAtivo(label)}
-                      className="press text-xs font-semibold text-center py-2" style={{ color: cor, fontFamily: 'var(--font-sans)' }}>
-                      Ver todos os {list.length} clientes →
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
-      {/* Lista — oculta na view de segmentos */}
-      {filtro !== 'segmentos' && (loading ? (
+      {/* Lista */}
+      {loading ? (
         <div className="flex flex-col gap-3">
           {[1,2,3,4,5].map(i => (
             <div key={i} className="rounded-2xl p-4 flex items-center gap-3" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
@@ -488,13 +396,13 @@ export default function ClientesPage() {
             </div>
           ))}
         </div>
-      ) : filtrados.length === 0 ? (
+      ) : !base ? null : filtrados.length === 0 ? (
         <div className="rounded-2xl p-12 text-center" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
           <Users size={32} style={{ color: 'var(--color-ink4)', margin: '0 auto 12px' }} strokeWidth={1.5}/>
           <p style={{ fontFamily: 'var(--font-sans)', color: 'var(--color-ink3)', fontSize: 14, marginBottom: 8 }}>
-            {busca ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado ainda.'}
+            {textoListaVazia(filtro, busca)}
           </p>
-          {!busca && (
+          {!busca && filtro === 'todas' && pode('clientes.cadastrar') && (
             <button onClick={() => setModal(true)} style={{ fontFamily: 'var(--font-sans)', color: 'var(--color-accent)', fontSize: 13, fontWeight: 700 }}>
               + Cadastrar primeiro cliente
             </button>
@@ -503,22 +411,18 @@ export default function ClientesPage() {
       ) : viewMode === 'grade' ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {filtrados.map((c, idx) => {
-            let h = 0;
-            for (let i = 0; i < c.nome.length; i++) h = (h * 31 + c.nome.charCodeAt(i)) % 360;
+            const { ag, gasto, visita } = infoLinha(c);
             const inits = c.nome.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
-            const isNew = new Date(c.created_at) >= new Date(new Date().getFullYear(), new Date().getMonth(), 1);
             return (
               <button key={c.id} onClick={() => router.push(`/clientes/${c.id}`)}
                 className="press bm-stagger w-full text-left"
                 style={{ '--bm-i': idx % 8, '--bm-step': '60ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: '16px 14px', boxShadow: '0 2px 6px rgba(44,23,80,0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 } as React.CSSProperties}>
-                <div style={{ width: 56, height: 56, borderRadius: 56 * 0.32, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 18, flexShrink: 0 }}>
-                  {inits}
-                </div>
+                <div style={estiloAvatar(c.nome, 56)}>{inits}</div>
                 <div style={{ width: '100%', textAlign: 'center', minWidth: 0 }}>
                   <p className="truncate" style={{ fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 13, color: 'var(--color-ink)' }}>{c.nome}</p>
-                  {isNew && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--color-green-soft)', color: 'var(--color-green)' }}>Nova</span>}
+                  <div className="flex flex-wrap justify-center gap-1 mt-1"><Tags cliente={c} agregado={ag} hojeChave={hojeChave}/></div>
                   {c.telefone && <p className="truncate mt-1" style={{ fontSize: 11.5, color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}>{c.telefone}</p>}
-                  {c.data_nascimento && <p style={{ fontSize: 11, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}>{format(new Date(c.data_nascimento + 'T00:00:00'), 'dd/MM')}</p>}
+                  <p style={{ fontSize: 11, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}><Secret>{formatarMoeda(gasto)}</Secret> · {visita}</p>
                 </div>
               </button>
             );
@@ -527,25 +431,22 @@ export default function ClientesPage() {
       ) : (
         <div className="flex flex-col gap-2">
           {filtrados.map((c, idx) => {
-            let h = 0;
-            for (let i = 0; i < c.nome.length; i++) h = (h * 31 + c.nome.charCodeAt(i)) % 360;
+            const { ag, gasto, visita } = infoLinha(c);
             const inits = c.nome.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
-            const isNew = new Date(c.created_at) >= new Date(new Date().getFullYear(), new Date().getMonth(), 1);
             return (
               <button key={c.id} onClick={() => router.push(`/clientes/${c.id}`)}
                 className="press bm-stagger w-full text-left"
                 style={{ '--bm-i': idx % 8, '--bm-step': '60ms', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, padding: '12px 16px', boxShadow: '0 2px 6px rgba(44,23,80,0.05)', display: 'flex', alignItems: 'center', gap: 12 } as React.CSSProperties}>
-                <div style={{ width: 44, height: 44, borderRadius: 44 * 0.32, flexShrink: 0, background: `linear-gradient(140deg, oklch(0.55 0.16 ${h}), oklch(0.42 0.17 ${h}))`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 15 }}>
-                  {inits}
-                </div>
+                <div style={estiloAvatar(c.nome, 44)}>{inits}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <span className="truncate" style={{ fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 14, color: 'var(--color-ink)' }}>{c.nome}</span>
-                    {isNew && <span className="flex-shrink-0" style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'var(--color-green-soft)', color: 'var(--color-green)' }}>Nova</span>}
+                    <Tags cliente={c} agregado={ag} hojeChave={hojeChave}/>
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                     {c.telefone && <span className="flex items-center gap-1" style={{ fontSize: 12, color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}><Phone size={11} strokeWidth={2}/>{c.telefone}</span>}
-                    {c.data_nascimento && <span style={{ fontSize: 12, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}>{format(new Date(c.data_nascimento + 'T00:00:00'), 'dd/MM')}</span>}
+                    <span style={{ fontSize: 12, color: 'var(--color-ink3)', fontFamily: 'var(--font-sans)' }}>Gasto: <Secret>{formatarMoeda(gasto)}</Secret></span>
+                    <span style={{ fontSize: 12, color: 'var(--color-ink4)', fontFamily: 'var(--font-sans)' }}>{visita}</span>
                   </div>
                 </div>
                 <ChevronRight size={16} style={{ color: 'var(--color-ink4)', flexShrink: 0 }} strokeWidth={2}/>
@@ -553,7 +454,7 @@ export default function ClientesPage() {
             );
           })}
         </div>
-      ))}
+      )}
 
       {modal && empresaId && (
         <NovoClienteModal empresaId={empresaId} onClose={() => setModal(false)}/>

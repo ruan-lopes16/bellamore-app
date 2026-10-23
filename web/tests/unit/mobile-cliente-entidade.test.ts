@@ -25,12 +25,12 @@ describe('mobile usa public.clientes como entidade de cliente', () => {
     });
   }
 
-  it('useClientes lê de clientes (ativos, da empresa) e não de empresa_membros/users', () => {
+  it('useClientes lê de clientes (da empresa, ativas e arquivadas, filtradas no cliente) e não de empresa_membros/users', () => {
     const src = ler('mobile/hooks/useClientes.ts');
     expect(src).toContain(".from('clientes')");
     expect(src).not.toContain(".from('empresa_membros')");
     expect(src).not.toContain(".from('users')");
-    expect(src).toContain(".eq('ativo', true)");
+    expect(src).toContain('carregarBaseClientes');
   });
 
   it('anamnese do detalhe usa maybeSingle (sem erro PGRST116 quando não há ficha)', () => {

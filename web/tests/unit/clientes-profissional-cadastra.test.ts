@@ -68,13 +68,25 @@ describe('telas de cliente usam mensagemErroBanco (sem erro técnico em inglês)
     'mobile/app/(empresa)/novo-cliente.tsx',
     'mobile/app/(empresa)/novo-agendamento.tsx',
     'mobile/app/(empresa)/cliente/[id]/editar.tsx',
-    'mobile/app/(empresa)/cliente/[id].tsx',
   ];
   for (const arq of arquivos) {
     it(arq, () => {
       expect(ler(arq)).toContain('mensagemErroBanco(');
     });
   }
+
+  // O perfil do app grava só por shared (arquivar, reativar, excluir, conferir histórico),
+  // e cada uma dessas funções passa o erro do banco por mensagemErroBanco.
+  it('mobile/app/(empresa)/cliente/[id].tsx (gravações por shared, com mensagemErroBanco lá)', () => {
+    const tela = ler('mobile/app/(empresa)/cliente/[id].tsx');
+    for (const f of ['arquivarCliente(', 'reativarCliente(', 'excluirCliente(', 'clienteTemHistorico(']) expect(tela).toContain(f);
+    for (const op of ['update', 'delete']) expect(tela).not.toContain(`from('clientes').${op}(`);
+    const sh = ler('shared/clientes-consultas.ts');
+    for (const acao of ["'excluir a cliente'", "'conferir o histórico da cliente'", "'arquivar a cliente'", "'reativar a cliente'"]) {
+      expect(sh).toContain(acao);
+    }
+    expect(sh.split('mensagemErroBanco(error, ').length - 1).toBeGreaterThanOrEqual(3);
+  });
 
   it('web: arquivar cliente checa o erro (antes falhava em silêncio)', () => {
     const src = ler('web/app/(app)/clientes/[id]/page.tsx');

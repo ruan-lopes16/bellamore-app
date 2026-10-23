@@ -45,16 +45,19 @@ describe('agenda web — cancelado oculto', () => {
 const readRepo = (f: string) => readFileSync(resolve(__dirname, '../../..', f), 'utf8');
 
 describe('histórico da cliente no app nativo — cancelado visível', () => {
-  const src = readRepo('mobile/hooks/useClientes.ts');
+  // O perfil do app usa a fonte única carregarHistoricoCliente (shared/clientes-consultas).
+  const hook = readRepo('mobile/hooks/useClientes.ts');
+  const src = readRepo('shared/clientes-consultas.ts');
 
-  it('useClienteDetalhe não filtra cancelado no histórico de agendamentos', () => {
-    // 'cancelado' (masculino) só existia nessa query; 'cancelada' (feminino,
-    // das taxas) continua permitido.
+  it('useClienteDetalhe usa a fonte única, que não filtra cancelado no histórico', () => {
+    expect(hook).toContain('carregarHistoricoCliente(');
+    // 'cancelado' (masculino) não pode ser filtrado; 'cancelada' (feminino, das taxas) é permitido.
+    expect(hook).not.toMatch(/\.neq\('status', 'cancelado'\)/);
     expect(src).not.toMatch(/\.neq\('status', 'cancelado'\)/);
   });
 
-  it('contagem de visitas e total gasto seguem só sobre concluído', () => {
-    expect(src).toContain("historicoCompleto.filter((a: any) => a.status === 'concluido')");
+  it('contagem de atendimentos e total gasto seguem só sobre concluído', () => {
+    expect(src).toContain("ags.filter(a => a.status === 'concluido')");
   });
 
   it('a query de histórico continua escopada à cliente', () => {

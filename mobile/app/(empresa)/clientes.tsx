@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
+  View, Text, TextInput, TouchableOpacity, Pressable,
   RefreshControl, StatusBar,
 } from 'react-native';
 import { router } from 'expo-router';
@@ -8,7 +8,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import {
-  Search, Plus, SlidersHorizontal,
+  Search, Plus,
   Gift, ChevronRight,
 } from 'lucide-react-native';
 import {
@@ -21,15 +21,22 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { format, differenceInDays } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
 
 import { useAuthStore } from '@/stores/authStore';
+import { usePermissoes } from '@/lib/permissions';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoClientes } from '@shared/exportacao/clientes';
-import { useClientes, useClientesStats, type ClienteResumo, type FiltroClientes } from '@/hooks/useClientes';
+import { SecretText } from '@/components/Secret';
+import { useClientes } from '@/hooks/useClientes';
 import { formatarMoeda } from '@shared/moeda';
+import { hojeBRT } from '@shared/periodos';
+import {
+  contarSegmentos, filtrarClientes, segmentosDaCliente, aniversariantesDoMes, tagsDaLinha,
+  textoUltimaVisita, textoListaVazia,
+  ROTULO_FILTRO, ROTULO_SEGMENTO, FILTROS_CLIENTES, CARTOES_CLIENTES,
+  type Agregado, type ClienteBase, type FiltroClientes, type ChaveCartaoClientes,
+} from '@shared/clientes-segmentos';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -49,19 +56,22 @@ const AVATAR_COLORS: [string, string][] = [
   ['#1D4ED8', '#60A5FA'], ['#7C2D12', '#EA580C'],
 ];
 
-const TAG_CONFIG = {
-  vip:        { label: 'VIP',        bg: C.amberSoft, color: C.amber },
-  nova:       { label: 'Nova',       bg: C.greenSoft,  color: C.green },
-  recorrente: { label: 'Recorrente', bg: C.primarySoft, color: C.primary },
-  sumida:     { label: 'Sumida',     bg: '#FEF2F2',    color: '#C0392B' },
+/** Cor de cada tag (pelo rótulo de `tagsDaLinha`; "Arquivada" usa a padrão). */
+const COR_TAG: Record<string, { bg: string; color: string }> = {
+  [ROTULO_SEGMENTO.vip]:        { bg: C.amberSoft,   color: C.amber },
+  [ROTULO_SEGMENTO.nova]:       { bg: C.greenSoft,   color: C.green },
+  [ROTULO_SEGMENTO.recorrente]: { bg: C.primarySoft, color: C.primary },
+  [ROTULO_SEGMENTO.em_risco]:   { bg: C.amberSoft,   color: C.amber },
+  [ROTULO_SEGMENTO.sumida]:     { bg: '#FEF2F2',     color: '#C0392B' },
 };
+const COR_TAG_PADRAO = { bg: C.bg, color: C.text3 };
 
-const FILTROS: { key: FiltroClientes; label: string }[] = [
-  { key: 'todas',       label: 'Todas' },
-  { key: 'retornos',    label: 'Retornos' },
-  { key: 'sumidas',     label: 'Sumidas' },
-  { key: 'aniversarios', label: 'Aniversários' },
-];
+const FILTROS: { key: FiltroClientes; label: string }[] = FILTROS_CLIENTES.map((key) => ({ key, label: ROTULO_FILTRO[key] }));
+
+/** Cor do número de cada cartão (rótulo e filtro vêm de `CARTOES_CLIENTES`). */
+const COR_CARTAO: Record<ChaveCartaoClientes, string> = {
+  total: C.text, novasMes: C.green, vip: C.amber, em_risco: C.amber, sumida: C.rose, nunca_atendida: C.text2,
+};
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -73,20 +83,12 @@ function iniciaisNome(nome: string) {
   return nome.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
 
-function formatUltimaVisita(data: string | null): string {
-  if (!data) return 'Sem visita';
-  const dias = differenceInDays(new Date(), new Date(data));
-  if (dias === 0) return 'hoje';
-  if (dias === 1) return 'ontem';
-  if (dias < 30) return `há ${dias} dias`;
-  if (dias < 60) return 'há 1 mês';
-  return `há ${Math.floor(dias / 30)} meses`;
-}
-
 // ── Componente de item ───────────────────────────────────────
 
-function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
-  const [c1, c2] = avatarColors(item.nome);
+function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agregado: Agregado | undefined; hoje: string; index: number }) {
+  const [c1] = avatarColors(item.nome);
+  const segmentos = segmentosDaCliente(item, agregado, hoje);
+  const tags = tagsDaLinha(item, agregado, hoje);
 
   return (
     <MotiView
@@ -109,7 +111,7 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
           shadowOpacity: 0.04,
           shadowRadius: 6,
           elevation: 1,
-          opacity: item.tags.includes('sumida') ? 0.75 : 1,
+          opacity: item.ativo === false ? 0.6 : segmentos.has('sumida') ? 0.75 : 1,
         }}
       >
         {/* Avatar */}
@@ -145,8 +147,8 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
             {item.telefone ?? 'Sem telefone'}
           </Text>
           <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
-            {item.tags.map((tag) => {
-              const cfg = TAG_CONFIG[tag];
+            {tags.map((tag) => {
+              const cfg = COR_TAG[tag] ?? COR_TAG_PADRAO;
               return (
                 <View key={tag} style={{
                   backgroundColor: cfg.bg, borderRadius: 6,
@@ -157,7 +159,7 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
                     fontSize: 9, color: cfg.color,
                     textTransform: 'uppercase', letterSpacing: 0.3,
                   }}>
-                    {cfg.label}
+                    {tag}
                   </Text>
                 </View>
               );
@@ -171,14 +173,14 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
             fontFamily: 'PlusJakartaSans_400Regular',
             fontSize: 11, color: C.text3, marginBottom: 3,
           }}>
-            {formatUltimaVisita(item.ultima_visita)}
+            {textoUltimaVisita(agregado?.ultimaVisita)}
           </Text>
-          <Text style={{
+          <SecretText style={{
             fontFamily: 'PlusJakartaSans_700Bold',
             fontSize: 13, color: C.text,
           }}>
-            {formatarMoeda(item.total_gasto)}
-          </Text>
+            {formatarMoeda(agregado?.totalGasto ?? 0)}
+          </SecretText>
         </View>
       </TouchableOpacity>
     </MotiView>
@@ -190,12 +192,24 @@ function ClienteItem({ item, index }: { item: ClienteResumo; index: number }) {
 export default function Clientes() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
+  const { pode } = usePermissoes();
 
   const [filtro, setFiltro] = useState<FiltroClientes>('todas');
   const [busca, setBusca] = useState('');
 
-  const { data: clientes = [], isLoading, refetch } = useClientes(filtro, busca);
-  const { data: stats } = useClientesStats();
+  const { data: base, isLoading, isError, refetch } = useClientes();
+  const hoje = hojeBRT();
+  const todas = base?.clientes;
+  const agregados = base?.agregados;
+  const contagem = useMemo(
+    () => (todas && agregados ? contarSegmentos(todas, agregados, hoje) : null),
+    [todas, agregados, hoje],
+  );
+  const clientes = useMemo(
+    () => (todas && agregados ? filtrarClientes(todas, agregados, filtro, busca, hoje) : []),
+    [todas, agregados, filtro, busca, hoje],
+  );
+  const aniversariantes = useMemo(() => (todas ? aniversariantesDoMes(todas, hoje) : []), [todas, hoje]);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -203,17 +217,6 @@ export default function Clientes() {
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
     PlusJakartaSans_700Bold,
-  });
-
-  // Aniversariantes de hoje
-  const hoje = new Date();
-  const aniversariantesHoje = clientes.filter((c) => {
-    if (!c.data_nascimento) return false;
-    const [, m, d] = c.data_nascimento.split('-');
-    return (
-      Number(m) === hoje.getMonth() + 1 &&
-      Number(d) === hoje.getDate()
-    );
   });
 
   const onRefresh = useCallback(() => { refetch(); }, [refetch]);
@@ -232,7 +235,9 @@ export default function Clientes() {
           <RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.accent} />
         }
         contentContainerStyle={{ paddingBottom: 100 }}
-        ListHeaderComponent={() => (
+        // Elemento (não função inline): uma função nova a cada render remontaria o cabeçalho a cada
+        // tecla da busca, fechando o teclado e repetindo as animações de entrada.
+        ListHeaderComponent={(
           <>
             {/* Header */}
             <MotiView
@@ -269,14 +274,7 @@ export default function Clientes() {
                   getLinhas={() => clientes.map((c) => ({ nome: c.nome, telefone: c.telefone ?? null, email: c.email ?? null, dataNascimento: c.data_nascimento ?? null, criadoEm: c.created_at }))}
                   cor={C.text2}
                 />
-                <TouchableOpacity style={{
-                  width: 38, height: 38, borderRadius: 12,
-                  backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-                  alignItems: 'center', justifyContent: 'center',
-                  shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-                }}>
-                  <SlidersHorizontal size={16} color={C.text2} strokeWidth={1.8} />
-                </TouchableOpacity>
+                {pode('clientes.cadastrar') && (
                 <TouchableOpacity
                   onPress={() => router.push('/(empresa)/novo-cliente' as any)}
                   style={{
@@ -289,6 +287,7 @@ export default function Clientes() {
                 >
                   <Plus size={18} color="#fff" strokeWidth={2.5} />
                 </TouchableOpacity>
+                )}
               </View>
             </MotiView>
 
@@ -309,7 +308,7 @@ export default function Clientes() {
                 <TextInput
                   value={busca}
                   onChangeText={setBusca}
-                  placeholder="Buscar por nome ou telefone…"
+                  placeholder="Buscar por nome, telefone ou e-mail"
                   placeholderTextColor={C.text4}
                   style={{
                     backgroundColor: C.surface,
@@ -343,47 +342,69 @@ export default function Clientes() {
               />
             </MotiView>
 
-            {/* Stats */}
+            {/* Aviso de erro de carga */}
+            {isError && (
+              <View
+                accessibilityRole="alert"
+                style={{
+                  marginHorizontal: 24, marginBottom: 16, padding: 12, borderRadius: 14,
+                  backgroundColor: C.roseSoft, borderWidth: 1, borderColor: 'rgba(212,96,138,0.25)',
+                }}
+              >
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.rose }}>
+                  Não foi possível carregar os clientes. Puxe para atualizar.
+                </Text>
+              </View>
+            )}
+
+            {/* Cartões de KPI (clicáveis: aplicam o filtro) */}
             <MotiView
               from={{ opacity: 0, translateY: 6 }}
               animate={{ opacity: 1, translateY: 0 }}
               transition={{ type: 'timing', duration: 380, delay: 100 }}
               style={{
                 marginHorizontal: 24, marginBottom: 16,
-                flexDirection: 'row', gap: 8,
+                flexDirection: 'row', flexWrap: 'wrap', gap: 8,
               }}
             >
-              {[
-                { value: stats?.total ?? 0,     label: 'Total',      color: C.text },
-                { value: stats?.novasMes ?? 0,  label: 'Novas · mês', color: C.green },
-                { value: stats?.sumidas ?? 0,   label: 'Sumidas',    color: C.rose },
-              ].map((s) => (
-                <View key={s.label} style={{
-                  flex: 1, backgroundColor: C.surface,
-                  borderWidth: 1, borderColor: C.border,
-                  borderRadius: 14, padding: 12,
-                  shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-                }}>
-                  <Text style={{
-                    fontFamily: 'PlusJakartaSans_700Bold',
-                    fontSize: 22, color: s.color,
-                    letterSpacing: -0.5, lineHeight: 24, marginBottom: 3,
-                  }}>
-                    {s.value}
-                  </Text>
-                  <Text style={{
-                    fontFamily: 'PlusJakartaSans_500Medium',
-                    fontSize: 9, color: C.text3,
-                    textTransform: 'uppercase', letterSpacing: 0.8,
-                  }}>
-                    {s.label}
-                  </Text>
-                </View>
-              ))}
+              {CARTOES_CLIENTES.map((k) => {
+                const ativo = filtro === k.filtro;
+                return (
+                  <Pressable
+                    key={k.rotulo}
+                    onPress={() => setFiltro(k.filtro)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Filtrar: ${k.rotulo}`}
+                    style={({ pressed }) => ({
+                      flexBasis: '31%', flexGrow: 1,
+                      backgroundColor: ativo ? C.primarySoft : C.surface,
+                      borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                      borderRadius: 14, padding: 12,
+                      opacity: pressed ? 0.7 : 1,
+                      shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+                    })}
+                  >
+                    <Text style={{
+                      fontFamily: 'PlusJakartaSans_700Bold',
+                      fontSize: 22, color: COR_CARTAO[k.chave],
+                      letterSpacing: -0.5, lineHeight: 24, marginBottom: 3,
+                    }}>
+                      {contagem && !isError ? contagem[k.chave] : '—'}
+                    </Text>
+                    <Text style={{
+                      fontFamily: 'PlusJakartaSans_500Medium',
+                      fontSize: 9, color: C.text3,
+                      textTransform: 'uppercase', letterSpacing: 0.8,
+                    }}>
+                      {k.rotulo}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </MotiView>
 
             {/* Banner aniversariantes */}
-            {aniversariantesHoje.length > 0 && (
+            {aniversariantes.length > 0 && (
               <MotiView
                 from={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -391,7 +412,7 @@ export default function Clientes() {
                 style={{ marginHorizontal: 24, marginBottom: 16 }}
               >
                 <TouchableOpacity
-                  onPress={() => setFiltro('aniversarios')}
+                  onPress={() => setFiltro('aniversariantes')}
                   style={{
                     backgroundColor: C.roseSoft,
                     borderWidth: 1, borderColor: 'rgba(212,96,138,0.15)',
@@ -411,15 +432,15 @@ export default function Clientes() {
                       fontFamily: 'PlusJakartaSans_700Bold',
                       fontSize: 12, color: C.rose,
                     }}>
-                      {aniversariantesHoje.length === 1
-                        ? `${aniversariantesHoje[0].nome.split(' ')[0]} faz aniversário hoje`
-                        : `${aniversariantesHoje.length} aniversariantes hoje`}
+                      {aniversariantes.length === 1
+                        ? '1 aniversariante neste mês'
+                        : `${aniversariantes.length} aniversariantes neste mês`}
                     </Text>
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_400Regular',
                       fontSize: 10, color: C.text3, marginTop: 1,
                     }}>
-                      {aniversariantesHoje.map((c) => c.nome.split(' ')[0]).join(', ')}
+                      {aniversariantes.slice(0, 4).map((c) => c.nome.split(' ')[0]).join(', ')}{aniversariantes.length > 4 ? '…' : ''}
                     </Text>
                   </View>
                   <ChevronRight size={14} color={C.rose} strokeWidth={2} />
@@ -437,23 +458,23 @@ export default function Clientes() {
                 fontSize: 11, color: C.text3,
                 textTransform: 'uppercase', letterSpacing: 1.5,
               }}>
-                {clientes.length} {filtro === 'todas' ? 'clientes' : FILTROS.find(f => f.key === filtro)?.label.toLowerCase()}
+                {isError || !base ? '—' : clientes.length} {filtro === 'todas' ? 'clientes' : ROTULO_FILTRO[filtro].toLowerCase()}
               </Text>
               <Text style={{
                 fontFamily: 'PlusJakartaSans_600SemiBold',
                 fontSize: 11, color: C.accent,
               }}>
-                A–Z
+                {filtro === 'aniversariantes' ? 'Por dia' : 'A–Z'}
               </Text>
             </View>
           </>
         )}
         renderItem={({ item, index }) => (
           <View style={{ paddingHorizontal: 24, marginBottom: 6 }}>
-            <ClienteItem item={item} index={index} />
+            <ClienteItem item={item} agregado={agregados?.get(item.id)} hoje={hoje} index={index} />
           </View>
         )}
-        ListEmptyComponent={() => (
+        ListEmptyComponent={() => (isError || isLoading) ? null : (
           <View style={{
             marginHorizontal: 24, backgroundColor: C.surface,
             borderWidth: 1, borderColor: C.border,
@@ -464,7 +485,7 @@ export default function Clientes() {
               fontFamily: 'PlusJakartaSans_400Regular',
               fontSize: 14, color: C.text3, marginTop: 10,
             }}>
-              Nenhuma cliente encontrada
+              {textoListaVazia(filtro, busca)}
             </Text>
           </View>
         )}

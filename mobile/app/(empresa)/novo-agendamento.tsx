@@ -28,6 +28,7 @@ import { usePermissoes } from '@/lib/permissions';
 import { useProfissionais } from '@/hooks/useAgenda';
 import { useServicosEmpresa } from '@/hooks/useServicosEmpresa';
 import { useClientes } from '@/hooks/useClientes';
+import { filtrarClientes } from '@shared/clientes-segmentos';
 import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import SuccessCheck from '@/components/SuccessCheck';
@@ -234,7 +235,11 @@ export default function NovoAgendamento() {
   const [clienteCriadoFlash, setClienteCriadoFlash] = useState(false);
 
   // Dados
-  const { data: clientes = [] }     = useClientes('todas', buscaCliente);
+  const { data: baseClientes }      = useClientes();
+  const clientes = useMemo(
+    () => filtrarClientes(baseClientes?.clientes ?? [], baseClientes?.agregados ?? new Map(), 'todas', buscaCliente, hojeBRT()),
+    [baseClientes, buscaCliente],
+  );
   const { data: todasProfissionais = [] } = useProfissionais();
   const { data: servicos = [] }     = useServicosEmpresa();
 
