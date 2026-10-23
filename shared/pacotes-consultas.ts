@@ -196,7 +196,9 @@ export type RelatorioUtilizacao = {
  * Relatório de utilização a partir dos vendidos. Sessões: combo e pacote com sessão ilimitada não
  * somam ao total (`totalSessoes` de shared/pacotes); usadas = linhas de `pacote_uso`.
  * Receita = soma de `valor_pago` SÓ dos pacotes com cobranca 'paga' (o "a cobrar" ainda não entrou no
- * faturamento; `valor_pago` nulo, de pacote antigo, conta 0) — o mesmo que o Financeiro soma pelas vendas.
+ * faturamento) — o mesmo que o Financeiro soma pelas vendas. Pacote antigo, anterior ao `valor_pago`
+ * (coluna nula), conta o preço do catálogo, como a tela fazia antes: `coalesce(valor_pago, preço)`.
+ * Um `valor_pago` 0 gravado (cortesia) continua 0.
  */
 export function calcularRelatorioUtilizacao(vendidos: PacoteVendido[]): RelatorioUtilizacao {
   const porPacote = new Map<string, RelatorioPorPacote>();
@@ -204,7 +206,7 @@ export function calcularRelatorioUtilizacao(vendidos: PacoteVendido[]): Relatori
   for (const v of vendidos) {
     const total = v.pacote.controla_sessoes ? (totalSessoes(v.pacote.servicos) ?? 0) : 0;
     const paga = v.cobranca === 'paga';
-    const valor = paga ? Math.round((v.valor_pago ?? 0) * 100) : 0;
+    const valor = paga ? Math.round((v.valor_pago ?? v.pacote.preco ?? 0) * 100) : 0;
     totalSess += total;
     usadas += v.usos.length;
     receita += valor;

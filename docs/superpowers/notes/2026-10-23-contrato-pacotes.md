@@ -9,6 +9,21 @@ Consumido pelas Tasks 5 a 7 da Paridade Serviços e Pacotes. Wrappers em `shared
 |---|---|---|
 | `cobranca` | `text not null default 'paga'`, check `('paga','pendente')` | `pendente` = "A cobrar" (vendido com "Cobrar na comanda"). Todos os antigos ficaram `paga` |
 | `venda_id` | `uuid references vendas on delete set null` | Venda que cobrou o pacote. Nulo nos antigos e nos pendentes |
+| `comanda_id` | `uuid references comandas on delete set null` | Comanda que cobrou o pacote (novo pela comanda ou "a cobrar"). Nulo nos antigos, nos pendentes e nos vendidos com "Cobrar agora" |
+
+### Guardas (revisão)
+
+- **Escrita direta pela API** (papéis `authenticated`/`anon`) em `pacote_clientes`: INSERT recusado
+  (`Pacote vendido só é gravado pela venda de pacote. Recarregue a tela e tente de novo.`), e UPDATE de
+  `cobranca`, `venda_id`, `comanda_id`, `valor_pago` ou `empresa_id` recusado
+  (`A cobrança do pacote vendido só muda pela venda ou pela comanda.`). Só `vender_pacote` e `fechar_comanda`
+  gravam. `status` e as demais colunas continuam livres (Pacotes marca "concluído").
+  **Deploy:** a tela antiga (insert direto) deixa de vender pacote assim que a 096 roda — rode a 096 junto
+  com o deploy. O caminho antigo das telas novas só existe sem a 096, então não é afetado.
+- **Venda de pacote não é apagada direto** (`Esta venda é de pacote e não pode ser apagada aqui. Para desfazer,
+  exclua o pacote vendido em Pacotes.`).
+- **Pagamento numa venda de pacote** pela permissão `pacotes.vender` só de dentro da `vender_pacote`, e só na
+  venda "agora".
 
 ## `vender_pacote(p jsonb) returns void`
 
@@ -43,6 +58,9 @@ não dá erro).
 - **`comanda`**: `pagamentos` tem de ir vazio. Grava só os `pacote_clientes` com `cobranca 'pendente'`,
   `valor_pago` = valor combinado (líquido rateado) e `venda_id` nulo. Nada entra no faturamento.
 - Nos dois modos o 1º `pacote_clientes` recebe `id = venda_id` (é por ele que a repetição é reconhecida).
+  A mesma chave noutro modo (`comanda` depois de `agora`, ou o contrário) é recusada com
+  `Este código de venda já foi usado...`: a tela gera uma chave nova quando o modo, a cliente, o pacote, a
+  quantidade, o valor ou o desconto mudam (assinatura de `argumentosVendaPacote`).
 - `data_inicio` = hoje em Brasília; `data_validade` = hoje + `validade_dias`, ou nula sem validade; `status 'ativo'`.
 - Permissões: `pacotes.vender`; desconto > 0 ou cortesia com valor exigem `comanda.desconto`.
 
@@ -67,22 +85,27 @@ Item de `itens[]` do JSON da `fechar_comanda` (formato de `itensACobrar`, `share
 ```
 
 - Com `pacote_cliente_id`: não cria outro pacote. O existente tem de ser da mesma empresa, da cliente da
-  comanda, `cobranca 'pendente'` e não cancelado; `quantidade` = 1; não pode repetir na comanda. Ao fechar, passa a
-  `cobranca 'paga'`, `valor_pago` = `valor_unit − cota do desconto da comanda` e `venda_id` = a venda dos pacotes
-  da comanda (`observacao 'Pacote(s) via comanda'`). O `pacote_id` vem do próprio pacote vendido.
+  comanda, `cobranca 'pendente'` e não cancelado; `quantidade` = 1; não pode repetir na comanda; `valor_unit` =
+  o `valor_pago` do pendente (o combinado na venda; `itensACobrar` já manda assim) — desconto só pelo desconto da
+  comanda. Ao fechar, passa a `cobranca 'paga'`, `valor_pago` = `valor_unit − cota do desconto da comanda`,
+  `venda_id` = a venda dos pacotes da comanda (`observacao 'Pacote(s) via comanda'`) e `comanda_id` = a comanda.
+  O `pacote_id` vem do próprio pacote vendido.
 - Cobrar um pacote "a cobrar" exige só `comanda.fechar` (não `pacotes.vender`). Pacote novo (sem
   `pacote_cliente_id`) continua exigindo `pacotes.vender`.
-- Pacote novo pela comanda agora também grava `cobranca 'paga'` e `venda_id`. A venda dos pacotes da comanda é
+- Pacote novo pela comanda agora também grava `cobranca 'paga'`, `venda_id` e `comanda_id`. A venda dos pacotes da comanda é
   gravada sempre que há item de pacote (mesmo de R$ 0).
 - Tirar o item da comanda = não mandar o item: o pacote continua `pendente`.
 - `editar_comanda` não muda: itens de pacote seguem congelados; `pacote_cliente_id` mandado na edição é ignorado.
 
 ## `excluir_pacote_cliente(p_empresa uuid, p_id uuid) returns void`
 
-`security definer`. Exige ser da empresa e `pacotes.vender` (ou gestora/dona). Recusa com sessão usada. Na mesma
+`security definer`. Exige ser da empresa e `pacotes.vender` (ou gestora/dona). Recusa com sessão usada e com
+pacote cobrado numa comanda (`comanda_id` preenchido: a comanda manteria item e pagamentos, e a edição da comanda
+não tira pacotes). Exclui só o pendente ("a cobrar") e o vendido com "Cobrar agora". Na mesma
 transação: desvincula os atendimentos (`pacote_cliente_id = null`), apaga o pacote e acerta a venda ligada: só esse
 pacote → apaga a venda, os itens e os pagamentos dela; com outros pacotes → `valor_total` cai pelo `valor_pago`
-dele. Pacote antigo (sem `venda_id`) ou pendente: só o pacote sai.
+dele (os pagamentos da venda ficam: devolução de uma unidade é manual). Pacote antigo (sem `venda_id` nem
+`comanda_id`, anterior à 096) ou pendente: só o pacote sai.
 
 O DELETE direto em `pacote_clientes` passou a valer só para gestora/dona.
 
@@ -125,9 +148,12 @@ Regra (`P0001`):
   `Pacote a cobrar entra na comanda com quantidade 1.` · `Pacote a cobrar não encontrado: <descrição>.` ·
   `Este pacote a cobrar é de outra cliente: <descrição>.` ·
   `Este pacote já foi cobrado: <descrição>. Tire o item da comanda.` ·
-  `Este pacote foi cancelado: <descrição>. Tire o item da comanda.` · `Não foi possível cobrar o pacote: <descrição>.`
+  `Este pacote foi cancelado: <descrição>. Tire o item da comanda.` · `Não foi possível cobrar o pacote: <descrição>.` ·
+  `O valor do pacote a cobrar não pode ser alterado: <descrição>. Para dar desconto, use o desconto da comanda.`
 - `excluir_pacote_cliente`: `Pacote vendido não encontrado.` ·
-  `Este pacote já tem sessões usadas. Para cancelar, fale com a dona.` · `Não foi possível excluir o pacote vendido.`
+  `Este pacote já tem sessões usadas. Para cancelar, fale com a dona.` ·
+  `Este pacote foi cobrado numa comanda e não pode ser excluído aqui. Para cancelar, fale com a dona.` ·
+  `Não foi possível excluir o pacote vendido.`
 - `excluir_servico`: `Serviço não encontrado.` · `Este serviço já foi usado. Desative em vez de excluir.` ·
   `Não foi possível excluir o serviço.`
 
@@ -140,4 +166,12 @@ Todas paginadas (desempate por `id`) e lançam o erro do banco.
   `cobranca 'paga'`).
 - `carregarPendentesCliente(db, empresaId, clienteId): PacotePendente[]` — entrada de `itensACobrar` (sem a 096: `[]`).
 - `carregarCandidatosVinculo(db, empresaId, clienteId): PacoteClienteRaw[]` — entrada de `calcularPacotesAtivosCliente`.
-- `carregarRelatorioUtilizacao(db, empresaId)` / `calcularRelatorioUtilizacao(vendidos)` — receita só dos `paga`.
+- `carregarRelatorioUtilizacao(db, empresaId)` / `calcularRelatorioUtilizacao(vendidos)` — receita só dos `paga`, por
+  `coalesce(valor_pago, preço do catálogo)` (pacote antigo sem `valor_pago` conta o preço, como a tela antiga).
+
+## Status exibido (`statusPacoteCliente`, shared/pacotes.ts)
+
+`'ativo' | 'concluido' | 'expirado' | 'cancelado'`. `cancelado` gravado sai como `cancelado` (a tela mostra
+"Cancelado"; não entra nos filtros Ativos/Concluídos/Expirados, só em Todos). Saldo pela mesma regra do trigger
+`fn_registrar_uso_pacote`: total = soma das quantidades, usadas = todas as linhas de `pacote_uso`, serviço
+ilimitado nunca esgota; o saldo por serviço é só exibição.

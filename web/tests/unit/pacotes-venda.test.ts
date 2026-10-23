@@ -175,6 +175,16 @@ describe('relatório de utilização', () => {
     ]);
   });
 
+  it('pacote antigo com valor_pago nulo conta o preço do catálogo (como a tela antiga)', () => {
+    const r = calcularRelatorioUtilizacao([
+      v({ valor_pago: null }),                                 // preço 200
+      v({ id: 'y', valor_pago: 0 }),                           // 0 gravado é 0, não o preço
+      v({ id: 'z', valor_pago: null, cobranca: 'pendente' }),  // a cobrar nunca soma
+    ]);
+    expect(r.receitaTotal).toBe(200);
+    expect(r.porPacote[0].receita).toBe(200);
+  });
+
   it('carregarRelatorioUtilizacao usa os vendidos do banco', async () => {
     const f = fakeDb({ linhas: { pacote_clientes: [vendidoRaw('pc1')] } });
     const r = await carregarRelatorioUtilizacao(f.db, 'e1');

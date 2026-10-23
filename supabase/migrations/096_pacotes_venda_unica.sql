@@ -47,7 +47,7 @@
 -- 4) excluir_pacote_cliente(p_empresa, p_id) — security definer (precisa apagar a venda e os
 --    pagamentos dela, que a RLS só deixa para gestora/dona, e conferir o uso pela tabela inteira).
 --    Exige ser membro ativo (ou a dona) e pacotes.vender (ou gestora/dona). Recusa se houver sessão
---    usada. Na mesma transação: desvincula os atendimentos, apaga o pacote e acerta a venda ligada
+--    usada ou se o pacote foi cobrado numa comanda (comanda_id, seção 7). Na mesma transação: desvincula os atendimentos, apaga o pacote e acerta a venda ligada
 --    (só esse pacote → apaga venda, itens e pagamentos; outros pacotes → valor_total − valor_pago).
 --
 -- 5) excluir_servico(p_empresa, p_id) — security definer (o "nunca usado" precisa olhar a empresa
@@ -59,13 +59,28 @@
 --    - pacote_clientes DELETE: "membro exclui" sai; delete direto só gestora/dona. As telas usam
 --      excluir_pacote_cliente.
 --    - pagamentos INSERT ("quem fecha insere", 093): o ramo de venda aceita também quem tem
---      pacotes.vender quando a venda é de pacote (existe pacote_clientes com esse venda_id) —
---      vender_pacote é invoker e grava os pagamentos da venda "agora".
+--      pacotes.vender, só de dentro da vender_pacote (chave app.pacote_rpc, local à transação) e só
+--      na venda "agora" (o 1º pacote_clientes dela tem id = venda_id) — vender_pacote é invoker.
+--
+-- 7) Guarda da cobrança (revisão): nenhum caminho cria ou deixa um pacote cobrado sem venda.
+--    - pacote_clientes.comanda_id: a comanda que cobrou o pacote. excluir_pacote_cliente recusa esses
+--      ("Este pacote foi cobrado numa comanda..."): a comanda manteria item e pagamentos.
+--    - trigger trg_guarda_cobranca_pacote: pela API (authenticated/anon), INSERT em pacote_clientes e
+--      mudança de cobranca/venda_id/comanda_id/valor_pago/empresa_id só de dentro de vender_pacote e
+--      fechar_comanda (app.pacote_rpc). O status continua livre. A tela antiga (insert direto) deixa
+--      de vender pacote depois da 096, com mensagem e sem gravar nada: rode a 096 junto com o deploy.
+--    - trigger trg_guarda_venda_de_pacote: venda ligada a pacote não é apagada direto.
+--    - fechar_comanda: o valor do item "a cobrar" tem de ser o combinado na venda (valor_pago do
+--      pendente); desconto só pelo desconto da comanda, que exige comanda.desconto.
 --
 -- Mensagens: todas em português; recusas de permissão com errcode 42501, as demais P0001
 -- (shared/erros.ts#mensagemErroBanco mostra o texto como veio).
 --
 -- Rollback (os dados ficam):
+--   drop trigger if exists trg_guarda_cobranca_pacote on public.pacote_clientes;
+--   drop trigger if exists trg_guarda_venda_de_pacote on public.vendas;
+--   drop function if exists public.guarda_cobranca_pacote();
+--   drop function if exists public.guarda_venda_de_pacote();
 --   drop function if exists public.vender_pacote(jsonb);
 --   drop function if exists public.excluir_pacote_cliente(uuid, uuid);
 --   drop function if exists public.excluir_servico(uuid, uuid);
@@ -74,8 +89,8 @@
 --   create policy "pacote_clientes: membro exclui" on public.pacote_clientes for delete
 --     using (empresa_id in (select minha_empresas()));
 --   pagamentos: recriar "pagamentos: quem fecha insere" como na seção 8 da 093.
---   (as colunas cobranca/venda_id podem ficar; para tirar: alter table public.pacote_clientes
---    drop column if exists venda_id, drop column if exists cobranca;)
+--   (as colunas cobranca/venda_id/comanda_id podem ficar; para tirar: alter table public.pacote_clientes
+--    drop column if exists comanda_id, drop column if exists venda_id, drop column if exists cobranca;)
 --   notify pgrst, 'reload schema';
 -- ============================================================
 
@@ -99,6 +114,10 @@ alter table public.pacote_clientes
   add constraint pacote_clientes_cobranca_check check (cobranca in ('paga', 'pendente'));
 alter table public.pacote_clientes
   add column if not exists venda_id uuid references public.vendas(id) on delete set null;
+-- Comanda que cobrou o pacote (novo pela comanda ou "a cobrar"). excluir_pacote_cliente recusa esses:
+-- a comanda continuaria com o item e os pagamentos, e o faturamento (vendas) não bateria com ela.
+alter table public.pacote_clientes
+  add column if not exists comanda_id uuid references public.comandas(id) on delete set null;
 create index if not exists idx_pacote_clientes_venda on public.pacote_clientes (venda_id) where venda_id is not null;
 create index if not exists idx_pacote_clientes_pendentes on public.pacote_clientes (empresa_id, cliente_id)
   where cobranca = 'pendente';
@@ -126,6 +145,7 @@ declare
   v_cortesia  numeric := 0;
   v_pags      jsonb;
   v_existente uuid;
+  v_venda_exist uuid;
   v_validade  int;
   v_ativo     boolean;
   v_nome      text;
@@ -162,12 +182,17 @@ begin
 
   -- Idempotência: nova tentativa da mesma venda (queda de rede depois do commit). O 1º pacote da
   -- venda tem id = chave (pacote_clientes é visível a todo membro; vendas não).
-  select empresa_id into v_existente from public.pacote_clientes where id = v_chave;
+  -- A mesma chave noutro modo de cobrança NÃO é a mesma venda: "agora" tem venda_id = chave; o
+  -- pendente ("comanda") nunca tem (nulo, ou a venda da comanda que o cobrou depois).
+  select empresa_id, venda_id into v_existente, v_venda_exist from public.pacote_clientes where id = v_chave;
   if found then
-    if v_existente = v_empresa then
-      return;
+    if v_existente <> v_empresa then
+      raise exception 'Esta venda pertence a outra empresa.';
     end if;
-    raise exception 'Esta venda pertence a outra empresa.';
+    if (v_cobranca = 'agora') <> (v_venda_exist is not distinct from v_chave) then
+      raise exception 'Este código de venda já foi usado. Recarregue a tela e tente de novo.';
+    end if;
+    return;
   end if;
 
   -- Quantidade, valor e desconto -------------------------------
@@ -257,6 +282,9 @@ begin
   end if;
 
   -- ── Gravação ───────────────────────────────────────────────
+  -- Só dentro desta transação: libera a gravação em pacote_clientes (trigger de guarda) e o ramo de
+  -- pagamentos de venda de pacote (policy). O cliente não consegue ligar esta chave por conta própria.
+  perform set_config('app.pacote_rpc', 'on', true);
   v_hoje := (now() at time zone 'America/Sao_Paulo')::date;
   v_liquido := (v_total * 100)::bigint;
 
@@ -289,8 +317,10 @@ begin
       from generate_series(1, v_q) as u(n)
      order by u.n;
   exception when unique_violation then
+    -- Em "agora" a repetição verdadeira já caiu na venda acima: aqui seria uma chave usada por um
+    -- pendente ao mesmo tempo — devolver sucesso deixaria a venda gravada sem pacote.
     select empresa_id into v_existente from public.pacote_clientes where id = v_chave;
-    if found and v_existente = v_empresa then
+    if found and v_existente = v_empresa and v_cobranca = 'comanda' then
       return;
     end if;
     raise exception 'Este código de venda já foi usado. Recarregue a tela e tente de novo.';
@@ -330,6 +360,7 @@ as $$
 declare
   v_venda   uuid;
   v_valor   numeric;
+  v_comanda uuid;
   v_rows    int;
 begin
   if auth.uid() is null or p_empresa is null or not (p_empresa in (select minha_empresas())) then
@@ -339,12 +370,17 @@ begin
     raise exception 'Você não tem permissão para excluir pacote vendido.' using errcode = '42501';
   end if;
 
-  select pc.venda_id, coalesce(pc.valor_pago, 0) into v_venda, v_valor
+  select pc.venda_id, coalesce(pc.valor_pago, 0), pc.comanda_id into v_venda, v_valor, v_comanda
     from public.pacote_clientes pc
    where pc.id = p_id and pc.empresa_id = p_empresa
    for update;
   if not found then
     raise exception 'Pacote vendido não encontrado.';
+  end if;
+  -- Cobrado numa comanda (novo ou "a cobrar"): a comanda mantém o item e os pagamentos, e a edição da
+  -- comanda não tira pacotes (090/093). Apagar daqui deixaria o faturamento diferente da comanda.
+  if v_comanda is not null then
+    raise exception 'Este pacote foi cobrado numa comanda e não pode ser excluído aqui. Para cancelar, fale com a dona.';
   end if;
   if exists (select 1 from public.pacote_uso pu where pu.pacote_cliente_id = p_id) then
     raise exception 'Este pacote já tem sessões usadas. Para cancelar, fale com a dona.';
@@ -360,8 +396,10 @@ begin
     raise exception 'Não foi possível excluir o pacote vendido.';
   end if;
 
-  -- Venda ligada: só este pacote → sai inteira (pagamentos e itens juntos); com outros pacotes →
-  -- o valor_total cai pelo valor deste (o desconto da venda já está rateado no valor_pago de cada um).
+  -- Venda ligada ("agora", a de comanda foi recusada acima): só este pacote → sai inteira (pagamentos
+  -- e itens juntos); com outros pacotes → o valor_total cai pelo valor deste (o desconto da venda já
+  -- está rateado no valor_pago de cada um). Os pagamentos dessa venda ficam (o dinheiro entrou; a
+  -- devolução de uma unidade é manual) — o faturamento segue vendas.valor_final.
   if v_venda is not null then
     if exists (select 1 from public.pacote_clientes pc where pc.venda_id = v_venda) then
       update public.vendas
@@ -441,15 +479,80 @@ create policy "pagamentos: quem fecha insere" on public.pagamentos for insert wi
         and exists (select 1 from public.vendas v
                      where v.id = pagamentos.venda_id and v.empresa_id = pagamentos.empresa_id)
         and (is_gestor_ou_owner(empresa_id) or tem_permissao(empresa_id, 'vendas.acessar')))
-    -- 096: venda de pacote "agora" (vender_pacote) por quem tem pacotes.vender. Confere pela venda do
-    -- pacote_clientes (visível a todo membro): a policy de SELECT de vendas não vale para ela.
+    -- 096: venda de pacote "agora" por quem tem pacotes.vender, SÓ de dentro da vender_pacote (chave
+    -- app.pacote_rpc, local à transação) e SÓ na venda "agora" daquela empresa (o 1º pacote dela tem
+    -- id = venda_id; a venda dos pacotes da comanda não tem). Confere pelo pacote_clientes (visível a
+    -- todo membro): a policy de SELECT de vendas não vale para quem só tem pacotes.vender.
     or (venda_id is not null
+        and coalesce(current_setting('app.pacote_rpc', true), '') = 'on'
         and tem_permissao(empresa_id, 'pacotes.vender')
         and exists (select 1 from public.pacote_clientes pc
-                     where pc.venda_id = pagamentos.venda_id
+                     where pc.id = pagamentos.venda_id
+                       and pc.venda_id = pagamentos.venda_id
                        and pc.empresa_id = pagamentos.empresa_id))
   )
 );
+
+-- Guarda da cobrança (revisão da 096): nenhum caminho cria ou deixa um pacote cobrado sem venda.
+-- - pacote_clientes: escrita direta pela API (papéis authenticated/anon) não insere pacote nem muda
+--   cobranca, venda_id, comanda_id, valor_pago ou empresa_id — só vender_pacote e fechar_comanda
+--   (que ligam app.pacote_rpc) e funções security definer (current_user = dona da função). O status
+--   continua livre (Pacotes marca "concluído"). SQL Editor/suporte (postgres) não passa por aqui.
+--   Efeito no deploy: a tela ANTIGA (insert direto) deixa de vender pacote depois da 096, com esta
+--   mensagem e sem gravar nada — rode a 096 junto com o deploy.
+create or replace function public.guarda_cobranca_pacote()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  if current_user not in ('authenticated', 'anon')
+     or coalesce(current_setting('app.pacote_rpc', true), '') = 'on' then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    raise exception 'Pacote vendido só é gravado pela venda de pacote. Recarregue a tela e tente de novo.';
+  end if;
+  if new.cobranca is distinct from old.cobranca or new.venda_id is distinct from old.venda_id
+     or new.comanda_id is distinct from old.comanda_id or new.valor_pago is distinct from old.valor_pago
+     or new.empresa_id is distinct from old.empresa_id then
+    raise exception 'A cobrança do pacote vendido só muda pela venda ou pela comanda.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guarda_cobranca_pacote on public.pacote_clientes;
+create trigger trg_guarda_cobranca_pacote
+  before insert or update on public.pacote_clientes
+  for each row execute function public.guarda_cobranca_pacote();
+
+-- - vendas: a venda ligada a um pacote não é apagada direto (a policy de DELETE da 086 deixa quem tem
+--   vendas.acessar apagar venda sem itens recente — a de pacote não tem venda_itens; a gestora apaga
+--   qualquer uma). O pacote ficaria cobrado sem venda. excluir_pacote_cliente apaga a venda só depois
+--   de tirar o último pacote dela, então não cai aqui. security definer: enxerga a tabela inteira.
+create or replace function public.guarda_venda_de_pacote()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if exists (select 1 from public.pacote_clientes pc where pc.venda_id = old.id) then
+    raise exception 'Esta venda é de pacote e não pode ser apagada aqui. Para desfazer, exclua o pacote vendido em Pacotes.';
+  end if;
+  return old;
+end;
+$$;
+
+revoke all on function public.guarda_cobranca_pacote() from public, anon, authenticated;
+revoke all on function public.guarda_venda_de_pacote() from public, anon, authenticated;
+
+drop trigger if exists trg_guarda_venda_de_pacote on public.vendas;
+create trigger trg_guarda_venda_de_pacote
+  before delete on public.vendas
+  for each row execute function public.guarda_venda_de_pacote();
 
 -- ── 6. fechar_comanda (corpo da 093 + pacote "a cobrar") ──────
 -- Igual à 093, com o item `pacote` + `pacote_cliente_id` (marcado "096" abaixo).
@@ -496,6 +599,7 @@ declare
   v_pc_pac       uuid;
   v_pc_cob       text;
   v_pc_st        text;
+  v_pc_valor     numeric;
   v_venda_pac    uuid;
   v_tem_produto  boolean := false;
   v_tot_pacotes  numeric := 0;
@@ -691,8 +795,8 @@ begin
         raise exception 'Pacote a cobrar entra na comanda com quantidade 1.';
       end if;
       v_pc_emp := null;
-      select pc.empresa_id, pc.cliente_id, pc.pacote_id, pc.cobranca, pc.status
-        into v_pc_emp, v_pc_cli, v_pc_pac, v_pc_cob, v_pc_st
+      select pc.empresa_id, pc.cliente_id, pc.pacote_id, pc.cobranca, pc.status, pc.valor_pago
+        into v_pc_emp, v_pc_cli, v_pc_pac, v_pc_cob, v_pc_st, v_pc_valor
         from public.pacote_clientes pc where pc.id = i_pc[v_m]
          for update;
       if v_pc_emp is null or v_pc_emp <> v_empresa then
@@ -706,6 +810,11 @@ begin
       end if;
       if v_pc_st = 'cancelado' then
         raise exception 'Este pacote foi cancelado: %. Tire o item da comanda.', v_txt;
+      end if;
+      -- O valor é o combinado na venda (por quem tinha pacotes.vender e, com desconto, comanda.desconto).
+      -- Baixá-lo aqui seria desconto sem a permissão: desconto só pelo desconto da comanda (rateado).
+      if v_val <> round(coalesce(v_pc_valor, 0), 2) then
+        raise exception 'O valor do pacote a cobrar não pode ser alterado: %. Para dar desconto, use o desconto da comanda.', v_txt;
       end if;
       i_pacote[v_m] := v_pc_pac;
       v_tem_pacote := true;
@@ -914,17 +1023,18 @@ begin
   --     (relatório de Pacotes = Financeiro).
   --     A cobrar (096): o pacote_clientes existente passa a 'paga', valor_pago = valor − cota.
   if v_tem_pacote then
+    perform set_config('app.pacote_rpc', 'on', true);  -- libera a guarda de pacote_clientes (096)
     v_hoje := (now() at time zone 'America/Sao_Paulo')::date;
     v_venda_pac := gen_random_uuid();
     insert into public.vendas (id, empresa_id, cliente_id, valor_total, desconto, observacao)
     values (v_venda_pac, v_empresa, v_cliente, v_tot_pacotes, v_desc_pacotes, 'Pacote(s) via comanda');
 
     insert into public.pacote_clientes
-      (empresa_id, pacote_id, cliente_id, data_inicio, data_validade, valor_pago, status, cobranca, venda_id)
+      (empresa_id, pacote_id, cliente_id, data_inicio, data_validade, valor_pago, status, cobranca, venda_id, comanda_id)
     select v_empresa, i_pacote[g.ix], v_cliente, v_hoje,
            case when pk.validade_dias is not null then v_hoje + pk.validade_dias end,
            ((pl.liquido / pl.q) + case when u.n <= pl.liquido % pl.q then 1 else 0 end)::numeric / 100,
-           'ativo', 'paga', v_venda_pac
+           'ativo', 'paga', v_venda_pac, v_comanda
       from generate_subscripts(i_id, 1) as g(ix)
       join public.pacotes pk on pk.id = i_pacote[g.ix]
       cross join lateral (
@@ -942,7 +1052,8 @@ begin
       update public.pacote_clientes pc
          set cobranca = 'paga',
              valor_pago = ((round(i_valor[k] * i_qtd[k], 2) * 100)::bigint - i_cota[k])::numeric / 100,
-             venda_id = v_venda_pac
+             venda_id = v_venda_pac,
+             comanda_id = v_comanda
        where pc.id = i_pc[k] and pc.empresa_id = v_empresa and pc.cobranca = 'pendente';
       get diagnostics v_rows = row_count;
       if v_rows <> 1 then

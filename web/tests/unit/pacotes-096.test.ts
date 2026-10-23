@@ -360,6 +360,97 @@ describe('excluir_servico', () => {
   });
 });
 
+describe('096 — revisão (pacote cobrado na comanda, guardas de cobrança, pagamentos)', () => {
+  const MSG_COMANDA = 'Este pacote foi cobrado numa comanda e não pode ser excluído aqui. Para cancelar, fale com a dona.';
+  const aCobrar = (pc: string, valor = 300) => ({ tipo: 'pacote', pacote_id: PK, pacote_cliente_id: pc,
+    descricao: 'Pacote X — a cobrar', quantidade: 1, valor_unit: valor });
+
+  it('excluir pacote "a cobrar" depois de cobrado na comanda: recusado; venda e comanda intactas', async () => {
+    await como(DONA);
+    await vender(base(40, { cobranca: 'comanda', pagamentos: [] }));
+    await fechar({ comanda_id: cmd(40), empresa_id: E, cliente_id: CL, desconto: 0, atendimentos: [],
+      itens: [aCobrar(chave(40))], pagamentos: [{ valor: 300, metodo: 'pix' }] });
+    const [pc] = await admin<{ comanda_id: string; venda_id: string }>(
+      `select comanda_id, venda_id from pacote_clientes where id = $1`, [chave(40)]);
+    expect(pc.comanda_id).toBe(cmd(40));
+    expect(await erro(() => excluirPc(E, chave(40)))).toBe(MSG_COMANDA);
+    expect(await admin(`select count(*)::int n from pacote_clientes where id = $1`, [chave(40)])).toEqual([{ n: 1 }]);
+    expect(await admin(`select valor_final from vendas where id = $1`, [pc.venda_id])).toEqual([{ valor_final: '300.00' }]);
+  });
+
+  it('excluir pacote novo vendido pela comanda: recusado', async () => {
+    await como(DONA);
+    await fechar({ comanda_id: cmd(41), empresa_id: E, cliente_id: CL, desconto: 0, atendimentos: [],
+      itens: [{ tipo: 'pacote', pacote_id: PK, descricao: 'Limpeza x3', quantidade: 1, valor_unit: 100 }],
+      pagamentos: [{ valor: 100, metodo: 'pix' }] });
+    const [pc] = await admin<{ id: string }>(`select id from pacote_clientes where comanda_id = $1`, [cmd(41)]);
+    expect(await erro(() => excluirPc(E, pc.id))).toBe(MSG_COMANDA);
+  });
+
+  it('excluir pacote "a cobrar" ainda não cobrado: só o pacote sai', async () => {
+    await como(DONA);
+    await vender(base(42, { cobranca: 'comanda', pagamentos: [] }));
+    const antes = await admin<{ n: number }>(`select count(*)::int n from vendas`);
+    await excluirPc(E, chave(42));
+    expect(await admin(`select count(*)::int n from pacote_clientes where id = $1`, [chave(42)])).toEqual([{ n: 0 }]);
+    expect(await admin(`select count(*)::int n from vendas`)).toEqual(antes);
+  });
+
+  it('valor do pacote "a cobrar" na comanda é o combinado (desconto só pelo desconto da comanda)', async () => {
+    await como(P1, 'comanda.desconto');
+    await vender(base(43, { cobranca: 'comanda', pagamentos: [] }));
+    const C = { comanda_id: cmd(43), empresa_id: E, cliente_id: CL, desconto: 0, atendimentos: [],
+      itens: [aCobrar(chave(43), 0)], pagamentos: [] };
+    expect(await erro(() => fechar(C)))
+      .toBe('O valor do pacote a cobrar não pode ser alterado: Pacote X — a cobrar. Para dar desconto, use o desconto da comanda.');
+    expect(await erro(() => fechar({ ...C, desconto: 300, itens: [aCobrar(chave(43))] })))
+      .toBe('Você não tem permissão para dar desconto ou cortesia.');
+    expect(await admin(`select cobranca from pacote_clientes where id = $1`, [chave(43)])).toEqual([{ cobranca: 'pendente' }]);
+  });
+
+  it('cobrança, venda e valor do pacote vendido não mudam por escrita direta; status muda', async () => {
+    await como(P1);
+    expect(await erro(() => q(`insert into pacote_clientes (empresa_id, pacote_id, cliente_id, data_inicio, valor_pago, status)
+      values ($1, $2, $3, current_date, 10, 'ativo')`, [E, PK, CL])))
+      .toBe('Pacote vendido só é gravado pela venda de pacote. Recarregue a tela e tente de novo.');
+    const MSG = 'A cobrança do pacote vendido só muda pela venda ou pela comanda.';
+    expect(await erro(() => q(`update pacote_clientes set cobranca = 'paga' where id = $1`, [chave(43)]))).toBe(MSG);
+    expect(await erro(() => q(`update pacote_clientes set valor_pago = 1 where id = $1`, [chave(43)]))).toBe(MSG);
+    expect(await erro(() => q(`update pacote_clientes set venda_id = $2 where id = $1`, [chave(43), chave(1)]))).toBe(MSG);
+    await q(`update pacote_clientes set status = 'concluido' where id = $1`, [chave(43)]);
+    expect(await admin(`select status, cobranca, valor_pago from pacote_clientes where id = $1`, [chave(43)]))
+      .toEqual([{ status: 'concluido', cobranca: 'pendente', valor_pago: '300.00' }]);
+  });
+
+  it('venda de pacote não é apagada direto (o pacote ficaria cobrado sem venda)', async () => {
+    const [pc] = await admin<{ venda_id: string }>(`select venda_id from pacote_clientes where comanda_id = $1`, [cmd(41)]);
+    await como(DONA);
+    expect(await erro(() => q(`delete from vendas where id = $1`, [pc.venda_id])))
+      .toBe('Esta venda é de pacote e não pode ser apagada aqui. Para desfazer, exclua o pacote vendido em Pacotes.');
+    expect(await admin(`select count(*)::int n from vendas where id = $1`, [pc.venda_id])).toEqual([{ n: 1 }]);
+  });
+
+  it('pagamento avulso numa venda de pacote: recusado para quem só tem pacotes.vender', async () => {
+    await como(P1, SEM_VENDAS);
+    expect(await erro(() => q(`insert into pagamentos (empresa_id, venda_id, valor, metodo, status)
+      values ($1, $2, 10, 'pix', 'pago')`, [E, chave(1)]))).toMatch(/row-level security/);
+    const [pc] = await admin<{ venda_id: string }>(`select venda_id from pacote_clientes where comanda_id = $1`, [cmd(41)]);
+    await como(P1, SEM_VENDAS);
+    expect(await erro(() => q(`insert into pagamentos (empresa_id, venda_id, valor, metodo, status)
+      values ($1, $2, 10, 'pix', 'pago')`, [E, pc.venda_id]))).toMatch(/row-level security/);
+  });
+
+  it('a mesma chave em outro modo de cobrança é recusada (nunca "sucesso" de uma venda que não houve)', async () => {
+    await como(DONA);
+    await vender(base(44, { cobranca: 'comanda', pagamentos: [] }));
+    expect(await erro(() => vender(base(44)))).toBe('Este código de venda já foi usado. Recarregue a tela e tente de novo.');
+    await vender(base(45));
+    expect(await erro(() => vender(base(45, { cobranca: 'comanda', pagamentos: [] }))))
+      .toBe('Este código de venda já foi usado. Recarregue a tela e tente de novo.');
+    expect(await admin(`select count(*)::int n from pagamentos where venda_id = $1`, [chave(44)])).toEqual([{ n: 0 }]);
+  });
+});
+
 describe('096 — texto', () => {
   it('vender_pacote é invoker; exclusões são definer com search_path; grants só authenticated', () => {
     expect(SQL).toMatch(/function public\.vender_pacote\(p jsonb\)\s+returns void\s+language plpgsql\s+security invoker\s+set search_path = public/);

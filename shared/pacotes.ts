@@ -124,19 +124,30 @@ export function saldoSessoes(
   });
 }
 
+/** Status exibido de um pacote vendido. */
+export type StatusPacoteCliente = 'ativo' | 'concluido' | 'expirado' | 'cancelado';
+
 /**
- * Status exibido de um pacote vendido. Status gravado diferente de 'ativo' prevalece
- * ('cancelado' aparece como 'expirado', pois so ha tres estados na tela).
+ * Status exibido de um pacote vendido. Status gravado diferente de 'ativo' prevalece:
+ * 'concluido' e 'cancelado' saem como estao (cancelado nunca aparece como "Expirado"); qualquer
+ * outro valor gravado sai como 'expirado' (nunca como ativo).
  * Ativo: conclui quando as sessoes se esgotam (nunca em combo ou com sessao ilimitada)
  * e expira depois do ultimo dia de validade.
+ *
+ * Mesma regra do trigger fn_registrar_uso_pacote (036/037/078) para o saldo: o total soma as
+ * quantidades de todos os servicos e as sessoes usadas contam qualquer servico (`usos` = total de
+ * linhas de pacote_uso); um servico ilimitado nunca esgota. O saldo por servico de `saldoSessoes`
+ * e so exibicao. Diferenca conhecida: o trigger compara a validade com CURRENT_DATE do servidor
+ * (UTC), aqui a comparacao e em Brasilia.
  */
 export function statusPacoteCliente(
   p: { data_validade: string | null; status: string | null; combo: boolean },
   saldo: ReturnType<typeof saldoSessoes>,
   usos: number,
   hojeChave: string,
-): 'ativo' | 'concluido' | 'expirado' {
+): StatusPacoteCliente {
   if (p.status === 'concluido') return 'concluido';
+  if (p.status === 'cancelado') return 'cancelado';
   if (p.status && p.status !== 'ativo') return 'expirado';
   const ilimitado = saldo.some(s => s.total == null);
   const total = saldo.reduce((acc, s) => acc + (s.total ?? 0), 0);

@@ -151,7 +151,7 @@ O "vender pacote" da Agenda passa a usar o mesmo modal e a mesma função. O pad
 
 ## Deploy
 
-As telas detectam a 096 (`PGRST202`) e, sem ela, usam o caminho atual. A ordem é livre, mas o recomendado é **rodar a 096 antes do deploy**.
+As telas detectam a 096 (`PGRST202`) e, sem ela, usam o caminho atual. **Rode a 096 junto com o deploy** (revisão das Tasks 1–2): a 096 trava a gravação direta em `pacote_clientes` (nenhum pacote cobrado sem venda), então a tela antiga deixa de vender pacote assim que ela roda — com mensagem, sem gravar nada.
 
 ## Fora do escopo
 

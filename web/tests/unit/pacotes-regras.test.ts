@@ -66,7 +66,12 @@ describe('statusPacoteCliente', () => {
   it('status gravado concluido/expirado/cancelado prevalece', () => {
     expect(st({ data_validade: null, status: 'concluido', combo: false }, [])).toBe('concluido');
     expect(st({ data_validade: null, status: 'expirado', combo: false }, [])).toBe('expirado');
-    expect(st({ data_validade: null, status: 'cancelado', combo: false }, [])).toBe('expirado');
+    // Cancelado é distinto de expirado: a tela mostra "Cancelado", nunca "Expirado".
+    expect(st({ data_validade: null, status: 'cancelado', combo: false }, [])).toBe('cancelado');
+    expect(st({ data_validade: '2020-01-01', status: 'cancelado', combo: false }, [])).toBe('cancelado');
+  });
+  it('status desconhecido gravado cai em expirado (nunca ativo)', () => {
+    expect(st({ data_validade: null, status: 'xyz', combo: false }, [])).toBe('expirado');
   });
 });
 
