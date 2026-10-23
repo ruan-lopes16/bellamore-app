@@ -1,3 +1,5 @@
+import { somarDias } from './periodos';
+
 /** Uma sessao registrada em pacote_uso, ja resolvida para exibicao. */
 export type PacoteSessaoFeita = {
   id: string;
@@ -43,6 +45,10 @@ export type PacoteClienteOpt = {
  * subtrai o total ja usado (qualquer servico), null em qualquer linha de
  * servico torna o pacote inteiro ilimitado.
  *
+ * Inclui tambem os pacotes "a cobrar" (cobranca pendente): a cliente pode
+ * usar as sessoes antes de pagar, entao o caller nao deve filtrar por cobranca.
+ * O ultimo dia de validade ainda vale (ver `pacoteValidoEm`).
+ *
  * hojeIso deve ser uma data yyyy-MM-dd (comparacao lexicografica, sem parse
  * de fuso horario).
  */
@@ -51,7 +57,7 @@ export function calcularPacotesAtivosCliente(
   hojeIso: string,
 ): PacoteClienteOpt[] {
   return rows
-    .filter(pc => (pc.pacote?.controla_sessoes ?? true) && (!pc.data_validade || pc.data_validade >= hojeIso))
+    .filter(pc => (pc.pacote?.controla_sessoes ?? true) && pacoteValidoEm(pc.data_validade, hojeIso))
     .map(pc => {
       const servicosPac = pc.pacote?.servicos ?? [];
       const ilimitado = servicosPac.some(s => s.quantidade == null);
@@ -72,4 +78,98 @@ export function calcularPacotesAtivosCliente(
       };
     })
     .filter(p => p.restantes === null || p.restantes > 0);
+}
+
+/**
+ * Um pacote sem validade (null) vale sempre; com validade, o ULTIMO dia ainda vale.
+ * Ambas as datas sao chaves yyyy-MM-dd em Brasilia (comparacao lexicografica).
+ */
+export function pacoteValidoEm(dataValidade: string | null, hojeChave: string): boolean {
+  return !dataValidade || dataValidade >= hojeChave;
+}
+
+/** Data de validade (yyyy-MM-dd) = inicio + validadeDias; null quando o pacote nao tem validade. */
+export function dataValidade(validadeDias: number | null, inicioChave: string): string | null {
+  if (validadeDias == null) return null;
+  return somarDias(inicioChave, validadeDias);
+}
+
+/** Uso de sessao (linha de pacote_uso). */
+export type UsoPacote = { servico_id: string | null };
+
+/**
+ * Servico dentro de um pacote (pacote_servicos). Sessao ilimitada = `quantidade` null
+ * (coluna real) ou `ilimitado` verdadeiro.
+ */
+export type ItemPacote = { servico_id: string; quantidade: number | null; ilimitado?: boolean | null };
+
+const ehIlimitado = (i: ItemPacote) => i.quantidade == null || !!i.ilimitado;
+
+/**
+ * Saldo de sessoes por servico. `total`/`restantes` null = ilimitado.
+ * `restantes` nunca fica negativo. Usos sem servico nao contam para nenhum item.
+ * No modo combo (`combo` = controla_sessoes false) o saldo e apenas informativo:
+ * o status do pacote nao muda por sessao (ver `statusPacoteCliente`).
+ */
+export function saldoSessoes(
+  itens: ItemPacote[],
+  usos: UsoPacote[],
+  combo: boolean,
+): { servico_id: string; total: number | null; usadas: number; restantes: number | null }[] {
+  void combo;
+  return itens.map(i => {
+    const total = ehIlimitado(i) ? null : (i.quantidade as number);
+    const usadas = usos.filter(u => u.servico_id === i.servico_id).length;
+    return { servico_id: i.servico_id, total, usadas, restantes: total == null ? null : Math.max(0, total - usadas) };
+  });
+}
+
+/**
+ * Status exibido de um pacote vendido. Status gravado diferente de 'ativo' prevalece
+ * ('cancelado' aparece como 'expirado', pois so ha tres estados na tela).
+ * Ativo: conclui quando as sessoes se esgotam (nunca em combo ou com sessao ilimitada)
+ * e expira depois do ultimo dia de validade.
+ */
+export function statusPacoteCliente(
+  p: { data_validade: string | null; status: string | null; combo: boolean },
+  saldo: ReturnType<typeof saldoSessoes>,
+  usos: number,
+  hojeChave: string,
+): 'ativo' | 'concluido' | 'expirado' {
+  if (p.status === 'concluido') return 'concluido';
+  if (p.status && p.status !== 'ativo') return 'expirado';
+  const ilimitado = saldo.some(s => s.total == null);
+  const total = saldo.reduce((acc, s) => acc + (s.total ?? 0), 0);
+  if (!p.combo && !ilimitado && total > 0 && usos >= total) return 'concluido';
+  if (!pacoteValidoEm(p.data_validade, hojeChave)) return 'expirado';
+  return 'ativo';
+}
+
+/** Rotulo da validade do pacote no catalogo. */
+export function rotuloValidade(validadeDias: number | null): string {
+  if (validadeDias == null) return 'Sem validade';
+  return `Válido por ${validadeDias} ${validadeDias === 1 ? 'dia' : 'dias'}`;
+}
+
+/** Total de sessoes do pacote; null se algum servico for ilimitado. */
+export function totalSessoes(itens: ItemPacote[]): number | null {
+  if (itens.some(ehIlimitado)) return null;
+  return itens.reduce((acc, i) => acc + (i.quantidade ?? 0), 0);
+}
+
+/**
+ * Itens "Pacote X — a cobrar" para a comanda: pacotes vendidos com cobranca pendente.
+ * Usam o pacote_cliente ja existente (nao criam outro) e o valor combinado.
+ */
+export function itensACobrar(
+  pendentes: { id: string; pacote_id: string; nome: string; valor_pago: number }[],
+): { tipo: 'pacote'; pacote_id: string; pacote_cliente_id: string; descricao: string; valor_unit: number; quantidade: 1 }[] {
+  return pendentes.map(p => ({
+    tipo: 'pacote' as const,
+    pacote_id: p.pacote_id,
+    pacote_cliente_id: p.id,
+    descricao: `Pacote ${p.nome} — a cobrar`,
+    valor_unit: p.valor_pago,
+    quantidade: 1 as const,
+  }));
 }
