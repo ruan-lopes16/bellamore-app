@@ -119,6 +119,7 @@ describe('matriz de permissões — UPDATE/DELETE sempre com .select (sem sucess
     'web/app/(app)/pacotes/page.tsx pacote_clientes.delete': 'pacote_clientes liberado a todo membro (F7)',
     'web/app/(app)/pacotes/page.tsx pacote_clientes.update': 'pacote_clientes liberado a todo membro (F7)',
     'web/app/(app)/servicos/page.tsx servico_produtos.delete': 'apagar 0 insumos é legítimo; erro conferido (D5)',
+    'mobile/components/servicos/servicos-gravacao.ts servico_produtos.delete': 'mesma gravação do web: apagar 0 insumos é legítimo; erro conferido (D5)',
     'web/app/api/convites/route.ts users.update': 'service role',
     'web/app/api/cron/lembretes/route.ts web_push_subscriptions.delete': 'service role',
     'web/app/api/cron/lembretes/route.ts agendamentos.update': 'service role',
