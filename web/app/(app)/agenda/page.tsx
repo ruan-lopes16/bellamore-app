@@ -75,7 +75,8 @@ import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { chaveDiaBRT, chaveDiaExibido, hojeBRT, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import { carregarCandidatosVinculo } from '@shared/pacotes-consultas';
-import { VenderPacoteModal, type ResultadoVendaPacote } from '@/components/pacotes/VenderPacoteModal';
+import { VenderPacoteModal } from '@/components/pacotes/VenderPacoteModal';
+import { avisoVendaPacoteAgenda, type ResultadoVendaPacote } from '@shared/pacotes-venda';
 import {
   TL_HOUR_H, alturaDaJanela, bloqueiosDoDia, bloqueiosVisiveis, buscarPaginas,
   diasComBloqueio, filtroEfetivo, gradeDoMes, horaDoClique,
@@ -473,6 +474,9 @@ function NovoAgModal({
   const [idCriado, setIdCriado] = useState<{ id: string; linhas: ReturnType<typeof montarAgendamento>['linhas']; inicio: Date; fim: Date } | null>(null);
   // Atendimento já fechado na comanda: valor e serviços só mudam pela comanda (igual ao app).
   const edicaoTravada = !!agEditar?.comanda_id;
+  // Igual ao app: com o atendimento fechado na comanda ou o agendamento já criado (a nova tentativa
+  // só regrava serviços), vender pacote fica desligado — a venda não teria a que se vincular.
+  const formTravado = edicaoTravada || !!idCriado;
 
   const totalDuracao = linhas.reduce((s, l) => s + (l.duracao || 0), 0);
   const precoDe = (id: string) => servicos.find(x => x.id === id)?.preco ?? 0;
@@ -605,6 +609,7 @@ function NovoAgModal({
 
   /** Escolher um pacote do catálogo abre a venda única (VenderPacoteModal), com "Cobrar na comanda". */
   function onPacoteVenderChange(id: string) {
+    if (formTravado) return;
     setAvisoPacote('');
     setVendendoPacoteId(id || null);
   }
@@ -622,10 +627,10 @@ function NovoAgModal({
       setPacoteVendido({ id: r.pacoteClienteId, nome: pac?.nome ?? 'Pacote', clienteId: r.clienteId });
       setPacoteClienteId(r.pacoteClienteId);
       if (pac) preencherServicosDoPacote(pac.servicos);
-      setAvisoPacote(r.aviso ?? '');
-    } else {
-      setAvisoPacote(r.aviso ?? 'Pacote vendido. Escolha-o em "Pacote do cliente" para usar neste atendimento.');
     }
+    // A venda já está gravada: com "Cobrar na comanda" o pacote fica a cobrar mesmo sem salvar o
+    // agendamento (aparece na próxima comanda; pode ser excluído em Pacotes). Texto único (shared).
+    setAvisoPacote(avisoVendaPacoteAgenda(r));
     setRecargaPacotes(n => n + 1);
   }
 
@@ -1111,7 +1116,7 @@ function NovoAgModal({
                 Pacote
               </label>
               <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0">
+                <div className={`flex-1 min-w-0 ${formTravado ? 'pointer-events-none opacity-50' : ''}`} aria-disabled={formTravado}>
                   <SearchSelect
                     options={pacotesCatalogo.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
                     value={vendendoPacoteId ?? ''}

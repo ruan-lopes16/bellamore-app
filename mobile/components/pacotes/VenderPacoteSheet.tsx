@@ -34,6 +34,7 @@ import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import {
   venderPacote, venderPacoteSem096, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote,
   motivoBloqueioVendaPacote, MSG_COMANDA_INDISPONIVEL, TEXTO_COBRANCA, type TentativaVendaPacote,
+  type ResultadoVendaPacote,
 } from '@shared/pacotes-venda';
 import { dataValidade, rotuloValidade, subtotalVendaPacote } from '@shared/pacotes';
 import { tem096 as detectar096, type PacoteCatalogo } from '@shared/pacotes-consultas';
@@ -54,10 +55,8 @@ const C = {
 
 export type CobrancaPacote = 'agora' | 'comanda';
 
-/** Resultado da venda. `pacoteClienteId` = o 1º pacote vendido (a Agenda vincula ao atendimento). */
-export type ResultadoVendaPacote = {
-  vendaId: string; pacoteClienteId: string | null; cobranca: CobrancaPacote; quantidade: number; clienteId: string;
-};
+/** O que a venda gravou (tipo único de web e app, em shared). */
+export type { ResultadoVendaPacote };
 
 export type VenderPacoteSheetProps = {
   visible: boolean;
@@ -216,7 +215,7 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
       invalidarFinanceiro(qc);
       qc.invalidateQueries({ queryKey: ['pacotes-vendidos'] });
       if (aviso) Alert.alert('Venda do pacote', aviso);
-      onVendido({ vendaId, pacoteClienteId, cobranca, quantidade, clienteId: clienteSel.id });
+      onVendido({ vendaId, pacoteClienteId, cobranca, quantidade, clienteId: clienteSel.id, pacoteId: pacote.id, aviso });
     } catch (e) {
       if (e instanceof ErroPacote) setTentativa({ chave: vendaId, assinatura, semResposta: e.semResposta });
       if (e instanceof ErroPacote && e.semResposta) {

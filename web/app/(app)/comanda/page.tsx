@@ -82,6 +82,7 @@ import {
   mensagemFalhaGravacao, ehComandaJaFechada, AVISO_COMANDA_JA_FECHADA, assinaturaGravacao, chaveDaTentativa,
   tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_COMANDA_JA_GRAVADA, type TentativaSemResposta,
   itensTelaACobrar, mesclarItensACobrar, exigeVenderPacote,
+  TEXTO_ITEM_A_COBRAR, TITULO_TIRAR_A_COBRAR, MSG_A_COBRAR_SEM_090, AVISO_PENDENTES_NAO_CARREGADOS,
 } from '@shared/comanda-gravacao';
 
 const supabase = createClient();
@@ -659,7 +660,7 @@ export default function ComandaPage() {
         })
         .catch(e => {
           if (aberturaRef.current !== abertura) return;
-          setErro(`${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes a cobrar')} Os pacotes a cobrar desta cliente não entraram na comanda.`);
+          setErro(`${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes a cobrar')} ${AVISO_PENDENTES_NAO_CARREGADOS}`);
         });
     }
   }
@@ -1253,7 +1254,7 @@ export default function ComandaPage() {
     // Caminho antigo (sem a 090): ele venderia um pacote NOVO no lugar do "a cobrar". Pendente só
     // existe com a 096 (que vem depois da 090), então isto não acontece — mas nunca grava em dobro.
     if (itens.some(i => i.pacote_cliente_id)) {
-      setErro('Não foi possível cobrar o pacote a cobrar nesta versão do banco. Tire o item da comanda para fechar.');
+      setErro(MSG_A_COBRAR_SEM_090);
       setFechando(false);
       return;
     }
@@ -1904,14 +1905,14 @@ export default function ComandaPage() {
                               defaultValue={item.valor.toFixed(2).replace('.', ',')}
                               onBlur={e => { if (!valorSoLeitura) atualizarValor(item.uid, e.target.value); }}
                               readOnly={valorSoLeitura}
-                              title={cobertoPorPacote ? 'Coberto por sessão de pacote — desvincule para cobrar' : itemSoLeitura ? 'Produtos e pacotes não mudam na edição de comanda fechada' : aCobrar ? 'Valor combinado na venda do pacote — para dar desconto, use o desconto da comanda' : undefined}
+                              title={cobertoPorPacote ? 'Coberto por sessão de pacote — desvincule para cobrar' : itemSoLeitura ? 'Produtos e pacotes não mudam na edição de comanda fechada' : aCobrar ? TEXTO_ITEM_A_COBRAR : undefined}
                               inputMode="decimal"
                               className={`w-20 h-8 px-2 text-sm text-right font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition ${valorSoLeitura ? 'opacity-60 cursor-not-allowed' : ''}`}
                             />
                           </div>
                           {podeRemover ? (
                             <button onClick={() => removerItem(item.uid)}
-                              title={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : aCobrar ? 'Tirar da comanda (o pacote continua a cobrar)' : 'Remover'}
+                              title={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : aCobrar ? TITULO_TIRAR_A_COBRAR : 'Remover'}
                               className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
                               <Trash2 size={13}/>
                             </button>
@@ -1919,6 +1920,10 @@ export default function ComandaPage() {
                             <span className="w-7 h-7 flex-shrink-0" aria-hidden/>
                           )}
                         </div>
+                        {/* Pacote "a cobrar": mesma nota do app (texto único em shared) */}
+                        {aCobrar && !emEdicao && (
+                          <p className="text-[11px] text-text-3 mt-1.5">{TEXTO_ITEM_A_COBRAR}</p>
+                        )}
                         {/* Seletor de profissional para serviços extras */}
                         {item.tipo === 'servico' && (
                           <div className="mt-2">

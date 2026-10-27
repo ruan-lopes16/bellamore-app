@@ -20,7 +20,7 @@ import { BlocoPagamento, splitsNumericos, type SplitTela } from '@/components/pa
 import {
   venderPacote, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote, motivoBloqueioVendaPacote,
   vendaPacoteFoiGravada, venderPacoteSem096, MSG_ALTERADA_SEM_RESPOSTA, MSG_VENDA_JA_GRAVADA, MSG_COMANDA_INDISPONIVEL,
-  TEXTO_COBRANCA, type TentativaVendaPacote,
+  TEXTO_COBRANCA, type TentativaVendaPacote, type ResultadoVendaPacote,
 } from '@shared/pacotes-venda';
 import { tem096 as detectar096 } from '@shared/pacotes-consultas';
 import { calcularDesconto, montarPagamentos, parseValorBR, resumoComanda, type ModoDesconto } from '@shared/comanda-fechamento';
@@ -41,21 +41,8 @@ const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wid
 /** Pacote do catálogo que pode ser vendido (o mínimo de `PacoteCatalogo`). */
 export type PacoteParaVenda = { id: string; nome: string; preco: number; validade_dias: number | null; ativo?: boolean };
 
-/** O que a venda gravou, para a tela que abriu o modal. */
-export type ResultadoVendaPacote = {
-  cobranca: 'agora' | 'comanda';
-  vendaId: string;
-  clienteId: string;
-  pacoteId: string;
-  quantidade: number;
-  /**
-   * Id do 1º pacote vendido (com a 096 é a própria `vendaId`): a Agenda vincula o atendimento a ele.
-   * `null` no caminho antigo (sem a 096), em que o id não é lido de volta.
-   */
-  pacoteClienteId: string | null;
-  /** Gravou, mas algo ficou para conferir (caminho antigo: pagamento não registrado). */
-  aviso: string | null;
-};
+/** O que a venda gravou (tipo único de web e app, em shared). */
+export type { ResultadoVendaPacote };
 
 export type VenderPacoteModalProps = {
   empresaId: string;

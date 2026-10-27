@@ -144,6 +144,43 @@ export const MSG_ALTERADA_SEM_RESPOSTA =
 export const MSG_VENDA_JA_GRAVADA = 'Essa venda já tinha sido registrada.';
 
 /**
+ * O que a venda gravou, para a tela que abriu o modal (web `VenderPacoteModal`, app `VenderPacoteSheet`).
+ * Tipo único das duas plataformas.
+ */
+export type ResultadoVendaPacote = {
+  cobranca: 'agora' | 'comanda';
+  vendaId: string;
+  clienteId: string;
+  pacoteId: string;
+  quantidade: number;
+  /**
+   * Id do 1º pacote vendido (com a 096 é a própria `vendaId`): a Agenda vincula o atendimento a ele.
+   * `null` no caminho antigo (sem a 096) ou na venda conferida depois de "sem resposta".
+   */
+  pacoteClienteId: string | null;
+  /** Gravou, mas algo ficou para conferir (caminho antigo: pagamento não registrado). */
+  aviso: string | null;
+};
+
+/** Venda "Cobrar na comanda" pela Agenda: o pacote já está gravado, salvando ou não o agendamento. */
+export const AVISO_PACOTE_A_COBRAR_AGENDA = 'O pacote foi vendido e fica a cobrar na próxima comanda.';
+/** Venda sem o id do pacote de volta (caminho antigo): a pessoa vincula pela lista. */
+export const AVISO_ESCOLHER_PACOTE_VENDIDO = 'Pacote vendido. Escolha-o em "Pacote do cliente" para usar neste atendimento.';
+
+/**
+ * Aviso que a Agenda (web e app) mostra depois de vender um pacote pelo modal único. A venda grava na
+ * hora: com "Cobrar na comanda" o pacote fica a cobrar mesmo que o agendamento não seja salvo (aparece
+ * na próxima comanda da cliente e pode ser excluído em Pacotes). O `aviso` da venda vem na frente.
+ */
+export function avisoVendaPacoteAgenda(r: Pick<ResultadoVendaPacote, 'cobranca' | 'pacoteClienteId' | 'aviso'>): string {
+  const partes: string[] = [];
+  if (r.aviso) partes.push(r.aviso);
+  if (!r.pacoteClienteId) partes.push(AVISO_ESCOLHER_PACOTE_VENDIDO);
+  else if (r.cobranca === 'comanda') partes.push(AVISO_PACOTE_A_COBRAR_AGENDA);
+  return partes.join(' ');
+}
+
+/**
  * Por que a venda ainda não pode ser gravada (regra única de web e app), ou null. `valorTxt` sem
  * dígito é inválido (campo apagado nunca vira R$ 0); valor 0 digitado é aceito, como na função.
  * Em "Cobrar agora" espera a configuração dos cartões (taxa nunca inventada) e o total coberto.

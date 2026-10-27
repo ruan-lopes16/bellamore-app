@@ -68,6 +68,7 @@ import {
   assinaturaGravacao, chaveDaTentativa, tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_COMANDA_JA_GRAVADA,
   type TentativaSemResposta,
   itensTelaACobrar, mesclarItensACobrar, exigeVenderPacote,
+  TEXTO_ITEM_A_COBRAR, TITULO_TIRAR_A_COBRAR, MSG_A_COBRAR_SEM_090, AVISO_PENDENTES_NAO_CARREGADOS,
 } from '@shared/comanda-gravacao';
 
 const C = {
@@ -604,7 +605,7 @@ export default function NovaComandaScreen() {
         })
         .catch(e => {
           if (aberturaRef.current !== abertura) return;
-          Alert.alert('Erro', `${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes a cobrar')} Os pacotes a cobrar desta cliente não entraram na comanda.`);
+          Alert.alert('Erro', `${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes a cobrar')} ${AVISO_PENDENTES_NAO_CARREGADOS}`);
         });
     }
   }
@@ -1231,7 +1232,7 @@ export default function NovaComandaScreen() {
     // Caminho antigo (sem a 090): ele venderia um pacote NOVO no lugar do "a cobrar". Pendente só
     // existe com a 096 (que vem depois da 090), então isto não acontece — mas nunca grava em dobro.
     if (itens.some(i => i.pacote_cliente_id)) {
-      Alert.alert('Não é possível fechar', 'Não foi possível cobrar o pacote a cobrar nesta versão do banco. Tire o item da comanda para fechar.');
+      Alert.alert('Não é possível fechar', MSG_A_COBRAR_SEM_090);
       setFechando(false);
       return;
     }
@@ -1856,7 +1857,7 @@ export default function NovaComandaScreen() {
                   {mostrarLixeira && (
                     <TouchableOpacity
                       onPress={() => item.tipo === 'agendamento' ? tirarAtendimento(item.agendamento_id!) : removerItem(item.uid)}
-                      accessibilityLabel={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : aCobrar ? 'Tirar da comanda (o pacote continua a cobrar)' : 'Remover'}
+                      accessibilityLabel={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : aCobrar ? TITULO_TIRAR_A_COBRAR : 'Remover'}
                       style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
                       <Trash2 size={14} color={C.red} />
                     </TouchableOpacity>
@@ -1900,7 +1901,7 @@ export default function NovaComandaScreen() {
                 </View>
                 {aCobrar && !emEdicao && (
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 6 }}>
-                    Valor combinado na venda do pacote — para dar desconto, use o desconto da comanda. Tirar da comanda: o pacote continua a cobrar.
+                    {TEXTO_ITEM_A_COBRAR}
                   </Text>
                 )}
 

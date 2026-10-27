@@ -178,6 +178,17 @@ export function mesclarItensACobrar<T extends { pacote_cliente_id?: string }>(at
   return faltam.length === 0 ? atuais : [...atuais, ...faltam];
 }
 
+/** Nota embaixo do item "a cobrar" (web e app): valor travado e o que acontece ao tirar. */
+export const TEXTO_ITEM_A_COBRAR =
+  'Valor combinado na venda do pacote — para dar desconto, use o desconto da comanda. Tirar da comanda: o pacote continua a cobrar.';
+/** Rótulo do botão de tirar o item "a cobrar" (title no web, accessibilityLabel no app). */
+export const TITULO_TIRAR_A_COBRAR = 'Tirar da comanda (o pacote continua a cobrar)';
+/** Caminho antigo (sem a 090) com item "a cobrar": ele venderia outro pacote — recusa antes de gravar. */
+export const MSG_A_COBRAR_SEM_090 =
+  'Não foi possível cobrar o pacote a cobrar nesta versão do banco. Tire o item da comanda para fechar.';
+/** Complemento do erro de carga dos pendentes (a comanda abre sem eles). */
+export const AVISO_PENDENTES_NAO_CARREGADOS = 'Os pacotes a cobrar desta cliente não entraram na comanda.';
+
 /** A comanda vende pacote NOVO (exige `pacotes.vender`)? O "a cobrar" exige só `comanda.fechar`. */
 export function exigeVenderPacote<T extends { tipo: string; pacote_cliente_id?: string }>(itens: T[]): boolean {
   return itens.some(i => i.tipo === 'pacote' && !i.pacote_cliente_id);

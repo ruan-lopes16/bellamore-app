@@ -68,7 +68,7 @@ describe('Comanda app: pacote "a cobrar"', () => {
     expect(app).toMatch(/const aCobrar = item\.tipo === 'pacote' && !!item\.pacote_cliente_id/);
     expect(app).toMatch(/valorSoLeitura = itemSoLeitura \|\| cobertoPorPacote \|\| aCobrar/);
     expect(app).toMatch(/qtdSoLeitura = emEdicao \|\| aCobrar/);
-    expect(app).toContain('o pacote continua a cobrar');
+    expect(app).toContain('aCobrar ? TITULO_TIRAR_A_COBRAR');
   });
   it('elegibilidade do vínculo pela carga única e data de Brasília', () => {
     expect(app).toContain('carregarCandidatosVinculo(');
@@ -80,6 +80,6 @@ describe('Comanda app: pacote "a cobrar"', () => {
     const j = app.indexOf("from('comandas').insert", i);
     const trecho = app.slice(i, j);
     expect(trecho).toMatch(/itens\.some\(i => i\.pacote_cliente_id\)/);
-    expect(trecho).toContain('Não foi possível cobrar o pacote a cobrar nesta versão do banco. Tire o item da comanda para fechar.');
+    expect(trecho).toContain('MSG_A_COBRAR_SEM_090');
   });
 });

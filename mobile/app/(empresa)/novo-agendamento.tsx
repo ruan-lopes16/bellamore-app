@@ -58,7 +58,8 @@ import { formatarMoeda } from '@shared/moeda';
 import { novoUuid } from '@shared/uuid';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
 import { carregarCandidatosVinculo, carregarCatalogoPacotes, type PacoteCatalogo } from '@shared/pacotes-consultas';
-import { VenderPacoteSheet, type ResultadoVendaPacote } from '@/components/pacotes/VenderPacoteSheet';
+import { VenderPacoteSheet } from '@/components/pacotes/VenderPacoteSheet';
+import { avisoVendaPacoteAgenda, type ResultadoVendaPacote } from '@shared/pacotes-venda';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -512,17 +513,17 @@ export default function NovoAgendamento() {
    * em "Pacote do cliente" depois da recarga. Igual ao web.
    */
   function onPacoteVendido(r: ResultadoVendaPacote) {
-    const pac = pacotesCatalogo.find(p => p.id === vendendoPacoteId) ?? null;
+    const pac = pacotesCatalogo.find(p => p.id === r.pacoteId);
     setVendendoPacoteId(null);
     if (r.pacoteClienteId) {
       pacoteVendidoIdRef.current = { id: r.pacoteClienteId, clienteId: r.clienteId };
       setPacoteVendido({ id: r.pacoteClienteId, nome: pac?.nome ?? 'Pacote', clienteId: r.clienteId });
       setPacoteClienteId(r.pacoteClienteId);
       if (pac) preencherServicosDoPacote(pac.servicos.map(s => s.servico_id));
-      setAvisoPacote('');
-    } else {
-      setAvisoPacote('Pacote vendido. Escolha-o em "Pacote do cliente" para usar neste atendimento.');
     }
+    // A venda já está gravada: com "Cobrar na comanda" o pacote fica a cobrar mesmo sem salvar o
+    // agendamento (aparece na próxima comanda; pode ser excluído em Pacotes). Texto único (shared).
+    setAvisoPacote(avisoVendaPacoteAgenda(r));
     setRecargaPacotes(n => n + 1);
   }
 
