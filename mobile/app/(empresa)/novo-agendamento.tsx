@@ -21,7 +21,7 @@ import {
   PlusJakartaSans_600SemiBold,
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { addDays, format } from 'date-fns';
+import { format } from 'date-fns';
 
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
@@ -56,6 +56,9 @@ import { nomeClienteValido, erroTelefoneCliente } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { novoUuid } from '@shared/uuid';
+import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { carregarCandidatosVinculo, carregarCatalogoPacotes, type PacoteCatalogo } from '@shared/pacotes-consultas';
+import { VenderPacoteSheet, type ResultadoVendaPacote } from '@/components/pacotes/VenderPacoteSheet';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -110,14 +113,6 @@ function confirmarAlerta(titulo: string, mensagem: string, confirmar: string): P
   });
 }
 
-type PacoteSessaoFeita = { id: string; data: string; servico: string | null; viaAg: boolean };
-type PacoteClienteOpt  = {
-  id: string; nome: string;
-  restantes: number | null; total: number | null; usadas: number;
-  servicoIds: string[];
-  sessoes: PacoteSessaoFeita[];
-};
-type PacoteCatalogoOpt = { id: string; nome: string; preco: number; validade_dias: number | null; servicoIds: string[] };
 
 /** Atendimento carregado para edição (`?id=`). */
 type AgEdicao = {
@@ -214,14 +209,21 @@ export default function NovoAgendamento() {
   // Criação que gravou o agendamento mas falhou nos serviços: a nova tentativa só regrava os
   // serviços desse id (nunca cria um segundo agendamento nem uma segunda taxa).
   const [idCriado, setIdCriado] = useState<string | null>(null);
-  const pacoteVendidoRef = useRef<string | null>(null);
   const [preenchidoEdit, setPreenchidoEdit] = useState(false);
 
-  // Pacote do cliente (vincular sessão existente) ou vender um pacote novo agora
+  // Pacote do cliente (vincular sessão existente) ou vender um pacote novo pelo VenderPacoteSheet
+  // (venda única, padrão "Cobrar na comanda"). A venda grava na hora (função vender_pacote, sem
+  // duplicar na nova tentativa) e o atendimento é vinculado ao pacote vendido (`r.pacoteClienteId`).
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
   const [pacoteClienteId, setPacoteClienteId] = useState('');
-  const [pacotesCatalogo, setPacotesCatalogo] = useState<PacoteCatalogoOpt[]>([]);
-  const [pacoteVenderId,  setPacoteVenderId]  = useState('');
+  const [pacotesCatalogo, setPacotesCatalogo] = useState<PacoteCatalogo[]>([]);
+  const [vendendoPacoteId, setVendendoPacoteId] = useState<string | null>(null);
+  // Pacote vendido agora: fica vinculado mesmo fora da lista de elegíveis (ex.: combo).
+  const [pacoteVendido, setPacoteVendido] = useState<{ id: string; nome: string; clienteId: string } | null>(null);
+  const pacoteVendidoIdRef = useRef<{ id: string; clienteId: string } | null>(null);
+  const [avisoPacote, setAvisoPacote] = useState('');
+  const [erroPacotes, setErroPacotes] = useState('');
+  const [recargaPacotes, setRecargaPacotes] = useState(0);
 
   // Modal de busca de cliente
   const [modalCliente, setModalCliente] = useState(false);
@@ -348,51 +350,47 @@ export default function NovoAgendamento() {
     setPreenchidoEdit(true);
   }, [agEdit, preenchidoEdit, servicos]);
 
-  // Catálogo de pacotes (uma vez, por empresa)
+  // Catálogo de pacotes (uma vez, por empresa; carga paginada única, igual à tela Pacotes).
+  // Os chips oferecem só os ativos (o VenderPacoteSheet também filtra).
   useEffect(() => {
     if (!empresaId) return;
-    supabase.from('pacotes')
-      .select('id, nome, preco, validade_dias, servicos:pacote_servicos(servico_id)')
-      .eq('empresa_id', empresaId).eq('ativo', true)
-      .then(({ data }) => {
-        setPacotesCatalogo(((data ?? []) as any[]).map(p => ({
-          id: p.id, nome: p.nome, preco: p.preco, validade_dias: p.validade_dias,
-          servicoIds: (p.servicos ?? []).map((s: any) => s.servico_id),
-        })));
+    let vivo = true;
+    carregarCatalogoPacotes(supabase, empresaId)
+      .then(lista => { if (vivo) setPacotesCatalogo(lista.filter(p => p.ativo)); })
+      .catch(e => {
+        if (!vivo) return;
+        setErroPacotes(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes'));
       });
+    return () => { vivo = false; };
   }, [empresaId]);
 
-  // Pacotes ativos do cliente selecionado
+  // Pacotes ativos do cliente selecionado. Carga única (paginada, inclui os "a cobrar") e regra única
+  // de elegibilidade (validade pelo último dia em Brasília, combo fora, saldo de sessões) — a mesma
+  // da Comanda e do web.
   useEffect(() => {
-    if (!clienteSelecionado || !empresaId) { setPacotesCliente([]); return; }
+    if (!clienteSelecionado || !empresaId) { setPacotesCliente([]); setErroPacotes(''); return; }
     const pacoteOriginal = agEdit?.pacote_cliente_id ?? null;
-    supabase.from('pacote_clientes')
-      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id, created_at, agendamento_id, servico:servicos(nome))')
-      .eq('empresa_id', empresaId)
-      .eq('cliente_id', clienteSelecionado.id)
-      .eq('status', 'ativo')
-      .then(({ data }) => {
-        const hoje = new Date();
-        const opts = ((data ?? []) as any[])
-          .filter(pc => (pc.pacote?.controla_sessoes ?? true) && (!pc.data_validade || new Date(pc.data_validade) >= hoje))
-          .map(pc => {
-            const servicosPac = (pc.pacote?.servicos ?? []) as { servico_id: string; quantidade: number | null }[];
-            const ilimitado = servicosPac.some(s => s.quantidade == null);
-            const total = ilimitado ? null : servicosPac.reduce((s, x) => s + (x.quantidade ?? 0), 0);
-            const usoRows = (pc.uso ?? []) as any[];
-            const usadas = usoRows.length;
-            const restantes = total != null ? total - usadas : null;
-            const sessoes: PacoteSessaoFeita[] = usoRows
-              .map((u: any) => ({ id: u.id, data: u.created_at as string, servico: u.servico?.nome ?? null, viaAg: !!u.agendamento_id }))
-              .sort((a: PacoteSessaoFeita, b: PacoteSessaoFeita) => (b.data ?? '').localeCompare(a.data ?? ''));
-            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes, total, usadas, servicoIds: servicosPac.map(s => s.servico_id), sessoes };
-          })
-          .filter(p => p.restantes === null || p.restantes > 0);
+    const clienteId = clienteSelecionado.id;
+    let vivo = true;
+    carregarCandidatosVinculo(supabase, empresaId, clienteId)
+      .then(rows => {
+        if (!vivo) return;
+        const opts = calcularPacotesAtivosCliente(rows, hojeBRT());
         setPacotesCliente(opts);
-        // Na edição, o pacote já vinculado ao atendimento nunca é desvinculado em silêncio.
-        setPacoteClienteId(prev => opts.some(o => o.id === prev) || (!!prev && prev === pacoteOriginal) ? prev : '');
+        setErroPacotes('');
+        // Na edição, o pacote já vinculado ao atendimento nunca é desvinculado em silêncio. O pacote
+        // vendido agora também fica (combo não entra na lista de elegíveis).
+        const vendido = pacoteVendidoIdRef.current;
+        setPacoteClienteId(prev => opts.some(o => o.id === prev)
+          || (!!prev && (prev === pacoteOriginal || (vendido?.clienteId === clienteId && prev === vendido.id))) ? prev : '');
+      })
+      .catch(e => {
+        if (!vivo) return;
+        // Erro de carga: mantém o vínculo escolhido (nunca desvincula em silêncio) e avisa.
+        setErroPacotes(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
-  }, [clienteSelecionado?.id, empresaId, agEdit?.pacote_cliente_id]);
+    return () => { vivo = false; };
+  }, [clienteSelecionado?.id, empresaId, agEdit?.pacote_cliente_id, recargaPacotes]);
 
   // Pré-seleciona cliente se veio de clienteId
   const clientePreSelecionado = params.clienteId;
@@ -498,13 +496,34 @@ export default function NovoAgendamento() {
   function onPacoteClienteChange(opt: PacoteClienteOpt) {
     const novo = opt.id === pacoteClienteId ? '' : opt.id;
     setPacoteClienteId(novo);
-    if (novo) { setPacoteVenderId(''); preencherServicosDoPacote(opt.servicoIds); }
+    if (novo) preencherServicosDoPacote(opt.servicos.map(s => s.servico_id));
   }
 
-  function onPacoteVenderChange(opt: PacoteCatalogoOpt) {
-    const novo = opt.id === pacoteVenderId ? '' : opt.id;
-    setPacoteVenderId(novo);
-    if (novo) { setPacoteClienteId(''); preencherServicosDoPacote(opt.servicoIds); }
+  /** Escolher um pacote do catálogo abre a venda única (VenderPacoteSheet), com "Cobrar na comanda". */
+  function onPacoteVenderChange(opt: PacoteCatalogo) {
+    if (formTravado) return;
+    setAvisoPacote('');
+    setVendendoPacoteId(opt.id);
+  }
+
+  /**
+   * Venda gravada: vincula o atendimento ao 1º pacote vendido (`r.pacoteClienteId`), preenche os
+   * serviços do pacote e recarrega os elegíveis. Sem a 096 o id não volta: a pessoa escolhe o pacote
+   * em "Pacote do cliente" depois da recarga. Igual ao web.
+   */
+  function onPacoteVendido(r: ResultadoVendaPacote) {
+    const pac = pacotesCatalogo.find(p => p.id === vendendoPacoteId) ?? null;
+    setVendendoPacoteId(null);
+    if (r.pacoteClienteId) {
+      pacoteVendidoIdRef.current = { id: r.pacoteClienteId, clienteId: r.clienteId };
+      setPacoteVendido({ id: r.pacoteClienteId, nome: pac?.nome ?? 'Pacote', clienteId: r.clienteId });
+      setPacoteClienteId(r.pacoteClienteId);
+      if (pac) preencherServicosDoPacote(pac.servicos.map(s => s.servico_id));
+      setAvisoPacote('');
+    } else {
+      setAvisoPacote('Pacote vendido. Escolha-o em "Pacote do cliente" para usar neste atendimento.');
+    }
+    setRecargaPacotes(n => n + 1);
   }
 
   async function salvarNovoCliente() {
@@ -606,44 +625,8 @@ export default function NovoAgendamento() {
     let agId = '';
 
     if (!idCriado) {
-      // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo (uma vez só,
-      // mesmo que a gravação do agendamento falhe e a pessoa tente de novo).
-      let pacoteClienteIdFinal: string | null = pacoteClienteId || null;
-      if (pacoteVenderId && pacoteVendidoRef.current) {
-        pacoteClienteIdFinal = pacoteVendidoRef.current;
-      } else if (pacoteVenderId) {
-        const pacote = pacotesCatalogo.find(p => p.id === pacoteVenderId);
-        if (pacote) {
-          const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
-            empresa_id:    empresaId,
-            pacote_id:     pacote.id,
-            cliente_id:    cliente.id,
-            data_inicio:   format(new Date(), 'yyyy-MM-dd'),
-            data_validade: pacote.validade_dias != null
-              ? format(addDays(new Date(), pacote.validade_dias), 'yyyy-MM-dd')
-              : null,
-            valor_pago:    pacote.preco,
-            status:        'ativo',
-          }).select('id').single();
-          if (errVenda || !novaVenda) {
-            Alert.alert('Erro ao vender pacote', mensagemErroBanco(errVenda, 'vender o pacote'));
-            return;
-          }
-          pacoteClienteIdFinal = novaVenda.id;
-          pacoteVendidoRef.current = novaVenda.id;
-
-          // Registra a venda do pacote como faturamento (uma vez, no ato).
-          const { error: errVendaPac } = await supabase.from('vendas').insert({
-            empresa_id:  empresaId,
-            cliente_id:  cliente.id,
-            valor_total: pacote.preco,
-            desconto:    0,
-            observacao:  `Venda de pacote: ${pacote.nome}`,
-          });
-          // O pacote já foi vendido: só avisa (abortar deixaria o pacote sem agendamento).
-          if (errVendaPac) Alert.alert('Venda do pacote', `O pacote foi vendido, mas a receita não foi registrada: ${mensagemErroBanco(errVendaPac, 'registrar a venda do pacote')}`);
-        }
-      }
+      // A venda de pacote já foi gravada pelo VenderPacoteSheet (venda única); aqui só o vínculo.
+      const pacoteClienteIdFinal: string | null = pacoteClienteId || null;
 
       const cabecalho = {
         cliente_id:        cliente.id,
@@ -686,7 +669,6 @@ export default function NovoAgendamento() {
           return;
         }
         agId = novoAg.id;
-        pacoteVendidoRef.current = null;
 
         // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
         if (novoAg && taxaReservaAtiva && cobrarTaxaReserva) {
@@ -887,7 +869,7 @@ export default function NovoAgendamento() {
         </Secao>
 
         {/* ── 2. Pacote (opcional) ── */}
-        {clienteSelecionado && (pacotesCliente.length > 0 || pacotesCatalogo.length > 0) && (
+        {clienteSelecionado && (pacotesCliente.length > 0 || pacotesCatalogo.length > 0 || !!pacoteVendido || !!avisoPacote || !!erroPacotes) && (
           <Secao numero={2} titulo="Pacote (opcional)">
             {pacotesCliente.length > 0 && (
               <View style={{ marginBottom: pacotesCatalogo.length > 0 ? 12 : 0 }}>
@@ -965,6 +947,26 @@ export default function NovoAgendamento() {
               </View>
             )}
 
+            {/* Pacote vendido agora fora da lista de elegíveis (ex.: combo): vinculado mesmo assim. */}
+            {pacoteVendido && pacoteVendido.clienteId === clienteSelecionado.id && pacoteClienteId === pacoteVendido.id
+              && !pacotesCliente.some(p => p.id === pacoteVendido.id) && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, backgroundColor: C.greenSoft, borderWidth: 1, borderColor: C.green, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 }}>
+                <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2 }}>
+                  Pacote vendido agora: {pacoteVendido.nome}
+                </Text>
+                <TouchableOpacity onPress={() => setPacoteClienteId('')} accessibilityLabel="Não usar pacote neste atendimento"
+                  style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                  <X size={14} color={C.text3} strokeWidth={2.5} />
+                </TouchableOpacity>
+              </View>
+            )}
+            {!!avisoPacote && (
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: '#B45309', marginBottom: 8 }}>{avisoPacote}</Text>
+            )}
+            {!!erroPacotes && (
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.rose, marginBottom: 8 }}>{erroPacotes}</Text>
+            )}
+
             {!pacoteClienteId && pacotesCatalogo.length > 0 && podeVenderPacote && (
               <View>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -972,10 +974,11 @@ export default function NovoAgendamento() {
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {pacotesCatalogo.map(p => {
-                    const ativo = pacoteVenderId === p.id;
+                    const ativo = vendendoPacoteId === p.id;
                     return (
                       <TouchableOpacity
                         key={p.id}
+                        disabled={formTravado}
                         onPress={() => onPacoteVenderChange(p)}
                         style={{
                           flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -995,6 +998,9 @@ export default function NovoAgendamento() {
                     );
                   })}
                 </View>
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text4, marginTop: 6 }}>
+                  A venda abre com "Cobrar na comanda": o valor entra ao fechar a comanda.
+                </Text>
               </View>
             )}
           </Secao>
@@ -1313,7 +1319,22 @@ export default function NovoAgendamento() {
         </TouchableOpacity>
       </View>
 
+      {/* ── Venda única de pacote (padrão "Cobrar na comanda", cliente travada) ── */}
+      {!!empresaId && !!clienteSelecionado && (
+        <VenderPacoteSheet
+          visible={!!vendendoPacoteId}
+          empresaId={empresaId}
+          pacotes={pacotesCatalogo}
+          pacoteId={vendendoPacoteId}
+          cliente={{ id: clienteSelecionado.id, nome: clienteSelecionado.nome }}
+          padraoCobranca="comanda"
+          onClose={() => setVendendoPacoteId(null)}
+          onVendido={onPacoteVendido}
+        />
+      )}
+
       {/* ── Modal busca de cliente ── */}
+
       <Modal
         visible={modalCliente}
         animationType="slide"
