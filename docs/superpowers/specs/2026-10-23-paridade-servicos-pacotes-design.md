@@ -159,6 +159,8 @@ O "vender pacote" da Agenda passa a usar o mesmo modal e a mesma função. O pad
 
 As telas detectam a 096 (`PGRST202`) e, sem ela, usam o caminho atual. **Rode a 096 junto com o deploy** (revisão das Tasks 1–2): a 096 trava a gravação direta em `pacote_clientes` (nenhum pacote cobrado sem venda), então a tela antiga deixa de vender pacote assim que ela roda — com mensagem, sem gravar nada.
 
+**Ordem final (revisão final):** 096 **antes** do deploy, e o deploy logo em seguida. Com a tela nova e sem a 096, o pacote é vendido pelo caminho antigo e fica sem `venda_id` ("pacote antigo"): excluí-lo depois deixaria a venda no faturamento. Passo a passo e conferências em `docs/superpowers/notes/2026-10-27-deploy-servicos-pacotes.md`.
+
 ## Fora do escopo
 
 - Pacote compartilhado entre clientes.
