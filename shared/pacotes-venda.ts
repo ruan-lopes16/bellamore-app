@@ -180,20 +180,39 @@ export function avisoVendaPacoteAgenda(r: Pick<ResultadoVendaPacote, 'cobranca' 
   return partes.join(' ');
 }
 
+/** Mesma mensagem da `vender_pacote` (096) para valor diferente do preço sem `comanda.desconto`. */
+export const MSG_SEM_PERMISSAO_VALOR_PACOTE = 'Você não tem permissão para mudar o valor do pacote.';
+
+/**
+ * O campo "Valor (cada)" da venda de pacote pode ser editado? Só com `comanda.desconto`: valor
+ * diferente do preço do catálogo é um desconto, e o banco o recusa sem a permissão.
+ */
+export function valorPacoteEditavel(podeDesconto: boolean): boolean {
+  return podeDesconto;
+}
+/** Dica do campo de valor travado (title no web, accessibilityHint no app). */
+export const DICA_VALOR_PACOTE_CATALOGO = 'Preço do catálogo. Para mudar o valor, é preciso a permissão de desconto.';
+
 /**
  * Por que a venda ainda não pode ser gravada (regra única de web e app), ou null. `valorTxt` sem
  * dígito é inválido (campo apagado nunca vira R$ 0); valor 0 digitado é aceito, como na função.
+ * Sem `comanda.desconto` (`podeDesconto`), o valor tem de ser o preço do catálogo (`precoCatalogo`,
+ * comparado em centavos), como confere a `vender_pacote`.
  * Em "Cobrar agora" espera a configuração dos cartões (taxa nunca inventada) e o total coberto.
  */
 export function motivoBloqueioVendaPacote(d: {
   temPacote: boolean; temCliente: boolean; quantidade: number; valorTxt: string; valorUnit: number;
   erroDesconto: string | null; cobranca: 'agora' | 'comanda'; resumo: Pick<ResumoComanda, 'podeFechar' | 'motivo'>;
-  configPronta: boolean;
+  configPronta: boolean; precoCatalogo: number | null; podeDesconto: boolean;
 }): string | null {
   if (!d.temPacote) return 'Escolha o pacote.';
   if (!d.temCliente) return 'Para vender pacote, escolha uma cliente cadastrada.';
   if (!quantidadeValida(d.quantidade)) return 'Quantidade de pacotes inválida (de 1 a 100).';
   if (!/\d/.test(d.valorTxt) || !(d.valorUnit >= 0)) return 'Valor do pacote inválido.';
+  if (!d.podeDesconto && d.precoCatalogo != null
+      && Math.round(d.valorUnit * 100) !== Math.round(d.precoCatalogo * 100)) {
+    return MSG_SEM_PERMISSAO_VALOR_PACOTE;
+  }
   if (d.erroDesconto) return d.erroDesconto;
   if (d.cobranca === 'agora' && !d.configPronta) return MSG_AGUARDE_CARTOES;
   if (d.cobranca === 'agora' && !d.resumo.podeFechar) return d.resumo.motivo ?? 'O pagamento não cobre o total da venda.';

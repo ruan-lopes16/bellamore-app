@@ -34,7 +34,7 @@ import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import {
   venderPacote, venderPacoteSem096, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote,
   motivoBloqueioVendaPacote, MSG_COMANDA_INDISPONIVEL, TEXTO_COBRANCA, type TentativaVendaPacote,
-  type ResultadoVendaPacote,
+  type ResultadoVendaPacote, valorPacoteEditavel, DICA_VALOR_PACOTE_CATALOGO,
 } from '@shared/pacotes-venda';
 import { dataValidade, rotuloValidade, subtotalVendaPacote } from '@shared/pacotes';
 import { tem096 as detectar096, type PacoteCatalogo } from '@shared/pacotes-consultas';
@@ -94,6 +94,8 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
   const { pode } = usePermissoes();
   // Desconto e Cortesia: mesma regra da comanda e da venda avulsa (comanda.desconto).
   const podeDesconto = pode('comanda.desconto');
+  // Valor diferente do preço do catálogo é desconto: só editável com comanda.desconto (o banco confere).
+  const valorEditavel = valorPacoteEditavel(podeDesconto);
 
   // Chave da venda: uma por abertura; a nova tentativa da MESMA venda reaproveita (regra de shared:
   // venda mudada depois de um erro definitivo ganha chave nova).
@@ -176,6 +178,7 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
   const motivoBloqueio = motivoBloqueioVendaPacote({
     temPacote: !!pacote, temCliente: !!clienteSel, quantidade, valorTxt, valorUnit, erroDesconto, cobranca,
     resumo: { podeFechar: resumo.podeFechar, motivo: resumo.motivo }, configPronta,
+    precoCatalogo: pacote?.preco ?? null, podeDesconto,
   });
   const pronto = !motivoBloqueio;
 
@@ -323,7 +326,7 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={rotulo}>Valor (cada)</Text>
-                <TextInput value={valorTxt} onChangeText={setValorTxt} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={C.text4} accessibilityLabel="Valor do pacote" style={input} />
+                <TextInput value={valorTxt} onChangeText={setValorTxt} editable={valorEditavel} accessibilityHint={valorEditavel ? undefined : DICA_VALOR_PACOTE_CATALOGO} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={C.text4} accessibilityLabel="Valor do pacote" style={{ ...input, opacity: valorEditavel ? 1 : 0.6 }} />
               </View>
             </View>
 

@@ -44,7 +44,7 @@ describe('valores da venda (iguais à vender_pacote)', () => {
 
 describe('motivoBloqueioVendaPacote', () => {
   const ok = { podeFechar: true, motivo: null };
-  const d = { temPacote: true, temCliente: true, quantidade: 1, valorTxt: '100', valorUnit: 100, erroDesconto: null, cobranca: 'agora' as const, resumo: ok, configPronta: true };
+  const d = { temPacote: true, temCliente: true, quantidade: 1, valorTxt: '100', valorUnit: 100, erroDesconto: null, cobranca: 'agora' as const, resumo: ok, configPronta: true, precoCatalogo: 100, podeDesconto: true };
   it('libera a venda certa', () => expect(motivoBloqueioVendaPacote(d)).toBeNull());
   it('campo de valor apagado nunca vira R$ 0', () => {
     expect(motivoBloqueioVendaPacote({ ...d, valorTxt: '', valorUnit: 0 })).toBe('Valor do pacote inválido.');

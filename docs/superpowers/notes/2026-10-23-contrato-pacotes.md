@@ -62,7 +62,11 @@ não dá erro).
   `Este código de venda já foi usado...`: a tela gera uma chave nova quando o modo, a cliente, o pacote, a
   quantidade, o valor ou o desconto mudam (assinatura de `argumentosVendaPacote`).
 - `data_inicio` = hoje em Brasília; `data_validade` = hoje + `validade_dias`, ou nula sem validade; `status 'ativo'`.
-- Permissões: `pacotes.vender`; desconto > 0 ou cortesia com valor exigem `comanda.desconto`.
+- Permissões: `pacotes.vender`; desconto > 0 ou cortesia com valor exigem `comanda.desconto`;
+  `valor_unit` diferente do preço do catálogo (`pacotes.preco`, para baixo ou para cima, nos dois modos) também exige `comanda.desconto`
+  (`Você não tem permissão para mudar o valor do pacote.`, 42501) — sem isso o valor funcionaria como desconto sem permissão.
+  As telas usam a mesma regra (`valorPacoteEditavel` e `motivoBloqueioVendaPacote` em `shared/pacotes-venda.ts`): o campo
+  "Valor (cada)" só é editável com `comanda.desconto`.
 
 Wrapper:
 
@@ -130,6 +134,7 @@ Wrapper: `excluirServico(db, empresaId, id): Promise<void>`.
 Permissão (errcode `42501`):
 - `Você não tem permissão para vender pacotes.`
 - `Você não tem permissão para dar desconto ou cortesia.`
+- `Você não tem permissão para mudar o valor do pacote.`
 - `Você não tem permissão para excluir pacote vendido.`
 - `Você não tem permissão para excluir serviços.`
 - `Você não faz parte desta empresa.` (exclusões)

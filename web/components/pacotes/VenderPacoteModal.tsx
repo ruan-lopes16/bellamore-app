@@ -20,6 +20,7 @@ import { BlocoPagamento, splitsNumericos, type SplitTela } from '@/components/pa
 import {
   venderPacote, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote, motivoBloqueioVendaPacote,
   vendaPacoteFoiGravada, venderPacoteSem096, MSG_ALTERADA_SEM_RESPOSTA, MSG_VENDA_JA_GRAVADA, MSG_COMANDA_INDISPONIVEL,
+  valorPacoteEditavel, DICA_VALOR_PACOTE_CATALOGO,
   TEXTO_COBRANCA, type TentativaVendaPacote, type ResultadoVendaPacote,
 } from '@shared/pacotes-venda';
 import { tem096 as detectar096 } from '@shared/pacotes-consultas';
@@ -71,6 +72,8 @@ export function VenderPacoteModal({
   useScrollLock();
   const { pode } = usePermissoes();
   const podeDesconto = pode('comanda.desconto');
+  // Valor diferente do preço do catálogo é desconto: só editável com comanda.desconto (o banco confere).
+  const valorEditavel = valorPacoteEditavel(podeDesconto);
 
   // Chave da venda: uma por abertura do modal; a nova tentativa da MESMA venda reaproveita.
   const [chaveAbertura] = useState(() => novoUuid());
@@ -162,7 +165,8 @@ export function VenderPacoteModal({
   const motivoBloqueio = useMemo(() => motivoBloqueioVendaPacote({
     temPacote: !!pacote, temCliente: !!clienteId, quantidade, valorTxt, valorUnit, erroDesconto, cobranca,
     resumo: { podeFechar: resumo.podeFechar, motivo: resumo.motivo }, configPronta,
-  }), [pacote, clienteId, quantidade, valorUnit, valorTxt, erroDesconto, cobranca, resumo.podeFechar, resumo.motivo, configPronta]);
+    precoCatalogo: pacote?.preco ?? null, podeDesconto,
+  }), [pacote, clienteId, quantidade, valorUnit, valorTxt, erroDesconto, cobranca, resumo.podeFechar, resumo.motivo, configPronta, podeDesconto]);
 
   async function vender() {
     if (gravandoRef.current || !pacote) return;
@@ -329,7 +333,9 @@ export function VenderPacoteModal({
                 <label className={labelCls}>Valor (cada)</label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-3 text-sm font-bold">R$</span>
-                  <input value={valorTxt} onChange={e => setValorTxt(e.target.value)} inputMode="decimal" placeholder="0,00" className={`${inputCls} pl-9`}/>
+                  <input value={valorTxt} onChange={e => { if (valorEditavel) setValorTxt(e.target.value); }} readOnly={!valorEditavel}
+                    title={valorEditavel ? undefined : DICA_VALOR_PACOTE_CATALOGO}
+                    inputMode="decimal" placeholder="0,00" className={`${inputCls} pl-9 ${valorEditavel ? '' : 'opacity-60 cursor-not-allowed'}`}/>
                 </div>
               </div>
             </div>

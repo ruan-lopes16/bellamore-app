@@ -4,7 +4,8 @@
 -- deixou em produção (UPDATE e DELETE para membro; a 096 troca a de DELETE).
 -- NÃO é o schema de produção.
 
-alter table pacotes add column if not exists nome text, add column if not exists ativo boolean default true;
+alter table pacotes add column if not exists nome text, add column if not exists ativo boolean default true,
+  add column if not exists preco numeric(10,2);
 create table pacote_servicos (pacote_id uuid not null references pacotes(id) on delete cascade,
   servico_id uuid not null references servicos(id) on delete cascade, quantidade int default 1,
   primary key (pacote_id, servico_id));

@@ -23,7 +23,8 @@
 --
 -- 2) vender_pacote(p jsonb) — security invoker (as policies de quem chama valem), chave `venda_id`
 --    contra repetição (padrão da 090). Exige pacotes.vender; desconto ou cortesia com valor exigem
---    comanda.desconto; cliente, pacote e maquininhas da MESMA empresa.
+--    comanda.desconto, e valor_unit diferente do preço do catálogo também (seria um desconto sem
+--    permissão); cliente, pacote e maquininhas da MESMA empresa.
 --    - 'agora': vendas (observacao 'Pacote', id = venda_id) + 1 pacote_clientes por unidade
 --      (valor_pago = líquido rateado em centavos, venda_id ligado, cobranca 'paga') + pagamentos
 --      (mesma regra da registrar_venda_avulsa_v2: total coberto, troco permitido, taxa e maquininha).
@@ -138,6 +139,7 @@ declare
   v_qtd       numeric;
   v_q         int;
   v_unit      numeric;
+  v_preco     numeric;
   v_desconto  numeric;
   v_subtotal  numeric;
   v_total     numeric;
@@ -216,13 +218,19 @@ begin
   v_total := v_subtotal - v_desconto;
 
   -- Pacote do catálogo da empresa ------------------------------
-  select pk.validade_dias, pk.ativo, pk.nome into v_validade, v_ativo, v_nome
+  select pk.validade_dias, pk.ativo, pk.nome, pk.preco into v_validade, v_ativo, v_nome, v_preco
     from public.pacotes pk where pk.id = v_pacote and pk.empresa_id = v_empresa;
   if not found then
     raise exception 'Pacote não encontrado nesta empresa.';
   end if;
   if v_ativo is false then
     raise exception 'Pacote desativado: %. Ative no catálogo antes de vender.', coalesce(v_nome, 'sem nome');
+  end if;
+
+  -- Valor diferente do preço do catálogo (para baixo ou para cima, nos dois modos) é um desconto
+  -- disfarçado: exige comanda.desconto, como o desconto em R$ e a cortesia com valor.
+  if v_unit is distinct from round(v_preco, 2) and not tem_permissao(v_empresa, 'comanda.desconto') then
+    raise exception 'Você não tem permissão para mudar o valor do pacote.' using errcode = '42501';
   end if;
 
   -- Pagamentos (mesma regra da registrar_venda_avulsa_v2) -------

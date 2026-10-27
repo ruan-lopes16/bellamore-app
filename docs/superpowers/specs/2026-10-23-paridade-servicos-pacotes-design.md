@@ -44,6 +44,7 @@ Agenda, Comanda e Pacotes, nas duas plataformas, usam só essas funções. Saem 
 - **Permissões:**
   - exige `pacotes.vender`;
   - desconto > 0 exige `comanda.desconto`;
+  - `valor_unit` diferente do preço do catálogo também exige `comanda.desconto` (revisão da Task 7: seria um desconto sem permissão); nas telas o valor só é editável com essa permissão;
   - cliente, pacote e maquininha precisam ser da empresa.
 - **"agora":**
   - grava `vendas` (valor_total, desconto, `observacao 'Pacote'`) e `pagamentos` com a mesma regra da venda avulsa: total coberto, troco permitido;

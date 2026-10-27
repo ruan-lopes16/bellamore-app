@@ -95,9 +95,9 @@ beforeAll(async () => {
     insert into clientes values ('${CL}', '${E}'), ('${CL2}', '${E}'), ('${CL_OUTRA}', '${E2}');
     insert into servicos values ('${SV}', '${E}', 'Limpeza'), ('${SV_LIVRE}', '${E}', 'Novo'),
       ('${SV_PACOTE}', '${E}', 'Drenagem');
-    insert into pacotes (id, empresa_id, validade_dias, nome, ativo) values
-      ('${PK}', '${E}', 30, 'Limpeza x3', true), ('${PK_SEM}', '${E}', null, 'Combo', true),
-      ('${PK_OUTRA}', '${E2}', 30, 'Outra', true);
+    insert into pacotes (id, empresa_id, validade_dias, nome, ativo, preco) values
+      ('${PK}', '${E}', 30, 'Limpeza x3', true, 300), ('${PK_SEM}', '${E}', null, 'Combo', true, 300),
+      ('${PK_OUTRA}', '${E2}', 30, 'Outra', true, 300);
     insert into pacote_servicos (pacote_id, servico_id, quantidade) values ('${PK}', '${SV_PACOTE}', 3);
     insert into cartao_maquininhas values ('${MAQ}', '${E}', 'Maq'), ('${MAQ_OUTRA}', '${E2}', 'Maq2');
     insert into servico_produtos (servico_id, quantidade) values ('${SV_LIVRE}', 1);
@@ -177,7 +177,23 @@ describe('vender_pacote — cobrar agora', () => {
     expect(await erro(() => vender(base(4, { desconto: 10 })))).toBe('Você não tem permissão para dar desconto ou cortesia.');
     expect(await erro(() => vender(base(4, { pagamentos: [{ valor: 300, metodo: 'cortesia' }] }))))
       .toBe('Você não tem permissão para dar desconto ou cortesia.');
+    // Valor diferente do preço do catálogo (para baixo ou para cima) é desconto sem permissão.
+    expect(await erro(() => vender(base(4, { valor_unit: 299.99, pagamentos: [{ valor: 299.99, metodo: 'pix' }] }))))
+      .toBe('Você não tem permissão para mudar o valor do pacote.');
+    expect(await erro(() => vender(base(4, { valor_unit: 0, pagamentos: [{ valor: 0, metodo: 'cortesia' }] }))))
+      .toBe('Você não tem permissão para mudar o valor do pacote.');
+    expect(await erro(() => vender(base(4, { valor_unit: 350, pagamentos: [{ valor: 350, metodo: 'pix' }] }))))
+      .toBe('Você não tem permissão para mudar o valor do pacote.');
+    expect(await erro(() => vender(base(4, { cobranca: 'comanda', valor_unit: 250, pagamentos: [] }))))
+      .toBe('Você não tem permissão para mudar o valor do pacote.');
+    expect(await admin(`select count(*)::int n from pacote_clientes where id = $1`, [chave(4)])).toEqual([{ n: 0 }]);
+    // Pelo preço do catálogo passa sem a permissão (quantidade > 1 inclusive).
+    await vender(base(5, { quantidade: 2, pagamentos: [{ valor: 600, metodo: 'pix' }] }));
+    expect(await admin(`select count(*)::int n from pacote_clientes where venda_id = $1`, [chave(5)])).toEqual([{ n: 2 }]);
     await como(P1);
+    // Com comanda.desconto o valor combinado é livre.
+    await vender(base(6, { valor_unit: 250, pagamentos: [{ valor: 250, metodo: 'pix' }] }));
+    expect(await admin(`select valor_pago from pacote_clientes where id = $1`, [chave(6)])).toEqual([{ valor_pago: '250.00' }]);
     expect(await erro(() => vender(base(4, { cliente_id: CL_OUTRA })))).toBe('Cliente não encontrada nesta empresa.');
     expect(await erro(() => vender(base(4, { pacote_id: PK_OUTRA })))).toBe('Pacote não encontrado nesta empresa.');
     expect(await erro(() => vender(base(4, { pagamentos: [{ valor: 300, metodo: 'debito', maquininha_id: MAQ_OUTRA }] }))))
@@ -471,7 +487,8 @@ describe('096 — texto', () => {
       expect(mensagemErroBanco({ code: 'P0001', message: m }, 'vender o pacote')).toBe(m);
     }
     for (const m of ['Você não tem permissão para vender pacotes.', 'Você não tem permissão para excluir pacote vendido.',
-      'Você não tem permissão para excluir serviços.', 'Você não faz parte desta empresa.']) {
+      'Você não tem permissão para excluir serviços.', 'Você não faz parte desta empresa.',
+      'Você não tem permissão para mudar o valor do pacote.']) {
       expect(mensagemErroBanco({ code: '42501', message: m }, 'excluir')).toBe(m);
     }
   });
