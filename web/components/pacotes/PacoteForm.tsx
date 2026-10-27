@@ -14,8 +14,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { avancarComEnter } from '@/lib/formNav';
 import { SearchSelect } from '@/components/SearchSelect';
-import { lerValidadeDias, sincronizarServicosPacote } from '@/lib/pacotes-web';
-import { lerPrecoServico } from '@shared/servicos';
+import { validarPacote } from '@shared/pacotes';
+import { sincronizarServicosPacote } from '@shared/pacotes-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import type { PacoteCatalogo, ServicoDoPacote } from '@shared/pacotes-consultas';
@@ -52,6 +52,8 @@ export function PacoteForm({
   const [erro,            setErro]            = useState('');
   // Pacote novo já criado numa tentativa que falhou na composição: a nova tentativa atualiza, não cria outro.
   const criadoRef = useRef<string | null>(null);
+  // Serviços gravados no banco (base da diferença); atualizado a cada sincronização que deu certo.
+  const gravadosRef = useRef<string[]>(pacote ? pacote.servicos.map(s => s.servico_id) : []);
 
   function adicionarServico(id: string) {
     if (!id || itensList.find(i => i.servico_id === id)) return;
@@ -70,12 +72,10 @@ export function PacoteForm({
     e?.preventDefault();
     if (salvando) return;
     setErro('');
-    if (nome.trim().length < 2) { setErro('Informe o nome do pacote.'); return; }
-    const precoN = lerPrecoServico(preco);
-    if (!(precoN > 0)) { setErro('Informe um preço maior que zero.'); return; }
-    const { valor: validadeN, erro: erroValidade } = lerValidadeDias(validade, semValidade);
-    if (erroValidade) { setErro(erroValidade); return; }
-    if (!servicosTravados && itensList.length === 0) { setErro('Adicione pelo menos um serviço ao pacote.'); return; }
+    const v = validarPacote({ nome, precoTxt: preco, validadeTxt: validade, semValidade, qtdServicos: itensList.length, composicaoTravada: servicosTravados });
+    if (v.erro !== null) { setErro(v.erro); return; }
+    const precoN = v.preco;
+    const validadeN = v.validadeDias;
 
     setSalvando(true);
     try {
@@ -102,9 +102,9 @@ export function PacoteForm({
 
       // Combo não tem sessão ilimitada: força quantidade concreta.
       const itensSalvar = itensList.map(i => ({ servico_id: i.servico_id, quantidade: controlaSessoes ? i.quantidade : (i.quantidade ?? 1) }));
-      const idsAntigos = pacote ? pacote.servicos.map(s => s.servico_id) : [];
-      const falha = await sincronizarServicosPacote(supabase, pacoteId, idsAntigos, itensSalvar);
+      const falha = await sincronizarServicosPacote(supabase, pacoteId, gravadosRef.current, itensSalvar);
       if (falha) { setErro(falha); return; }
+      gravadosRef.current = itensSalvar.map(i => i.servico_id);
       onSalvo();
     } finally {
       setSalvando(false);

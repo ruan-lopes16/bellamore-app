@@ -19,6 +19,7 @@ import { desfazerVinculoPacote, erroEscritaPacoteUso } from '@shared/pacotes-con
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { hojeBRT } from '@shared/periodos';
+import { atendimentosVinculaveis } from '@shared/permissoes';
 
 const supabase = createClient();
 const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
@@ -32,7 +33,7 @@ type PacoteUsoRow = {
   servico?: { nome: string } | null;
 };
 type AgConcluido = {
-  id: string; data_hora_inicio: string; servico_id: string | null;
+  id: string; data_hora_inicio: string; servico_id: string | null; profissional_id: string | null;
   /** Pacote a que o atendimento já estava ligado (ex.: combo); o desfazer volta a ele. */
   pacote_cliente_id: string | null;
   servico?: { nome: string } | null;
@@ -47,10 +48,14 @@ export type PacoteParaSessoes = {
 };
 
 export function GerenciarSessoes({
-  pc, empresaId, onChanged, onClose,
+  pc, empresaId, podeLancarAvulsa, vincularDeOutras, onChanged, onClose,
 }: {
   pc:        PacoteParaSessoes;
   empresaId: string;
+  /** Sessão sem atendimento só com "pacotes.vender" (acoesPacoteVendido, igual à RLS da 093). */
+  podeLancarAvulsa: boolean;
+  /** Sem "agenda.gerenciar_outras" só os atendimentos da própria pessoa podem ser vinculados. */
+  vincularDeOutras: boolean;
   onChanged: () => void;   // recarrega a página; NÃO fecha o modal
   onClose:   () => void;
 }) {
@@ -87,13 +92,14 @@ export function GerenciarSessoes({
 
   async function carregar() {
     setLoading(true); setErroCarga(null);
+    const { data: { user } } = await supabase.auth.getUser();
     const [rUso, rAg, rLink] = await Promise.all([
       supabase.from('pacote_uso')
         .select('id, servico_id, agendamento_id, observacao, created_at, servico:servicos(nome)')
         .eq('pacote_cliente_id', pc.id).order('created_at', { ascending: false }),
       supabase.from('agendamentos')
         // pacote_cliente_id: o desfazer do vínculo volta ao valor anterior (atendimento de combo segue no combo).
-        .select('id, data_hora_inicio, servico_id, pacote_cliente_id, servico:servicos(nome)')
+        .select('id, data_hora_inicio, servico_id, pacote_cliente_id, profissional_id, servico:servicos(nome)')
         .eq('empresa_id', empresaId).eq('cliente_id', pc.cliente.id).eq('status', 'concluido')
         .order('data_hora_inicio', { ascending: false }).limit(100),
       // Paginada: acima de 1000 sessões vinculadas a lista cortaria e mostraria atendimentos já vinculados.
@@ -107,7 +113,8 @@ export function GerenciarSessoes({
     if (!rUso.error) setSessoes((rUso.data ?? []) as unknown as PacoteUsoRow[]);
     if (!rAg.error && !rLink.error) {
       const linkados = new Set((rLink.data ?? []).map(x => x.agendamento_id));
-      setCandidatos(((rAg.data ?? []) as unknown as AgConcluido[]).filter(a => !linkados.has(a.id)));
+      const livres = ((rAg.data ?? []) as unknown as AgConcluido[]).filter(a => !linkados.has(a.id));
+      setCandidatos(atendimentosVinculaveis(livres, user?.id ?? null, vincularDeOutras));
     }
     setLoading(false);
   }
@@ -275,12 +282,12 @@ export function GerenciarSessoes({
                 <button onClick={addAvulsa} disabled={busy} className="flex-1 h-8 rounded-lg bg-green text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50">Adicionar</button>
               </div>
             </div>
-          ) : (
+          ) : podeLancarAvulsa ? (
             <button onClick={() => { setErro(''); setAddOpen(true); setVincOpen(false); }} disabled={!!erroCarga}
               className="w-full h-9 rounded-xl border border-border text-text-3 text-xs font-semibold hover:bg-bg transition disabled:opacity-40">
               + Sessão avulsa {esgotado ? '(pacote já esgotado)' : ''}
             </button>
-          )}
+          ) : null}
 
           {/* Vincular atendimento já realizado */}
           {vincOpen ? (

@@ -2,11 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  assinaturaVendaPacote, chaveVendaPacote, detectarMigration096, excluirVendidoSem096, filtrarVendidos,
-  lerValidadeDias, marcarComboUtilizado, quantidadeValida, ratearValorPago, sincronizarServicosPacote,
-  vendaPacoteFoiGravada, venderPacoteSem096, MSG_VENDA_JA_GRAVADA,
-} from '@/lib/pacotes-web';
-import { ErroPacote } from '@shared/pacotes-venda';
+  assinaturaVendaPacote, chaveVendaPacote, vendaPacoteFoiGravada, venderPacoteSem096, MSG_VENDA_JA_GRAVADA, ErroPacote,
+} from '@shared/pacotes-venda';
+import { filtrarVendidos, lerValidadeDias, quantidadeValida, ratearValorPago } from '@shared/pacotes';
+import { tem096 as detectarMigration096, marcarComboUtilizado, sincronizarServicosPacote } from '@shared/pacotes-consultas';
 import { configIndisponivel } from '@shared/taxas-cartao';
 
 // ── Client falso: cada chamada grava a cadeia; `responder` decide a resposta do await ─────────
@@ -94,7 +93,7 @@ describe('venda sem a 096 (Cobrar agora)', () => {
   };
   it('grava vendas (receita), os pacotes rateados e os pagamentos da venda', async () => {
     const f = db();
-    expect(await venderPacoteSem096(f.db, venda)).toEqual({ aviso: null });
+    expect(await venderPacoteSem096(f.db, venda)).toEqual({ pacoteClienteId: 'x', aviso: null });
     expect(f.chamadas.map(c => c.tabela)).toEqual(['vendas', 'pacote_clientes', 'pagamentos']);
     const vendaIns = f.chamadas[0].ops.find(([m]) => m === 'insert')![1][0];
     expect(vendaIns).toEqual({ id: 'k1', empresa_id: 'e', cliente_id: 'c', valor_total: 200, desconto: 10, observacao: 'Pacote' });
@@ -128,21 +127,15 @@ describe('venda sem a 096 (Cobrar agora)', () => {
 });
 
 describe('escritas conferidas', () => {
-  it('excluir sem a 096: desvincula e apaga com .select; 0 linhas = sem permissão', async () => {
-    const f = db();
-    await excluirVendidoSem096(f.db, 'e', 'pc');
-    expect(f.chamadas.every(c => temOp(c.ops, 'select'))).toBe(true);
-    const e = await falha(() => excluirVendidoSem096(db((t, ops) => ({ data: temOp(ops, 'delete') ? [] : [], error: null })).db, 'e', 'pc'));
-    expect(e!.message).toMatch(/não tem permissão/);
-  });
   it('combo utilizado confere as linhas', async () => {
     expect(await marcarComboUtilizado(db().db, 'e', 'pc')).toBeNull();
     expect(await marcarComboUtilizado(db(() => ({ data: [], error: null })).db, 'e', 'pc')).toMatch(/não tem permissão/);
   });
-  it('composição por diferença: apaga só os que saíram, upsert do resto, linhas conferidas', async () => {
+  it('composição por diferença: upsert do que fica, depois apaga só os que saíram, linhas conferidas', async () => {
     const f = db((t, ops) => ({ data: temOp(ops, 'delete') ? [{ servico_id: 'a' }] : [{ servico_id: 'b' }, { servico_id: 'c' }], error: null }));
     expect(await sincronizarServicosPacote(f.db, 'p', ['a', 'b'], [{ servico_id: 'b', quantidade: 2 }, { servico_id: 'c', quantidade: null }])).toBeNull();
-    const del = f.chamadas[0].ops.find(([m]) => m === 'in')![1];
+    expect(temOp(f.chamadas[0].ops, 'upsert')).toBe(true);
+    const del = f.chamadas[1].ops.find(([m]) => m === 'in')![1];
     expect(del).toEqual(['servico_id', ['a']]);
     expect(await sincronizarServicosPacote(db(() => ({ data: [], error: null })).db, 'p', [], [{ servico_id: 'b', quantidade: 1 }])).toMatch(/não tem permissão/);
     expect(await sincronizarServicosPacote(db(() => ({ data: null, error: { code: '23503', message: 'fk' } })).db, 'p', ['a'], [])).not.toBeNull();
@@ -182,10 +175,11 @@ describe('tela de Pacotes (web)', () => {
     expect(pagina).toContain('filtrarVendidos(');
     expect(pagina).toContain('Cancelado');
   });
-  it('excluir vendido pela função, com confirmação; sem a 096 o caminho antigo conferido', () => {
+  it('excluir vendido pela função, com confirmação; sem a 096 a exclusão fica indisponível', () => {
     expect(pagina).toContain('excluirPacoteCliente(supabase');
     expect(pagina).toContain('instanceof SemMigration096');
-    expect(pagina).toContain('excluirVendidoSem096(supabase');
+    expect(pagina).toContain('MSG_EXCLUSAO_SEM_096');
+    expect(pagina).not.toContain('excluirVendidoSem096');
     expect(pagina).toMatch(/<ConfirmDialog[\s\S]*?excluirVenda/);
   });
   it('combo utilizado conferido (sem flip otimista)', () => {
@@ -195,10 +189,10 @@ describe('tela de Pacotes (web)', () => {
     expect(pagina).toMatch(/erroCarga/);
     expect(pagina).toContain("'—'");
   });
-  it('permissões: catálogo pacotes.gerenciar, vender pacotes.vender, sessões vender/gerenciar_outras', () => {
+  it('permissões: catálogo pacotes.gerenciar, vender pacotes.vender, vendido por acoesPacoteVendido', () => {
     expect(pagina).toContain("pode('pacotes.gerenciar')");
     expect(pagina).toContain("pode('pacotes.vender')");
-    expect(pagina).toContain("pode('agenda.gerenciar_outras')");
+    expect(pagina).toContain('acoesPacoteVendido(pode)');
   });
 });
 
@@ -217,7 +211,7 @@ describe('VenderPacoteModal', () => {
     expect(modal).toContain('venderPacote(supabase');
     expect(modal).toContain('instanceof SemMigration096');
     expect(modal).toContain('venderPacoteSem096(supabase');
-    expect(modal).toContain('detectarMigration096(supabase');
+    expect(modal).toMatch(/import \{[^}]*\btem096\b[^}]*\} from '@shared\/pacotes-consultas'/);
     expect(modal).toMatch(/\{tem096 !== false && \([\s\S]{0,600}Cobrar na comanda/);
   });
   it('bloco de pagamento da Venda avulsa: maquininha, bandeira, parcelas, taxa', () => {
@@ -251,9 +245,9 @@ describe('PacoteForm', () => {
     expect(form).toContain('Combo');
     expect(form).toContain('∞');
     expect(form).toContain('Sem validade');
-    expect(form).toContain('lerValidadeDias(');
+    expect(form).toContain('validarPacote(');
     expect(form).toContain('sincronizarServicosPacote(supabase');
-    expect(form).toContain('lerPrecoServico(');
+    expect(form).not.toContain('lerPrecoServico('); // o preço é lido dentro de validarPacote (shared)
   });
   it('composição bloqueada se a contagem de vendidos falhou', () => {
     expect(form).toContain('vendidosIndisponivel');

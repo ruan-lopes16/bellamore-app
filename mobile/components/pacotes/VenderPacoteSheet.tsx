@@ -27,13 +27,16 @@ import { usePermissoes } from '@/lib/permissions';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import PagamentosEditor, { type SplitEditavel } from '@/components/comanda/PagamentosEditor';
 import {
-  calcularDesconto, resumoComanda, parseValorBR, montarPagamentos, ratearDescontoCentavos, type ModoDesconto, type SplitPagamento,
+  calcularDesconto, resumoComanda, parseValorBR, montarPagamentos, type ModoDesconto,
 } from '@shared/comanda-fechamento';
 import { configIndisponivel, AVISO_CARTOES_SEM_TAXA, type ConfigCartoes } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
-import { venderPacote, ErroPacote, SemMigration096 } from '@shared/pacotes-venda';
-import { dataValidade, rotuloValidade } from '@shared/pacotes';
-import type { PacoteCatalogo } from '@shared/pacotes-consultas';
+import {
+  venderPacote, venderPacoteSem096, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote,
+  motivoBloqueioVendaPacote, MSG_COMANDA_INDISPONIVEL, TEXTO_COBRANCA, type TentativaVendaPacote,
+} from '@shared/pacotes-venda';
+import { dataValidade, rotuloValidade, subtotalVendaPacote } from '@shared/pacotes';
+import { tem096 as detectar096, type PacoteCatalogo } from '@shared/pacotes-consultas';
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
@@ -53,7 +56,7 @@ export type CobrancaPacote = 'agora' | 'comanda';
 
 /** Resultado da venda. `pacoteClienteId` = o 1º pacote vendido (a Agenda vincula ao atendimento). */
 export type ResultadoVendaPacote = {
-  vendaId: string; pacoteClienteId: string; cobranca: CobrancaPacote; quantidade: number; clienteId: string;
+  vendaId: string; pacoteClienteId: string | null; cobranca: CobrancaPacote; quantidade: number; clienteId: string;
 };
 
 export type VenderPacoteSheetProps = {
@@ -77,50 +80,6 @@ type Cliente = { id: string; nome: string; telefone: string | null };
 const msgErro = (e: unknown, acao: string) =>
   e instanceof Error && e.message && !(e as { code?: string }).code ? e.message : mensagemErroBanco(e as { code?: string; message?: string }, acao);
 
-/**
- * Sem a 096: caminho antigo, só para "Cobrar agora". Grava `vendas` (id = a chave, sem RETURNING:
- * a policy de SELECT de vendas não vale para todo papel), os `pacote_clientes` (valor_pago líquido
- * rateado em centavos) e os `pagamentos` (montarPagamentos). Falha nos pacotes tenta desfazer a venda;
- * falha nos pagamentos lança avisando que a venda ficou sem pagamento. Devolve o id do 1º pacote.
- */
-async function venderSem096(d: {
-  vendaId: string; empresaId: string; clienteId: string; pacote: PacoteCatalogo; quantidade: number;
-  valorUnit: number; desconto: number; splits: SplitPagamento[];
-  config: ConfigCartoes; total: number;
-}): Promise<{ pacoteClienteId: string; aviso: string | null }> {
-  const unitCent = Math.round(d.valorUnit * 100);
-  const cotas = ratearDescontoCentavos(Array.from({ length: d.quantidade }, () => unitCent), Math.round(d.desconto * 100));
-  const hoje = hojeBRT();
-  const { error: eVenda } = await supabase.from('vendas').insert({
-    id: d.vendaId, empresa_id: d.empresaId, cliente_id: d.clienteId,
-    valor_total: Math.round(unitCent * d.quantidade) / 100, desconto: Math.round(d.desconto * 100) / 100,
-    observacao: 'Pacote',
-  });
-  if (eVenda) throw new ErroPacote(mensagemErroBanco(eVenda, 'registrar a venda do pacote'));
-
-  const linhas = cotas.map(cota => ({
-    empresa_id: d.empresaId, pacote_id: d.pacote.id, cliente_id: d.clienteId,
-    data_inicio: hoje, data_validade: dataValidade(d.pacote.validade_dias, hoje),
-    valor_pago: (unitCent - cota) / 100, status: 'ativo',
-  }));
-  const { data: criados, error: ePac } = await supabase.from('pacote_clientes').insert(linhas).select('id');
-  if (ePac || !criados || criados.length !== linhas.length) {
-    const msg = mensagemErroBanco(ePac ?? { code: '42501' }, 'registrar o pacote vendido');
-    const { data: apagadas } = await supabase.from('vendas').delete().eq('id', d.vendaId).select('id');
-    if ((apagadas?.length ?? 0) > 0) throw new ErroPacote(`${msg} Nada foi registrado; tente de novo.`);
-    throw new ErroPacote(`${msg} A venda ficou registrada sem o pacote; confira em Financeiro antes de vender de novo.`);
-  }
-
-  const pagamentos = montarPagamentos(d.splits, {
-    empresaId: d.empresaId, vendaId: d.vendaId, config: d.config, total: d.total,
-  });
-  const { error: ePag } = await supabase.from('pagamentos').insert(pagamentos);
-  const aviso = ePag
-    ? `O pacote foi vendido, mas o pagamento não foi registrado: ${mensagemErroBanco(ePag, 'registrar os pagamentos')} Confira em Financeiro.`
-    : null;
-  return { pacoteClienteId: (criados[0] as { id: string }).id, aviso };
-}
-
 /** Modal de venda de pacote. Monta o conteúdo só quando aberto: cada abertura começa do zero (e com chave nova). */
 export function VenderPacoteSheet(props: VenderPacoteSheetProps) {
   return (
@@ -137,8 +96,10 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
   // Desconto e Cortesia: mesma regra da comanda e da venda avulsa (comanda.desconto).
   const podeDesconto = pode('comanda.desconto');
 
-  // Chave da venda: uma por abertura, reaproveitada em toda nova tentativa (a repetição não duplica).
-  const [vendaId] = useState(() => novoUuid());
+  // Chave da venda: uma por abertura; a nova tentativa da MESMA venda reaproveita (regra de shared:
+  // venda mudada depois de um erro definitivo ganha chave nova).
+  const [chaveAbertura] = useState(() => novoUuid());
+  const [tentativa, setTentativa] = useState<TentativaVendaPacote | null>(null);
 
   const ativos = useMemo(() => pacotes.filter(p => p.ativo), [pacotes]);
   const [pacoteSel, setPacoteSel] = useState<string>(pacoteId ?? (ativos.length === 1 ? ativos[0].id : ''));
@@ -156,7 +117,9 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
   const [cobranca, setCobranca] = useState<CobrancaPacote>(padraoCobranca);
   const [splits, setSplits] = useState<SplitEditavel[]>([]);
   const [config, setConfig] = useState<ConfigCartoes>(() => configIndisponivel());
-  /** A 096 existe? null = conferindo. Sem ela "Cobrar na comanda" fica escondido. */
+  /** Taxas dos cartões carregadas (ou a falha já avisada): "Cobrar agora" espera, nunca inventa taxa. */
+  const [configPronta, setConfigPronta] = useState(false);
+  /** A 096 existe? false = não ("Cobrar na comanda" escondido); null = não deu para saber (a venda decide). */
   const [tem096, setTem096] = useState<boolean | null>(null);
 
   const [salvando, setSalvando] = useState(false);
@@ -170,17 +133,17 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
 
   useEffect(() => {
     let vivo = true;
-    // Confere a 096 só lendo a coluna nova (nada é gravado).
-    supabase.from('pacote_clientes').select('cobranca').limit(0).then(({ error }) => {
+    // Confere a 096 só lendo a coluna nova (nada é gravado). Mesma regra do web.
+    detectar096(supabase).then(r => {
       if (!vivo) return;
-      const existe = !error;
-      setTem096(existe);
-      if (!existe) setCobranca('agora');
+      setTem096(r);
+      if (r === false) setCobranca('agora');
     });
     carregarConfigCartoes(supabase, empresaId).then(
-      c => { if (vivo) setConfig(c); },
+      c => { if (vivo) { setConfig(c); setConfigPronta(true); } },
       (e: unknown) => {
         if (!vivo) return;
+        setConfigPronta(true);
         Alert.alert('Cartões', `${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar as taxas dos cartões')} ${AVISO_CARTOES_SEM_TAXA}`);
       },
     );
@@ -205,56 +168,57 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
 
   // Totais (mesma regra da comanda e da venda avulsa)
   const valorUnit = parseValorBR(valorTxt);
-  const subtotal = Math.round(valorUnit * quantidade * 100) / 100;
+  const subtotal = subtotalVendaPacote(valorUnit, quantidade);
   const { valor: desconto, erro: erroDesconto } = calcularDesconto(subtotal, podeDesconto ? parseValorBR(descontoTxt) : 0, descontoModo);
   const splitsNum = splits.map(s => ({ ...s, valor: parseValorBR(s.valor) }));
   const resumo = resumoComanda({
     subtotal, desconto, erroDesconto, descontoReserva: 0, splits: cobranca === 'agora' ? splitsNum : [],
   });
-  const pronto = !!pacote && !!clienteSel && valorUnit >= 0 && !erroDesconto && (cobranca === 'comanda' || resumo.podeFechar);
-
-  function motivoBloqueio(): string | null {
-    if (!pacote) return 'Escolha o pacote.';
-    if (!clienteSel) return 'Para vender pacote, escolha uma cliente cadastrada.';
-    if (erroDesconto) return erroDesconto;
-    if (cobranca === 'agora' && !resumo.podeFechar) return resumo.motivo ?? 'O pagamento não cobre o total da venda.';
-    return null;
-  }
+  const motivoBloqueio = motivoBloqueioVendaPacote({
+    temPacote: !!pacote, temCliente: !!clienteSel, quantidade, valorTxt, valorUnit, erroDesconto, cobranca,
+    resumo: { podeFechar: resumo.podeFechar, motivo: resumo.motivo }, configPronta,
+  });
+  const pronto = !motivoBloqueio;
 
   async function confirmar() {
     if (gravandoRef.current) return;
-    const motivo = motivoBloqueio();
-    if (motivo || !pacote || !clienteSel) { setErro(motivo ?? ''); return; }
-    gravandoRef.current = true;
-    setSalvando(true); setErro('');
+    if (motivoBloqueio || !pacote || !clienteSel) { setErro(motivoBloqueio ?? ''); return; }
     const pagamentos = cobranca === 'agora'
       ? montarPagamentos(splitsNum, { empresaId, config, total: resumo.total })
       : [];
-    const base = { vendaId, empresaId, clienteId: clienteSel.id, pacoteId: pacote.id, quantidade, valorUnit, desconto, cobranca };
+    const entrada = { empresaId, clienteId: clienteSel.id, pacoteId: pacote.id, quantidade, valorUnit, desconto, cobranca, pagamentos };
+    const assinatura = assinaturaVendaPacote(entrada);
+    // Depois de "sem resposta" o formulário fica travado: a assinatura é a mesma e a chave também.
+    const vendaId = chaveVendaPacote(tentativa, chaveAbertura, assinatura);
+    if (!vendaId) return;
+    gravandoRef.current = true;
+    setSalvando(true); setErro('');
     try {
-      let pacoteClienteId = vendaId; // na 096 o 1º pacote_clientes recebe id = venda_id
+      let pacoteClienteId: string | null = vendaId; // na 096 o 1º pacote_clientes recebe id = venda_id
       let aviso: string | null = null;
       try {
-        await venderPacote(supabase, { ...base, pagamentos });
+        await venderPacote(supabase, { ...entrada, vendaId });
       } catch (e) {
         if (!(e instanceof SemMigration096)) throw e;
         setTem096(false);
         if (cobranca === 'comanda') {
           setCobranca('agora');
-          throw new ErroPacote('"Cobrar na comanda" ainda não está disponível. Use "Cobrar agora".');
+          throw new ErroPacote(MSG_COMANDA_INDISPONIVEL);
         }
-        const r = await venderSem096({
-          vendaId, empresaId, clienteId: clienteSel.id, pacote, quantidade, valorUnit, desconto,
-          splits: splitsNum, config, total: resumo.total,
+        const r = await venderPacoteSem096(supabase, {
+          vendaId, empresaId, clienteId: clienteSel.id, pacote: { id: pacote.id, validade_dias: pacote.validade_dias },
+          quantidade, valorUnit, desconto, splits: splitsNum, config,
         });
         pacoteClienteId = r.pacoteClienteId;
         aviso = r.aviso;
       }
+      setTentativa(null);
       invalidarFinanceiro(qc);
       qc.invalidateQueries({ queryKey: ['pacotes-vendidos'] });
       if (aviso) Alert.alert('Venda do pacote', aviso);
       onVendido({ vendaId, pacoteClienteId, cobranca, quantidade, clienteId: clienteSel.id });
     } catch (e) {
+      if (e instanceof ErroPacote) setTentativa({ chave: vendaId, assinatura, semResposta: e.semResposta });
       if (e instanceof ErroPacote && e.semResposta) {
         setSemResposta(true);
         setErro(`${e.message} Toque em "Tentar de novo": a mesma venda não é registrada duas vezes.`);
@@ -386,17 +350,14 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
                 <TouchableOpacity onPress={() => setCobranca('agora')} style={{ ...chip(cobranca === 'agora'), flex: 1, alignItems: 'center' }}>
                   <Text style={chipTxt(cobranca === 'agora')}>Cobrar agora</Text>
                 </TouchableOpacity>
-                {tem096 && (
+                {tem096 !== false && (
                   <TouchableOpacity onPress={() => setCobranca('comanda')} style={{ ...chip(cobranca === 'comanda'), flex: 1, alignItems: 'center' }}>
                     <Text style={chipTxt(cobranca === 'comanda')}>Cobrar na comanda</Text>
                   </TouchableOpacity>
                 )}
-                {tem096 === null && <ActivityIndicator color={C.primary} />}
               </View>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4, marginTop: 6 }}>
-                {cobranca === 'agora'
-                  ? 'O pagamento é lançado agora e entra no faturamento de hoje.'
-                  : 'O pacote fica "A cobrar" e entra na próxima comanda da cliente. A cliente já pode usar as sessões.'}
+                {TEXTO_COBRANCA[cobranca]}
               </Text>
             </View>
 
@@ -431,8 +392,8 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
               </Text>
             )}
           </TouchableOpacity>
-          {!pronto && !salvando && motivoBloqueio() ? (
-            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, textAlign: 'center' }}>{motivoBloqueio()}</Text>
+          {!pronto && !salvando && motivoBloqueio ? (
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, textAlign: 'center' }}>{motivoBloqueio}</Text>
           ) : null}
         </ScrollView>
       </View>

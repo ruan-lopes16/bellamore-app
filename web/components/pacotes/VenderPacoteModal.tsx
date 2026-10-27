@@ -18,16 +18,17 @@ import { usePermissoes } from '@/components/PermissoesProvider';
 import { SearchSelect } from '@/components/SearchSelect';
 import { BlocoPagamento, splitsNumericos, type SplitTela } from '@/components/pacotes/BlocoPagamento';
 import {
-  assinaturaVendaPacote, chaveVendaPacote, detectarMigration096, quantidadeValida, vendaPacoteFoiGravada,
-  venderPacoteSem096, MSG_ALTERADA_SEM_RESPOSTA, MSG_VENDA_JA_GRAVADA, type TentativaVendaPacote,
-} from '@/lib/pacotes-web';
-import { venderPacote, ErroPacote, SemMigration096 } from '@shared/pacotes-venda';
+  venderPacote, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote, motivoBloqueioVendaPacote,
+  vendaPacoteFoiGravada, venderPacoteSem096, MSG_ALTERADA_SEM_RESPOSTA, MSG_VENDA_JA_GRAVADA, MSG_COMANDA_INDISPONIVEL,
+  TEXTO_COBRANCA, type TentativaVendaPacote,
+} from '@shared/pacotes-venda';
+import { tem096 as detectar096 } from '@shared/pacotes-consultas';
 import { calcularDesconto, montarPagamentos, parseValorBR, resumoComanda, type ModoDesconto } from '@shared/comanda-fechamento';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import { configIndisponivel, AVISO_CARTOES_SEM_TAXA, type ConfigCartoes } from '@shared/taxas-cartao';
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
-import { dataValidade } from '@shared/pacotes';
+import { dataValidade, subtotalVendaPacote } from '@shared/pacotes';
 import { hojeBRT } from '@shared/periodos';
 import { novoUuid } from '@shared/uuid';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
@@ -117,7 +118,7 @@ export function VenderPacoteModal({
   useEffect(() => {
     if (tem096Prop !== undefined) return;
     let vivo = true;
-    detectarMigration096(supabase).then(r => {
+    detectar096(supabase).then(r => {
       if (!vivo) return;
       setTem096(r);
       if (r === false) setCobranca('agora');
@@ -165,26 +166,20 @@ export function VenderPacoteModal({
   // ── Totais (mesma regra da comanda e da Venda avulsa)
   const quantidade = Number(quantidadeTxt);
   const valorUnit = parseValorBR(valorTxt);
-  const subtotal = quantidadeValida(quantidade) && valorUnit >= 0 ? Math.round(valorUnit * 100) * quantidade / 100 : 0;
+  const subtotal = subtotalVendaPacote(valorUnit, quantidade);
   const { valor: desconto, erro: erroDesconto } = calcularDesconto(subtotal, podeDesconto ? parseValorBR(descontoEntrada) : 0, descontoModo);
   const splitsN = splitsNumericos(splits);
   const resumo = resumoComanda({ subtotal, desconto, erroDesconto, descontoReserva: 0, splits: cobranca === 'agora' ? splitsN : [] });
   const validadePrevista = pacote ? dataValidade(pacote.validade_dias, hojeBRT()) : null;
 
-  const motivoBloqueio = useMemo(() => {
-    if (!pacote) return 'Escolha o pacote.';
-    if (!clienteId) return 'Para vender pacote, escolha uma cliente cadastrada.';
-    if (!quantidadeValida(quantidade)) return 'Quantidade de pacotes inválida (de 1 a 100).';
-    if (!(valorUnit >= 0) || !/\d/.test(valorTxt)) return 'Valor do pacote inválido.';
-    if (erroDesconto) return erroDesconto;
-    if (cobranca === 'agora' && !resumo.podeFechar) return resumo.motivo;
-    return null;
-  }, [pacote, clienteId, quantidade, valorUnit, valorTxt, erroDesconto, cobranca, resumo.podeFechar, resumo.motivo]);
+  const motivoBloqueio = useMemo(() => motivoBloqueioVendaPacote({
+    temPacote: !!pacote, temCliente: !!clienteId, quantidade, valorTxt, valorUnit, erroDesconto, cobranca,
+    resumo: { podeFechar: resumo.podeFechar, motivo: resumo.motivo }, configPronta,
+  }), [pacote, clienteId, quantidade, valorUnit, valorTxt, erroDesconto, cobranca, resumo.podeFechar, resumo.motivo, configPronta]);
 
   async function vender() {
     if (gravandoRef.current || !pacote) return;
     if (motivoBloqueio) { setErro(motivoBloqueio); return; }
-    if (cobranca === 'agora' && !configPronta) { setErro('Aguarde: carregando as taxas dos cartões.'); return; }
 
     const pagamentos = cobranca === 'agora'
       ? montarPagamentos(splitsN, { empresaId, config, total: resumo.total })
@@ -207,14 +202,13 @@ export function VenderPacoteModal({
         setTem096(false);
         if (cobranca === 'comanda') {
           setCobranca('agora');
-          setErro('"Cobrar na comanda" ainda não está disponível. Escolha a forma de pagamento para cobrar agora.');
+          setErro(MSG_COMANDA_INDISPONIVEL);
           return;
         }
-        ({ aviso } = await venderPacoteSem096(supabase, {
+        ({ aviso, pacoteClienteId } = await venderPacoteSem096(supabase, {
           vendaId: chave, empresaId, clienteId, pacote: { id: pacote.id, validade_dias: pacote.validade_dias },
           quantidade, valorUnit, desconto, splits: splitsN, config,
         }));
-        pacoteClienteId = null;
       }
       setTentativa(null);
       setSucesso({
@@ -391,9 +385,7 @@ export function VenderPacoteModal({
                 )}
               </div>
               <p className="text-[11px] text-text-4 mt-1">
-                {cobranca === 'agora'
-                  ? 'O pagamento é registrado agora e entra no faturamento de hoje.'
-                  : 'O pacote fica "A cobrar" e entra na próxima comanda da cliente.'}
+                {TEXTO_COBRANCA[cobranca]}
               </p>
             </div>
           </fieldset>

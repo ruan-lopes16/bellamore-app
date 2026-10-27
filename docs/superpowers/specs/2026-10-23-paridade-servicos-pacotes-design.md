@@ -105,6 +105,7 @@ Agenda, Comanda e Pacotes, nas duas plataformas, usam só essas funções. Saem 
 - Editar um pacote sem validade **mantém sem validade**. O default da coluna continua no banco, mas a tela sempre envia o valor explícito.
 - A composição dos serviços é sincronizada por diferença (remove o que saiu e faz upsert do resto), com erro conferido, nas duas plataformas.
 - Se a contagem de "já vendido" der erro, a composição fica bloqueada até recarregar. Nunca é tratado como "não vendido".
+- **Validação única** (`shared/pacotes.ts`: `validarPacote`): nome ≥ 2 caracteres, **preço > 0** (lido por `lerPrecoServico`, como o serviço: a cortesia é dada no atendimento ou pelo desconto da venda, nunca no catálogo), validade inteira ≥ 1 ou "Sem validade", ao menos um serviço. A composição é gravada por `sincronizarServicosPacote` (`shared/pacotes-consultas.ts`): upsert do que fica e só depois o delete do que saiu (revisão das Tasks 5–6).
 
 ### Tela de Pacotes (web e app)
 
@@ -113,9 +114,9 @@ Agenda, Comanda e Pacotes, nas duas plataformas, usam só essas funções. Saem 
   - cliente, quantidade, valor, desconto %/R$;
   - "Cobrar agora" (com o bloco de pagamento da Venda avulsa) ou "Cobrar na comanda".
 - **Gerenciar sessões:** mesma regra e mesmos textos nas duas plataformas. Excluir uma sessão pede confirmação também no web.
-- **Excluir venda:** pela função, com confirmação.
+- **Excluir venda:** pela função, com confirmação (texto único `textoExcluirVendido`). **Sem a 096 a exclusão fica indisponível** (`MSG_EXCLUSAO_SEM_096`): o caminho antigo apagava só o pacote e a venda dele continuava no faturamento (revisão das Tasks 5–6).
 - **Permissões:**
-  - gerenciar sessões exige `pacotes.vender` (ou sessão da própria agenda / `agenda.gerenciar_outras`, igual à RLS da 093);
+  - gerenciar sessões: regra única `acoesPacoteVendido` (`shared/permissoes.ts`), igual à RLS da 093 — o botão aparece para todas (a profissional sempre mexe nas sessões dos próprios atendimentos); sessão avulsa só com `pacotes.vender`; vincular atendimento de outra profissional só com `agenda.gerenciar_outras` (`atendimentosVinculaveis`); excluir venda e marcar combo com `pacotes.vender`;
   - vender exige `pacotes.vender`;
   - cadastrar exige `pacotes.gerenciar`.
 

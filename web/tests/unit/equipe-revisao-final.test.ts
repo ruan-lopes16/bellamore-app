@@ -120,7 +120,7 @@ describe('I4: desfazer do vínculo em Pacotes', () => {
   for (const [plataforma, arquivo] of [['web', 'web/components/pacotes/GerenciarSessoes.tsx'], ['app', 'mobile/app/(empresa)/pacotes.tsx']]) {
     it(`${plataforma}: candidatos trazem pacote_cliente_id e o desfazer usa o valor anterior`, () => {
       const src = ler(arquivo);
-      expect(src).toContain("select('id, data_hora_inicio, servico_id, pacote_cliente_id, servico:servicos(nome)')");
+      expect(src).toContain("select('id, data_hora_inicio, servico_id, pacote_cliente_id, profissional_id, servico:servicos(nome)')");
       expect(src).toMatch(/type AgConcluido = \{[\s\S]*?pacote_cliente_id: string \| null;/);
       expect(src).toContain('desfazerVinculoPacote(supabase, empresaId, ag.id, ag.pacote_cliente_id ?? null)');
       expect(src).toContain('setErro(falhaDesfazer ?? falhaSessao)'); // 093: erro já em português (erroEscritaPacoteUso)

@@ -50,11 +50,15 @@ import { VenderPacoteSheet } from '@/components/pacotes/VenderPacoteSheet';
 import { definicaoPacotesCatalogo, definicaoPacotesVendidos, definicaoPacotesUtilizacao } from '@shared/exportacao/pacotes';
 import { formatarMoeda } from '@shared/moeda';
 import { mensagemErroBanco } from '@shared/erros';
-import { rotuloValidade, totalSessoes } from '@shared/pacotes';
+import {
+  rotuloValidade, totalSessoes, filtrarVendidos, rotuloStatusVendido, estaACobrar, textoExcluirVendido,
+  MSG_SESSOES_USADAS, MSG_EXCLUSAO_SEM_096, TITULO_EXCLUIR_VENDIDO, type FiltroVendidos,
+} from '@shared/pacotes';
 import { excluirPacoteCliente, ErroPacote, SemMigration096 } from '@shared/pacotes-venda';
 import {
-  desfazerVinculoPacote, erroEscritaPacoteUso, calcularRelatorioUtilizacao,
+  desfazerVinculoPacote, erroEscritaPacoteUso, calcularRelatorioUtilizacao, marcarComboUtilizado,
 } from '@shared/pacotes-consultas';
+import { acoesPacoteVendido, atendimentosVinculaveis } from '@shared/permissoes';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -74,15 +78,6 @@ const VSTATUS: Record<string, { label: string; bg: string; color: string }> = {
   expirado:  { label: 'Expirado',  bg: C.redSoft,     color: C.red     },
   cancelado: { label: 'Cancelado', bg: C.bg,          color: C.text3   },
 };
-
-type FiltroVendidos = 'todos' | 'ativo' | 'concluido' | 'expirado' | 'a_cobrar';
-
-/** Filtro da aba Vendidos. "A cobrar" = vendido com "Cobrar na comanda" ainda não cobrado. */
-function noFiltro(v: PacoteVendido, f: FiltroVendidos): boolean {
-  if (f === 'todos') return true;
-  if (f === 'a_cobrar') return v.cobranca === 'pendente' && v.statusExibido !== 'cancelado';
-  return v.statusExibido === f;
-}
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -205,9 +200,10 @@ function PacoteCard({ pacote, podeGerenciar, podeVender, onToggle, onEdit, onVen
 
 // ── Card de pacote vendido ──────────────────────────────────
 
-function VendidoCard({ v, podeExcluir, onGerenciar, onExcluir, onMarcarUtilizado }: {
+function VendidoCard({ v, podeExcluir, podeMarcarCombo, onGerenciar, onExcluir, onMarcarUtilizado }: {
   v: PacoteVendido;
   podeExcluir: boolean;
+  podeMarcarCombo: boolean;
   onGerenciar: () => void;
   onExcluir: () => void;
   onMarcarUtilizado: () => void;
@@ -217,7 +213,7 @@ function VendidoCard({ v, podeExcluir, onGerenciar, onExcluir, onMarcarUtilizado
   const restantes = v.total_sessoes != null ? Math.max(0, v.total_sessoes - v.usadas) : null;
   const corBarra = pct >= 100 ? '#16A34A' : pct >= 70 ? '#D97706' : '#7C3AED';
   const st = VSTATUS[v.statusExibido] ?? VSTATUS.cancelado;
-  const aCobrar = v.cobranca === 'pendente' && v.statusExibido !== 'cancelado';
+  const aCobrar = estaACobrar(v);
 
   return (
     <View style={{
@@ -312,7 +308,7 @@ function VendidoCard({ v, podeExcluir, onGerenciar, onExcluir, onMarcarUtilizado
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2 }}>Gerenciar sessões</Text>
           </TouchableOpacity>
         </>
-      ) : v.statusExibido === 'ativo' ? (
+      ) : v.statusExibido === 'ativo' && podeMarcarCombo ? (
         <TouchableOpacity onPress={onMarcarUtilizado}
           style={{ height: 38, borderRadius: 10, backgroundColor: C.green, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Marcar como utilizado</Text>
@@ -342,18 +338,24 @@ type AgConcluido = {
   id: string;
   data_hora_inicio: string;
   servico_id: string | null;
+  profissional_id: string | null;
   /** Pacote a que o atendimento já estava ligado (ex.: combo); o desfazer volta a ele. */
   pacote_cliente_id: string | null;
   servico?: { nome: string } | null;
 };
 
-function SessoesModal({ pc, empresaId, onClose, onChanged }: {
+function SessoesModal({ pc, empresaId, podeLancarAvulsa, vincularDeOutras, onClose, onChanged }: {
   pc: PacoteVendido;
   empresaId: string;
+  /** Sessão sem atendimento só com "pacotes.vender" (acoesPacoteVendido, igual à RLS da 093). */
+  podeLancarAvulsa: boolean;
+  /** Sem "agenda.gerenciar_outras" só os atendimentos da própria pessoa podem ser vinculados. */
+  vincularDeOutras: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const userId = useAuthStore(s => s.user?.id ?? null);
   const servicosPac = pc.pacote.servicos;
   const servUnicoId = servicosPac.length === 1 ? servicosPac[0].servico_id : '';
   const multi = servicosPac.length > 1;
@@ -388,7 +390,7 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
         .eq('pacote_cliente_id', pc.id).order('created_at', { ascending: false }),
       supabase.from('agendamentos')
         // pacote_cliente_id: o desfazer do vínculo volta ao valor anterior (atendimento de combo segue no combo).
-        .select('id, data_hora_inicio, servico_id, pacote_cliente_id, servico:servicos(nome)')
+        .select('id, data_hora_inicio, servico_id, pacote_cliente_id, profissional_id, servico:servicos(nome)')
         .eq('empresa_id', empresaId).eq('cliente_id', pc.cliente.id).eq('status', 'concluido')
         .order('data_hora_inicio', { ascending: false }).limit(100),
     ]);
@@ -406,7 +408,7 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
     if (rLink.error) { setErro(mensagemErroBanco(rLink.error, 'carregar os atendimentos')); setLoading(false); return; }
     setSessoes((rUso.data ?? []) as unknown as UsoRow[]);
     const linkados = new Set(((rLink.data ?? []) as { agendamento_id: string }[]).map((x) => x.agendamento_id));
-    setCandidatos(ags.filter((a) => !linkados.has(a.id)));
+    setCandidatos(atendimentosVinculaveis(ags.filter((a) => !linkados.has(a.id)), userId, vincularDeOutras));
     setLoading(false);
   }
   useEffect(() => { carregar(); /* eslint-disable-next-line */ }, []);
@@ -631,7 +633,7 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
                   </TouchableOpacity>
                 </View>
               </View>
-            ) : (
+            ) : podeLancarAvulsa && (
               <TouchableOpacity
                 onPress={() => { setErro(''); setAddOpen(true); setVincOpen(false); setEditId(null); }}
                 style={{ height: 38, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
@@ -716,6 +718,8 @@ export default function Pacotes() {
   const empresaId = empresaAtiva?.id;
   const podeGerenciarCatalogo = pode('pacotes.gerenciar');
   const podeVender = pode('pacotes.vender');
+  // Pacote vendido (excluir, combo, sessões): regra única de shared, igual à RLS (093/096).
+  const acoesVendido = acoesPacoteVendido(pode);
   const qc = useQueryClient();
 
   const [aba, setAba] = useState<'catalogo' | 'vendidos' | 'relatorio'>('catalogo');
@@ -741,8 +745,8 @@ export default function Pacotes() {
 
   const ativos   = pacotes.filter((p) => p.ativo);
   const inativos = pacotes.filter((p) => !p.ativo);
-  const conta = (f: FiltroVendidos) => vendidos.filter((v) => noFiltro(v, f)).length;
-  const vendidosFiltrados = vendidos.filter((v) => noFiltro(v, filtro));
+  const conta = (f: FiltroVendidos) => filtrarVendidos(vendidos, f).length;
+  const vendidosFiltrados = filtrarVendidos(vendidos, filtro);
   const relatorio = calcularRelatorioUtilizacao(vendidos);
   // Número só com a carga certa: carregando ou com erro mostra '—', nunca zero.
   const num = (ok: boolean, n: number) => (ok ? String(n) : '—');
@@ -762,33 +766,22 @@ export default function Pacotes() {
     qc.invalidateQueries({ queryKey: ['pacotes'] });
   }
 
-  /** Sem a 096: desvincula os atendimentos e apaga o pacote, com as linhas conferidas. */
-  async function excluirVendaSem096(v: PacoteVendido): Promise<string | null> {
-    if (!empresaId) return null;
-    if (v.usadas > 0) return 'Este pacote já tem sessões usadas. Para cancelar, fale com a dona.';
-    const { error: eDesv } = await supabase.from('agendamentos').update({ pacote_cliente_id: null })
-      .eq('pacote_cliente_id', v.id).eq('empresa_id', empresaId).select('id');
-    if (eDesv) return mensagemErroBanco(eDesv, 'desvincular os atendimentos');
-    const { data: apagados, error } = await supabase.from('pacote_clientes')
-      .delete().eq('id', v.id).eq('empresa_id', empresaId).select('id');
-    if (error || !apagados || apagados.length === 0) return mensagemErroBanco(error ?? { code: '42501' }, 'excluir o pacote vendido');
-    return null;
-  }
-
   function excluirVenda(v: PacoteVendido) {
     if (!empresaId) return;
+    if (v.usadas > 0) { Alert.alert('Não foi possível excluir', MSG_SESSOES_USADAS); return; }
     Alert.alert(
-      'Excluir venda?',
-      `A venda de "${v.pacote.nome}" para ${v.cliente.nome} será apagada${v.cobranca === 'paga' ? ', junto com a receita dela' : ''}. Atendimentos vinculados serão desvinculados. Sem volta.`,
+      TITULO_EXCLUIR_VENDIDO,
+      textoExcluirVendido({ pacote: v.pacote.nome, cliente: v.cliente.nome, aCobrar: estaACobrar(v) }),
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Excluir venda', style: 'destructive', onPress: async () => {
+          text: 'Excluir', style: 'destructive', onPress: async () => {
             let falha: string | null = null;
             try {
               await excluirPacoteCliente(supabase, empresaId, v.id);
             } catch (e) {
-              if (e instanceof SemMigration096) falha = await excluirVendaSem096(v);
+              // Sem a 096 a exclusão fica indisponível: o caminho antigo deixava a venda no faturamento.
+              if (e instanceof SemMigration096) falha = MSG_EXCLUSAO_SEM_096;
               else falha = e instanceof ErroPacote ? e.message : mensagemErroBanco(null, 'excluir o pacote vendido');
             }
             invalidarVendidos();
@@ -800,14 +793,10 @@ export default function Pacotes() {
     );
   }
 
-  async function marcarComboUtilizado(pcId: string) {
+  async function marcarCombo(pcId: string) {
     if (!empresaId) return;
-    const { data: alterados, error } = await supabase.from('pacote_clientes')
-      .update({ status: 'concluido' }).eq('id', pcId).eq('empresa_id', empresaId).select('id');
-    if (error || !alterados || alterados.length === 0) {
-      Alert.alert('Não foi possível marcar', mensagemErroBanco(error ?? { code: '42501' }, 'marcar o combo como utilizado'));
-      return;
-    }
+    const falha = await marcarComboUtilizado(supabase, empresaId, pcId);
+    if (falha) { Alert.alert('Não foi possível marcar', falha); return; }
     invalidarVendidos();
   }
 
@@ -878,7 +867,7 @@ export default function Pacotes() {
             ) : aba === 'vendidos' && vend.isSuccess ? (
               <BotaoExportar
                 definicao={definicaoPacotesVendidos()}
-                getLinhas={() => vendidosFiltrados.map((v) => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total_sessoes, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: v.cobranca === 'pendente' && v.statusExibido !== 'cancelado' ? `${VSTATUS[v.statusExibido]?.label ?? v.statusExibido} (A cobrar)` : (VSTATUS[v.statusExibido]?.label ?? v.statusExibido) }))}
+                getLinhas={() => vendidosFiltrados.map((v) => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total_sessoes, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: rotuloStatusVendido(v) }))}
                 cor="#fff"
               />
             ) : aba === 'relatorio' && vend.isSuccess ? (
@@ -976,10 +965,11 @@ export default function Pacotes() {
                   <VendidoCard
                     key={v.id}
                     v={v}
-                    podeExcluir={podeVender}
+                    podeExcluir={acoesVendido.excluir}
+                    podeMarcarCombo={acoesVendido.marcarCombo}
                     onGerenciar={() => setModalSessao(v)}
                     onExcluir={() => excluirVenda(v)}
-                    onMarcarUtilizado={() => marcarComboUtilizado(v.id)}
+                    onMarcarUtilizado={() => marcarCombo(v.id)}
                   />
                 ))
               )}
@@ -1057,6 +1047,8 @@ export default function Pacotes() {
         <SessoesModal
           pc={modalSessao}
           empresaId={empresaId}
+          podeLancarAvulsa={acoesVendido.lancarAvulsa}
+          vincularDeOutras={acoesVendido.vincularDeOutras}
           onClose={() => setModalSessao(null)}
           onChanged={invalidarVendidos}
         />

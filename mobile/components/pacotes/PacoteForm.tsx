@@ -28,10 +28,10 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
-import { parseValorBR } from '@shared/comanda-fechamento';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
-import { rotuloValidade } from '@shared/pacotes';
+import { rotuloValidade, validarPacote } from '@shared/pacotes';
+import { sincronizarServicosPacote } from '@shared/pacotes-consultas';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -65,18 +65,6 @@ function Campo({ label, children, dica }: { label: string; children: React.React
       {dica ? <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4, marginTop: 6 }}>{dica}</Text> : null}
     </View>
   );
-}
-
-/**
- * Valida o cadastro do pacote. Devolve a mensagem em português, ou null.
- * Nome ≥ 2 caracteres, preço > 0, validade inteira ≥ 1 (ou sem validade) e ao menos 1 serviço.
- */
-function validarPacote(d: { nome: string; preco: number; semValidade: boolean; validade: number; itens: Item[] }): string | null {
-  if (d.nome.trim().length < 2) return 'Informe o nome do pacote (pelo menos 2 letras).';
-  if (!Number.isFinite(d.preco) || d.preco <= 0) return 'Informe um preço maior que zero.';
-  if (!d.semValidade && (!Number.isInteger(d.validade) || d.validade < 1)) return 'Informe a validade em dias (1 ou mais) ou marque "Sem validade".';
-  if (d.itens.length === 0) return 'Adicione pelo menos um serviço ao pacote.';
-  return null;
 }
 
 export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
@@ -188,42 +176,23 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
     qc.invalidateQueries({ queryKey: ['pacotes-vendidos'] });
   }
 
-  /** Composição por diferença: upsert do que ficou e, só depois, delete do que saiu. Devolve o erro ou null. */
+  /** Composição por diferença (regra única de shared: upsert do que fica, depois o delete do que saiu). */
   async function sincronizarComposicao(id: string): Promise<string | null> {
     // Combo não tem sessão ilimitada: grava quantidade concreta.
-    const gravar = itens.map(i => ({
-      pacote_id: id, servico_id: i.servico_id, quantidade: controlaSessoes ? i.quantidade : (i.quantidade ?? 1),
-    }));
-    if (gravar.length > 0) {
-      const { data, error } = await supabase.from('pacote_servicos')
-        .upsert(gravar, { onConflict: 'pacote_id,servico_id' })
-        .select('servico_id');
-      if (error) return mensagemErroBanco(error, 'salvar os serviços do pacote');
-      if (!data || data.length !== gravar.length) return mensagemErroBanco({ code: '42501' }, 'salvar os serviços do pacote');
-    }
-    const ficam = new Set(itens.map(i => i.servico_id));
-    const aRemover = originais.filter(s => !ficam.has(s));
-    if (aRemover.length > 0) {
-      const { data, error } = await supabase.from('pacote_servicos')
-        .delete()
-        .eq('pacote_id', id).in('servico_id', aRemover)
-        .select('servico_id');
-      if (error) return mensagemErroBanco(error, 'remover serviços do pacote');
-      if (!data || data.length !== aRemover.length) return mensagemErroBanco({ code: '42501' }, 'remover serviços do pacote');
-    }
-    setOriginais(itens.map(i => i.servico_id));
-    return null;
+    const gravar = itens.map(i => ({ servico_id: i.servico_id, quantidade: controlaSessoes ? i.quantidade : (i.quantidade ?? 1) }));
+    const falha = await sincronizarServicosPacote(supabase, id, originais, gravar);
+    if (!falha) setOriginais(gravar.map(i => i.servico_id));
+    return falha;
   }
 
   async function salvar() {
     if (!empresaId || salvando || carregando || erroCarga) return;
-    const precoN = /\d/.test(preco) ? parseValorBR(preco) : NaN;
-    const validadeNum = Number(validade.trim());
-    const msg = validarPacote({ nome, preco: precoN, semValidade, validade: validadeNum, itens });
-    if (msg) { setErro(msg); return; }
+    const v = validarPacote({ nome, precoTxt: preco, validadeTxt: validade, semValidade, qtdServicos: itens.length, composicaoTravada });
+    if (v.erro !== null) { setErro(v.erro); return; }
     setErro(''); setSalvando(true);
+    const precoN = v.preco;
     // Sempre explícita: null = sem validade (o default da coluna nunca é usado pela tela).
-    const validadeN = semValidade ? null : validadeNum;
+    const validadeN = v.validadeDias;
 
     let id = idAtual;
     if (id) {

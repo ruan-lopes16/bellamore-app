@@ -237,3 +237,63 @@ export function calcularRelatorioUtilizacao(vendidos: PacoteVendido[]): Relatori
 export async function carregarRelatorioUtilizacao(db: ClienteDb, empresaId: string): Promise<RelatorioUtilizacao> {
   return calcularRelatorioUtilizacao(await carregarPacotesVendidos(db, empresaId));
 }
+
+// ── Detecção da 096 e escritas conferidas (web e app) ─────────────────────────────────────────
+
+/**
+ * A 096 está no banco? Sonda a coluna `pacote_clientes.cobranca` (só leitura, 0 linhas). `true` = existe;
+ * `false` = coluna inexistente (sem a 096: "Cobrar na comanda" fica escondido); `null` = não deu para
+ * saber (rede/permissão): a tela mostra as duas opções e a venda decide por `SemMigration096`.
+ */
+export async function tem096(db: ClienteDb): Promise<boolean | null> {
+  try {
+    const { error } = await db.from('pacote_clientes').select('id, cobranca').limit(0);
+    if (!error) return true;
+    return /cobranca/.test(error.message ?? '') ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+type RespostaEscrita = { data: unknown[] | null; error: { code?: string | null; message?: string | null } | null };
+
+/** Marca um combo vendido como utilizado, conferindo as linhas. `null` = gravou; senão a mensagem. */
+export async function marcarComboUtilizado(db: ClienteDb, empresaId: string, id: string): Promise<string | null> {
+  const r: RespostaEscrita = await db.from('pacote_clientes').update({ status: 'concluido' })
+    .eq('id', id).eq('empresa_id', empresaId).select('id');
+  if (r.error) return mensagemErroBanco(r.error, 'marcar o combo como utilizado');
+  if (!r.data || r.data.length === 0) return mensagemErroBanco({ code: '42501' }, 'marcar o combo como utilizado');
+  return null;
+}
+
+/** Serviço na composição do pacote. `quantidade` null = sessões ilimitadas. */
+export type ItemComposicao = { servico_id: string; quantidade: number | null };
+
+/**
+ * Sincroniza `pacote_servicos` por diferença (web e app): primeiro o upsert do que fica (chave
+ * `pacote_id,servico_id`), só depois o delete do que saiu — os dois com `.select` e linhas conferidas
+ * (a RLS recusa devolvendo 0 linhas). Nessa ordem uma falha nunca deixa o pacote sem serviços, e a nova
+ * tentativa depois de uma falha no upsert não acusa "sem permissão" por um delete que já tinha passado.
+ * `null` = gravou; senão a mensagem para a tela. O caller guarda `itens` como os novos `idsAntigos`.
+ */
+export async function sincronizarServicosPacote(
+  db: ClienteDb, pacoteId: string, idsAntigos: string[], itens: ItemComposicao[],
+): Promise<string | null> {
+  if (itens.length > 0) {
+    const r: RespostaEscrita = await db.from('pacote_servicos').upsert(
+      itens.map(i => ({ pacote_id: pacoteId, servico_id: i.servico_id, quantidade: i.quantidade })),
+      { onConflict: 'pacote_id,servico_id' },
+    ).select('servico_id');
+    if (r.error) return mensagemErroBanco(r.error, 'salvar os serviços do pacote');
+    if (!r.data || r.data.length < itens.length) return mensagemErroBanco({ code: '42501' }, 'salvar os serviços do pacote');
+  }
+  const novos = new Set(itens.map(i => i.servico_id));
+  const aRemover = idsAntigos.filter(id => !novos.has(id));
+  if (aRemover.length > 0) {
+    const r: RespostaEscrita = await db.from('pacote_servicos').delete()
+      .eq('pacote_id', pacoteId).in('servico_id', aRemover).select('servico_id');
+    if (r.error) return mensagemErroBanco(r.error, 'remover serviços do pacote');
+    if (!r.data || r.data.length < aRemover.length) return mensagemErroBanco({ code: '42501' }, 'remover serviços do pacote');
+  }
+  return null;
+}

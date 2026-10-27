@@ -31,17 +31,18 @@ import { PacoteForm } from '@/components/pacotes/PacoteForm';
 import { VenderPacoteModal } from '@/components/pacotes/VenderPacoteModal';
 import { GerenciarSessoes, type PacoteParaSessoes } from '@/components/pacotes/GerenciarSessoes';
 import { RelatorioPacotes } from '@/components/pacotes/RelatorioPacotes';
-import {
-  detectarMigration096, excluirVendidoSem096, filtrarVendidos, marcarComboUtilizado, type FiltroVendidos,
-} from '@/lib/pacotes-web';
 import { definicaoPacotesCatalogo, definicaoPacotesVendidos, definicaoPacotesUtilizacao } from '@shared/exportacao/pacotes';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import {
-  carregarCatalogoPacotes, carregarPacotesVendidos, carregarRelatorioUtilizacao,
-  type PacoteCatalogo, type PacoteVendido, type RelatorioUtilizacao,
+  carregarCatalogoPacotes, carregarPacotesVendidos, carregarRelatorioUtilizacao, marcarComboUtilizado,
+  tem096 as detectar096, type PacoteCatalogo, type PacoteVendido, type RelatorioUtilizacao,
 } from '@shared/pacotes-consultas';
 import { excluirPacoteCliente, ErroPacote, SemMigration096 } from '@shared/pacotes-venda';
-import { rotuloValidade, saldoSessoes, statusPacoteCliente, totalSessoes, type StatusPacoteCliente } from '@shared/pacotes';
+import {
+  rotuloValidade, saldoSessoes, statusPacoteCliente, totalSessoes, filtrarVendidos, rotuloStatusVendido, estaACobrar,
+  textoExcluirVendido, MSG_SESSOES_USADAS, MSG_EXCLUSAO_SEM_096, TITULO_EXCLUIR_VENDIDO, type FiltroVendidos, type StatusPacoteCliente,
+} from '@shared/pacotes';
+import { acoesPacoteVendido } from '@shared/permissoes';
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { hojeBRT } from '@shared/periodos';
@@ -92,8 +93,8 @@ export default function PacotesPage() {
   const { pode } = usePermissoes();
   const podeGerenciarCatalogo = pode('pacotes.gerenciar');
   const podeVender = pode('pacotes.vender');
-  // Sessões: quem vende pacote ou mexe na agenda das outras (a RLS também libera a própria agenda).
-  const podeSessoes = podeVender || pode('agenda.gerenciar_outras');
+  // Pacote vendido (excluir, combo, sessões): regra única de shared, igual à RLS (093/096).
+  const acoesVendido = acoesPacoteVendido(pode);
 
   // Dados (null = não carregou: erro mostra "—", nunca zero)
   const [pacotes,   setPacotes]   = useState<PacoteCatalogo[] | null>(null);
@@ -136,7 +137,7 @@ export default function PacotesPage() {
         .eq('user_id', user.id).eq('ativo', true).limit(1).single();
       if (data) setEmpresaId(data.empresa_id);
     })();
-    detectarMigration096(supabase).then(setTem096);
+    detectar096(supabase).then(setTem096);
   }, []);
 
   // ── Cargas (contador de requisição: resposta antiga nunca sobrescreve a nova)
@@ -226,7 +227,8 @@ export default function PacotesPage() {
 
   // ── Excluir pacote vendido: pela função (096), que acerta a venda ligada; sem ela, o caminho antigo.
   function pedirExclusaoVenda(v: Vendido) {
-    if (v.usadas > 0) { showToast('Este pacote já tem sessões usadas. Para cancelar, fale com a dona.', 'rose'); return; }
+    if (v.usadas > 0) { showToast(MSG_SESSOES_USADAS, 'rose'); return; }
+    if (tem096 === false) { showToast(MSG_EXCLUSAO_SEM_096, 'rose'); return; }
     setConfirmExcluirVenda(v);
   }
   async function excluirVenda() {
@@ -237,8 +239,9 @@ export default function PacotesPage() {
       try {
         await excluirPacoteCliente(supabase, empresaId, id);
       } catch (e) {
-        if (!(e instanceof SemMigration096)) throw e;
-        await excluirVendidoSem096(supabase, empresaId, id);
+        // Sem a 096 a exclusão fica indisponível: o caminho antigo deixava a venda no faturamento.
+        if (e instanceof SemMigration096) throw new ErroPacote(MSG_EXCLUSAO_SEM_096);
+        throw e;
       }
       showToast('Pacote vendido excluído.');
       recarregar();
@@ -294,7 +297,7 @@ export default function PacotesPage() {
               variant="mobileHeader"
               className="bm-mobile-header-export"
               definicao={definicaoPacotesVendidos()}
-              getLinhas={() => vendidosFiltrados.map(v => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: v.cobranca === 'pendente' ? `${STATUS_CFG[v.statusExibido].label} · A cobrar` : STATUS_CFG[v.statusExibido].label }))}
+              getLinhas={() => vendidosFiltrados.map(v => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: rotuloStatusVendido(v) }))}
             />
           )}
           {aba === 'relatorio' && relatorio && (
@@ -488,7 +491,7 @@ export default function PacotesPage() {
                 const statusCfg = STATUS_CFG[v.statusExibido];
                 const restantes = v.total != null ? Math.max(0, v.total - v.usadas) : null;
                 const corBarra  = pct >= 100 ? '#16A34A' : pct >= 70 ? '#D97706' : '#7C3AED';
-                const aCobrar   = v.cobranca === 'pendente';
+                const aCobrar   = estaACobrar(v);
 
                 return (
                   <div key={v.id} className="bm-stagger bg-surface border border-border rounded-2xl p-5 shadow-sm flex flex-col gap-4"
@@ -503,7 +506,7 @@ export default function PacotesPage() {
                           <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-soft text-amber" title="Será cobrado ao fechar a comanda da cliente">A cobrar</span>
                         )}
                         <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${statusCfg.cls}`}>{statusCfg.label}</span>
-                        {podeVender && (
+                        {acoesVendido.excluir && (
                           <button onClick={() => pedirExclusaoVenda(v)} title="Excluir pacote vendido"
                             className="w-7 h-7 rounded-lg border border-border hover:bg-red-soft hover:border-red/30 flex items-center justify-center text-text-3 hover:text-red transition">
                             <Trash2 size={12}/>
@@ -566,7 +569,7 @@ export default function PacotesPage() {
                       </div>
                     </div>
 
-                    {v.statusExibido === 'ativo' && !v.pacote.controla_sessoes && podeVender && (
+                    {v.statusExibido === 'ativo' && !v.pacote.controla_sessoes && acoesVendido.marcarCombo && (
                       <button onClick={() => marcarCombo(v.id)} disabled={marcando === v.id}
                         className="w-full h-9 rounded-xl bg-green text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50">
                         {marcando === v.id ? 'Salvando...' : 'Marcar como utilizado'}
@@ -575,7 +578,7 @@ export default function PacotesPage() {
                     {v.pacote.controla_sessoes && (
                       <div className="flex flex-col gap-1.5">
                         <p className="text-[10px] text-text-4 text-center">Sessões são registradas automaticamente ao concluir agendamentos.</p>
-                        {podeSessoes && (
+                        {acoesVendido.gerenciarSessoes && (
                           <button onClick={() => abrirSessoes(v)}
                             className="w-full h-8 rounded-xl border border-border text-text-3 text-xs font-semibold hover:bg-bg transition">
                             Gerenciar sessões
@@ -640,6 +643,8 @@ export default function PacotesPage() {
         <GerenciarSessoes
           pc={modalSessao}
           empresaId={empresaId}
+          podeLancarAvulsa={acoesVendido.lancarAvulsa}
+          vincularDeOutras={acoesVendido.vincularDeOutras}
           onChanged={recarregar}
           onClose={() => setModalSessao(null)}
         />
@@ -658,10 +663,8 @@ export default function PacotesPage() {
 
       <ConfirmDialog
         open={confirmExcluirVenda !== null}
-        title="Excluir pacote vendido?"
-        message={confirmExcluirVenda?.cobranca === 'pendente'
-          ? `O pacote "${confirmExcluirVenda?.pacote.nome}" a cobrar de ${confirmExcluirVenda?.cliente.nome} será excluído e não entrará mais na comanda. Sem volta.`
-          : `O pacote "${confirmExcluirVenda?.pacote.nome}" de ${confirmExcluirVenda?.cliente.nome} será excluído. Se ele foi cobrado sozinho, a venda e o pagamento saem do faturamento; com outros pacotes na mesma venda, só o valor dele sai (a devolução é manual). Atendimentos vinculados serão desvinculados. Sem volta.`}
+        title={TITULO_EXCLUIR_VENDIDO}
+        message={confirmExcluirVenda ? textoExcluirVendido({ pacote: confirmExcluirVenda.pacote.nome, cliente: confirmExcluirVenda.cliente.nome, aCobrar: estaACobrar(confirmExcluirVenda) }) : ''}
         confirmLabel="Excluir"
         variant="danger"
         loading={excluindo}

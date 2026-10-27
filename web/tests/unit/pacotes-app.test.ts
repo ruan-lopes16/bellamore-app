@@ -66,12 +66,10 @@ describe('app: Pacotes (paridade com o web)', () => {
     expect(form).toMatch(/validade_dias: validadeN/);
   });
 
-  it('composição por diferença, com o erro conferido (upsert + delete do que saiu, com .select)', () => {
+  it('composição por diferença pela função única de shared (upsert e depois o delete, conferidos)', () => {
     const form = ler(`${DIR_COMP}/PacoteForm.tsx`);
-    expect(form).toMatch(/from\('pacote_servicos'\)\s*\.upsert\([\s\S]*?onConflict: 'pacote_id,servico_id'[\s\S]*?\.select\('servico_id'\)/);
-    expect(form).toMatch(/from\('pacote_servicos'\)\s*\.delete\(\)[\s\S]*?\.in\('servico_id', aRemover\)[\s\S]*?\.select\('servico_id'\)/);
-    expect(form).not.toMatch(/from\('pacote_servicos'\)\.delete\(\)\.eq\('pacote_id', id\);/);
-    expect(form).not.toMatch(/from\('pacote_servicos'\)\.insert\(/);
+    expect(form).toContain('sincronizarServicosPacote(supabase, id, originais, gravar)');
+    expect(form).not.toMatch(/from\('pacote_servicos'\)/);
   });
 
   it('erro na contagem de "já vendido" bloqueia a composição até recarregar', () => {
@@ -109,48 +107,32 @@ describe('app: Pacotes (paridade com o web)', () => {
     expect(sheet).toContain('semResposta');
   });
 
-  it('nenhum insert direto em pacote_clientes fora do caminho sem a 096', () => {
+  it('nenhum insert direto em pacote_clientes: o caminho sem a 096 é o de shared', () => {
     const sheet = ler(SHEET);
-    const inserts = [...sheet.matchAll(/from\('pacote_clientes'\)\.insert\(/g)];
-    expect(inserts.length).toBe(1);
-    const ini = sheet.indexOf('async function venderSem096');
-    expect(ini).toBeGreaterThan(-1);
-    expect(inserts[0].index!).toBeGreaterThan(ini);
+    for (const f of [sheet, tela, novo, editar, hook]) expect(f).not.toMatch(/from\('pacote_clientes'\)\s*\.insert\(/);
     expect(sheet).toContain('SemMigration096');
-    // Sem a 096 "Cobrar na comanda" fica escondido
-    expect(sheet).toMatch(/tem096 &&/);
-    for (const f of [tela, novo, editar, hook]) expect(f).not.toMatch(/from\('pacote_clientes'\)\s*\.insert\(/);
-  });
-
-  it('sem a 096, "Cobrar agora" grava também vendas e pagamentos', () => {
-    const sheet = ler(SHEET);
-    const ini = sheet.indexOf('async function venderSem096');
-    const corpo = sheet.slice(ini, sheet.indexOf('\n}\n', ini));
-    expect(corpo).toContain("from('vendas').insert(");
-    expect(corpo).toContain("observacao: 'Pacote'");
-    expect(corpo).toContain("from('pagamentos').insert(");
-    expect(corpo).toContain('ratearDescontoCentavos(');
+    expect(sheet).toContain('venderPacoteSem096(supabase');
+    // Sem a 096 "Cobrar na comanda" fica escondido (null = não deu para saber: mostra, igual ao web)
+    expect(sheet).toMatch(/tem096 !== false &&/);
   });
 
   it('vendidos: filtro "A cobrar" e selo', () => {
     expect(tela).toContain("key: 'a_cobrar'");
     expect(tela).toContain('A cobrar');
-    expect(tela).toMatch(/cobranca === 'pendente'/);
+    expect(tela).toContain('filtrarVendidos(');
+    expect(tela).toContain('estaACobrar(v)');
   });
 
-  it('excluir venda pela função, com confirmação; sem a 096 o caminho antigo conferido', () => {
+  it('excluir venda pela função, com confirmação; sem a 096 a exclusão fica indisponível', () => {
     expect(tela).toContain('excluirPacoteCliente(supabase');
     expect(tela).toContain('SemMigration096');
-    expect(tela).toContain("'Excluir venda?'");
-    expect(tela).toMatch(/from\('pacote_clientes'\)\s*\.delete\(\)[\s\S]*?\.select\('id'\)/);
+    expect(tela).toContain('TITULO_EXCLUIR_VENDIDO');
+    expect(tela).toContain('MSG_EXCLUSAO_SEM_096');
+    expect(tela).not.toMatch(/from\('pacote_clientes'\)\s*\.delete\(\)/);
   });
 
-  it('marcar combo como utilizado confere as linhas', () => {
-    const ini = tela.indexOf('async function marcarComboUtilizado');
-    const corpo = tela.slice(ini, tela.indexOf('\n  }', ini));
-    expect(corpo).toContain(".update({ status: 'concluido' })");
-    expect(corpo).toContain(".select('id')");
-    expect(corpo).toMatch(/length === 0/);
+  it('marcar combo como utilizado pela função conferida de shared', () => {
+    expect(tela).toContain('marcarComboUtilizado(supabase, empresaId, pcId)');
   });
 
   it('aba Relatório com exportação pela definição única', () => {

@@ -1,4 +1,5 @@
 import { somarDias } from './periodos';
+import { lerPrecoServico } from './servicos';
 
 /** Uma sessao registrada em pacote_uso, ja resolvida para exibicao. */
 export type PacoteSessaoFeita = {
@@ -183,4 +184,117 @@ export function itensACobrar(
     valor_unit: p.valor_pago,
     quantidade: 1 as const,
   }));
+}
+
+// ── Cadastro do pacote (web e app: PacoteForm) ───────────────────────────────────────────────
+
+/** Validade digitada no cadastro: `semValidade` → null; senão inteiro ≥ 1, ou erro. */
+export function lerValidadeDias(texto: string, semValidade: boolean): { valor: number | null; erro: string | null } {
+  if (semValidade) return { valor: null, erro: null };
+  const t = texto.trim();
+  const n = Number(t);
+  if (!t || !Number.isInteger(n) || n < 1) return { valor: null, erro: 'Informe a validade em dias (1 ou mais) ou marque "Sem validade".' };
+  return { valor: n, erro: null };
+}
+
+/**
+ * Valida o cadastro do pacote (regra única de web e app). Nome ≥ 2 caracteres; preço > 0 (lido por
+ * `lerPrecoServico`, formato brasileiro — como o serviço: a cortesia é dada no atendimento, nunca no
+ * catálogo); validade inteira ≥ 1 ou "Sem validade"; ao menos um serviço (só quando a composição pode
+ * mudar: pacote já vendido, ou com a contagem de vendidos indisponível, mantém a composição gravada).
+ * Devolve o erro em português ou os valores prontos para gravar (validade null = sem validade).
+ */
+export function validarPacote(d: {
+  nome: string; precoTxt: string; validadeTxt: string; semValidade: boolean; qtdServicos: number; composicaoTravada: boolean;
+}): { erro: string; preco?: undefined; validadeDias?: undefined } | { erro: null; preco: number; validadeDias: number | null } {
+  if (d.nome.trim().length < 2) return { erro: 'Informe o nome do pacote (pelo menos 2 letras).' };
+  const preco = lerPrecoServico(d.precoTxt);
+  if (!Number.isFinite(preco) || preco <= 0) return { erro: 'Informe um preço maior que zero.' };
+  const v = lerValidadeDias(d.validadeTxt, d.semValidade);
+  if (v.erro) return { erro: v.erro };
+  if (!d.composicaoTravada && d.qtdServicos === 0) return { erro: 'Adicione pelo menos um serviço ao pacote.' };
+  return { erro: null, preco, validadeDias: v.valor };
+}
+
+// ── Venda (valores) ─────────────────────────────────────────────────────────────────────────
+
+const emCentavos = (v: number) => Math.round(v * 100);
+
+/** Quantidade de unidades aceita pela venda: inteiro de 1 a 100 (contrato da `vender_pacote`). */
+export function quantidadeValida(q: number): boolean {
+  return Number.isInteger(q) && q >= 1 && q <= 100;
+}
+
+/**
+ * Subtotal da venda pela mesma conta da `vender_pacote`: o valor unitário arredondado em centavos
+ * × a quantidade. Quantidade ou valor inválidos → 0 (a tela bloqueia com o motivo).
+ */
+export function subtotalVendaPacote(valorUnit: number, quantidade: number): number {
+  if (!quantidadeValida(quantidade) || !(valorUnit >= 0)) return 0;
+  return (emCentavos(valorUnit) * quantidade) / 100;
+}
+
+/**
+ * `valor_pago` de cada unidade (mesma regra da `vender_pacote`, contrato): o líquido
+ * (valorUnit × quantidade − desconto) dividido em centavos; o resto, 1 centavo cada, vai nas primeiras
+ * unidades. A soma bate com o total da venda.
+ */
+export function ratearValorPago(valorUnit: number, quantidade: number, desconto: number): number[] {
+  const n = Math.max(1, Math.floor(quantidade));
+  const liquido = Math.max(0, emCentavos(valorUnit) * n - emCentavos(desconto));
+  const base = Math.floor(liquido / n);
+  const resto = liquido - base * n;
+  return Array.from({ length: n }, (_, i) => (base + (i < resto ? 1 : 0)) / 100);
+}
+
+// ── Vendidos (lista) ────────────────────────────────────────────────────────────────────────
+
+export type FiltroVendidos = 'todos' | 'ativo' | 'concluido' | 'expirado' | 'a_cobrar';
+
+/** Pacote "a cobrar": cobrança pendente e não cancelado (selo e filtro "A cobrar"). */
+export function estaACobrar(v: { cobranca: 'paga' | 'pendente'; statusExibido: StatusPacoteCliente }): boolean {
+  return v.cobranca === 'pendente' && v.statusExibido !== 'cancelado';
+}
+
+/**
+ * Filtro da aba Vendidos. "A cobrar" = `estaACobrar`; os demais pelo status exibido. Cancelado só
+ * aparece em Todos (contrato).
+ */
+export function filtrarVendidos<T extends { statusExibido: StatusPacoteCliente; cobranca: 'paga' | 'pendente' }>(
+  lista: T[], filtro: FiltroVendidos,
+): T[] {
+  if (filtro === 'todos') return lista;
+  if (filtro === 'a_cobrar') return lista.filter(estaACobrar);
+  return lista.filter(v => v.statusExibido === filtro);
+}
+
+/** Rótulo do status exibido (cartões, filtros e exportação). */
+export const ROTULO_STATUS_PACOTE: Record<StatusPacoteCliente, string> = {
+  ativo: 'Ativo', concluido: 'Concluído', expirado: 'Expirado', cancelado: 'Cancelado',
+};
+
+/** Status na exportação de Vendidos: "Ativo · A cobrar" quando a cobrança está pendente. */
+export function rotuloStatusVendido(v: { cobranca: 'paga' | 'pendente'; statusExibido: StatusPacoteCliente }): string {
+  const r = ROTULO_STATUS_PACOTE[v.statusExibido];
+  return estaACobrar(v) ? `${r} · A cobrar` : r;
+}
+
+// ── Excluir pacote vendido ──────────────────────────────────────────────────────────────────
+
+export const MSG_SESSOES_USADAS = 'Este pacote já tem sessões usadas. Para cancelar, fale com a dona.';
+
+/**
+ * Sem a 096 a exclusão de pacote vendido fica indisponível: o caminho antigo apagava só o pacote e a
+ * venda dele continuava no faturamento.
+ */
+export const MSG_EXCLUSAO_SEM_096 =
+  'Excluir pacote vendido ainda não está disponível: a venda dele continuaria no faturamento. Fale com a dona.';
+
+export const TITULO_EXCLUIR_VENDIDO = 'Excluir pacote vendido?';
+
+/** Texto da confirmação de exclusão de pacote vendido (web e app). */
+export function textoExcluirVendido(v: { pacote: string; cliente: string; aCobrar: boolean }): string {
+  return v.aCobrar
+    ? `O pacote "${v.pacote}" a cobrar de ${v.cliente} será excluído e não entrará mais na comanda. Sem volta.`
+    : `O pacote "${v.pacote}" de ${v.cliente} será excluído. Se ele foi cobrado sozinho, a venda e o pagamento saem do faturamento; com outros pacotes na mesma venda, só o valor dele sai (a devolução é manual). Atendimentos vinculados serão desvinculados. Sem volta.`;
 }
