@@ -23,7 +23,9 @@ const modaisAutonomos: [string, string[]][] = [
   ['app/(app)/equipe/page.tsx',        ['NovoProfModal', 'EditInfoModal']],
   ['app/(app)/estoque/page.tsx',       ['ProdutoModal', 'MovModal']],
   ['app/(app)/financeiro/page.tsx',    ['NovaDespesaModal', 'MarcarPagoModal', 'EditarDespesaModal', 'ConfirmarPagamentoTaxaModal']],
-  ['app/(app)/pacotes/page.tsx',       ['PacoteModal', 'VenderModal', 'SessoesModal']],
+  ['components/pacotes/PacoteForm.tsx',        ['PacoteForm']],
+  ['components/pacotes/VenderPacoteModal.tsx', ['VenderPacoteModal']],
+  ['components/pacotes/GerenciarSessoes.tsx',  ['GerenciarSessoes']],
   ['app/(app)/servicos/page.tsx',      ['ServicoModal']],
 ];
 
@@ -69,7 +71,9 @@ describe('trava de scroll nos modais embutidos', () => {
       'app/(app)/equipe/page.tsx':                   2,
       'app/(app)/estoque/page.tsx':                  2,
       'app/(app)/financeiro/page.tsx':               8,
-      'app/(app)/pacotes/page.tsx':                  3,
+      'components/pacotes/PacoteForm.tsx':           1, // pacotes: modais extraídos da página (Task 5)
+      'components/pacotes/VenderPacoteModal.tsx':    1,
+      'components/pacotes/GerenciarSessoes.tsx':     1,
       'app/(app)/servicos/page.tsx':                 1,
       'components/ConfirmDialog.tsx':                1,
       'components/Sidebar.tsx':                      1,

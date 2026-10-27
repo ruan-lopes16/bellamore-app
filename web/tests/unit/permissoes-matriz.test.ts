@@ -113,11 +113,6 @@ describe('matriz de permissões — UPDATE/DELETE sempre com .select (sem sucess
     'web/app/(app)/configuracoes/page.tsx empresas.update': 'logo da empresa: só a dona chega aqui',
     'web/app/(app)/configuracoes/page.tsx users.update': 'perfil da própria pessoa',
     'web/app/(app)/notificacoes/page.tsx notificacoes.update': 'notificações da própria pessoa',
-    'web/app/(app)/pacotes/page.tsx pacote_servicos.delete': 'remover 0 serviços é legítimo; mesma chave da tela (pacotes.gerenciar)',
-    'web/app/(app)/pacotes/page.tsx pacote_servicos.upsert': 'mesma chave da tela (pacotes.gerenciar); erro conferido',
-    'web/app/(app)/pacotes/page.tsx agendamentos.update': 'excluir venda: desvincular 0 atendimentos é legítimo; o DELETE seguinte confere',
-    'web/app/(app)/pacotes/page.tsx pacote_clientes.delete': 'pacote_clientes liberado a todo membro (F7)',
-    'web/app/(app)/pacotes/page.tsx pacote_clientes.update': 'pacote_clientes liberado a todo membro (F7)',
     'web/app/api/convites/route.ts users.update': 'service role',
     'web/app/api/cron/lembretes/route.ts web_push_subscriptions.delete': 'service role',
     'web/app/api/cron/lembretes/route.ts agendamentos.update': 'service role',
@@ -189,7 +184,7 @@ describe('matriz de permissões — correções de tela', () => {
   });
 
   it('vincular atendimento ao pacote: vínculo conferido antes de lançar a sessão (D8)', () => {
-    for (const p of ['web/app/(app)/pacotes/page.tsx', 'mobile/app/(empresa)/pacotes.tsx']) {
+    for (const p of ['web/components/pacotes/GerenciarSessoes.tsx', 'mobile/app/(empresa)/pacotes.tsx']) {
       const src = tela(p);
       const ini = src.indexOf('async function vincularAtendimento');
       const corpo = src.slice(ini, src.indexOf('\n  }', ini));
