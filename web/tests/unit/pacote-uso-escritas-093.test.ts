@@ -29,7 +29,7 @@ describe('erroEscritaPacoteUso', () => {
 });
 
 describe('telas Pacotes (web e app): toda escrita em pacote_uso confere as linhas', () => {
-  for (const arq of ['web/app/(app)/pacotes/page.tsx', 'mobile/app/(empresa)/pacotes.tsx']) {
+  for (const arq of ['web/components/pacotes/GerenciarSessoes.tsx', 'mobile/app/(empresa)/pacotes.tsx']) {
     const s = ler(arq);
     it(`${arq}: insert, update e delete com .select('id')`, () => {
       const escritas = s.match(/from\('pacote_uso'\)\.(insert|update|delete)\([\s\S]*?;/g) ?? [];

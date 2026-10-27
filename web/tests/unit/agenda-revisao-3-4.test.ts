@@ -79,7 +79,8 @@ describe('web: nova tentativa depois de falha nos serviços não duplica (igual 
   it('guarda o id criado e só regrava as linhas', () => {
     expect(web).toContain('setIdCriado({ id: agId');
     expect(web).toMatch(/if \(idCriado\)/);
-    expect(web).toContain('pacoteVendidoRef');
+    // A venda de pacote saiu do salvar (VenderPacoteModal grava na hora, com chave contra repetição).
+    expect(web).not.toContain('pacoteVendidoRef');
   });
 });
 

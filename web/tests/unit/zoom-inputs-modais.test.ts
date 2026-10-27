@@ -63,7 +63,7 @@ describe('modais ancorados no viewport dinamico', () => {
     expect(agenda).toContain("maxHeight: '62dvh'");
 
     expect(read('app/(app)/financeiro/page.tsx')).toContain('max-h-[90dvh]');
-    expect(read('app/(app)/pacotes/page.tsx')).toContain('max-h-[94dvh]');
+    expect(read('components/pacotes/PacoteForm.tsx')).toContain('max-h-[94dvh]');
 
     const vendas = read('app/(app)/vendas/page.tsx');
     expect(vendas).toContain('max-h-[50dvh]');

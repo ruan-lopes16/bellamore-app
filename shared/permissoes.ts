@@ -129,6 +129,30 @@ export function podeEditarAnamnese(p: PodeFn): boolean {
   return p('anamnese.ver') && p('anamnese.editar');
 }
 
+/**
+ * O que a pessoa pode fazer num pacote vendido (Pacotes, web e app), igual à RLS:
+ * - `excluir` e `marcarCombo`: "pacotes.vender" (`excluir_pacote_cliente` exige a mesma chave);
+ * - `gerenciarSessoes`: sempre — pela RLS de `pacote_uso` (093) a profissional mexe nas sessões dos
+ *   PRÓPRIOS atendimentos mesmo sem chave nenhuma (vincular, editar, excluir);
+ * - `lancarAvulsa`: sessão sem atendimento só com "pacotes.vender";
+ * - `vincularDeOutras`: vincular atendimento de outra profissional exige "agenda.gerenciar_outras"
+ *   (o vínculo é um UPDATE em `agendamentos`, cuja policy só libera a própria agenda sem essa chave).
+ */
+export function acoesPacoteVendido(p: PodeFn): {
+  excluir: boolean; marcarCombo: boolean; gerenciarSessoes: boolean; lancarAvulsa: boolean; vincularDeOutras: boolean;
+} {
+  const vender = p('pacotes.vender');
+  return { excluir: vender, marcarCombo: vender, gerenciarSessoes: true, lancarAvulsa: vender, vincularDeOutras: p('agenda.gerenciar_outras') };
+}
+
+/** Atendimentos que a pessoa pode vincular a um pacote: os dela, ou todos com `vincularDeOutras`. */
+export function atendimentosVinculaveis<T extends { profissional_id: string | null }>(
+  lista: T[], userId: string | null, vincularDeOutras: boolean,
+): T[] {
+  if (vincularDeOutras) return lista;
+  return userId ? lista.filter(a => a.profissional_id === userId) : [];
+}
+
 /** Chaves ligadas por padrão para o papel (comportamento de antes da feature). */
 export function permissoesPadrao(papel: Papel | null): ChavePermissao[] {
   if (!papel) return [];

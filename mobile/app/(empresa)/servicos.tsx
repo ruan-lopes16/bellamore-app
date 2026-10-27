@@ -34,6 +34,8 @@ import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoServicos } from '@shared/exportacao/servicos';
 import { formatarDuracao } from '@shared/dominio';
 import { formatarMoeda } from '@shared/moeda';
+import { mensagemErroBanco } from '@shared/erros';
+import { definirAtivoServico } from '@/components/servicos/servicos-gravacao';
 
 /** Cor/fundo/label/ícone de uma chave de categoria resolvida (built-in ou id de personalizada). */
 function infoChave(chave: string, customs: CategoriaCustom[]): {
@@ -73,6 +75,7 @@ function useServicos() {
           .eq('empresa_id', empresaId!).order('nome'),
       ]);
       if (rServ.error) throw rServ.error;
+      if (rCat.error) throw rCat.error;
       return {
         servicos: (rServ.data ?? []) as Servico[],
         categorias: (rCat.data ?? []) as CategoriaCustom[],
@@ -129,7 +132,7 @@ function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Clock size={11} color={C.text4} strokeWidth={2} />
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>
-              {servico.duracao_minutos} min
+              {formatarDuracao(servico.duracao_minutos)}
             </Text>
           </View>
           {servico.custo > 0 && (
@@ -168,7 +171,7 @@ export default function Servicos() {
   const { pode } = usePermissoes();
   const qc = useQueryClient();
 
-  const { data, isLoading, refetch } = useServicos();
+  const { data, isLoading, isError, error, refetch } = useServicos();
   const servicos = data?.servicos ?? [];
   const categorias = data?.categorias ?? [];
   const [gerenciar, setGerenciar] = useState(false);
@@ -197,13 +200,9 @@ export default function Servicos() {
   const ativos = servicos.filter((s) => s.ativo).length;
 
   async function toggleServico(s: Servico) {
-    const { data: alterados, error } = await supabase
-      .from('servicos')
-      .update({ ativo: !s.ativo })
-      .eq('id', s.id)
-      .select('id');
-    if (error) { Alert.alert('Erro', error.message); return; }
-    if (!alterados || alterados.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar serviços.'); return; }
+    // Mesma gravação do cadastro: linhas conferidas e erro traduzido (mensagemErroBanco).
+    const err = await definirAtivoServico(s.id, !s.ativo);
+    if (err) { Alert.alert('Não foi possível alterar o serviço', err); return; }
     qc.invalidateQueries({ queryKey: ['servicos-gestao'] });
     qc.invalidateQueries({ queryKey: ['servicos-empresa'] });
   }
@@ -275,9 +274,10 @@ export default function Servicos() {
           style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 20 }}
         >
           {[
-            { value: total,           label: 'Total',    color: C.primary },
-            { value: ativos,          label: 'Ativos',   color: C.green },
-            { value: total - ativos,  label: 'Inativos', color: C.text3 },
+            // Carregando ou com erro: "—", nunca zeros.
+            { value: isError || isLoading ? '—' : total,          label: 'Total',    color: C.primary },
+            { value: isError || isLoading ? '—' : ativos,         label: 'Ativos',   color: C.green },
+            { value: isError || isLoading ? '—' : total - ativos, label: 'Inativos', color: C.text3 },
           ].map((s) => (
             <View key={s.label} style={{
               flex: 1, backgroundColor: C.surface,
@@ -326,6 +326,21 @@ export default function Servicos() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, marginLeft: 'auto' as any }}>
                   {items.length} {items.length === 1 ? 'serviço' : 'serviços'}
                 </Text>
+                {podeGerenciar && (
+                  <TouchableOpacity
+                    onPress={() => router.push({
+                      pathname: '/(empresa)/novo-servico',
+                      params: categorias.some((c) => c.id === chave) ? { categoriaId: chave } : { categoria: chave },
+                    } as any)}
+                    accessibilityLabel={`Novo serviço em ${info.label}`}
+                    style={{
+                      width: 28, height: 28, borderRadius: 8, backgroundColor: C.surface,
+                      borderWidth: 1, borderColor: `${cor}40`, alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    <Plus size={14} color={cor} strokeWidth={2.5} />
+                  </TouchableOpacity>
+                )}
               </View>
 
               {/* Cards */}
@@ -342,7 +357,18 @@ export default function Servicos() {
           );
         })}
 
-        {servicos.length === 0 && !isLoading && (
+        {isError && (
+          <View style={{ marginHorizontal: 24, marginBottom: 16, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#F5C2C7', borderRadius: 16, padding: 16, alignItems: 'center', gap: 10 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: '#C0392B', textAlign: 'center' }}>
+              {mensagemErroBanco(error as { code?: string; message?: string }, 'carregar os serviços')}
+            </Text>
+            <TouchableOpacity onPress={() => refetch()} style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 8 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#fff' }}>Tentar de novo</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {servicos.length === 0 && !isLoading && !isError && (
           <View style={{ marginHorizontal: 24, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 32, alignItems: 'center', gap: 12 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
               Nenhum serviço cadastrado ainda.

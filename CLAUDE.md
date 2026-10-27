@@ -1361,6 +1361,41 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-23/27 — Paridade Serviços e Pacotes (096)
+
+*Escopo: Serviços e Pacotes iguais no web e no app, e a venda de pacote unificada no banco. Migration 096: `vender_pacote`*
+*("Cobrar agora" grava pacote + venda + pagamentos; "Cobrar na comanda" grava o pacote "a cobrar"), `fechar_comanda` cobra o*
+*pendente (rateio do desconto, `venda_id`/`comanda_id` ligados), `excluir_pacote_cliente` (apaga a venda junto; recusa pacote com*
+*sessão usada ou cobrado na comanda), `excluir_servico` (só serviço nunca usado), guardas que impedem pacote cobrado sem venda pela*
+*API e valor fora do catálogo sem `comanda.desconto`. Shared: `pacotes.ts` (validade com último dia valendo, saldo, status,*
+*validação, rateio), `servicos.ts`/`servicos-consultas.ts` (validação, insumos por diferença, exclusão), `pacotes-venda.ts`,*
+*`pacotes-consultas.ts`. App ganhou insumos, duração livre, Combo, ilimitado, validade livre/sem validade, vender pelo catálogo,*
+*filtro "A cobrar" e aba Relatório; Agenda e Comanda das duas plataformas pela mesma venda. 8 tasks + revisões + revisão final (opus).*
+*Spec, plano e contrato: `docs/superpowers/{specs,plans}/2026-10-23-paridade-servicos-pacotes*`, `docs/superpowers/notes/2026-10-23-contrato-pacotes.md`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 2607/2607; mobile com os mesmos 8 erros pré-existentes; `next build` OK |
+| UX / Padrões    | 9.0  | Mesmos textos, abas, filtros e confirmações nas duas plataformas (constantes em shared); bloco de pagamento igual à Venda avulsa |
+| Segurança       | 9.5  | Guardas no banco: nenhum pacote cobrado sem venda, nenhum pendente trocado de pacote/cliente, venda de pacote não apagável direto, valor fora do catálogo exige `comanda.desconto`; exclusões conferem empresa e permissão |
+| Documentação    | 9.0  | Spec, plano, contrato do JSON das funções, nota de deploy com conferências |
+| Arquitetura     | 9.5  | Uma venda de pacote para Pacotes, Agenda e Comanda; teste encadeado 090→096 confere a soma do faturamento caminho a caminho; teste cruzado de paridade |
+| Performance     | 9.0  | Cargas paginadas; 1 chamada por venda |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Todos os itens do inventário de Serviços/Pacotes; menores registrados abaixo |
+| **Proatividade**| 9.5  | Revisões acharam: venda pelo catálogo fora do faturamento (pré-existente); serviço excluído saindo de pacotes já vendidos; pacote cobrado sem venda pela API; pendente cobrado por R$ 0 sem permissão; valor abaixo do catálogo sem permissão; pendente trocado por pacote mais caro; insumos apagados se o reinsert falhasse |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Decisões do dono (2026-10-23):** venda fora da Comanda com "Cobrar agora" ou "Cobrar na comanda" (Agenda abre em "Cobrar na comanda"); tudo entra no faturamento uma vez, com o desconto certo. Decididos na fase: serviço e pacote com preço > 0 (cortesia é dada no atendimento); excluir serviço só se nunca usado.
+
+**Pendências para produção:** seguir `docs/superpowers/notes/2026-10-27-deploy-servicos-pacotes.md` — **096 antes do deploy**, depois merge e pedir para fecharem e abrirem o PWA.
+
+**Registrados, não corrigidos:** valor de qualquer item da comanda editável sem `comanda.desconto` — **decisão do dono em 2026-10-27: manter assim**; excluir 1 unidade de "Cobrar agora" com várias deixa os pagamentos (devolução manual); relatório de Pacotes conta pacotes antigos vendidos pelo catálogo sem venda (só histórico); validade em UTC no trigger 036/037; pacote misto exibido como ilimitado; produtos de insumos sem paginação; telas novo/editar do app sem guarda de `servicos.gerenciar`; gestora sem `pacotes.vender` não vê "Excluir".
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

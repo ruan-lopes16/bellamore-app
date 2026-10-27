@@ -23,6 +23,12 @@ import {
 } from '@shared/categorias';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { formatarDuracao } from '@shared/dominio';
+import { validarServico, DURACOES_PADRAO, lerPrecoServico } from '@shared/servicos';
+import { parseValorBR } from '@shared/comanda-fechamento';
+import {
+  excluirServicoConferido, sincronizarInsumos, mapearInsumosCarregados,
+  SELECT_INSUMOS_SERVICO, MSG_SERVICO_USADO, type InsumoItem,
+} from '@shared/servicos-consultas';
 
 const supabase = createClient();
 
@@ -52,14 +58,8 @@ const CATEGORIAS: { key: CategoriaKey; label: string; icon: React.ElementType; c
 ];
 
 
-const DURACOES = [
-  { label: '30 min', valor: 30  },
-  { label: '45 min', valor: 45  },
-  { label: '1h',     valor: 60  },
-  { label: '1h30',   valor: 90  },
-  { label: '2h',     valor: 120 },
-  { label: '3h',     valor: 180 },
-];
+/** Atalhos de duração vindos da regra única (shared/servicos.ts). */
+const DURACOES = DURACOES_PADRAO.map(valor => ({ label: formatarDuracao(valor), valor }));
 
 
 // ── Inputs ────────────────────────────────────────────────────
@@ -72,13 +72,6 @@ const labelClass = "block text-xs font-semibold text-text-2 uppercase tracking-w
 type ModalState =
   | { modo: 'criar'; categoria?: CategoriaKey; categoriaId?: string }
   | { modo: 'editar'; servico: Servico };
-
-type InsumoItem = {
-  produto_id: string;
-  nome: string;
-  unidade: string;
-  quantidade: string; // string p/ input controlado
-};
 
 function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCriada }: {
   empresaId: string;
@@ -110,6 +103,7 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
   const [horasInput,        setHorasInput]        = useState(String(Math.floor(duracaoInicial / 60)));
   const [minutosInput,      setMinutosInput]      = useState(String(duracaoInicial % 60));
   const [salvando,  setSalvando]  = useState(false);
+  const [criadoId,  setCriadoId]  = useState<string | null>(null);
   const [erro,      setErro]      = useState('');
   const [sucesso,   setSucesso]   = useState<Servico | null>(null);
 
@@ -117,25 +111,32 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
   const [produtos,    setProdutos]    = useState<{ id: string; nome: string; unidade: string }[]>([]);
   const [insumos,     setInsumos]     = useState<InsumoItem[]>([]);
   const [addProdId,   setAddProdId]   = useState('');
+  // Receita gravada (ids de produto): a gravação é por diferença contra ela.
+  const [insumosOriginais, setInsumosOriginais] = useState<string[]>([]);
+  // Em edição, só deixa salvar depois de carregar os insumos (senão a sincronização apagaria a receita).
+  const [insumosCarregados, setInsumosCarregados] = useState(!editando);
 
   useEffect(() => {
     (async () => {
       // Busca produtos da empresa para o select
-      const { data: prods } = await supabase.from('produtos').select('id, nome, unidade')
+      const { data: prods, error: errProds } = await supabase.from('produtos').select('id, nome, unidade')
         .eq('empresa_id', empresaId).eq('ativo', true).order('nome');
+      if (errProds) setErro(mensagemErroBanco(errProds, 'carregar os produtos'));
       setProdutos((prods ?? []) as { id: string; nome: string; unidade: string }[]);
 
       // Busca insumos já vinculados (só no modo editar)
       if (editando) {
-        const { data: ins } = await supabase.from('servico_produtos')
-          .select('produto_id, quantidade, produto:produtos(nome, unidade)')
+        const { data: ins, error: errInsCarga } = await supabase.from('servico_produtos')
+          .select(SELECT_INSUMOS_SERVICO)
           .eq('servico_id', editando.id);
-        setInsumos(((ins ?? []) as any[]).map(r => ({
-          produto_id: r.produto_id,
-          nome:       r.produto.nome,
-          unidade:    r.produto.unidade,
-          quantidade: String(r.quantidade),
-        })));
+        if (errInsCarga) {
+          setErro(mensagemErroBanco(errInsCarga, 'carregar os insumos do serviço') + ' Feche e abra o serviço de novo para editar.');
+          return;
+        }
+        const carregados = mapearInsumosCarregados((ins ?? []) as unknown[]);
+        setInsumos(carregados);
+        setInsumosOriginais(carregados.map(i => i.produto_id));
+        setInsumosCarregados(true);
       }
     })();
   }, [empresaId, editando?.id]);
@@ -156,32 +157,15 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
     setInsumos(prev => prev.map(i => i.produto_id === prodId ? { ...i, quantidade: qtd } : i));
   }
 
-  /**
-   * Apaga os insumos existentes e reinsere. Retorna mensagem de erro ou null. Antes os erros
-   * eram ignorados: a policy da 008 só deixava a dona gravar, então a gestora (com
-   * servicos.gerenciar) via "salvo" e a receita de insumos não mudava (corrigido na 089).
-   */
-  async function sincronizarInsumos(servicoId: string): Promise<string | null> {
-    const { error: errDel } = await supabase.from('servico_produtos').delete().eq('servico_id', servicoId);
-    if (errDel) return mensagemErroBanco(errDel, 'salvar os insumos do serviço');
-    const validos = insumos.filter(i => parseFloat(i.quantidade.replace(',', '.')) > 0);
-    if (validos.length === 0) return null;
-    const { error: errIns } = await supabase.from('servico_produtos').insert(
-      validos.map(i => ({
-        servico_id: servicoId,
-        produto_id: i.produto_id,
-        quantidade: parseFloat(i.quantidade.replace(',', '.')) || 1,
-      })),
-    );
-    return errIns ? mensagemErroBanco(errIns, 'salvar os insumos do serviço') : null;
-  }
-
-  const podeSalvar = nome.trim().length > 0 && parseFloat(preco.replace(',', '.')) > 0;
-
-  function parseValor(v: string) { return parseFloat(v.replace(',', '.')) || 0; }
+  // Insumos gravados por diferença (shared/servicos-consultas.ts, igual ao app): uma falha nunca
+  // apaga a receita inteira. Em edição, salvar espera os insumos carregarem.
+  const podeSalvar = nome.trim().length > 0 && preco.trim().length > 0 && insumosCarregados;
 
   async function salvar() {
-    if (!podeSalvar) return;
+    if (!podeSalvar || salvando) return;
+    const precoNum = lerPrecoServico(preco);
+    const msgInvalido = validarServico({ nome, preco: precoNum, duracao });
+    if (msgInvalido) { setErro(msgInvalido); return; }
     setErro(''); setSalvando(true);
 
     const payload = {
@@ -190,29 +174,39 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
       descricao:       descricao.trim() || null,
       categoria:       categoriaId ? null : categoria,
       categoria_id:    categoriaId,
-      preco:           parseValor(preco),
-      custo:           parseValor(custo),
+      preco:           precoNum,
+      custo:           parseValorBR(custo),
       duracao_minutos: duracao,
       ativo:           editando?.ativo ?? true,
     };
 
-    if (editando) {
+    // Depois de criar, uma nova tentativa (falha nos insumos) edita o mesmo serviço, nunca duplica.
+    const idSalvar = editando?.id ?? criadoId;
+    let salvo: Servico;
+    if (idSalvar) {
       const { data, error } = await supabase
-        .from('servicos').update(payload).eq('id', editando.id).select().single();
-      if (error) { setSalvando(false); setErro(error.message); return; }
-      const errIns = await sincronizarInsumos(editando.id);
-      setSalvando(false);
-      if (errIns) { setErro(`Serviço salvo, mas os insumos não: ${errIns}`); return; }
-      setSucesso(data as Servico);
+        .from('servicos').update(payload).eq('id', idSalvar).eq('empresa_id', empresaId).select();
+      if (error || !data || data.length === 0) {
+        setSalvando(false);
+        setErro(mensagemErroBanco(error ?? { code: '42501' }, 'salvar o serviço'));
+        return;
+      }
+      salvo = data[0] as Servico;
     } else {
       const { data, error } = await supabase
         .from('servicos').insert(payload).select().single();
-      if (error) { setSalvando(false); setErro(error.message); return; }
-      const errIns = await sincronizarInsumos((data as Servico).id);
-      setSalvando(false);
-      if (errIns) { setErro(`Serviço criado, mas os insumos não: ${errIns}`); return; }
-      setSucesso(data as Servico);
+      if (error || !data) {
+        setSalvando(false);
+        setErro(mensagemErroBanco(error ?? { code: '42501' }, 'criar o serviço'));
+        return;
+      }
+      salvo = data as Servico;
+      setCriadoId(salvo.id);
     }
+    const errIns = await sincronizarInsumos(supabase, salvo.id, insumosOriginais, insumos);
+    setSalvando(false);
+    if (errIns) { setErro(`${editando ? 'Serviço salvo' : 'Serviço criado'}, mas os insumos não: ${errIns}`); return; }
+    setSucesso(salvo);
   }
 
   useEffect(() => {
@@ -347,7 +341,7 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
                     : 'bg-bg border-border text-text-3 hover:border-accent'
                 }`}>
                 <Clock size={11} strokeWidth={2}/>
-                Personalizado
+                Personalizada
               </button>
             </div>
             {duracaoPersonal && (
@@ -409,7 +403,7 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-text truncate">{nome || 'Nome do serviço'}</p>
               <p className="text-xs text-text-3 mt-0.5">
-                {formatarDuracao(duracao)} · {preco ? fmtBRL(parseValor(preco)) : 'Preço não definido'}
+                {formatarDuracao(duracao)} · {preco ? fmtBRL(lerPrecoServico(preco) || 0) : 'Preço não definido'}
               </p>
             </div>
           </div>
@@ -580,6 +574,9 @@ export default function ServicosPage() {
   const [colapsos,    setColapsos]    = useState<Set<string>>(new Set(CATEGORIAS.map(c => c.key)));
   const [excluindoId,   setExcluindoId]   = useState<string | null>(null);
   const [toastErro,     setToastErro]     = useState('');
+  const [erroCarga,     setErroCarga]     = useState('');
+  // Exclusão recusada porque o serviço já foi usado: oferece Desativar (igual ao app).
+  const [usadoServico,  setUsadoServico]  = useState<Servico | null>(null);
   const [toastSucesso,  setToastSucesso]  = useState('');
 
   const { pode } = usePermissoes();
@@ -597,16 +594,29 @@ export default function ServicosPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-      if (!membro) return;
+      const { data: membro, error: errMembro } = await supabase.from('empresa_membros').select('empresa_id')
+        .eq('user_id', user.id).eq('ativo', true).limit(1).maybeSingle();
+      if (errMembro || !membro) {
+        setErroCarga(errMembro ? mensagemErroBanco(errMembro, 'carregar a empresa') : 'Você não faz parte de nenhuma empresa ativa.');
+        setLoading(false);
+        return;
+      }
       setEmpresaId(membro.empresa_id);
-      const [{ data: servs }, { data: cats }] = await Promise.all([
+      const [{ data: servs, error: errServs }, { data: cats, error: errCats }] = await Promise.all([
         supabase.from('servicos').select('*')
           .eq('empresa_id', membro.empresa_id).order('categoria').order('nome'),
         supabase.from('categorias_servico').select('*')
           .eq('empresa_id', membro.empresa_id).order('nome'),
       ]);
+      if (errServs || errCats) {
+        // Sem a lista certa, nunca mostra zeros nem "Nenhum serviço" (e categorias faltando
+        // jogariam serviços de categoria personalizada no grupo errado).
+        setErroCarga(errServs
+          ? mensagemErroBanco(errServs, 'carregar os serviços')
+          : mensagemErroBanco(errCats, 'carregar as categorias'));
+        setLoading(false);
+        return;
+      }
       setServicos((servs ?? []) as Servico[]);
       const catsList = (cats ?? []) as CategoriaCustom[];
       setCategorias(catsList);
@@ -617,14 +627,13 @@ export default function ServicosPage() {
 
   async function excluirServico(s: Servico) {
     setExcluindoId(null);
-    const { data: apagados, error } = await supabase.from('servicos').delete().eq('id', s.id).select('id');
-    if (!error && (!apagados || apagados.length === 0)) {
-      setToastErro('Você não tem permissão para excluir serviços.');
-      setTimeout(() => setToastErro(''), 4500);
-      return;
-    }
-    if (error) {
-      setToastErro('Serviço possui atendimentos vinculados — desative-o em vez de excluir.');
+    if (!empresaId) return;
+    try {
+      await excluirServicoConferido(supabase, empresaId, s.id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Não foi possível excluir o serviço.';
+      if (msg === MSG_SERVICO_USADO && s.ativo) { setUsadoServico(s); return; }
+      setToastErro(msg);
       setTimeout(() => setToastErro(''), 4500);
       return;
     }
@@ -691,6 +700,27 @@ export default function ServicosPage() {
         </div>
       )}
 
+      {usadoServico && (
+        <div className="bm-modal fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setUsadoServico(null)}/>
+          <div className="relative bg-surface rounded-2xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4">
+            <p className="font-serif text-lg text-text">Não foi possível excluir</p>
+            <p className="text-sm text-text-2">{MSG_SERVICO_USADO}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setUsadoServico(null)}
+                className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">
+                Cancelar
+              </button>
+              <button onClick={() => { const s = usadoServico; setUsadoServico(null); toggleAtivo(s); }}
+                className="flex-1 h-10 rounded-xl text-white text-sm font-bold transition"
+                style={{ background: 'var(--color-rose)' }}>
+                Desativar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header Bellamore */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
@@ -720,6 +750,14 @@ export default function ServicosPage() {
         </div>
       </div>
 
+      {erroCarga ? (
+        <div className="text-center py-10 rounded-2xl" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+          <p className="text-sm mb-3" style={{ color: 'var(--color-rose)' }}>{erroCarga}</p>
+          <button onClick={() => window.location.reload()} className="text-sm font-bold" style={{ color: 'var(--color-accent)' }}>
+            Tentar de novo
+          </button>
+        </div>
+      ) : (<>
       {/* Stats */}
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
@@ -854,6 +892,7 @@ export default function ServicosPage() {
           })}
         </div>
       )}
+      </>)}
 
       {/* Modal */}
       {modal && empresaId && (

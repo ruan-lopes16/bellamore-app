@@ -39,7 +39,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import SuccessCheck from '@/components/SuccessCheck';
 import PagamentosEditor, { METODOS_PAGAMENTO } from '@/components/comanda/PagamentosEditor';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
-import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { calcularPacotesAtivosCliente, dataValidade, type PacoteClienteOpt } from '@shared/pacotes';
 import {
   marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, linhasConferemComValor,
   descricaoLinhasAgrupadas, type ComandaSoExtras,
@@ -58,7 +58,8 @@ import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 import {
   carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens,
 } from '@shared/comanda-consultas';
-import { limitesDias, chaveDiaExibido } from '@shared/periodos';
+import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
+import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
 import {
@@ -66,6 +67,8 @@ import {
   ErroGravacaoComanda, mensagemFalhaGravacao, ehComandaJaFechada, AVISO_COMANDA_JA_FECHADA,
   assinaturaGravacao, chaveDaTentativa, tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_COMANDA_JA_GRAVADA,
   type TentativaSemResposta,
+  itensTelaACobrar, mesclarItensACobrar, exigeVenderPacote,
+  TEXTO_ITEM_A_COBRAR, TITULO_TIRAR_A_COBRAR, MSG_A_COBRAR_SEM_090, AVISO_PENDENTES_NAO_CARREGADOS,
 } from '@shared/comanda-gravacao';
 
 const C = {
@@ -124,6 +127,8 @@ type ComandaItem = {
   servico_id?: string;
   produto_id?: string;
   pacote_id?: string;
+  /** Pacote "a cobrar" (096): o `pacote_clientes` pendente que este item cobra. Ausente = pacote novo. */
+  pacote_cliente_id?: string;
   profissional_id?: string;
   /** Linha já gravada em `comanda_itens` (edição de comanda fechada). */
   item_id?: string;
@@ -488,14 +493,17 @@ export default function NovaComandaScreen() {
 
   useEffect(() => {
     if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) { setPacotesClienteAtivos([]); return; }
-    supabase.from('pacote_clientes')
-      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id, created_at, agendamento_id, servico:servicos(nome))')
-      .eq('empresa_id', empresaId)
-      .eq('cliente_id', clienteSel.id)
-      .eq('status', 'ativo')
-      .then(({ data }: { data: any[] | null }) => {
-        setPacotesClienteAtivos(calcularPacotesAtivosCliente((data ?? []) as any[], format(new Date(), 'yyyy-MM-dd')));
+    // Carga única (paginada, inclui os "a cobrar") e regra única de elegibilidade, no dia de Brasília
+    // (igual ao web e à Agenda).
+    let vivo = true;
+    carregarCandidatosVinculo(supabase, empresaId, clienteSel.id)
+      .then(rows => { if (vivo) setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT())); })
+      .catch(e => {
+        if (!vivo) return;
+        setPacotesClienteAtivos([]);
+        Alert.alert('Erro', mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
+    return () => { vivo = false; };
   }, [clienteSel?.id, empresaId]);
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) hoje */
@@ -538,7 +546,7 @@ export default function NovaComandaScreen() {
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
     setComandaExistenteId(null);
-    aberturaRef.current++;
+    const abertura = ++aberturaRef.current;
     setCargaFalhou(false);
     setCarregandoComanda(false);
     setItensOriginais([]);
@@ -580,6 +588,26 @@ export default function NovaComandaScreen() {
         }),
     );
     setEtapa('comanda');
+
+    // Pacotes "a cobrar" da cliente (vendidos com "Cobrar na comanda", 096) entram como itens
+    // "Pacote X — a cobrar", removíveis. Sem a 096 a lista vem vazia. Só na comanda NOVA: na edição
+    // de comanda fechada os pacotes ficam congelados (abrirComandaFechada não passa por aqui).
+    // Resposta de uma abertura antiga (outra cliente/dia) é ignorada pelo contador. Igual ao web.
+    if (cliente.id !== '__sem__' && empresaId) {
+      carregarPendentesCliente(supabase, empresaId, cliente.id)
+        .then(pendentes => {
+          if (aberturaRef.current !== abertura) return;
+          const novos: ComandaItem[] = itensTelaACobrar(pendentes).map(i => ({
+            uid: uid(), tipo: 'pacote', descricao: i.descricao, valor: i.valor, quantidade: 1,
+            pacote_id: i.pacote_id, pacote_cliente_id: i.pacote_cliente_id,
+          }));
+          setItens(prev => mesclarItensACobrar(prev, novos));
+        })
+        .catch(e => {
+          if (aberturaRef.current !== abertura) return;
+          Alert.alert('Erro', `${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes a cobrar')} ${AVISO_PENDENTES_NAO_CARREGADOS}`);
+        });
+    }
   }
 
   /** Volta para a lista do dia; uma abertura de comanda fechada ainda em voo é descartada. */
@@ -1153,7 +1181,8 @@ export default function NovaComandaScreen() {
     if (comandasParciais[clienteSel.id]) { Alert.alert('Comanda não terminou de gravar', AVISO_COMANDA_PARCIAL); return; }
     // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois
     // de a comanda já ter sido criada — barra antes de gravar qualquer coisa.
-    if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
+    // O pacote "a cobrar" (já vendido) exige só comanda.fechar.
+    if (!podeVenderPacote && exigeVenderPacote(itens)) {
       Alert.alert('Sem permissão', 'Você não tem permissão para vender pacotes. Remova o pacote da comanda para fechar.');
       return;
     }
@@ -1197,6 +1226,14 @@ export default function NovaComandaScreen() {
     resolverPendente(cartao);
     if (resultadoFechamento.via === 'funcao') {
       concluirFechamento(chave, gruposFuncao, agIdsFuncao);
+      return;
+    }
+
+    // Caminho antigo (sem a 090): ele venderia um pacote NOVO no lugar do "a cobrar". Pendente só
+    // existe com a 096 (que vem depois da 090), então isto não acontece — mas nunca grava em dobro.
+    if (itens.some(i => i.pacote_cliente_id)) {
+      Alert.alert('Não é possível fechar', MSG_A_COBRAR_SEM_090);
+      setFechando(false);
       return;
     }
 
@@ -1320,20 +1357,18 @@ export default function NovaComandaScreen() {
     // 5. Vender pacotes adicionados na comanda (gera pacote_clientes para o cliente)
     const extrasPacotes = extras.filter(i => i.tipo === 'pacote' && i.pacote_id);
     if (extrasPacotes.length > 0 && clienteSel.id !== '__sem__') {
-      const hoje = new Date();
-      const dataInicio = format(hoje, 'yyyy-MM-dd');
+      // Dia de Brasília e validade pela regra única (shared/pacotes: sem validade = null).
+      const dataInicio = hojeBRT();
       const novasVendas = extrasPacotes.flatMap(i => {
         const pacoteInfo = pacotesCat.find(p => p.id === i.pacote_id);
         if (!pacoteInfo) return [];
-        const dataValidade = pacoteInfo.validade_dias != null
-          ? format(addDays(hoje, pacoteInfo.validade_dias), 'yyyy-MM-dd')
-          : null;
+        const validade = dataValidade(pacoteInfo.validade_dias, dataInicio);
         return Array.from({ length: Math.max(1, Math.round(i.quantidade)) }, () => ({
           empresa_id:    empresaId,
           pacote_id:     i.pacote_id!,
           cliente_id:    clienteSel.id,
           data_inicio:   dataInicio,
-          data_validade: dataValidade,
+          data_validade: validade,
           valor_pago:    i.valor,
           status:        'ativo',
         }));
@@ -1789,7 +1824,11 @@ export default function NovaComandaScreen() {
               const itemSoLeitura = emEdicao && (item.tipo === 'produto' || item.tipo === 'pacote');
               // Atendimento coberto por sessão de pacote: valor travado em R$ 0 (novo e edição).
               const cobertoPorPacote = item.tipo === 'agendamento' && !!item.agendamento_id && !!pacoteLinks[item.agendamento_id];
-              const valorSoLeitura = itemSoLeitura || cobertoPorPacote;
+              // Pacote "a cobrar": valor combinado na venda (a função recusa outro valor; desconto
+              // só pelo desconto da comanda) e quantidade 1. Pode sair da comanda (fica pendente).
+              const aCobrar = item.tipo === 'pacote' && !!item.pacote_cliente_id;
+              const valorSoLeitura = itemSoLeitura || cobertoPorPacote || aCobrar;
+              const qtdSoLeitura = emEdicao || aCobrar;
               const travadoComissao = emEdicao && !!item.comissao_paga;
               const podeRemover = (!emEdicao || item.tipo === 'servico') && !travadoComissao;
               const mostrarLixeira = podeRemover && (item.tipo !== 'agendamento' || (podeTirarAtendimento && !!item.agendamento_id));
@@ -1816,6 +1855,7 @@ export default function NovaComandaScreen() {
                   {mostrarLixeira && (
                     <TouchableOpacity
                       onPress={() => item.tipo === 'agendamento' ? tirarAtendimento(item.agendamento_id!) : removerItem(item.uid)}
+                      accessibilityLabel={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : aCobrar ? TITULO_TIRAR_A_COBRAR : 'Remover'}
                       style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
                       <Trash2 size={14} color={C.red} />
                     </TouchableOpacity>
@@ -1835,10 +1875,10 @@ export default function NovaComandaScreen() {
                       style={{ opacity: valorSoLeitura ? 0.6 : 1, minWidth: 80, borderWidth: 1, borderColor: C.border, borderRadius: 8, backgroundColor: C.surface, paddingHorizontal: 8, paddingVertical: 4, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}
                     />
                   </View>
-                  {item.tipo !== 'agendamento' && emEdicao && (
+                  {item.tipo !== 'agendamento' && qtdSoLeitura && (
                     <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text3 }}>Qtd {item.quantidade}</Text>
                   )}
-                  {item.tipo !== 'agendamento' && !emEdicao && (
+                  {item.tipo !== 'agendamento' && !qtdSoLeitura && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <TouchableOpacity onPress={() => atualizarQtd(item.uid, -1)}
                         style={{ width: 26, height: 26, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}>
@@ -1857,6 +1897,12 @@ export default function NovaComandaScreen() {
                     </Text>
                   )}
                 </View>
+                {aCobrar && !emEdicao && (
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 6 }}>
+                    {TEXTO_ITEM_A_COBRAR}
+                  </Text>
+                )}
+
 
                 {/* Profissional do serviço extra (gera a comissão) */}
                 {item.tipo === 'servico' && (
