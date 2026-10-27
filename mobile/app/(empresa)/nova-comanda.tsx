@@ -39,7 +39,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import SuccessCheck from '@/components/SuccessCheck';
 import PagamentosEditor, { METODOS_PAGAMENTO } from '@/components/comanda/PagamentosEditor';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
-import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { calcularPacotesAtivosCliente, dataValidade, type PacoteClienteOpt } from '@shared/pacotes';
 import {
   marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, linhasConferemComValor,
   descricaoLinhasAgrupadas, type ComandaSoExtras,
@@ -1357,20 +1357,18 @@ export default function NovaComandaScreen() {
     // 5. Vender pacotes adicionados na comanda (gera pacote_clientes para o cliente)
     const extrasPacotes = extras.filter(i => i.tipo === 'pacote' && i.pacote_id);
     if (extrasPacotes.length > 0 && clienteSel.id !== '__sem__') {
-      const hoje = new Date();
-      const dataInicio = format(hoje, 'yyyy-MM-dd');
+      // Dia de Brasília e validade pela regra única (shared/pacotes: sem validade = null).
+      const dataInicio = hojeBRT();
       const novasVendas = extrasPacotes.flatMap(i => {
         const pacoteInfo = pacotesCat.find(p => p.id === i.pacote_id);
         if (!pacoteInfo) return [];
-        const dataValidade = pacoteInfo.validade_dias != null
-          ? format(addDays(hoje, pacoteInfo.validade_dias), 'yyyy-MM-dd')
-          : null;
+        const validade = dataValidade(pacoteInfo.validade_dias, dataInicio);
         return Array.from({ length: Math.max(1, Math.round(i.quantidade)) }, () => ({
           empresa_id:    empresaId,
           pacote_id:     i.pacote_id!,
           cliente_id:    clienteSel.id,
           data_inicio:   dataInicio,
-          data_validade: dataValidade,
+          data_validade: validade,
           valor_pago:    i.valor,
           status:        'ativo',
         }));
