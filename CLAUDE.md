@@ -1392,7 +1392,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 **Pendências para produção:** seguir `docs/superpowers/notes/2026-10-27-deploy-servicos-pacotes.md` — **096 antes do deploy**, depois merge e pedir para fecharem e abrirem o PWA.
 
-**Registrados, não corrigidos:** valor de qualquer item da comanda editável sem `comanda.desconto` (regra antiga; decisão do dono); excluir 1 unidade de "Cobrar agora" com várias deixa os pagamentos (devolução manual); relatório de Pacotes conta pacotes antigos vendidos pelo catálogo sem venda (só histórico); validade em UTC no trigger 036/037; pacote misto exibido como ilimitado; produtos de insumos sem paginação; telas novo/editar do app sem guarda de `servicos.gerenciar`; gestora sem `pacotes.vender` não vê "Excluir".
+**Registrados, não corrigidos:** valor de qualquer item da comanda editável sem `comanda.desconto` — **decisão do dono em 2026-10-27: manter assim**; excluir 1 unidade de "Cobrar agora" com várias deixa os pagamentos (devolução manual); relatório de Pacotes conta pacotes antigos vendidos pelo catálogo sem venda (só histórico); validade em UTC no trigger 036/037; pacote misto exibido como ilimitado; produtos de insumos sem paginação; telas novo/editar do app sem guarda de `servicos.gerenciar`; gestora sem `pacotes.vender` não vê "Excluir".
 
 ---
 
