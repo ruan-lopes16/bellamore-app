@@ -70,8 +70,9 @@ import {
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
 import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
-import { limitesDias, chaveDiaExibido } from '@shared/periodos';
+import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
 import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
@@ -80,6 +81,7 @@ import {
   montarPayloadFechamento, montarPayloadEdicao, fecharComandaNoBanco, editarComandaNoBanco, ErroGravacaoComanda,
   mensagemFalhaGravacao, ehComandaJaFechada, AVISO_COMANDA_JA_FECHADA, assinaturaGravacao, chaveDaTentativa,
   tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_COMANDA_JA_GRAVADA, type TentativaSemResposta,
+  itensTelaACobrar, mesclarItensACobrar, exigeVenderPacote,
 } from '@shared/comanda-gravacao';
 
 const supabase = createClient();
@@ -118,6 +120,7 @@ type ComandaItem = {
   servico_id?:    string;
   produto_id?:    string;
   pacote_id?:     string;
+  pacote_cliente_id?: string; // pacote "a cobrar" (096): o pendente que este item cobra
   profissional_id?: string;
   item_id?:       string;   // linha já gravada em comanda_itens (edição de comanda fechada)
   comissao_paga?: boolean;  // comissão deste extra já paga: profissional e remoção travadas
@@ -321,14 +324,16 @@ export default function ComandaPage() {
   // Pacotes ativos do cliente selecionado — pra oferecer vínculo com sessão
   useEffect(() => {
     if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) { setPacotesClienteAtivos([]); return; }
-    supabase.from('pacote_clientes')
-      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id, created_at, agendamento_id, servico:servicos(nome))')
-      .eq('empresa_id', empresaId)
-      .eq('cliente_id', clienteSel.id)
-      .eq('status', 'ativo')
-      .then(({ data }: { data: any[] | null }) => {
-        setPacotesClienteAtivos(calcularPacotesAtivosCliente((data ?? []) as any[], format(new Date(), 'yyyy-MM-dd')));
+    // Carga única (paginada, inclui os "a cobrar") e regra única de elegibilidade, no dia de Brasília.
+    let vivo = true;
+    carregarCandidatosVinculo(supabase, empresaId, clienteSel.id)
+      .then(rows => { if (vivo) setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT())); })
+      .catch(e => {
+        if (!vivo) return;
+        setPacotesClienteAtivos([]);
+        setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
+    return () => { vivo = false; };
   }, [clienteSel?.id, empresaId]);
 
   // ── Carregar dados do dia selecionado
@@ -577,7 +582,7 @@ export default function ComandaPage() {
   function abrirComanda(cliente: ClienteComanda) {
     setClienteSel(cliente);
     setComandaExistenteId(null);
-    aberturaRef.current++;
+    const abertura = ++aberturaRef.current;
     setCargaFalhou(false);
     setItensOriginais([]);
     setErro('');
@@ -637,6 +642,26 @@ export default function ComandaPage() {
           }];
         })
     );
+
+    // Pacotes "a cobrar" da cliente (vendidos com "Cobrar na comanda", 096) entram como itens
+    // "Pacote X — a cobrar", removíveis. Sem a 096 a lista vem vazia. Só na comanda NOVA: na edição
+    // de comanda fechada os pacotes ficam congelados (abrirComandaFechada não passa por aqui).
+    // Resposta de uma abertura antiga (outra cliente/dia) é ignorada pelo contador.
+    if (cliente.id !== '__sem__' && empresaId) {
+      carregarPendentesCliente(supabase, empresaId, cliente.id)
+        .then(pendentes => {
+          if (aberturaRef.current !== abertura) return;
+          const novos: ComandaItem[] = itensTelaACobrar(pendentes).map(i => ({
+            uid: uid(), tipo: 'pacote', descricao: i.descricao, valor: i.valor, quantidade: 1,
+            pacote_id: i.pacote_id, pacote_cliente_id: i.pacote_cliente_id,
+          }));
+          setItens(prev => mesclarItensACobrar(prev, novos));
+        })
+        .catch(e => {
+          if (aberturaRef.current !== abertura) return;
+          setErro(`${mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes a cobrar')} Os pacotes a cobrar desta cliente não entraram na comanda.`);
+        });
+    }
   }
 
   // ── Abrir comanda já fechada para edição
@@ -1177,7 +1202,8 @@ export default function ComandaPage() {
     if (comandasParciais[clienteSel.id]) { setErro(AVISO_COMANDA_PARCIAL); return; }
     // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois de a
     // comanda já ter sido criada — barra antes de gravar qualquer coisa.
-    if (!podeVenderPacote && itens.some(i => i.tipo === 'pacote')) {
+    // O pacote "a cobrar" (já vendido) exige só comanda.fechar.
+    if (!podeVenderPacote && exigeVenderPacote(itens)) {
       setErro('Você não tem permissão para vender pacotes. Remova o pacote da comanda para fechar.');
       return;
     }
@@ -1221,6 +1247,14 @@ export default function ComandaPage() {
       setFechando(false);
       // Outra aba/aparelho já fechou: a lista local está velha — relê o dia.
       if (ehComandaJaFechada(e)) recarregarDia();
+      return;
+    }
+
+    // Caminho antigo (sem a 090): ele venderia um pacote NOVO no lugar do "a cobrar". Pendente só
+    // existe com a 096 (que vem depois da 090), então isto não acontece — mas nunca grava em dobro.
+    if (itens.some(i => i.pacote_cliente_id)) {
+      setErro('Não foi possível cobrar o pacote a cobrar nesta versão do banco. Tire o item da comanda para fechar.');
+      setFechando(false);
       return;
     }
 
@@ -1818,7 +1852,11 @@ export default function ComandaPage() {
                       // Atendimento coberto por sessão de pacote: valor travado em R$ 0 (para cobrar,
                       // desvincule o pacote) — no fechamento novo e na edição.
                       const cobertoPorPacote = item.tipo === 'agendamento' && !!item.agendamento_id && !!pacoteLinks[item.agendamento_id];
-                      const valorSoLeitura = itemSoLeitura || cobertoPorPacote;
+                      // Pacote "a cobrar": valor combinado na venda (a função recusa outro valor; desconto
+                      // só pelo desconto da comanda) e quantidade 1. Pode sair da comanda (fica pendente).
+                      const aCobrar = item.tipo === 'pacote' && !!item.pacote_cliente_id;
+                      const valorSoLeitura = itemSoLeitura || cobertoPorPacote || aCobrar;
+                      const qtdSoLeitura = emEdicao || aCobrar;
                       const travadoComissao = emEdicao && !!item.comissao_paga;
                       const podeRemover = (!emEdicao || item.tipo === 'servico') && !travadoComissao;
                       return (
@@ -1849,11 +1887,11 @@ export default function ComandaPage() {
                               <span className="text-xs text-text-3">Qtd</span>
                               <input
                                 defaultValue={item.quantidade}
-                                onBlur={e => { if (!emEdicao) atualizarQtd(item.uid, e.target.value); }}
-                                readOnly={emEdicao}
-                                title={emEdicao ? 'Quantidade não muda na edição de comanda fechada' : undefined}
+                                onBlur={e => { if (!qtdSoLeitura) atualizarQtd(item.uid, e.target.value); }}
+                                readOnly={qtdSoLeitura}
+                                title={emEdicao ? 'Quantidade não muda na edição de comanda fechada' : aCobrar ? 'Pacote a cobrar entra com quantidade 1' : undefined}
                                 inputMode="decimal"
-                                className={`w-14 h-8 px-2 text-sm text-center font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition ${emEdicao ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                className={`w-14 h-8 px-2 text-sm text-center font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition ${qtdSoLeitura ? 'opacity-60 cursor-not-allowed' : ''}`}
                               />
                             </div>
                           )}
@@ -1866,14 +1904,14 @@ export default function ComandaPage() {
                               defaultValue={item.valor.toFixed(2).replace('.', ',')}
                               onBlur={e => { if (!valorSoLeitura) atualizarValor(item.uid, e.target.value); }}
                               readOnly={valorSoLeitura}
-                              title={cobertoPorPacote ? 'Coberto por sessão de pacote — desvincule para cobrar' : itemSoLeitura ? 'Produtos e pacotes não mudam na edição de comanda fechada' : undefined}
+                              title={cobertoPorPacote ? 'Coberto por sessão de pacote — desvincule para cobrar' : itemSoLeitura ? 'Produtos e pacotes não mudam na edição de comanda fechada' : aCobrar ? 'Valor combinado na venda do pacote — para dar desconto, use o desconto da comanda' : undefined}
                               inputMode="decimal"
                               className={`w-20 h-8 px-2 text-sm text-right font-semibold rounded-lg border border-border bg-surface focus:outline-none focus:border-accent transition ${valorSoLeitura ? 'opacity-60 cursor-not-allowed' : ''}`}
                             />
                           </div>
                           {podeRemover ? (
                             <button onClick={() => removerItem(item.uid)}
-                              title={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : 'Remover'}
+                              title={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : aCobrar ? 'Tirar da comanda (o pacote continua a cobrar)' : 'Remover'}
                               className="w-7 h-7 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition flex-shrink-0">
                               <Trash2 size={13}/>
                             </button>

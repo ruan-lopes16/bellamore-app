@@ -28,7 +28,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   format, addDays, addMonths, subMonths,
-  isSameDay, isToday, addMinutes, parseISO, isPast,
+  isSameDay, isToday, addMinutes, parseISO,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -72,7 +72,10 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
-import { chaveDiaBRT, chaveDiaExibido, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
+import { chaveDiaBRT, chaveDiaExibido, hojeBRT, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
+import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { carregarCandidatosVinculo } from '@shared/pacotes-consultas';
+import { VenderPacoteModal, type ResultadoVendaPacote } from '@/components/pacotes/VenderPacoteModal';
 import {
   TL_HOUR_H, alturaDaJanela, bloqueiosDoDia, bloqueiosVisiveis, buscarPaginas,
   diasComBloqueio, filtroEfetivo, gradeDoMes, horaDoClique,
@@ -121,13 +124,6 @@ function categoriasDoAg(ag: Ag, customs: CategoriaCustom[]): string[] {
     .map(s => resolverCategoriaServico(s.categoria, s.categoria_id, customs).chave);
   return Array.from(new Set(chaves));
 }
-type PacoteSessaoFeita = { id: string; data: string; servico: string | null; viaAg: boolean };
-type PacoteClienteOpt = {
-  id: string; nome: string;
-  restantes: number | null; total: number | null; usadas: number;
-  servicos: { servico_id: string }[];
-  sessoes: PacoteSessaoFeita[];
-};
 type PacoteCatalogoOpt = { id: string; nome: string; preco: number; validade_dias: number | null; servicos: { servico_id: string }[] };
 type ClienteOpt = { id: string; nome: string; telefone?: string };
 type Servico    = { id: string; nome: string; preco: number; duracao_minutos: number };
@@ -423,9 +419,17 @@ function NovoAgModal({
   const [pacotesCliente,  setPacotesCliente]  = useState<PacoteClienteOpt[]>([]);
   const [pacoteClienteId, setPacoteClienteId] = useState(() => agEditar?.pacote_cliente_id ?? '');
 
-  // Vender um pacote novo do catálogo direto neste agendamento (opcional)
+  // Vender um pacote novo do catálogo pelo VenderPacoteModal (venda única, padrão "Cobrar na
+  // comanda"). A venda grava na hora (função vender_pacote, sem duplicar na nova tentativa) e o
+  // atendimento é vinculado ao pacote vendido (`r.pacoteClienteId`).
   const [pacotesCatalogo, setPacotesCatalogo] = useState<PacoteCatalogoOpt[]>([]);
-  const [pacoteVenderId,  setPacoteVenderId]  = useState('');
+  const [vendendoPacoteId, setVendendoPacoteId] = useState<string | null>(null);
+  // Pacote vendido agora: fica vinculado mesmo fora da lista de elegíveis (ex.: combo).
+  const [pacoteVendido, setPacoteVendido] = useState<{ id: string; nome: string; clienteId: string } | null>(null);
+  const pacoteVendidoIdRef = useRef<{ id: string; clienteId: string } | null>(null);
+  const [avisoPacote, setAvisoPacote] = useState('');
+  const [erroPacotes, setErroPacotes] = useState('');
+  const [recargaPacotes, setRecargaPacotes] = useState(0);
 
   // Cadastro rápido de cliente novo, sem sair do modal de agendamento
   const [criandoCliente,      setCriandoCliente]      = useState(false);
@@ -467,7 +471,6 @@ function NovoAgModal({
   // Criação que gravou o agendamento mas falhou nos serviços: a nova tentativa só regrava as linhas
   // guardadas desse id (nunca cria um segundo agendamento, uma segunda taxa nem vende o pacote 2x).
   const [idCriado, setIdCriado] = useState<{ id: string; linhas: ReturnType<typeof montarAgendamento>['linhas']; inicio: Date; fim: Date } | null>(null);
-  const pacoteVendidoRef = useRef<string | null>(null);
   // Atendimento já fechado na comanda: valor e serviços só mudam pela comanda (igual ao app).
   const edicaoTravada = !!agEditar?.comanda_id;
 
@@ -544,34 +547,28 @@ function NovoAgModal({
 
   // Pacotes ativos do cliente selecionado (para vincular ao agendamento)
   useEffect(() => {
-    if (!clienteId) { setPacotesCliente([]); return; }
-    supabase.from('pacote_clientes')
-      .select('id, data_validade, pacote:pacotes(nome, controla_sessoes, servicos:pacote_servicos(servico_id, quantidade)), uso:pacote_uso(id, created_at, agendamento_id, servico:servicos(nome))')
-      .eq('empresa_id', empresaId)
-      .eq('cliente_id', clienteId)
-      .eq('status', 'ativo')
-      .then((res: { data: any[] | null }) => {
-        const opts = ((res.data ?? []) as any[])
-          .filter(pc => (pc.pacote?.controla_sessoes ?? true) && (!pc.data_validade || !isPast(parseISO(pc.data_validade))))
-          .map(pc => {
-            const servicosPac = (pc.pacote?.servicos ?? []) as { servico_id: string; quantidade: number | null }[];
-            const ilimitado = servicosPac.some(s => s.quantidade == null);
-            const total = ilimitado ? null : servicosPac.reduce((s, x) => s + (x.quantidade ?? 0), 0);
-            const usoRows = (pc.uso ?? []) as any[];
-            const usadas = usoRows.length;
-            const restantes = total != null ? total - usadas : null;
-            const sessoes: PacoteSessaoFeita[] = usoRows
-              .map(u => ({ id: u.id, data: u.created_at as string, servico: u.servico?.nome ?? null, viaAg: !!u.agendamento_id }))
-              .sort((a, b) => (b.data ?? '').localeCompare(a.data ?? ''));
-            return { id: pc.id, nome: pc.pacote?.nome ?? 'Pacote', restantes, total, usadas, servicos: servicosPac.map(s => ({ servico_id: s.servico_id })), sessoes };
-          })
-          .filter(p => p.restantes === null || p.restantes > 0);
+    if (!clienteId) { setPacotesCliente([]); setErroPacotes(''); return; }
+    // Carga única (paginada, inclui os "a cobrar") e regra única de elegibilidade (validade pelo
+    // último dia em Brasília, combo fora, saldo de sessões) — a mesma da Comanda e do app.
+    let vivo = true;
+    carregarCandidatosVinculo(supabase, empresaId, clienteId)
+      .then(rows => {
+        if (!vivo) return;
+        const opts = calcularPacotesAtivosCliente(rows, hojeBRT());
         setPacotesCliente(opts);
+        setErroPacotes('');
         // Na edição, o pacote já vinculado ao atendimento (vencido, sem saldo ou de outra lista) nunca
-        // é desvinculado em silêncio — gravaria pacote_cliente_id nulo e o atendimento viraria cobrado (igual ao app).
-        setPacoteClienteId(prev => opts.some(o => o.id === prev) || (!!prev && prev === agEditar?.pacote_cliente_id) ? prev : '');
+        // é desvinculado em silêncio — gravaria pacote_cliente_id nulo e o atendimento viraria cobrado
+        // (igual ao app). O pacote vendido agora também fica (combo não entra na lista de elegíveis).
+        setPacoteClienteId(prev => opts.some(o => o.id === prev) || (!!prev && (prev === agEditar?.pacote_cliente_id || (pacoteVendidoIdRef.current?.clienteId === clienteId && prev === pacoteVendidoIdRef.current.id))) ? prev : '');
+      })
+      .catch(e => {
+        if (!vivo) return;
+        // Erro de carga: mantém o vínculo escolhido (nunca desvincula em silêncio) e avisa.
+        setErroPacotes(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
-  }, [empresaId, clienteId]);
+    return () => { vivo = false; };
+  }, [empresaId, clienteId, recargaPacotes]);
 
   function onServicoChange(uid: string, id: string) {
     const s = servicos.find(x => x.id === id);
@@ -601,19 +598,35 @@ function NovoAgModal({
   function onPacoteClienteChange(id: string) {
     setPacoteClienteId(id);
     if (id) {
-      setPacoteVenderId('');
       const pac = pacotesCliente.find(p => p.id === id);
       if (pac) preencherServicosDoPacote(pac.servicos);
     }
   }
 
+  /** Escolher um pacote do catálogo abre a venda única (VenderPacoteModal), com "Cobrar na comanda". */
   function onPacoteVenderChange(id: string) {
-    setPacoteVenderId(id);
-    if (id) {
-      setPacoteClienteId('');
-      const pac = pacotesCatalogo.find(p => p.id === id);
+    setAvisoPacote('');
+    setVendendoPacoteId(id || null);
+  }
+
+  /**
+   * Venda gravada: vincula o atendimento ao 1º pacote vendido (`r.pacoteClienteId`), preenche os
+   * serviços do pacote e recarrega os elegíveis. Sem a 096 o id não volta: a pessoa escolhe o pacote
+   * em "Pacote do cliente" depois da recarga.
+   */
+  function onPacoteVendido(r: ResultadoVendaPacote) {
+    setVendendoPacoteId(null);
+    const pac = pacotesCatalogo.find(p => p.id === r.pacoteId);
+    if (r.pacoteClienteId) {
+      pacoteVendidoIdRef.current = { id: r.pacoteClienteId, clienteId: r.clienteId };
+      setPacoteVendido({ id: r.pacoteClienteId, nome: pac?.nome ?? 'Pacote', clienteId: r.clienteId });
+      setPacoteClienteId(r.pacoteClienteId);
       if (pac) preencherServicosDoPacote(pac.servicos);
+      setAvisoPacote(r.aviso ?? '');
+    } else {
+      setAvisoPacote(r.aviso ?? 'Pacote vendido. Escolha-o em "Pacote do cliente" para usar neste atendimento.');
     }
+    setRecargaPacotes(n => n + 1);
   }
 
   async function salvarNovoCliente() {
@@ -662,42 +675,8 @@ function NovoAgModal({
       linhasGravar = idCriado.linhas;
     } else {
 
-    // Se escolheu vender um pacote novo do catálogo, cria a venda antes de tudo (uma vez só,
-    // mesmo que a gravação do agendamento falhe e a pessoa tente de novo).
-    let pacoteClienteIdFinal = pacoteClienteId || null;
-    if (pacoteVenderId && pacoteVendidoRef.current) {
-      pacoteClienteIdFinal = pacoteVendidoRef.current;
-    } else if (pacoteVenderId) {
-      const pacote = pacotesCatalogo.find(p => p.id === pacoteVenderId);
-      if (pacote) {
-        const { data: novaVenda, error: errVenda } = await supabase.from('pacote_clientes').insert({
-          empresa_id:    empresaId,
-          pacote_id:     pacote.id,
-          cliente_id:    clienteId,
-          data_inicio:   format(new Date(), 'yyyy-MM-dd'),
-          data_validade: pacote.validade_dias != null
-            ? format(addDays(new Date(), pacote.validade_dias), 'yyyy-MM-dd')
-            : null,
-          valor_pago:    pacote.preco,
-          status:        'ativo',
-        }).select('id').single();
-        if (errVenda || !novaVenda) { setSalvando(false); setErro(mensagemErroBanco(errVenda, 'vender o pacote')); return; }
-        pacoteClienteIdFinal = novaVenda.id;
-        pacoteVendidoRef.current = novaVenda.id;
-
-        // Registra a venda do pacote como faturamento (uma vez, no ato). As
-        // sessões consumidas depois não contam como receita.
-        const { error: errVendaPac } = await supabase.from('vendas').insert({
-          empresa_id:  empresaId,
-          cliente_id:  clienteId,
-          valor_total: pacote.preco,
-          desconto:    0,
-          observacao:  `Venda de pacote: ${pacote.nome}`,
-        });
-        // O pacote já foi vendido: só avisa (abortar deixaria o pacote sem agendamento).
-        if (errVendaPac) alert(`O pacote foi vendido, mas a receita não foi registrada: ${mensagemErroBanco(errVendaPac, 'registrar a venda do pacote')}`);
-      }
-    }
+    // A venda de pacote já foi gravada pelo VenderPacoteModal (venda única); aqui só o vínculo.
+    const pacoteClienteIdFinal = pacoteClienteId || null;
 
     if (agEditar) {
       const { data: atualizados, error } = await supabase.from('agendamentos').update({
@@ -740,7 +719,6 @@ function NovoAgModal({
       });
       if (error) { setSalvando(false); setErro(mensagemErroBanco(error, 'criar agendamento')); return; }
       agId = novoId;
-      pacoteVendidoRef.current = null;
 
       // Só cria a linha com o switch "Cobrar taxa de reserva neste atendimento" ligado.
       if (aplicarTaxaReserva) {
@@ -1136,20 +1114,44 @@ function NovoAgModal({
                 <div className="flex-1 min-w-0">
                   <SearchSelect
                     options={pacotesCatalogo.map(p => ({ value: p.id, label: p.nome, sub: fmtBRL(p.preco) }))}
-                    value={pacoteVenderId}
+                    value={vendendoPacoteId ?? ''}
                     onChange={onPacoteVenderChange}
-                    placeholder="Nenhum pacote novo"
+                    placeholder="Vender pacote novo..."
                   />
                 </div>
-                {pacoteVenderId && (
-                  <button type="button" onClick={() => setPacoteVenderId('')}
-                    title="Não vender pacote"
-                    className="w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
-                    <X size={13} strokeWidth={2.5}/>
-                  </button>
-                )}
               </div>
+              <p className="text-[11px] text-text-4 mt-1">A venda abre com &quot;Cobrar na comanda&quot;: o valor entra ao fechar a comanda.</p>
             </div>
+          )}
+
+          {/* Pacote vendido agora fora da lista de elegíveis (ex.: combo): vinculado mesmo assim. */}
+          {pacoteVendido && pacoteVendido.clienteId === clienteId && pacoteClienteId === pacoteVendido.id
+            && !pacotesCliente.some(p => p.id === pacoteVendido.id) && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-green/20 bg-green-soft px-3 py-2">
+              <span className="text-xs font-semibold text-text-2 truncate">Pacote vendido agora: {pacoteVendido.nome}</span>
+              <button type="button" onClick={() => setPacoteClienteId('')}
+                title="Não usar pacote neste atendimento"
+                className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center text-text-4 hover:text-red hover:bg-red/10 transition">
+                <X size={13} strokeWidth={2.5}/>
+              </button>
+            </div>
+          )}
+          {avisoPacote && <p className="text-xs text-amber">{avisoPacote}</p>}
+          {erroPacotes && <p className="text-xs text-red">{erroPacotes}</p>}
+
+          {/* Portal próprio: o modal de agendamento recorta position:fixed (ver comentário do createPortal abaixo). */}
+          {vendendoPacoteId && clienteId && createPortal(
+            <VenderPacoteModal
+              empresaId={empresaId}
+              pacotes={pacotesCatalogo}
+              pacoteInicialId={vendendoPacoteId}
+              padraoCobranca="comanda"
+              clienteInicial={{ id: clienteId, nome: clientes.find(c => c.id === clienteId)?.nome ?? 'Cliente' }}
+              travarCliente
+              onClose={() => setVendendoPacoteId(null)}
+              onVendido={onPacoteVendido}
+            />,
+            document.body,
           )}
 
           {/* Lista de serviços (multi) */}

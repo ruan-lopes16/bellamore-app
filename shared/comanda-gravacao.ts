@@ -21,6 +21,7 @@ import { montarPagamentos, type SplitPagamento } from './comanda-fechamento';
 import { mensagemErroBanco } from './erros';
 import type { ConfigCartoes } from './taxas-cartao';
 import { novoUuid } from './uuid';
+import { itensACobrar } from './pacotes';
 
 /** O mínimo do client supabase-js usado aqui (`rpc`). Estrutural, como `ClienteDb`. */
 export interface ClienteDbRpc {
@@ -44,6 +45,11 @@ export type ItemComandaTela = {
   servico_id?: string;
   produto_id?: string;
   pacote_id?: string;
+  /**
+   * Só no pacote "a cobrar" (`itensTelaACobrar`): o `pacote_clientes` pendente que este item cobra.
+   * Ausente = pacote novo vendido pela comanda.
+   */
+  pacote_cliente_id?: string;
   profissional_id?: string | null;
   item_id?: string;
 };
@@ -88,6 +94,8 @@ export type PayloadAtendimento = {
 export type PayloadItem = {
   item_id?: string; tipo: 'servico' | 'produto' | 'pacote'; descricao: string; quantidade: number; valor_unit: number;
   servico_id: string | null; profissional_id: string | null; produto_id: string | null; pacote_id: string | null;
+  /** Só no pacote "a cobrar" (096): cobra o pendente existente em vez de vender outro. Nunca na edição. */
+  pacote_cliente_id?: string;
 };
 export type PayloadPagamento = {
   pagamento_id?: string | null; valor: number; metodo: string; parcelas: number;
@@ -120,19 +128,59 @@ function montarAtendimentos(itens: ItemComandaTela[], pacoteLinks: Record<string
   });
 }
 
-function montarItem(i: ItemComandaTela): PayloadItem {
+function montarItem(i: ItemComandaTela, comPendente: boolean): PayloadItem {
   const tipo = i.tipo as PayloadItem['tipo'];
-  return {
+  // Pacote "a cobrar": entra com quantidade 1 e o pendente (contrato da 096). Na edição nunca vai.
+  const aCobrar = comPendente && tipo === 'pacote' && !!i.pacote_cliente_id;
+  const item: PayloadItem = {
     tipo,
     descricao: i.descricao,
     // Pacote é vendido por unidade: arredonda como o caminho antigo (Math.max(1, Math.round(q))).
-    quantidade: tipo === 'pacote' ? Math.max(1, Math.round(i.quantidade)) : i.quantidade,
+    quantidade: aCobrar ? 1 : tipo === 'pacote' ? Math.max(1, Math.round(i.quantidade)) : i.quantidade,
     valor_unit: centavos(i.valor),
     servico_id: tipo === 'servico' ? uuidOuNull(i.servico_id) : null,
     profissional_id: tipo === 'servico' ? uuidOuNull(i.profissional_id) : null,
     produto_id: tipo === 'produto' ? uuidOuNull(i.produto_id) : null,
     pacote_id: tipo === 'pacote' ? uuidOuNull(i.pacote_id) : null,
   };
+  if (aCobrar) item.pacote_cliente_id = i.pacote_cliente_id;
+  return item;
+}
+
+// ── Pacote "a cobrar" na comanda (096; web e app) ───────────────────────────────────────────
+
+/**
+ * Itens "Pacote X — a cobrar" no formato da tela (`ItemComandaTela`), a partir dos pendentes da
+ * cliente (`carregarPendentesCliente`; sem a 096 a lista vem vazia e nada aparece). Valor = o
+ * combinado na venda (`valor_pago`), quantidade 1. A tela os mostra com valor e quantidade só
+ * leitura (a função recusa valor diferente) e deixa remover (tirar = o pacote continua pendente).
+ */
+export function itensTelaACobrar(
+  pendentes: { id: string; pacote_id: string; nome: string; valor_pago: number }[],
+): ItemComandaTela[] {
+  return itensACobrar(pendentes).map(i => ({
+    tipo: 'pacote' as const,
+    descricao: i.descricao,
+    valor: i.valor_unit,
+    quantidade: 1,
+    pacote_id: i.pacote_id,
+    pacote_cliente_id: i.pacote_cliente_id,
+  }));
+}
+
+/**
+ * Acrescenta aos itens da comanda os "a cobrar" que ainda não estão nela (pelo `pacote_cliente_id`:
+ * a função recusa o mesmo pendente repetido). Nada novo → devolve a própria lista.
+ */
+export function mesclarItensACobrar<T extends { pacote_cliente_id?: string }>(atuais: T[], novos: T[]): T[] {
+  const ja = new Set(atuais.map(i => i.pacote_cliente_id).filter(Boolean));
+  const faltam = novos.filter(i => i.pacote_cliente_id && !ja.has(i.pacote_cliente_id));
+  return faltam.length === 0 ? atuais : [...atuais, ...faltam];
+}
+
+/** A comanda vende pacote NOVO (exige `pacotes.vender`)? O "a cobrar" exige só `comanda.fechar`. */
+export function exigeVenderPacote<T extends { tipo: string; pacote_cliente_id?: string }>(itens: T[]): boolean {
+  return itens.some(i => i.tipo === 'pacote' && !i.pacote_cliente_id);
 }
 
 /**
@@ -163,7 +211,7 @@ export function montarPayloadFechamento(e: EstadoFechamentoComanda): PayloadFech
     cliente_id: e.clienteId && e.clienteId !== '__sem__' ? e.clienteId : null,
     desconto: centavos(e.desconto),
     atendimentos: montarAtendimentos(e.itens, e.pacoteLinks),
-    itens: e.itens.filter(i => i.tipo !== 'agendamento').map(montarItem),
+    itens: e.itens.filter(i => i.tipo !== 'agendamento').map(i => montarItem(i, true)),
     pagamentos: montarPagamentosPayload(e.splits, e.config, false),
   };
 }
@@ -176,7 +224,7 @@ export function montarPayloadFechamento(e: EstadoFechamentoComanda): PayloadFech
 export function montarPayloadEdicao(e: EstadoEdicaoComanda): PayloadEdicao {
   const itens = e.itens.filter(i => i.tipo !== 'agendamento').map(i => {
     if (!i.item_id) throw new Error(`Item da comanda sem identificador: ${i.descricao}.`);
-    return { item_id: i.item_id, ...montarItem(i) };
+    return { item_id: i.item_id, ...montarItem(i, false) };
   });
   return {
     comanda_id: e.comandaId,
