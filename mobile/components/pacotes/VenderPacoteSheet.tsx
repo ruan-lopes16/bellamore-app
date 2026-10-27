@@ -34,7 +34,7 @@ import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
 import {
   venderPacote, venderPacoteSem096, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote,
   motivoBloqueioVendaPacote, MSG_COMANDA_INDISPONIVEL, TEXTO_COBRANCA, type TentativaVendaPacote,
-  type ResultadoVendaPacote, valorPacoteEditavel, DICA_VALOR_PACOTE_CATALOGO,
+  type ResultadoVendaPacote, valorPacoteEditavel, DICA_VALOR_PACOTE_CATALOGO, textoBotaoVenderPacote,
 } from '@shared/pacotes-venda';
 import { dataValidade, rotuloValidade, subtotalVendaPacote } from '@shared/pacotes';
 import { tem096 as detectar096, type PacoteCatalogo } from '@shared/pacotes-consultas';
@@ -390,7 +390,7 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
             style={{ height: 50, borderRadius: 14, backgroundColor: pronto ? C.primary : C.border, alignItems: 'center', justifyContent: 'center', opacity: salvando ? 0.7 : 1 }}>
             {salvando ? <ActivityIndicator color="#fff" /> : (
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: pronto ? '#fff' : C.text3 }}>
-                {semResposta ? 'Tentar de novo' : cobranca === 'agora' ? `Vender ${formatarMoeda(resumo.total)}` : 'Vender e cobrar na comanda'}
+                {semResposta ? 'Tentar de novo' : textoBotaoVenderPacote(cobranca, resumo.total)}
               </Text>
             )}
           </TouchableOpacity>

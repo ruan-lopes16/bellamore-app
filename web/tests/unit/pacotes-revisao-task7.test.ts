@@ -90,3 +90,18 @@ describe('Comanda: textos do pacote "a cobrar" únicos (shared) e visíveis nas 
     }
   });
 });
+
+describe('Venda de pacote: rótulo do botão único (web e app)', () => {
+  it('textoBotaoVenderPacote', async () => {
+    const { textoBotaoVenderPacote } = await import('@shared/pacotes-venda');
+    expect(textoBotaoVenderPacote('agora', 290)).toBe('Vender · R$ 290,00');
+    expect(textoBotaoVenderPacote('comanda', 290)).toBe('Vender e cobrar na comanda');
+  });
+  it('modal e sheet usam a função (sem rótulo próprio)', () => {
+    for (const f of [modal, sheet]) {
+      expect(f).toContain('textoBotaoVenderPacote(cobranca, resumo.total)');
+      expect(f).not.toContain('Vender (a cobrar)');
+      expect(f).not.toContain("'Vender e cobrar na comanda'");
+    }
+  });
+});

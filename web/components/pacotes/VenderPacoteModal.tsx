@@ -20,7 +20,7 @@ import { BlocoPagamento, splitsNumericos, type SplitTela } from '@/components/pa
 import {
   venderPacote, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote, motivoBloqueioVendaPacote,
   vendaPacoteFoiGravada, venderPacoteSem096, MSG_ALTERADA_SEM_RESPOSTA, MSG_VENDA_JA_GRAVADA, MSG_COMANDA_INDISPONIVEL,
-  valorPacoteEditavel, DICA_VALOR_PACOTE_CATALOGO,
+  valorPacoteEditavel, DICA_VALOR_PACOTE_CATALOGO, textoBotaoVenderPacote,
   TEXTO_COBRANCA, type TentativaVendaPacote, type ResultadoVendaPacote,
 } from '@shared/pacotes-venda';
 import { tem096 as detectar096 } from '@shared/pacotes-consultas';
@@ -442,7 +442,7 @@ export function VenderPacoteModal({
             <button type="button" onClick={vender}
               disabled={salvando || !!motivoBloqueio || (cobranca === 'agora' && !configPronta)}
               className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:opacity-90 transition disabled:opacity-50">
-              {salvando ? 'Salvando...' : cobranca === 'agora' ? `Vender · ${fmtBRL(resumo.total)}` : 'Vender (a cobrar)'}
+              {salvando ? 'Salvando...' : textoBotaoVenderPacote(cobranca, resumo.total)}
             </button>
           </div>
           {motivoBloqueio && !erro && <p className="text-xs text-center font-semibold text-amber">{motivoBloqueio}</p>}

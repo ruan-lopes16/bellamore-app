@@ -14,6 +14,7 @@ import { dataValidade, quantidadeValida, ratearValorPago } from './pacotes';
 import type { ConfigCartoes } from './taxas-cartao';
 import { hojeBRT } from './periodos';
 import { novoUuid } from './uuid';
+import { formatarMoeda } from './moeda';
 
 /** O mínimo do client supabase-js usado aqui: só `rpc`. Estrutural (shared não depende do @supabase/*). */
 export interface ClienteDbRpc {
@@ -142,6 +143,11 @@ export const MSG_AGUARDE_CARTOES = 'Aguarde: carregando as taxas dos cartões.';
 export const MSG_ALTERADA_SEM_RESPOSTA =
   'Sem resposta do servidor na tentativa anterior: ela pode ter sido gravada. Toque em Conferir antes de mudar a venda.';
 export const MSG_VENDA_JA_GRAVADA = 'Essa venda já tinha sido registrada.';
+
+/** Rótulo do botão de vender (web e app): com o total em "Cobrar agora". */
+export function textoBotaoVenderPacote(cobranca: 'agora' | 'comanda', total: number): string {
+  return cobranca === 'agora' ? `Vender · ${formatarMoeda(total)}` : 'Vender e cobrar na comanda';
+}
 
 /**
  * O que a venda gravou, para a tela que abriu o modal (web `VenderPacoteModal`, app `VenderPacoteSheet`).
