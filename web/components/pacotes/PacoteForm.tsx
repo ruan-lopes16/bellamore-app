@@ -14,7 +14,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { avancarComEnter } from '@/lib/formNav';
 import { SearchSelect } from '@/components/SearchSelect';
-import { validarPacote } from '@shared/pacotes';
+import { validarPacote, MSG_VENDIDO_NAO_CONFERIDO } from '@shared/pacotes';
 import { sincronizarServicosPacote } from '@shared/pacotes-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
@@ -132,7 +132,7 @@ export function PacoteForm({
               <p className="text-xs text-amber">
                 {travadoPorVenda
                   ? 'Pacote já vendido — o tipo, os serviços e as quantidades não podem ser alterados.'
-                  : 'Não foi possível conferir se o pacote já foi vendido. Recarregue a tela para mudar o tipo ou os serviços.'}
+                  : MSG_VENDIDO_NAO_CONFERIDO}
               </p>
             </div>
           )}

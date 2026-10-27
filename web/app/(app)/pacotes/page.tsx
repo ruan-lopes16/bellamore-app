@@ -37,10 +37,11 @@ import {
   carregarCatalogoPacotes, carregarPacotesVendidos, carregarRelatorioUtilizacao, marcarComboUtilizado,
   tem096 as detectar096, type PacoteCatalogo, type PacoteVendido, type RelatorioUtilizacao,
 } from '@shared/pacotes-consultas';
-import { excluirPacoteCliente, ErroPacote, SemMigration096 } from '@shared/pacotes-venda';
+import { excluirPacoteCliente, ErroPacote, SemMigration096, MSG_VENDIDO_A_COBRAR } from '@shared/pacotes-venda';
 import {
   rotuloValidade, saldoSessoes, statusPacoteCliente, totalSessoes, filtrarVendidos, rotuloStatusVendido, estaACobrar,
   textoExcluirVendido, MSG_SESSOES_USADAS, MSG_EXCLUSAO_SEM_096, TITULO_EXCLUIR_VENDIDO, type FiltroVendidos, type StatusPacoteCliente,
+  textoVendidosVazio,
 } from '@shared/pacotes';
 import { acoesPacoteVendido } from '@shared/permissoes';
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
@@ -480,7 +481,7 @@ export default function PacotesPage() {
             <div className="text-center py-12">
               <Tag size={28} className="mx-auto mb-2 text-text-4"/>
               <p className="text-sm text-text-3">
-                {filtroStatus === 'a_cobrar' ? 'Nenhum pacote a cobrar' : filtroStatus !== 'todos' ? 'Nenhum pacote neste filtro' : 'Nenhuma venda registrada ainda'}
+                {textoVendidosVazio(filtroStatus)}
               </p>
             </div>
           ) : (
@@ -503,7 +504,7 @@ export default function PacotesPage() {
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         {aCobrar && (
-                          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-soft text-amber" title="Será cobrado ao fechar a comanda da cliente">A cobrar</span>
+                          <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-soft text-amber" title={MSG_VENDIDO_A_COBRAR}>A cobrar</span>
                         )}
                         <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${statusCfg.cls}`}>{statusCfg.label}</span>
                         {acoesVendido.excluir && (

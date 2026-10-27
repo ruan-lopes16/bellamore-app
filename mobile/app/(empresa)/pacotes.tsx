@@ -53,8 +53,11 @@ import { mensagemErroBanco } from '@shared/erros';
 import {
   rotuloValidade, totalSessoes, filtrarVendidos, rotuloStatusVendido, estaACobrar, textoExcluirVendido,
   MSG_SESSOES_USADAS, MSG_EXCLUSAO_SEM_096, TITULO_EXCLUIR_VENDIDO, type FiltroVendidos,
+  TITULO_EXCLUIR_SESSAO, textoExcluirSessao, textoVendidosVazio,
 } from '@shared/pacotes';
-import { excluirPacoteCliente, ErroPacote, SemMigration096 } from '@shared/pacotes-venda';
+import {
+  excluirPacoteCliente, ErroPacote, SemMigration096, MSG_VENDIDO_A_COBRAR, tituloSucessoVendaPacote,
+} from '@shared/pacotes-venda';
 import {
   desfazerVinculoPacote, erroEscritaPacoteUso, calcularRelatorioUtilizacao, marcarComboUtilizado,
 } from '@shared/pacotes-consultas';
@@ -488,10 +491,10 @@ function SessoesModal({ pc, empresaId, podeLancarAvulsa, vincularDeOutras, onClo
     setEditId(null);
     refresh();
   }
-  function excluirSessao(id: string) {
+  function excluirSessao(id: string, vinculadaAAtendimento: boolean) {
     Alert.alert(
-      'Excluir sessão?',
-      'A sessão é removida da contagem do pacote. O agendamento vinculado (se houver) não é apagado.',
+      TITULO_EXCLUIR_SESSAO,
+      textoExcluirSessao(!!vinculadaAAtendimento),
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -608,7 +611,7 @@ function SessoesModal({ pc, empresaId, podeLancarAvulsa, vincularDeOutras, onClo
                   <TouchableOpacity onPress={() => abrirEdicao(s)} style={{ width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
                     <Edit3 size={14} color={C.text3} />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => excluirSessao(s.id)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+                  <TouchableOpacity onPress={() => excluirSessao(s.id, !!s.agendamento_id)} disabled={busy} style={{ width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
                     <Trash2 size={14} color={C.text3} />
                   </TouchableOpacity>
                 </View>
@@ -957,7 +960,7 @@ export default function Pacotes() {
               ) : vendidosFiltrados.length === 0 ? (
                 <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 28, alignItems: 'center' }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, textAlign: 'center' }}>
-                    {filtro === 'a_cobrar' ? 'Nenhum pacote a cobrar.' : filtro !== 'todos' ? `Nenhuma venda "${VSTATUS[filtro]?.label ?? filtro}"` : 'Nenhuma venda registrada ainda.'}
+                    {textoVendidosVazio(filtro)}
                   </Text>
                 </View>
               ) : (
@@ -1066,9 +1069,7 @@ export default function Pacotes() {
             setVendendo(null);
             setAba('vendidos');
             setFiltro(r.cobranca === 'comanda' ? 'a_cobrar' : 'todos');
-            Alert.alert('Pacote vendido', r.cobranca === 'comanda'
-              ? 'O pacote fica "A cobrar" e entra na próxima comanda da cliente.'
-              : 'Venda registrada.');
+            Alert.alert(tituloSucessoVendaPacote(r.cobranca), r.cobranca === 'comanda' ? MSG_VENDIDO_A_COBRAR : 'Venda registrada.');
           }}
         />
       )}

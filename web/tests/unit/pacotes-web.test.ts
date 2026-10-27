@@ -232,7 +232,8 @@ describe('VenderPacoteModal', () => {
 describe('GerenciarSessoes', () => {
   it('pede confirmação ao excluir uma sessão', () => {
     expect(sessoes).toContain('<ConfirmDialog');
-    expect(sessoes).toMatch(/Excluir sessão\?/);
+    // "Excluir sessão?" vem de shared/pacotes (TITULO_EXCLUIR_SESSAO, mesmo texto do app).
+    expect(sessoes).toMatch(/title=\{TITULO_EXCLUIR_SESSAO\}/);
   });
   it('cargas com erro conferido', () => {
     expect(sessoes).toMatch(/rUso\.error/);

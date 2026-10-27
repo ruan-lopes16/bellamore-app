@@ -20,7 +20,7 @@ import { BlocoPagamento, splitsNumericos, type SplitTela } from '@/components/pa
 import {
   venderPacote, ErroPacote, SemMigration096, assinaturaVendaPacote, chaveVendaPacote, motivoBloqueioVendaPacote,
   vendaPacoteFoiGravada, venderPacoteSem096, MSG_ALTERADA_SEM_RESPOSTA, MSG_VENDA_JA_GRAVADA, MSG_COMANDA_INDISPONIVEL,
-  valorPacoteEditavel, DICA_VALOR_PACOTE_CATALOGO, textoBotaoVenderPacote,
+  valorPacoteEditavel, DICA_VALOR_PACOTE_CATALOGO, textoBotaoVenderPacote, MSG_VENDIDO_A_COBRAR, tituloSucessoVendaPacote,
   TEXTO_COBRANCA, type TentativaVendaPacote, type ResultadoVendaPacote,
 } from '@shared/pacotes-venda';
 import { tem096 as detectar096 } from '@shared/pacotes-consultas';
@@ -260,14 +260,14 @@ export function VenderPacoteModal({
             <Check size={28} strokeWidth={2.5} style={{ color: 'var(--color-green)' }}/>
           </div>
           <p className="font-serif text-lg text-text">
-            {sucesso.jaGravada ? MSG_VENDA_JA_GRAVADA : sucesso.cobranca === 'comanda' ? 'Pacote a cobrar' : 'Pacote vendido!'}
+            {sucesso.jaGravada ? MSG_VENDA_JA_GRAVADA : tituloSucessoVendaPacote(sucesso.cobranca)}
           </p>
           <p className="text-sm text-text-2 truncate max-w-full">
             {sucesso.quantidade > 1 ? `${sucesso.quantidade}× ` : ''}{sucesso.pacoteNome} · {sucesso.clienteNome}
           </p>
           <p className="text-xs text-text-4">
             {sucesso.cobranca === 'comanda'
-              ? 'Será cobrado ao fechar a comanda da cliente.'
+              ? MSG_VENDIDO_A_COBRAR
               : sucesso.validade ? `Válido até ${format(parseISO(sucesso.validade), 'dd/MM/yyyy')}` : 'Sem validade — vale enquanto houver sessões'}
           </p>
           {sucesso.aviso && (

@@ -105,3 +105,52 @@ describe('Venda de pacote: rótulo do botão único (web e app)', () => {
     }
   });
 });
+
+describe('Pacotes: textos de sessões, vendidos e sucesso únicos (web e app)', () => {
+  const pagWeb = ler('web/app/(app)/pacotes/page.tsx');
+  const pagApp = ler('mobile/app/(empresa)/pacotes.tsx');
+  const sessoesWeb = ler('web/components/pacotes/GerenciarSessoes.tsx');
+  const formWeb = ler('web/components/pacotes/PacoteForm.tsx');
+  const formApp = ler('mobile/components/pacotes/PacoteForm.tsx');
+  it('textos de shared', async () => {
+    const p = await import('@shared/pacotes');
+    expect(p.TITULO_EXCLUIR_SESSAO).toBe('Excluir sessão?');
+    expect(p.textoExcluirSessao(true)).toBe('A sessão volta ao saldo do pacote. O atendimento continua vinculado ao pacote.');
+    expect(p.textoExcluirSessao(false)).toBe('A sessão volta ao saldo do pacote.');
+    expect(p.textoVendidosVazio('a_cobrar')).toBe('Nenhum pacote a cobrar.');
+    expect(p.textoVendidosVazio('todos')).toBe('Nenhuma venda registrada ainda.');
+    expect(p.textoVendidosVazio('ativo')).toBe('Nenhum pacote neste filtro.');
+    expect(p.MSG_VENDIDO_NAO_CONFERIDO).toBe('Não foi possível conferir se o pacote já foi vendido. Recarregue a tela para mudar o tipo ou os serviços.');
+    const v = await import('@shared/pacotes-venda');
+    expect(v.MSG_VENDIDO_A_COBRAR).toBe('Será cobrado ao fechar a comanda da cliente.');
+    expect(v.tituloSucessoVendaPacote('comanda')).toBe('Pacote a cobrar');
+    expect(v.tituloSucessoVendaPacote('agora')).toBe('Pacote vendido!');
+  });
+  it('excluir sessão: mesma confirmação nas duas', () => {
+    for (const f of [sessoesWeb, pagApp]) {
+      expect(f).toContain('TITULO_EXCLUIR_SESSAO');
+      expect(f).toMatch(/textoExcluirSessao\(!!/);
+      expect(f).not.toContain('A sessão é removida da contagem');
+      expect(f).not.toContain("'A sessão volta ao saldo do pacote.");
+    }
+  });
+  it('lista vazia de vendidos e selo "A cobrar" pelas funções de shared', () => {
+    for (const f of [pagWeb, pagApp]) {
+      expect(f).toContain('textoVendidosVazio(');
+      expect(f).not.toContain("'Nenhum pacote a cobrar");
+      expect(f).not.toContain('Nenhuma venda "');
+    }
+    expect(pagWeb).toContain('title={MSG_VENDIDO_A_COBRAR}');
+  });
+  it('sucesso da venda: mesmo título e mesmo texto do "a cobrar"', () => {
+    expect(modal).toContain('tituloSucessoVendaPacote(sucesso.cobranca)');
+    expect(modal).toContain('MSG_VENDIDO_A_COBRAR');
+    expect(pagApp).toContain('tituloSucessoVendaPacote(r.cobranca)');
+    expect(pagApp).toContain('MSG_VENDIDO_A_COBRAR');
+    expect(pagApp).not.toContain('entra na próxima comanda da cliente.\'');
+  });
+  it('cadastro: mesma mensagem quando não deu para conferir se já foi vendido', () => {
+    for (const f of [formWeb, formApp]) expect(f).toContain('MSG_VENDIDO_NAO_CONFERIDO');
+    expect(formApp).not.toContain('Os serviços ficam travados até recarregar');
+  });
+});

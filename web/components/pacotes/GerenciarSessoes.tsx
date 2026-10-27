@@ -19,6 +19,7 @@ import { desfazerVinculoPacote, erroEscritaPacoteUso } from '@shared/pacotes-con
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { hojeBRT } from '@shared/periodos';
+import { TITULO_EXCLUIR_SESSAO, textoExcluirSessao } from '@shared/pacotes';
 import { atendimentosVinculaveis } from '@shared/permissoes';
 
 const supabase = createClient();
@@ -321,10 +322,8 @@ export function GerenciarSessoes({
 
       <ConfirmDialog
         open={confirmExcluir !== null}
-        title="Excluir sessão?"
-        message={confirmExcluir?.agendamento_id
-          ? 'A sessão volta ao saldo do pacote. O atendimento continua vinculado ao pacote.'
-          : 'A sessão volta ao saldo do pacote.'}
+        title={TITULO_EXCLUIR_SESSAO}
+        message={textoExcluirSessao(!!confirmExcluir?.agendamento_id)}
         confirmLabel="Excluir sessão"
         variant="danger"
         loading={busy}

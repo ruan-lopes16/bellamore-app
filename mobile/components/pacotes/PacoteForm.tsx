@@ -30,7 +30,7 @@ import { supabase } from '@/lib/supabase';
 import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
-import { rotuloValidade, validarPacote } from '@shared/pacotes';
+import { rotuloValidade, validarPacote, MSG_VENDIDO_NAO_CONFERIDO } from '@shared/pacotes';
 import { sincronizarServicosPacote } from '@shared/pacotes-consultas';
 
 const C = {
@@ -44,8 +44,8 @@ const C = {
 /** Atalhos de validade (dias); qualquer número inteiro positivo vale. */
 const ATALHOS_VALIDADE = [30, 90, 180, 365];
 
-/** Aviso quando a contagem de vendas falhou (composição travada até recarregar). */
-export const MSG_VENDIDO_ERRO = 'Não foi possível conferir se este pacote já foi vendido. Os serviços ficam travados até recarregar.';
+/** Aviso quando a contagem de vendas falhou (composição travada até recarregar). Texto único (shared). */
+export const MSG_VENDIDO_ERRO = MSG_VENDIDO_NAO_CONFERIDO;
 
 /** Serviço dentro do pacote na tela. `quantidade` null = sessões ilimitadas. */
 type Item = { servico_id: string; nome: string; quantidade: number | null };

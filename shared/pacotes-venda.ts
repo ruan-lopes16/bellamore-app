@@ -144,6 +144,13 @@ export const MSG_ALTERADA_SEM_RESPOSTA =
   'Sem resposta do servidor na tentativa anterior: ela pode ter sido gravada. Toque em Conferir antes de mudar a venda.';
 export const MSG_VENDA_JA_GRAVADA = 'Essa venda já tinha sido registrada.';
 
+/** Pacote vendido com "Cobrar na comanda" (sucesso da venda e selo "A cobrar"). */
+export const MSG_VENDIDO_A_COBRAR = 'Será cobrado ao fechar a comanda da cliente.';
+/** Título do sucesso da venda (web: tela de sucesso; app: alerta). */
+export function tituloSucessoVendaPacote(cobranca: 'agora' | 'comanda'): string {
+  return cobranca === 'comanda' ? 'Pacote a cobrar' : 'Pacote vendido!';
+}
+
 /** Rótulo do botão de vender (web e app): com o total em "Cobrar agora". */
 export function textoBotaoVenderPacote(cobranca: 'agora' | 'comanda', total: number): string {
   return cobranca === 'agora' ? `Vender · ${formatarMoeda(total)}` : 'Vender e cobrar na comanda';

@@ -155,4 +155,4 @@ describe('app: Pacotes (paridade com o web)', () => {
   });
 });
 
-const MSG_VENDIDO_ERRO = 'Não foi possível conferir se este pacote já foi vendido. Os serviços ficam travados até recarregar.';
+const MSG_VENDIDO_ERRO = 'MSG_VENDIDO_NAO_CONFERIDO';

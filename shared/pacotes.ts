@@ -298,3 +298,25 @@ export function textoExcluirVendido(v: { pacote: string; cliente: string; aCobra
     ? `O pacote "${v.pacote}" a cobrar de ${v.cliente} será excluído e não entrará mais na comanda. Sem volta.`
     : `O pacote "${v.pacote}" de ${v.cliente} será excluído. Se ele foi cobrado sozinho, a venda e o pagamento saem do faturamento; com outros pacotes na mesma venda, só o valor dele sai (a devolução é manual). Atendimentos vinculados serão desvinculados. Sem volta.`;
 }
+
+// ── Textos únicos de Pacotes (web e app) ─────────────────────────────────────────────────────
+
+/** Confirmação de excluir uma sessão (pacote_uso). */
+export const TITULO_EXCLUIR_SESSAO = 'Excluir sessão?';
+/** Texto da confirmação: o atendimento vinculado continua vinculado ao pacote (só a sessão sai). */
+export function textoExcluirSessao(vinculadaAAtendimento: boolean): string {
+  return vinculadaAAtendimento
+    ? 'A sessão volta ao saldo do pacote. O atendimento continua vinculado ao pacote.'
+    : 'A sessão volta ao saldo do pacote.';
+}
+
+/** Lista de vendidos vazia, pelo filtro escolhido. */
+export function textoVendidosVazio(filtro: FiltroVendidos): string {
+  if (filtro === 'a_cobrar') return 'Nenhum pacote a cobrar.';
+  if (filtro === 'todos') return 'Nenhuma venda registrada ainda.';
+  return 'Nenhum pacote neste filtro.';
+}
+
+/** Cadastro: a contagem de "já vendido" falhou — composição travada até recarregar. */
+export const MSG_VENDIDO_NAO_CONFERIDO =
+  'Não foi possível conferir se o pacote já foi vendido. Recarregue a tela para mudar o tipo ou os serviços.';
