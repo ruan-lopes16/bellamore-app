@@ -15,11 +15,14 @@ Consumido pelas Tasks 5 a 7 da Paridade Serviços e Pacotes. Wrappers em `shared
 
 - **Escrita direta pela API** (papéis `authenticated`/`anon`) em `pacote_clientes`: INSERT recusado
   (`Pacote vendido só é gravado pela venda de pacote. Recarregue a tela e tente de novo.`), e UPDATE de
-  `cobranca`, `venda_id`, `comanda_id`, `valor_pago` ou `empresa_id` recusado
+  `cobranca`, `venda_id`, `comanda_id`, `valor_pago`, `empresa_id`, `pacote_id` ou `cliente_id` recusado
   (`A cobrança do pacote vendido só muda pela venda ou pela comanda.`). Só `vender_pacote` e `fechar_comanda`
   gravam. `status` e as demais colunas continuam livres (Pacotes marca "concluído").
-  **Deploy:** a tela antiga (insert direto) deixa de vender pacote assim que a 096 roda — rode a 096 junto
-  com o deploy. O caminho antigo das telas novas só existe sem a 096, então não é afetado.
+  DELETE direto (a policy deixa a gestora/dona) de pacote com `venda_id` ou `comanda_id` recusado
+  (`Pacote vendido só é excluído em Pacotes (a venda dele sai junto). Recarregue a tela e tente de novo.`):
+  esses saem só pela `excluir_pacote_cliente`. Pendente e antigo continuam saindo direto (revisão final).
+  **Deploy:** a tela antiga (insert direto) deixa de vender pacote assim que a 096 roda — rode a 096 antes do
+  deploy e faça o deploy logo em seguida (`docs/superpowers/notes/2026-10-27-deploy-servicos-pacotes.md`).
 - **Venda de pacote não é apagada direto** (`Esta venda é de pacote e não pode ser apagada aqui. Para desfazer,
   exclua o pacote vendido em Pacotes.`).
 - **Pagamento numa venda de pacote** pela permissão `pacotes.vender` só de dentro da `vender_pacote`, e só na

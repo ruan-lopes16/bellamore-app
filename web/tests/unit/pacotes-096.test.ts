@@ -493,3 +493,92 @@ describe('096 — texto', () => {
     }
   });
 });
+
+describe('096 — revisão final: faturamento encadeado e guardas de exclusão direta', () => {
+  const somaVendas = async () =>
+    Number((await admin<{ s: string }>(`select coalesce(sum(valor_final), 0)::text s from vendas`))[0].s);
+  const aCobrar = (pc: string, valor = 300) => ({ tipo: 'pacote', pacote_id: PK, pacote_cliente_id: pc,
+    descricao: 'Pacote X — a cobrar', quantidade: 1, valor_unit: valor });
+  const servico = { tipo: 'servico', servico_id: SV, descricao: 'Limpeza', quantidade: 1, valor_unit: 100 };
+
+  it('cada caminho entra UMA vez no faturamento, com o desconto certo; relatório de Pacotes = Financeiro', async () => {
+    await como(DONA);
+    const antes = await somaVendas();
+
+    await vender(base(60));                                                  // agora: +300
+    await vender(base(61, { quantidade: 2, valor_unit: 150, desconto: 10,    // agora, 2 un.: +290
+      pagamentos: [{ valor: 290, metodo: 'pix' }] }));
+    await vender(base(62, { cobranca: 'comanda', pagamentos: [] }));        // a cobrar: +0
+    expect(await somaVendas()).toBeCloseTo(antes + 590, 2);
+
+    // Fecha com o "a cobrar" (300) + serviço (100), desconto 40 → pacote leva 30: +270 em vendas.
+    await fechar({ comanda_id: cmd(60), empresa_id: E, cliente_id: CL, desconto: 40, atendimentos: [],
+      itens: [aCobrar(chave(62)), servico], pagamentos: [{ valor: 360, metodo: 'pix' }] });
+    expect(await admin(`select cobranca, valor_pago from pacote_clientes where id = $1`, [chave(62)]))
+      .toEqual([{ cobranca: 'paga', valor_pago: '270.00' }]);
+    expect(await somaVendas()).toBeCloseTo(antes + 860, 2);
+
+    // Tira o item "a cobrar" da comanda: nada entra; o pacote segue pendente e sai sem mexer em vendas.
+    await vender(base(63, { cobranca: 'comanda', pagamentos: [] }));
+    await fechar({ comanda_id: cmd(61), empresa_id: E, cliente_id: CL, desconto: 0, atendimentos: [],
+      itens: [servico], pagamentos: [{ valor: 100, metodo: 'pix' }] });
+    expect(await somaVendas()).toBeCloseTo(antes + 860, 2);
+    await excluirPc(E, chave(63));
+    expect(await somaVendas()).toBeCloseTo(antes + 860, 2);
+
+    // Pacote novo pela comanda, 2 un. de 300 com desconto 60: +540.
+    await fechar({ comanda_id: cmd(62), empresa_id: E, cliente_id: CL, desconto: 60, atendimentos: [],
+      itens: [{ tipo: 'pacote', pacote_id: PK, descricao: 'Limpeza x3', quantidade: 2, valor_unit: 300 }],
+      pagamentos: [{ valor: 540, metodo: 'pix' }] });
+    expect(await somaVendas()).toBeCloseTo(antes + 1400, 2);
+
+    // Excluir: uma unidade do "agora" de 2 (−145), o "agora" inteiro (−300); cobrados na comanda: recusados.
+    await excluirPc(E, chave(61));
+    await excluirPc(E, chave(60));
+    expect(await somaVendas()).toBeCloseTo(antes + 955, 2);
+    expect(await erro(() => excluirPc(E, chave(62)))).toMatch(/cobrado numa comanda/);
+    const [novo] = await admin<{ id: string }>(`select id from pacote_clientes where comanda_id = $1 limit 1`, [cmd(62)]);
+    expect(await erro(() => excluirPc(E, novo.id))).toMatch(/cobrado numa comanda/);
+
+    // Pacote antigo (anterior à 096, sem venda ligada): só o pacote sai.
+    await admin(`insert into pacote_clientes (id, empresa_id, pacote_id, cliente_id, data_inicio, valor_pago, status)
+      values ($1, $2, $3, $4, current_date, 80, 'ativo')`, [id('aa', 60), E, PK, CL]);
+    await como(DONA);
+    await excluirPc(E, id('aa', 60));
+    expect(await somaVendas()).toBeCloseTo(antes + 955, 2);
+
+    // Relatório de Pacotes (valor_pago dos cobrados) = Financeiro (vendas de pacote), no banco inteiro.
+    const [r] = await admin<{ pacotes: string; vendas: string }>(`
+      select (select coalesce(sum(valor_pago), 0) from pacote_clientes where cobranca = 'paga' and venda_id is not null)::text pacotes,
+             (select coalesce(sum(valor_final), 0) from vendas
+               where id in (select venda_id from pacote_clientes where venda_id is not null))::text vendas`);
+    expect(r.pacotes).toBe(r.vendas);
+    expect(await admin(`select count(*)::int n from vendas v
+      where v.observacao in ('Pacote', 'Pacote(s) via comanda')
+        and not exists (select 1 from pacote_clientes pc where pc.venda_id = v.id)`)).toEqual([{ n: 0 }]);
+  });
+
+  it('delete direto (mesmo da dona) não tira pacote ligado a venda ou comanda; pendente e antigo saem', async () => {
+    await como(DONA);
+    await vender(base(64));
+    const MSG = 'Pacote vendido só é excluído em Pacotes (a venda dele sai junto). Recarregue a tela e tente de novo.';
+    expect(await erro(() => q(`delete from pacote_clientes where id = $1`, [chave(64)]))).toBe(MSG);
+    expect(await admin(`select count(*)::int n from pacote_clientes where id = $1`, [chave(64)])).toEqual([{ n: 1 }]);
+    const [cobradoNaComanda] = await admin<{ id: string }>(`select id from pacote_clientes where comanda_id = $1 limit 1`, [cmd(62)]);
+    await como(DONA);
+    expect(await erro(() => q(`delete from pacote_clientes where id = $1`, [cobradoNaComanda.id]))).toBe(MSG);
+
+    await vender(base(65, { cobranca: 'comanda', pagamentos: [] }));
+    expect(await q(`delete from pacote_clientes where id = $1 returning id`, [chave(65)])).toEqual([{ id: chave(65) }]);
+  });
+
+  it('pacote e cliente do pacote vendido não mudam por escrita direta', async () => {
+    await como(DONA);
+    await vender(base(66, { cobranca: 'comanda', pagamentos: [] }));
+    const MSG = 'A cobrança do pacote vendido só muda pela venda ou pela comanda.';
+    expect(await erro(() => q(`update pacote_clientes set pacote_id = $2 where id = $1`, [chave(66), PK_SEM]))).toBe(MSG);
+    expect(await erro(() => q(`update pacote_clientes set cliente_id = $2 where id = $1`, [chave(66), CL2]))).toBe(MSG);
+    expect(await admin(`select pacote_id, cliente_id from pacote_clientes where id = $1`, [chave(66)]))
+      .toEqual([{ pacote_id: PK, cliente_id: CL }]);
+  });
+});

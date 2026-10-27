@@ -8,8 +8,11 @@
 -- Idempotente: `add column if not exists`, `create or replace function`, `drop policy if exists` +
 -- `create policy` com o MESMO nome. Requer 083 (tem_permissao), 090 (fechar_comanda, rateio) e 093
 -- (conferir_vinculos_empresa, policies de pagamentos/vendas) — a seção 0 recusa rodar sem elas.
--- Ordem em relação ao deploy: livre. As telas detectam a 096 (PGRST202 nas funções novas) e, sem ela,
--- seguem pelo caminho atual. Recomendado: rodar a 096 ANTES do deploy.
+-- Ordem em relação ao deploy: rodar a 096 ANTES do deploy e fazer o deploy logo em seguida
+-- (docs/superpowers/notes/2026-10-27-deploy-servicos-pacotes.md). As telas novas detectam a 096
+-- (PGRST202) e, sem ela, seguem pelo caminho antigo, mas o pacote vendido assim fica sem venda_id
+-- (vira "pacote antigo": excluí-lo depois deixaria a venda no faturamento). A tela antiga, com a 096,
+-- é recusada sem gravar nada (guarda da seção 7) e pede para recarregar.
 --
 -- POR QUE CADA PARTE
 --
@@ -67,8 +70,9 @@
 --    - pacote_clientes.comanda_id: a comanda que cobrou o pacote. excluir_pacote_cliente recusa esses
 --      ("Este pacote foi cobrado numa comanda..."): a comanda manteria item e pagamentos.
 --    - trigger trg_guarda_cobranca_pacote: pela API (authenticated/anon), INSERT em pacote_clientes e
---      mudança de cobranca/venda_id/comanda_id/valor_pago/empresa_id só de dentro de vender_pacote e
---      fechar_comanda (app.pacote_rpc). O status continua livre. A tela antiga (insert direto) deixa
+--      mudança de cobranca/venda_id/comanda_id/valor_pago/empresa_id/pacote_id/cliente_id só de dentro
+--      de vender_pacote e fechar_comanda (app.pacote_rpc); DELETE direto de pacote ligado a venda ou
+--      comanda só por excluir_pacote_cliente (revisão final). O status continua livre. A tela antiga (insert direto) deixa
 --      de vender pacote depois da 096, com mensagem e sem gravar nada: rode a 096 junto com o deploy.
 --    - trigger trg_guarda_venda_de_pacote: venda ligada a pacote não é apagada direto.
 --    - fechar_comanda: o valor do item "a cobrar" tem de ser o combinado na venda (valor_pago do
@@ -502,8 +506,9 @@ create policy "pagamentos: quem fecha insere" on public.pagamentos for insert wi
 );
 
 -- Guarda da cobrança (revisão da 096): nenhum caminho cria ou deixa um pacote cobrado sem venda.
--- - pacote_clientes: escrita direta pela API (papéis authenticated/anon) não insere pacote nem muda
---   cobranca, venda_id, comanda_id, valor_pago ou empresa_id — só vender_pacote e fechar_comanda
+-- - pacote_clientes: escrita direta pela API (papéis authenticated/anon) não insere pacote, não apaga
+--   pacote ligado a venda ou comanda e não muda cobranca, venda_id, comanda_id, valor_pago, empresa_id,
+--   pacote_id ou cliente_id — só vender_pacote e fechar_comanda
 --   (que ligam app.pacote_rpc) e funções security definer (current_user = dona da função). O status
 --   continua livre (Pacotes marca "concluído"). SQL Editor/suporte (postgres) não passa por aqui.
 --   Efeito no deploy: a tela ANTIGA (insert direto) deixa de vender pacote depois da 096, com esta
@@ -517,14 +522,26 @@ as $$
 begin
   if current_user not in ('authenticated', 'anon')
      or coalesce(current_setting('app.pacote_rpc', true), '') = 'on' then
-    return new;
+    return case when tg_op = 'DELETE' then old else new end;
   end if;
   if tg_op = 'INSERT' then
     raise exception 'Pacote vendido só é gravado pela venda de pacote. Recarregue a tela e tente de novo.';
   end if;
+  -- Revisão final: o DELETE direto (a policy deixa a gestora/dona) de um pacote ligado a uma venda ou
+  -- comanda deixaria a venda no faturamento sem o pacote. Esses saem só por excluir_pacote_cliente
+  -- (definer: não cai aqui). Pendente e antigo (sem venda nem comanda) continuam saindo direto.
+  if tg_op = 'DELETE' then
+    if old.venda_id is not null or old.comanda_id is not null then
+      raise exception 'Pacote vendido só é excluído em Pacotes (a venda dele sai junto). Recarregue a tela e tente de novo.';
+    end if;
+    return old;
+  end if;
+  -- pacote_id e cliente_id também: trocar o pacote (por um mais caro) ou a cliente de um pacote já
+  -- vendido ou combinado mudaria o que foi cobrado sem passar pela venda.
   if new.cobranca is distinct from old.cobranca or new.venda_id is distinct from old.venda_id
      or new.comanda_id is distinct from old.comanda_id or new.valor_pago is distinct from old.valor_pago
-     or new.empresa_id is distinct from old.empresa_id then
+     or new.empresa_id is distinct from old.empresa_id or new.pacote_id is distinct from old.pacote_id
+     or new.cliente_id is distinct from old.cliente_id then
     raise exception 'A cobrança do pacote vendido só muda pela venda ou pela comanda.';
   end if;
   return new;
@@ -533,7 +550,7 @@ $$;
 
 drop trigger if exists trg_guarda_cobranca_pacote on public.pacote_clientes;
 create trigger trg_guarda_cobranca_pacote
-  before insert or update on public.pacote_clientes
+  before insert or update or delete on public.pacote_clientes
   for each row execute function public.guarda_cobranca_pacote();
 
 -- - vendas: a venda ligada a um pacote não é apagada direto (a policy de DELETE da 086 deixa quem tem
