@@ -1,3 +1,18 @@
+/**
+ * @file pacotes.tsx
+ * Pacotes no app — a mesma tela do web (web/app/(app)/pacotes/page.tsx).
+ *
+ * ## Abas
+ * - Catálogo  : pacotes (Com sessões ou Combo, ∞ por serviço, validade livre ou sem validade) e "Vender"
+ * - Vendidos  : filtros Todos, Ativos, Concluídos, Expirados e A cobrar; sessões; excluir venda
+ * - Relatório : utilização por pacote (calcularRelatorioUtilizacao), com exportação
+ *
+ * ## Regras (shared)
+ * - saldo e status: saldoSessoes / statusPacoteCliente (hooks/usePacotes.ts), último dia de validade vale
+ * - venda: VenderPacoteSheet → venderPacote ("Cobrar agora" ou "Cobrar na comanda", migration 096)
+ * - excluir venda: excluirPacoteCliente (sem a 096: caminho antigo, com linhas conferidas)
+ * - permissões: cadastrar = pacotes.gerenciar; vender e excluir venda = pacotes.vender
+ */
 import { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
@@ -7,7 +22,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { Plus, Edit3, Trash2, X, CalendarPlus } from 'lucide-react-native';
+import { Plus, Edit3, Trash2, X, CalendarPlus, ShoppingBag } from 'lucide-react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
 import {
@@ -24,18 +39,22 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
+import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import {
   usePacotes, usePacotesVendidos,
-  type PacoteComServicos, type PacoteVendido,
+  type PacoteCatalogo, type PacoteVendido,
 } from '@/hooks/usePacotes';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { BotaoExportar } from '@/components/BotaoExportar';
-import { definicaoPacotesCatalogo, definicaoPacotesVendidos } from '@shared/exportacao/pacotes';
-import { CategoriaIcon } from '@/components/CategoriaIcon';
-import { resolverCategoria } from '@/hooks/useAgenda';
-import type { CategoriaServico } from '@/components/CategoriaIcon';
+import { VenderPacoteSheet } from '@/components/pacotes/VenderPacoteSheet';
+import { definicaoPacotesCatalogo, definicaoPacotesVendidos, definicaoPacotesUtilizacao } from '@shared/exportacao/pacotes';
 import { formatarMoeda } from '@shared/moeda';
-import { desfazerVinculoPacote, erroEscritaPacoteUso } from '@shared/pacotes-consultas';
+import { mensagemErroBanco } from '@shared/erros';
+import { rotuloValidade, totalSessoes } from '@shared/pacotes';
+import { excluirPacoteCliente, ErroPacote, SemMigration096 } from '@shared/pacotes-venda';
+import {
+  desfazerVinculoPacote, erroEscritaPacoteUso, calcularRelatorioUtilizacao,
+} from '@shared/pacotes-consultas';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -55,6 +74,15 @@ const VSTATUS: Record<string, { label: string; bg: string; color: string }> = {
   expirado:  { label: 'Expirado',  bg: C.redSoft,     color: C.red     },
   cancelado: { label: 'Cancelado', bg: C.bg,          color: C.text3   },
 };
+
+type FiltroVendidos = 'todos' | 'ativo' | 'concluido' | 'expirado' | 'a_cobrar';
+
+/** Filtro da aba Vendidos. "A cobrar" = vendido com "Cobrar na comanda" ainda não cobrado. */
+function noFiltro(v: PacoteVendido, f: FiltroVendidos): boolean {
+  if (f === 'todos') return true;
+  if (f === 'a_cobrar') return v.cobranca === 'pendente' && v.statusExibido !== 'cancelado';
+  return v.statusExibido === f;
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -85,16 +113,21 @@ const inputSt = {
 
 // ── Card de pacote (catálogo) ────────────────────────────────
 
-function PacoteCard({ pacote, podeGerenciar, onToggle, onEdit }: {
-  pacote: PacoteComServicos;
+function PacoteCard({ pacote, podeGerenciar, podeVender, onToggle, onEdit, onVender }: {
+  pacote: PacoteCatalogo;
   podeGerenciar: boolean;
+  podeVender: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  onVender: () => void;
 }) {
-  const totalSessoes = pacote.pacote_servicos.reduce((s, ps) => s + ps.quantidade, 0);
-  const subtitle = `${totalSessoes} ${totalSessoes === 1 ? 'aplicação' : 'aplicações'} · válido por ${pacote.validade_dias} dias`;
-  const tagsVisiveis = pacote.pacote_servicos.slice(0, 3);
-  const overflow = pacote.pacote_servicos.length - 3;
+  const combo = !pacote.controla_sessoes;
+  const total = totalSessoes(pacote.servicos);
+  const sessoes = combo
+    ? `Combo · ${pacote.servicos.length} ${pacote.servicos.length === 1 ? 'serviço' : 'serviços'}`
+    : total == null ? 'Sessões ilimitadas' : `${total} ${total === 1 ? 'sessão' : 'sessões'}`;
+  const tagsVisiveis = pacote.servicos.slice(0, 3);
+  const overflow = pacote.servicos.length - 3;
 
   return (
     <MotiView
@@ -107,12 +140,14 @@ function PacoteCard({ pacote, podeGerenciar, onToggle, onEdit }: {
         shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
       }}
     >
-      {/* Nome + toggle */}
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 2 }}>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>
-            {pacote.nome}
-          </Text>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{pacote.nome}</Text>
+          {combo && (
+            <View style={{ backgroundColor: C.accentSoft, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.accent, textTransform: 'uppercase' }}>Combo</Text>
+            </View>
+          )}
         </View>
         {podeGerenciar && (
           <Switch
@@ -125,58 +160,41 @@ function PacoteCard({ pacote, podeGerenciar, onToggle, onEdit }: {
         )}
       </View>
 
-      {/* Validade / sessões */}
       <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, marginBottom: 10 }}>
-        {subtitle}
+        {sessoes} · {rotuloValidade(pacote.validade_dias)}
       </Text>
 
-      {/* Tags de serviços */}
       {tagsVisiveis.length > 0 && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
-          {tagsVisiveis.map(({ servico }) => {
-            const cat = resolverCategoria(servico.categoria ?? 'outros') as CategoriaServico;
-            return (
-              <View
-                key={servico.id}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 4,
-                  backgroundColor: C.primarySoft, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
-                }}
-              >
-                <CategoriaIcon categoria={cat} size={10} color={C.accent} />
-                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text2 }} numberOfLines={1}>
-                  {servico.nome}
-                </Text>
-              </View>
-            );
-          })}
+          {tagsVisiveis.map((s) => (
+            <View key={s.servico_id} style={{ backgroundColor: C.primarySoft, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text2 }} numberOfLines={1}>
+                {s.nome} ×{s.quantidade ?? '∞'}
+              </Text>
+            </View>
+          ))}
           {overflow > 0 && (
             <View style={{ backgroundColor: C.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, justifyContent: 'center' }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3 }}>
-                +{overflow}
-              </Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3 }}>+{overflow}</Text>
             </View>
           )}
         </View>
       )}
 
-      {/* Preço + editar */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text style={{
-          fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18,
-          color: pacote.ativo ? C.primary : C.text3, letterSpacing: -0.5,
-        }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: pacote.ativo ? C.primary : C.text3, letterSpacing: -0.5 }}>
           {formatarMoeda(pacote.preco)}
         </Text>
+        {podeVender && pacote.ativo && (
+          <TouchableOpacity onPress={onVender} accessibilityLabel={`Vender ${pacote.nome}`}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingHorizontal: 12, borderRadius: 8, backgroundColor: C.primary }}>
+            <ShoppingBag size={12} color="#fff" strokeWidth={2} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Vender</Text>
+          </TouchableOpacity>
+        )}
         {podeGerenciar && (
-          <TouchableOpacity
-            onPress={onEdit}
-            style={{
-              width: 30, height: 30, borderRadius: 8,
-              backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
-              alignItems: 'center', justifyContent: 'center',
-            }}
-          >
+          <TouchableOpacity onPress={onEdit} accessibilityLabel="Editar pacote"
+            style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }}>
             <Edit3 size={13} color={C.text3} strokeWidth={2} />
           </TouchableOpacity>
         )}
@@ -187,17 +205,19 @@ function PacoteCard({ pacote, podeGerenciar, onToggle, onEdit }: {
 
 // ── Card de pacote vendido ──────────────────────────────────
 
-function VendidoCard({ v, onGerenciar, onExcluir, onMarcarUtilizado }: {
+function VendidoCard({ v, podeExcluir, onGerenciar, onExcluir, onMarcarUtilizado }: {
   v: PacoteVendido;
+  podeExcluir: boolean;
   onGerenciar: () => void;
   onExcluir: () => void;
   onMarcarUtilizado: () => void;
 }) {
   const ilimitado = v.total_sessoes === null;
   const pct = v.total_sessoes != null && v.total_sessoes > 0 ? (v.usadas / v.total_sessoes) * 100 : 0;
-  const restantes = v.total_sessoes != null ? v.total_sessoes - v.usadas : null;
+  const restantes = v.total_sessoes != null ? Math.max(0, v.total_sessoes - v.usadas) : null;
   const corBarra = pct >= 100 ? '#16A34A' : pct >= 70 ? '#D97706' : '#7C3AED';
-  const st = VSTATUS[v.status] ?? VSTATUS.cancelado;
+  const st = VSTATUS[v.statusExibido] ?? VSTATUS.cancelado;
+  const aCobrar = v.cobranca === 'pendente' && v.statusExibido !== 'cancelado';
 
   return (
     <View style={{
@@ -205,32 +225,29 @@ function VendidoCard({ v, onGerenciar, onExcluir, onMarcarUtilizado }: {
       borderRadius: 14, padding: 14, marginBottom: 10,
       shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
     }}>
-      {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 12 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>
-            {v.cliente.nome}
-          </Text>
-          <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, marginTop: 1 }}>
-            {v.pacote.nome}
-          </Text>
+          <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{v.cliente.nome}</Text>
+          <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, marginTop: 1 }}>{v.pacote.nome}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {aCobrar && (
+            <View style={{ backgroundColor: C.amberSoft, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.amber, textTransform: 'uppercase', letterSpacing: 0.4 }}>A cobrar</Text>
+            </View>
+          )}
           <View style={{ backgroundColor: st.bg, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: st.color, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-              {st.label}
-            </Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: st.color, textTransform: 'uppercase', letterSpacing: 0.4 }}>{st.label}</Text>
           </View>
-          <TouchableOpacity
-            onPress={onExcluir}
-            style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Trash2 size={12} color={C.text3} strokeWidth={2} />
-          </TouchableOpacity>
+          {podeExcluir && (
+            <TouchableOpacity onPress={onExcluir} accessibilityLabel="Excluir venda"
+              style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }}>
+              <Trash2 size={12} color={C.text3} strokeWidth={2} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
-      {/* Combo: lista de serviços · Sessões: progresso */}
       {!v.pacote.controla_sessoes ? (
         <View style={{ marginBottom: 12 }}>
           <View style={{ alignSelf: 'flex-start', backgroundColor: C.accentSoft, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, marginBottom: 6 }}>
@@ -254,9 +271,9 @@ function VendidoCard({ v, onGerenciar, onExcluir, onMarcarUtilizado }: {
               <Text style={{ fontSize: 14, color: C.text3 }}>/{ilimitado ? '∞' : v.total_sessoes}</Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>  sessões</Text>
             </Text>
-            {ilimitado && v.status === 'ativo' ? (
+            {ilimitado && v.statusExibido === 'ativo' ? (
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.primary }}>Ilimitado</Text>
-            ) : restantes !== null && restantes > 0 && v.status === 'ativo' ? (
+            ) : restantes !== null && restantes > 0 && v.statusExibido === 'ativo' ? (
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 }}>
                 {restantes} restante{restantes !== 1 ? 's' : ''}
               </Text>
@@ -274,36 +291,30 @@ function VendidoCard({ v, onGerenciar, onExcluir, onMarcarUtilizado }: {
         </View>
       )}
 
-      {/* Datas + valor */}
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
         <View style={{ flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10 }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 }}>Válido até</Text>
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{fmtData(v.data_validade)}</Text>
         </View>
         <View style={{ flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10 }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 }}>Valor pago</Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{v.valor_pago ? formatarMoeda(v.valor_pago) : '—'}</Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 }}>{aCobrar ? 'Valor a cobrar' : 'Valor pago'}</Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{v.valor_pago != null ? formatarMoeda(v.valor_pago) : '—'}</Text>
         </View>
       </View>
 
-      {/* Ações */}
       {v.pacote.controla_sessoes ? (
         <>
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text4, textAlign: 'center', marginBottom: 6 }}>
             Sessões entram sozinhas ao concluir agendamentos.
           </Text>
-          <TouchableOpacity
-            onPress={onGerenciar}
-            style={{ height: 38, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }}
-          >
+          <TouchableOpacity onPress={onGerenciar}
+            style={{ height: 38, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2 }}>Gerenciar sessões</Text>
           </TouchableOpacity>
         </>
-      ) : v.status === 'ativo' ? (
-        <TouchableOpacity
-          onPress={onMarcarUtilizado}
-          style={{ height: 38, borderRadius: 10, backgroundColor: C.green, alignItems: 'center', justifyContent: 'center' }}
-        >
+      ) : v.statusExibido === 'ativo' ? (
+        <TouchableOpacity onPress={onMarcarUtilizado}
+          style={{ height: 38, borderRadius: 10, backgroundColor: C.green, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Marcar como utilizado</Text>
         </TouchableOpacity>
       ) : null}
@@ -371,7 +382,7 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
 
   async function carregar() {
     setLoading(true); setErro('');
-    const [rUso, rAg, rLink] = await Promise.all([
+    const [rUso, rAg] = await Promise.all([
       supabase.from('pacote_uso')
         .select('id, servico_id, agendamento_id, observacao, created_at, servico:servicos(nome)')
         .eq('pacote_cliente_id', pc.id).order('created_at', { ascending: false }),
@@ -380,12 +391,22 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
         .select('id, data_hora_inicio, servico_id, pacote_cliente_id, servico:servicos(nome)')
         .eq('empresa_id', empresaId).eq('cliente_id', pc.cliente.id).eq('status', 'concluido')
         .order('data_hora_inicio', { ascending: false }).limit(100),
-      supabase.from('pacote_uso').select('agendamento_id')
-        .eq('empresa_id', empresaId).not('agendamento_id', 'is', null),
     ]);
+    if (rUso.error || rAg.error) {
+      setErro(mensagemErroBanco(rUso.error ?? rAg.error, 'carregar as sessões'));
+      setLoading(false);
+      return;
+    }
+    const ags = (rAg.data ?? []) as unknown as AgConcluido[];
+    // Só os candidatos deste cliente: atendimento que já lançou sessão em qualquer pacote fica de fora.
+    const rLink = ags.length > 0
+      ? await supabase.from('pacote_uso').select('agendamento_id')
+        .eq('empresa_id', empresaId).in('agendamento_id', ags.map((a) => a.id))
+      : { data: [], error: null };
+    if (rLink.error) { setErro(mensagemErroBanco(rLink.error, 'carregar os atendimentos')); setLoading(false); return; }
     setSessoes((rUso.data ?? []) as unknown as UsoRow[]);
     const linkados = new Set(((rLink.data ?? []) as { agendamento_id: string }[]).map((x) => x.agendamento_id));
-    setCandidatos(((rAg.data ?? []) as unknown as AgConcluido[]).filter((a) => !linkados.has(a.id)));
+    setCandidatos(ags.filter((a) => !linkados.has(a.id)));
     setLoading(false);
   }
   useEffect(() => { carregar(); /* eslint-disable-next-line */ }, []);
@@ -421,7 +442,7 @@ function SessoesModal({ pc, empresaId, onClose, onChanged }: {
     // e sem conferência: a sessão era lançada e o atendimento seguia contando como faturamento.
     const { data: vinculados, error: e0 } = await supabase.from('agendamentos')
       .update({ pacote_cliente_id: pc.id }).eq('id', ag.id).eq('empresa_id', empresaId).select('id');
-    if (e0) { setBusy(false); setErro(e0.message); return; }
+    if (e0) { setBusy(false); setErro(mensagemErroBanco(e0, 'alterar o atendimento')); return; }
     if (!vinculados || vinculados.length === 0) { setBusy(false); setErro('Você não tem permissão para alterar este atendimento.'); return; }
     const rSessao = await supabase.from('pacote_uso').insert({
       empresa_id:        empresaId,
@@ -694,15 +715,19 @@ export default function Pacotes() {
   const { pode } = usePermissoes();
   const empresaId = empresaAtiva?.id;
   const podeGerenciarCatalogo = pode('pacotes.gerenciar');
+  const podeVender = pode('pacotes.vender');
   const qc = useQueryClient();
 
-  const [aba, setAba] = useState<'catalogo' | 'vendidos'>('catalogo');
-  const [filtro, setFiltro] = useState<'todos' | 'ativo' | 'concluido' | 'expirado'>('todos');
+  const [aba, setAba] = useState<'catalogo' | 'vendidos' | 'relatorio'>('catalogo');
+  const [filtro, setFiltro] = useState<FiltroVendidos>('todos');
   const [modalSessao, setModalSessao] = useState<PacoteVendido | null>(null);
+  const [vendendo, setVendendo] = useState<PacoteCatalogo | null>(null);
 
-  const { data: pacotes = [], isLoading, refetch } = usePacotes();
-  const { data: vendidos = [], isLoading: loadingVend, refetch: refetchVend } = usePacotesVendidos();
-  const onRefresh = useCallback(() => { refetch(); refetchVend(); }, [refetch, refetchVend]);
+  const catalogo = usePacotes();
+  const vend = usePacotesVendidos();
+  const pacotes = catalogo.data ?? [];
+  const vendidos = vend.data ?? [];
+  const onRefresh = useCallback(() => { catalogo.refetch(); vend.refetch(); }, [catalogo, vend]);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -716,36 +741,59 @@ export default function Pacotes() {
 
   const ativos   = pacotes.filter((p) => p.ativo);
   const inativos = pacotes.filter((p) => !p.ativo);
-  const vendAtivos = vendidos.filter((v) => v.status === 'ativo').length;
-  const vendidosFiltrados = filtro === 'todos' ? vendidos : vendidos.filter((v) => v.status === filtro);
+  const conta = (f: FiltroVendidos) => vendidos.filter((v) => noFiltro(v, f)).length;
+  const vendidosFiltrados = vendidos.filter((v) => noFiltro(v, filtro));
+  const relatorio = calcularRelatorioUtilizacao(vendidos);
+  // Número só com a carga certa: carregando ou com erro mostra '—', nunca zero.
+  const num = (ok: boolean, n: number) => (ok ? String(n) : '—');
+  const invalidarVendidos = () => qc.invalidateQueries({ queryKey: ['pacotes-vendidos'] });
 
-  async function togglePacote(p: PacoteComServicos) {
+  async function togglePacote(p: PacoteCatalogo) {
+    if (!empresaId) return;
     const { data: alterados, error } = await supabase
       .from('pacotes')
       .update({ ativo: !p.ativo })
-      .eq('id', p.id)
+      .eq('id', p.id).eq('empresa_id', empresaId)
       .select('id');
-    if (error) { Alert.alert('Erro', error.message); return; }
-    if (!alterados || alterados.length === 0) { Alert.alert('Sem permissão', 'Você não tem permissão para alterar pacotes.'); return; }
+    if (error || !alterados || alterados.length === 0) {
+      Alert.alert('Não foi possível alterar', mensagemErroBanco(error ?? { code: '42501' }, 'alterar o pacote'));
+      return;
+    }
     qc.invalidateQueries({ queryKey: ['pacotes'] });
+  }
+
+  /** Sem a 096: desvincula os atendimentos e apaga o pacote, com as linhas conferidas. */
+  async function excluirVendaSem096(v: PacoteVendido): Promise<string | null> {
+    if (!empresaId) return null;
+    if (v.usadas > 0) return 'Este pacote já tem sessões usadas. Para cancelar, fale com a dona.';
+    const { error: eDesv } = await supabase.from('agendamentos').update({ pacote_cliente_id: null })
+      .eq('pacote_cliente_id', v.id).eq('empresa_id', empresaId).select('id');
+    if (eDesv) return mensagemErroBanco(eDesv, 'desvincular os atendimentos');
+    const { data: apagados, error } = await supabase.from('pacote_clientes')
+      .delete().eq('id', v.id).eq('empresa_id', empresaId).select('id');
+    if (error || !apagados || apagados.length === 0) return mensagemErroBanco(error ?? { code: '42501' }, 'excluir o pacote vendido');
+    return null;
   }
 
   function excluirVenda(v: PacoteVendido) {
     if (!empresaId) return;
     Alert.alert(
       'Excluir venda?',
-      `A venda de "${v.pacote.nome}" para ${v.cliente.nome} será apagada, junto com as sessões registradas. Agendamentos vinculados serão desvinculados. Sem volta.`,
+      `A venda de "${v.pacote.nome}" para ${v.cliente.nome} será apagada${v.cobranca === 'paga' ? ', junto com a receita dela' : ''}. Atendimentos vinculados serão desvinculados. Sem volta.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Excluir venda', style: 'destructive', onPress: async () => {
-            // Desvincula agendamentos que apontam para esta venda (FK sem ON DELETE)
-            await supabase.from('agendamentos').update({ pacote_cliente_id: null })
-              .eq('pacote_cliente_id', v.id).eq('empresa_id', empresaId);
-            const { error } = await supabase.from('pacote_clientes')
-              .delete().eq('id', v.id).eq('empresa_id', empresaId);
-            if (error) { Alert.alert('Erro', error.message); return; }
-            qc.invalidateQueries({ queryKey: ['pacotes-vendidos'] });
+            let falha: string | null = null;
+            try {
+              await excluirPacoteCliente(supabase, empresaId, v.id);
+            } catch (e) {
+              if (e instanceof SemMigration096) falha = await excluirVendaSem096(v);
+              else falha = e instanceof ErroPacote ? e.message : mensagemErroBanco(null, 'excluir o pacote vendido');
+            }
+            invalidarVendidos();
+            invalidarFinanceiro(qc);
+            if (falha) Alert.alert('Não foi possível excluir', falha);
           },
         },
       ],
@@ -754,13 +802,16 @@ export default function Pacotes() {
 
   async function marcarComboUtilizado(pcId: string) {
     if (!empresaId) return;
-    const { error } = await supabase.from('pacote_clientes')
-      .update({ status: 'concluido' }).eq('id', pcId).eq('empresa_id', empresaId);
-    if (error) { Alert.alert('Erro', error.message); return; }
-    qc.invalidateQueries({ queryKey: ['pacotes-vendidos'] });
+    const { data: alterados, error } = await supabase.from('pacote_clientes')
+      .update({ status: 'concluido' }).eq('id', pcId).eq('empresa_id', empresaId).select('id');
+    if (error || !alterados || alterados.length === 0) {
+      Alert.alert('Não foi possível marcar', mensagemErroBanco(error ?? { code: '42501' }, 'marcar o combo como utilizado'));
+      return;
+    }
+    invalidarVendidos();
   }
 
-  function renderSection(lista: PacoteComServicos[], titulo: string, delay: number) {
+  function renderSection(lista: PacoteCatalogo[], titulo: string, delay: number) {
     if (lista.length === 0) return null;
     return (
       <MotiView
@@ -769,10 +820,7 @@ export default function Pacotes() {
         transition={{ type: 'timing', duration: 320, delay }}
         style={{ marginHorizontal: 24, marginBottom: 20 }}
       >
-        <Text style={{
-          fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3,
-          textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10,
-        }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
           {titulo}
         </Text>
         {lista.map((p) => (
@@ -780,13 +828,29 @@ export default function Pacotes() {
             key={p.id}
             pacote={p}
             podeGerenciar={podeGerenciarCatalogo}
+            podeVender={podeVender}
             onToggle={() => togglePacote(p)}
             onEdit={() => router.push(`/(empresa)/editar-pacote/${p.id}` as any)}
+            onVender={() => setVendendo(p)}
           />
         ))}
       </MotiView>
     );
   }
+
+  function Aviso({ texto, onTentar }: { texto: string; onTentar: () => void }) {
+    return (
+      <View style={{ marginHorizontal: 24, marginBottom: 16, backgroundColor: C.redSoft, borderRadius: 14, padding: 14, gap: 8 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.red }}>{texto}</Text>
+        <TouchableOpacity onPress={onTentar} style={{ alignSelf: 'flex-start', backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 6 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Tentar de novo</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const erroCatalogo = catalogo.isError ? mensagemErroBanco(catalogo.error as { code?: string; message?: string }, 'carregar o catálogo de pacotes') : null;
+  const erroVendidos = vend.isError ? mensagemErroBanco(vend.error as { code?: string; message?: string }, 'carregar os pacotes vendidos') : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -795,73 +859,62 @@ export default function Pacotes() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 100 }}
-        refreshControl={<RefreshControl refreshing={isLoading || loadingVend} onRefresh={onRefresh} tintColor="#fff" />}
+        refreshControl={<RefreshControl refreshing={catalogo.isFetching || vend.isFetching} onRefresh={onRefresh} tintColor="#fff" />}
       >
-        {/* Header */}
-        <LinearGradient
-          colors={['#2C1654', '#3D1F72']}
-          style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 20 }}
-        >
+        <LinearGradient colors={['#2C1654', '#3D1F72']} style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 20 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <View>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
                 {empresaAtiva?.nome}
               </Text>
-              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: '#fff' }}>
-                Pacotes
-              </Text>
+              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: '#fff' }}>Pacotes</Text>
             </View>
-            {aba === 'catalogo' ? (
+            {aba === 'catalogo' && catalogo.isSuccess ? (
               <BotaoExportar
                 definicao={definicaoPacotesCatalogo()}
-                getLinhas={() => pacotes.map((p) => ({ nome: p.nome, preco: p.preco, validadeDias: p.validade_dias, servicos: p.pacote_servicos.map((s) => ({ nome: s.servico?.nome ?? 'Serviço', quantidade: s.quantidade })), ativo: p.ativo }))}
+                getLinhas={() => pacotes.map((p) => ({ nome: p.nome, preco: p.preco, validadeDias: p.validade_dias, servicos: p.servicos.map((s) => ({ nome: s.nome, quantidade: s.quantidade })), ativo: p.ativo }))}
                 cor="#fff"
               />
-            ) : (
+            ) : aba === 'vendidos' && vend.isSuccess ? (
               <BotaoExportar
                 definicao={definicaoPacotesVendidos()}
-                getLinhas={() => vendidosFiltrados.map((v) => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total_sessoes, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: VSTATUS[v.status]?.label ?? v.status }))}
+                getLinhas={() => vendidosFiltrados.map((v) => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total_sessoes, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: v.cobranca === 'pendente' && v.statusExibido !== 'cancelado' ? `${VSTATUS[v.statusExibido]?.label ?? v.statusExibido} (A cobrar)` : (VSTATUS[v.statusExibido]?.label ?? v.statusExibido) }))}
                 cor="#fff"
               />
-            )}
+            ) : aba === 'relatorio' && vend.isSuccess ? (
+              <BotaoExportar
+                definicao={definicaoPacotesUtilizacao()}
+                getLinhas={() => relatorio.porPacote.map((l) => ({ nome: l.nome, vendas: l.vendas, totalSessoes: l.totalSessoes, sessoesUsadas: l.sessoesUsadas, receita: l.receita }))}
+                cor="#fff"
+              />
+            ) : null}
           </View>
         </LinearGradient>
 
         {/* Stats */}
-        <MotiView
-          from={{ opacity: 0, translateY: 6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 350, delay: 60 }}
-          style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 16 }}
-        >
+        <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 16 }}>
           {[
-            { value: ativos.length,     label: 'Ativos',      color: C.primary },
-            { value: vendidos.length,   label: 'Vendas',      color: C.green   },
-            { value: vendAtivos,        label: 'Em uso',      color: C.accent  },
+            { value: num(catalogo.isSuccess, ativos.length), label: 'Ativos', color: C.primary },
+            { value: num(vend.isSuccess, vendidos.length), label: 'Vendas', color: C.green },
+            { value: num(vend.isSuccess, conta('ativo')), label: 'Em uso', color: C.accent },
+            { value: num(vend.isSuccess, conta('a_cobrar')), label: 'A cobrar', color: C.amber },
           ].map((s) => (
-            <View key={s.label} style={{
-              flex: 1, backgroundColor: C.surface,
-              borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12,
-              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-              alignItems: 'center',
-            }}>
+            <View key={s.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12, alignItems: 'center' }}>
               <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 22, color: s.color, letterSpacing: -0.5, lineHeight: 24, marginBottom: 3 }}>
                 {s.value}
               </Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                {s.label}
-              </Text>
+              <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8 }}>{s.label}</Text>
             </View>
           ))}
-        </MotiView>
+        </View>
 
-        {/* Abas */}
         <View style={{ marginHorizontal: 24, marginBottom: 16 }}>
           <SmoothTabs
             variant="segmented"
             tabs={[
               { key: 'catalogo', label: 'Catálogo' },
-              { key: 'vendidos', label: `Vendidos (${vendidos.length})` },
+              { key: 'vendidos', label: `Vendidos (${num(vend.isSuccess, vendidos.length)})` },
+              { key: 'relatorio', label: 'Relatório' },
             ]}
             active={aba}
             onChange={(k) => setAba(k as typeof aba)}
@@ -870,81 +923,130 @@ export default function Pacotes() {
 
         {/* ══ CATÁLOGO ══ */}
         {aba === 'catalogo' && (
-          <>
-            {renderSection(ativos,   'Pacotes ativos', 100)}
-            {renderSection(inativos, 'Inativos',       160)}
-
-            {pacotes.length === 0 && !isLoading && (
-              <View style={{ marginHorizontal: 24, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 32, alignItems: 'center', gap: 12 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
-                  Nenhum pacote cadastrado ainda.
-                </Text>
-                {podeGerenciarCatalogo && (
-                  <TouchableOpacity
-                    onPress={() => router.push('/(empresa)/novo-pacote' as any)}
-                    style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}
-                  >
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>
-                      Criar primeiro pacote
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-          </>
+          erroCatalogo ? <Aviso texto={erroCatalogo} onTentar={() => catalogo.refetch()} /> : catalogo.isPending ? (
+            <ActivityIndicator color={C.primary} style={{ marginTop: 24 }} />
+          ) : (
+            <>
+              {renderSection(ativos,   'Pacotes ativos', 100)}
+              {renderSection(inativos, 'Inativos',       160)}
+              {pacotes.length === 0 && (
+                <View style={{ marginHorizontal: 24, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 32, alignItems: 'center', gap: 12 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>Nenhum pacote cadastrado ainda.</Text>
+                  {podeGerenciarCatalogo && (
+                    <TouchableOpacity onPress={() => router.push('/(empresa)/novo-pacote' as any)}
+                      style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>Criar primeiro pacote</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </>
+          )
         )}
 
         {/* ══ VENDIDOS ══ */}
         {aba === 'vendidos' && (
-          <View style={{ marginHorizontal: 24 }}>
-            <View style={{ marginBottom: 14, marginHorizontal: -4 }}>
-              <SmoothTabs
-                variant="pill"
-                tabs={[
-                  { key: 'todos',     label: `Todos (${vendidos.length})` },
-                  { key: 'ativo',     label: `Ativos (${vendidos.filter((v) => v.status === 'ativo').length})` },
-                  { key: 'concluido', label: `Concluídos (${vendidos.filter((v) => v.status === 'concluido').length})` },
-                  { key: 'expirado',  label: `Expirados (${vendidos.filter((v) => v.status === 'expirado').length})` },
-                ]}
-                active={filtro}
-                onChange={(k) => setFiltro(k as typeof filtro)}
-              />
-            </View>
-
-            {loadingVend ? (
-              <ActivityIndicator color={C.primary} style={{ marginTop: 24 }} />
-            ) : vendidosFiltrados.length === 0 ? (
-              <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 28, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, textAlign: 'center' }}>
-                  {filtro !== 'todos' ? `Nenhuma venda "${VSTATUS[filtro]?.label ?? filtro}"` : 'Nenhuma venda registrada ainda.'}
-                </Text>
-              </View>
-            ) : (
-              vendidosFiltrados.map((v) => (
-                <VendidoCard
-                  key={v.id}
-                  v={v}
-                  onGerenciar={() => setModalSessao(v)}
-                  onExcluir={() => excluirVenda(v)}
-                  onMarcarUtilizado={() => marcarComboUtilizado(v.id)}
+          erroVendidos ? <Aviso texto={erroVendidos} onTentar={() => vend.refetch()} /> : (
+            <View style={{ marginHorizontal: 24 }}>
+              <View style={{ marginBottom: 14, marginHorizontal: -4 }}>
+                <SmoothTabs
+                  variant="pill"
+                  tabs={[
+                    { key: 'todos',     label: `Todos (${num(vend.isSuccess, conta('todos'))})` },
+                    { key: 'ativo',     label: `Ativos (${num(vend.isSuccess, conta('ativo'))})` },
+                    { key: 'concluido', label: `Concluídos (${num(vend.isSuccess, conta('concluido'))})` },
+                    { key: 'expirado',  label: `Expirados (${num(vend.isSuccess, conta('expirado'))})` },
+                    { key: 'a_cobrar',  label: `A cobrar (${num(vend.isSuccess, conta('a_cobrar'))})` },
+                  ]}
+                  active={filtro}
+                  onChange={(k) => setFiltro(k as FiltroVendidos)}
                 />
-              ))
-            )}
-          </View>
+              </View>
+
+              {vend.isPending ? (
+                <ActivityIndicator color={C.primary} style={{ marginTop: 24 }} />
+              ) : vendidosFiltrados.length === 0 ? (
+                <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 28, alignItems: 'center' }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, textAlign: 'center' }}>
+                    {filtro === 'a_cobrar' ? 'Nenhum pacote a cobrar.' : filtro !== 'todos' ? `Nenhuma venda "${VSTATUS[filtro]?.label ?? filtro}"` : 'Nenhuma venda registrada ainda.'}
+                  </Text>
+                </View>
+              ) : (
+                vendidosFiltrados.map((v) => (
+                  <VendidoCard
+                    key={v.id}
+                    v={v}
+                    podeExcluir={podeVender}
+                    onGerenciar={() => setModalSessao(v)}
+                    onExcluir={() => excluirVenda(v)}
+                    onMarcarUtilizado={() => marcarComboUtilizado(v.id)}
+                  />
+                ))
+              )}
+            </View>
+          )
+        )}
+
+        {/* ══ RELATÓRIO ══ */}
+        {aba === 'relatorio' && (
+          erroVendidos ? <Aviso texto={erroVendidos} onTentar={() => vend.refetch()} /> : vend.isPending ? (
+            <ActivityIndicator color={C.primary} style={{ marginTop: 24 }} />
+          ) : (
+            <View style={{ marginHorizontal: 24, gap: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {[
+                  { label: 'Receita', value: formatarMoeda(relatorio.receitaTotal) },
+                  { label: 'Sessões usadas', value: `${relatorio.sessoesUsadas}/${relatorio.totalSessoes}` },
+                  { label: 'Aproveitamento', value: `${relatorio.aproveitamento}%` },
+                ].map((k) => (
+                  <View key={k.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12 }}>
+                    <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.primary }}>{k.value}</Text>
+                    <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2 }}>{k.label}</Text>
+                  </View>
+                ))}
+              </View>
+              {relatorio.aCobrar > 0 && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amber }}>
+                  {relatorio.aCobrar} {relatorio.aCobrar === 1 ? 'pacote a cobrar ainda não entrou' : 'pacotes a cobrar ainda não entraram'} na receita.
+                </Text>
+              )}
+              {relatorio.porPacote.length === 0 ? (
+                <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 28, alignItems: 'center' }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>Nenhuma venda registrada ainda.</Text>
+                </View>
+              ) : relatorio.porPacote.map((p) => {
+                const pct = p.totalSessoes > 0 ? Math.round((p.sessoesUsadas / p.totalSessoes) * 100) : 0;
+                return (
+                  <View key={p.pacote_id || p.nome} style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 14, gap: 6 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                      <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text }}>{p.nome}</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>{formatarMoeda(p.receita)}</Text>
+                    </View>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>
+                      {p.vendas} {p.vendas === 1 ? 'venda' : 'vendas'}{p.aCobrar > 0 ? ` · ${p.aCobrar} a cobrar` : ''} · {p.combo ? 'Combo · sem controle de sessões' : `${p.sessoesUsadas}/${p.totalSessoes} sessões · ${pct}% aproveitamento`}
+                    </Text>
+                    {!p.combo && (
+                      <View style={{ height: 6, borderRadius: 999, backgroundColor: C.bg, overflow: 'hidden' }}>
+                        <View style={{ height: 6, width: `${Math.min(pct, 100)}%`, backgroundColor: C.accent }} />
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )
         )}
       </ScrollView>
 
-      {/* FAB */}
       {podeGerenciarCatalogo && (
         <TouchableOpacity
           onPress={() => router.push('/(empresa)/novo-pacote' as any)}
+          accessibilityLabel="Novo pacote"
           style={{
             position: 'absolute', bottom: insets.bottom + 24, right: 24,
-            width: 52, height: 52, borderRadius: 16,
-            backgroundColor: C.primary,
+            width: 52, height: 52, borderRadius: 16, backgroundColor: C.primary,
             alignItems: 'center', justifyContent: 'center',
-            shadowColor: C.primary, shadowOpacity: 0.35,
-            shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
+            shadowColor: C.primary, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
           }}
         >
           <Plus size={22} color="#fff" strokeWidth={2.5} />
@@ -956,7 +1058,26 @@ export default function Pacotes() {
           pc={modalSessao}
           empresaId={empresaId}
           onClose={() => setModalSessao(null)}
-          onChanged={() => qc.invalidateQueries({ queryKey: ['pacotes-vendidos'] })}
+          onChanged={invalidarVendidos}
+        />
+      )}
+
+      {empresaId && (
+        <VenderPacoteSheet
+          visible={!!vendendo}
+          empresaId={empresaId}
+          pacotes={pacotes}
+          pacoteId={vendendo?.id ?? null}
+          padraoCobranca="agora"
+          onClose={() => setVendendo(null)}
+          onVendido={(r) => {
+            setVendendo(null);
+            setAba('vendidos');
+            setFiltro(r.cobranca === 'comanda' ? 'a_cobrar' : 'todos');
+            Alert.alert('Pacote vendido', r.cobranca === 'comanda'
+              ? 'O pacote fica "A cobrar" e entra na próxima comanda da cliente.'
+              : 'Venda registrada.');
+          }}
         />
       )}
     </View>
