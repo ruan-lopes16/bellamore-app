@@ -170,10 +170,10 @@ describe('D — menu inferior troca Financeiro por Comanda', () => {
 // ── E. Lembretes / Notificações ──────────────────────────────
 
 describe('E2 — rota de lembretes por atendimento (30 min)', () => {
-  const src = read('app/api/cron/lembretes/route.ts');
+  const src = read('lib/push/cron-lembretes.ts');
   it('importa de @shared/lembretes e chama selecionarLembrete sem janela', () => {
     expect(src).toContain("from '@shared/lembretes'");
-    expect(src).toContain('selecionarLembrete(ags, agora)');
+    expect(src).toContain('selecionarLembrete(((agsRaw ?? []) as any[]).map(mapAg), agora)');
   });
   it('marca a coluna nova após enviar', () => {
     expect(src).toContain('lembrete_30min_em');
@@ -187,12 +187,12 @@ describe('E2 — rota de lembretes por atendimento (30 min)', () => {
   });
 });
 
-describe('E2b — rota de resumo diário', () => {
-  const src = read('app/api/cron/resumo-diario/route.ts');
+describe('E2b — rota de resumo diário (motor em lib/push/cron-resumo.ts)', () => {
+  const src = read('lib/push/cron-resumo.ts');
   it('usa corpoResumoDiario e as 3 contagens', () => {
-    expect(src).toContain('corpoResumoDiario');
+    expect(src).toContain('corpoResumoDoMembro');
     expect(src).toContain('v_produtos_estoque_baixo');
-    expect(src).toContain("eq('data_vencimento', hojeStr)");
+    expect(src).toContain("eq('data_vencimento', hoje)");
   });
 });
 

@@ -84,7 +84,7 @@ describe('Comanda B — app: editar comanda fechada', () => {
 });
 
 // ── Correções da revisão final de branch (Comanda B)
-const cron = readFileSync(join(raiz, 'web/app/api/cron/resumo-diario/route.ts'), 'utf8');
+const cron = readFileSync(join(raiz, 'web/lib/push/cron-resumo.ts'), 'utf8');
 /** Corpo de `async function <nome>` até o fechamento no nível de 2 espaços. */
 const corpoDe = (src: string, nome: string) =>
   src.match(new RegExp('async function ' + nome + '\\([\\s\\S]*?\\n {2}\\}\\r?\\n'))?.[0] ?? '';

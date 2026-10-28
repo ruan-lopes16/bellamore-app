@@ -1,24 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
-import { corpoResumoDiario, corpoResumoDiarioProfissional } from '@shared/lembretes';
-import { hojeBRT, limitesDias } from '@shared/periodos';
+import { hojeBRT } from '@shared/periodos';
+import { executarCronResumo } from '@/lib/push/cron-resumo';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * Resumo diário. Chamado 1x/dia pelo pg_cron (migration 071, 07:00 BRT).
- * Conteúdo por papel:
+ * Conteúdo por papel e por permissão:
  * - owner/gestor: visão da empresa — nº de atendimentos do dia, despesas
- *   vencendo hoje, estoque baixo.
+ *   vencendo hoje (só com `financeiro.ver`) e estoque baixo (só com
+ *   `estoque.acessar`).
  * - profissional: visão pessoal — nº de atendimentos dela hoje e quanto ela
- *   já comissionou hoje (comissões geradas hoje, inclusive de serviço extra).
- * Quem não tem nada a reportar não recebe push nem linha em notificacoes.
- * Quem desligou `users.notif_resumo_diario` (migration 077) também não —
- * a preferência é "parar de receber" de verdade, não só silenciar o push.
+ *   já comissionou hoje (mais despesas/estoque, se tiver essas permissões).
+ * Quem não tem nada a reportar, ou desligou `users.notif_resumo_diario`
+ * (migration 077), não recebe push nem linha em notificacoes.
  *
- * Grava 1 linha em notificacoes por membro ativo com algo a reportar (tipo
- * 'resumo') — a migration 072 apaga essas linhas na madrugada seguinte.
+ * Envia pelo web push e pelo app nativo (Expo, só nos aparelhos da mesma
+ * empresa; sem a 097, `users.push_token` só leitura). Regras e testes em
+ * `web/lib/push/cron-resumo.ts`. A migration 072 apaga as linhas 'resumo'
+ * de notificacoes na madrugada seguinte.
  */
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization');
@@ -37,92 +39,13 @@ export async function GET(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  // "Hoje" em Brasília (YYYY-MM-DD) e os limites do dia, pela fonte única de períodos.
-  const hojeStr = hojeBRT();
-  const { startIso: inicioHoje, endIso: fimHoje } = limitesDias(hojeStr, hojeStr);
-
-  const { data: empresas } = await db.from('empresas').select('id').eq('ativo', true);
-
-  let enviados = 0;
-
-  for (const empresa of empresas ?? []) {
-    const empId = empresa.id;
-
-    const [{ data: agsHoje }, { data: comissoesHoje }, { data: despVenc }, { data: estoque }, { data: membros }, { data: subs }] = await Promise.all([
-      db.from('agendamentos').select('id, profissional_id, status')
-        .eq('empresa_id', empId)
-        .gte('data_hora_inicio', inicioHoje).lte('data_hora_inicio', fimHoje)
-        .not('status', 'in', '("cancelado","faltou")'),
-      // Comissão gerada hoje: filtra por comissoes.created_at (decisão 2 da Fase 2A),
-      // sem embed de agendamentos — assim entram também as comissões de serviço
-      // extra da comanda (agendamento_id null, migration 085).
-      db.from('comissoes').select('valor_comissao, profissional_id')
-        .eq('empresa_id', empId)
-        .gte('created_at', inicioHoje).lte('created_at', fimHoje),
-      db.from('despesas').select('id')
-        .eq('empresa_id', empId).eq('status', 'pendente')
-        .eq('data_vencimento', hojeStr),
-      db.from('v_produtos_estoque_baixo').select('id').eq('empresa_id', empId).eq('ativo', true),
-      db.from('empresa_membros').select('user_id, role, usuario:users(notif_resumo_diario)').eq('empresa_id', empId).eq('ativo', true),
-      db.from('web_push_subscriptions').select('user_id, endpoint, p256dh, auth').eq('empresa_id', empId),
-    ]);
-
-    // ── Empresa (owner/gestor): nº de agendado/confirmado hoje + despesas + estoque.
-    const nAgsEmpresa = (agsHoje ?? []).filter(a => a.status === 'agendado' || a.status === 'confirmado').length;
-    const bodyEmpresa = corpoResumoDiario({
-      agendamentos: nAgsEmpresa,
-      despesasVencendo: (despVenc ?? []).length,
-      estoqueBaixo: (estoque ?? []).length,
-    });
-
-    // ── Pessoal (profissional): atendimentos dela hoje + comissão já gerada hoje.
-    const atendimentosPorProf = new Map<string, number>();
-    for (const ag of agsHoje ?? []) {
-      atendimentosPorProf.set(ag.profissional_id, (atendimentosPorProf.get(ag.profissional_id) ?? 0) + 1);
-    }
-    const comissaoPorProf = new Map<string, number>();
-    for (const c of (comissoesHoje ?? []) as { valor_comissao: number; profissional_id: string }[]) {
-      comissaoPorProf.set(c.profissional_id, (comissaoPorProf.get(c.profissional_id) ?? 0) + Number(c.valor_comissao));
-    }
-
-    type Sub = { user_id: string; endpoint: string; p256dh: string; auth: string };
-    const subsPorUser = new Map<string, Sub[]>();
-    for (const s of (subs ?? []) as Sub[]) {
-      const arr = subsPorUser.get(s.user_id) ?? [];
-      arr.push(s);
-      subsPorUser.set(s.user_id, arr);
-    }
-
-    const linhas: { user_id: string; empresa_id: string; tipo: string; titulo: string; mensagem: string }[] = [];
-
-    for (const m of (membros ?? []) as any[]) {
-      if (m.usuario?.notif_resumo_diario === false) continue;
-
-      const body = m.role === 'profissional'
-        ? corpoResumoDiarioProfissional({
-            atendimentos: atendimentosPorProf.get(m.user_id) ?? 0,
-            comissao: comissaoPorProf.get(m.user_id) ?? 0,
-          })
-        : bodyEmpresa;
-      if (!body) continue;
-
-      for (const sub of subsPorUser.get(m.user_id) ?? []) {
-        try {
-          await webpush.sendNotification(
-            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-            JSON.stringify({ title: 'Resumo do dia ✦', body, url: '/dashboard' }),
-          );
-          enviados++;
-        } catch {
-          await db.from('web_push_subscriptions').delete().eq('endpoint', sub.endpoint);
-        }
-      }
-
-      linhas.push({ user_id: m.user_id, empresa_id: empId, tipo: 'resumo', titulo: 'Resumo do dia', mensagem: body });
-    }
-
-    if (linhas.length) await db.from('notificacoes').insert(linhas);
-  }
+  // "Hoje" em Brasília (YYYY-MM-DD), pela fonte única de períodos.
+  const { enviados } = await executarCronResumo({
+    db,
+    hoje: hojeBRT(),
+    enviarWeb: (sub, payload) => webpush.sendNotification(sub, payload),
+    expoAccessToken: process.env.EXPO_ACCESS_TOKEN || undefined,
+  });
 
   return NextResponse.json({ ok: true, enviados });
 }
