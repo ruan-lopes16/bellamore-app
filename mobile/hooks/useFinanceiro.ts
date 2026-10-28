@@ -10,8 +10,8 @@ import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import type { PagamentoMetodo, TaxaCancelamento, TaxaReserva } from '@/types';
-import { recorrentesParaLancarNoMes, montarLancamentosRecorrentes, type DespesaRecorrenteTemplate } from '@shared/despesas';
-import { carregarHistoricoRecorrentesMensais, lancarRecorrentesMensais } from '@shared/despesas-consultas';
+import { recorrentesParaLancarNoMes, montarLancamentosRecorrentes, chaveDespesa, fimDoMesAnterior, type DespesaRecorrenteTemplate } from '@shared/despesas';
+import { carregarHistoricoRecorrentesMensais, lancarRecorrentesMensais, carregarChavesPuladas, pularMesRecorrente, encerrarSerieRecorrente } from '@shared/despesas-consultas';
 import { limitesMes, somarMeses, uniaoLimites, chaveDoMesExibido } from '@shared/periodos';
 import {
   calcularKpisFinanceiros, recortarDados, evolucaoMensal, rankingAtendimentos,
@@ -62,6 +62,7 @@ export interface TopServico {
 
 export interface DespesaItem {
   id: string;
+  empresa_id?: string;
   descricao: string;
   categoria?: string;
   valor: number;
@@ -127,11 +128,19 @@ export function useFinanceiro(mesRef: Date) {
     queryFn: () => carregarHistoricoRecorrentesMensais(supabase, empresaId!, periodo.startDate),
   });
 
+  // Séries marcadas "pular" neste mês (migration 096).
+  const puladasQ = useQuery<string[]>({
+    queryKey: ['fin-despesas-puladas', empresaId, chave],
+    enabled: !!empresaId,
+    staleTime: 1000 * 60 * 5,
+    queryFn: () => carregarChavesPuladas(supabase, empresaId!, periodo.startDate),
+  });
+
   // Só propõe lançar quando as DUAS listas vieram com sucesso e não estão
   // recarregando: com erro (ou dado velho) proporia duplicar as recorrentes.
   const qc = useQueryClient();
-  const recorrentesParaLancar = despesas.isSuccess && historicoQ.isSuccess && !despesas.isFetching && !historicoQ.isFetching
-    ? recorrentesParaLancarNoMes(historicoQ.data, despesas.data, periodo.startDate)
+  const recorrentesParaLancar = despesas.isSuccess && historicoQ.isSuccess && puladasQ.isSuccess && !despesas.isFetching && !historicoQ.isFetching && !puladasQ.isFetching
+    ? recorrentesParaLancarNoMes(historicoQ.data, despesas.data, periodo.startDate, puladasQ.data)
     : [];
 
   const lancar = useMutation({
@@ -142,6 +151,16 @@ export function useFinanceiro(mesRef: Date) {
       return lancarRecorrentesMensais(supabase, empresaId!, chave, linhas);
     },
     onSettled: () => invalidarFinanceiro(qc),
+  });
+
+  /** Descarta um item do banner: pula o mês ou encerra a série (recorrencia_ate). */
+  const descartar = useMutation({
+    mutationFn: async (p: { template: DespesaRecorrenteTemplate & { id?: string }; acao: 'pular' | 'encerrar' }) => {
+      if (p.acao === 'pular') return pularMesRecorrente(supabase, empresaId!, chaveDespesa(p.template), periodo.startDate);
+      if (!p.template.id) throw new Error('Recorrência sem identificador.');
+      return encerrarSerieRecorrente(supabase, empresaId!, p.template.id, fimDoMesAnterior(periodo.startDate));
+    },
+    onSettled: () => { invalidarFinanceiro(qc); qc.invalidateQueries({ queryKey: ['fin-despesas-puladas'] }); },
   });
 
   // ── Taxas de cancelamento do mês
@@ -238,6 +257,8 @@ export function useFinanceiro(mesRef: Date) {
     recorrentesParaLancar,
     /** Lança as recorrentes pendentes do mês; resolve com { inseridas, jaExistiam } e lança erro. */
     lancarRecorrentes: () => lancar.mutateAsync(),
+    descartarRecorrente: (template: DespesaRecorrenteTemplate & { id?: string }, acao: 'pular' | 'encerrar') => descartar.mutateAsync({ template, acao }),
+    descartandoRecorrente: descartar.isPending,
     lancandoRecorrentes: lancar.isPending,
     taxasCancelamento: taxasCancelamento.data ?? [],
     taxasReserva:      taxasReserva.data ?? [],

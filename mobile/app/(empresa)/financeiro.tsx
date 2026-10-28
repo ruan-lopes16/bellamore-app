@@ -35,7 +35,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { rotuloMesCurto, somarMeses } from '@shared/periodos';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { variacaoPercentual } from '@shared/kpis-financeiros';
-import { textoLancamentoRecorrentes, textoRecorrentesPendentes } from '@shared/despesas';
+import { textoLancamentoRecorrentes, textoRecorrentesPendentes, planejarExclusaoRecorrencia, chaveDespesa } from '@shared/despesas';
+import { carregarSerieRecorrente, excluirRecorrencia } from '@shared/despesas-consultas';
 import { CalendarioMesFinanceiro } from '@/components/CalendarioMesFinanceiro';
 
 import { useFinanceiro, type MetodoPagamento, type DespesaItem } from '@/hooks/useFinanceiro';
@@ -960,8 +961,50 @@ function ModalEditarDespesa({
     onClose();
   }
 
+  /** Recorrente: escolhe o escopo, mostra o que será apagado e impede a série de voltar no banner. */
+  async function excluirRecorrente() {
+    if (!item || !item.empresa_id) return;
+    setExcluindo(true);
+    try {
+      const serie = await carregarSerieRecorrente(supabase, item.empresa_id, item);
+      const executar = async (escopo: 'uma' | 'serie', incluirPagos: boolean) => {
+        const plano = planejarExclusaoRecorrencia(serie, escopo, item.id, incluirPagos);
+        if (plano.apagar.length === 0) { Alert.alert('Nada a apagar', 'Os lançamentos pagos são mantidos. Escolha "Série + pagos" para removê-los.'); return; }
+        const restantes = serie.filter(l => !plano.apagar.includes(l.id) && l.data_vencimento)
+          .sort((a, b) => (b.data_vencimento ?? '').localeCompare(a.data_vencimento ?? ''));
+        setExcluindo(true);
+        try {
+          await excluirRecorrencia(supabase, item.empresa_id!, {
+            chave: chaveDespesa(item), escopo, apagar: plano.apagar,
+            mesPulado: item.data_vencimento ?? new Date().toISOString().slice(0, 10),
+            modeloRestante: restantes[0] ? { id: restantes[0].id, data_vencimento: restantes[0].data_vencimento! } : undefined,
+          });
+          onSalvo(); onClose();
+        } catch (e) { Alert.alert('Erro', (e as Error).message); }
+        setExcluindo(false);
+      };
+      const pagas = serie.filter(l => l.status === 'pago').length;
+      Alert.alert(
+        'Excluir recorrência',
+        `${serie.length} lançamento${serie.length !== 1 ? 's' : ''} na série (${pagas} pago${pagas !== 1 ? 's' : ''}). Em qualquer opção a série não volta a ser sugerida.`,
+        [
+          { text: 'Só este (pula o mês)', onPress: () => { executar('uma', true); } },
+          { text: 'Série (mantém pagos)', onPress: () => { executar('serie', false); } },
+          { text: 'Série + pagos', style: 'destructive', onPress: () => {
+            Alert.alert('Apagar também os pagos?', 'Lucro e relatórios dos meses passados vão mudar.', [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Apagar tudo', style: 'destructive', onPress: () => { executar('serie', true); } },
+            ]);
+          } },
+        ],
+      );
+    } catch (e) { Alert.alert('Erro', (e as Error).message); }
+    setExcluindo(false);
+  }
+
   async function excluir() {
     if (!item) return;
+    if (item.recorrente) { await excluirRecorrente(); return; }
     setExcluindo(true);
     const { data, error } = await supabase.from('despesas').delete().eq('id', item.id).select('id');
     setExcluindo(false);
@@ -1382,7 +1425,7 @@ export default function Financeiro() {
   useEffect(() => { colunaCobrarTaxaExiste(supabase).then(setTemColunaCobrar).catch(() => setTemColunaCobrar(false)); }, []);
   const {
     resumo, metodos, topServicos, despesas, despesasHistorico, taxasCancelamento, taxasReserva, evolucao, isLoading, isError, erroKpis, refetch,
-    recorrentesParaLancar, lancarRecorrentes, lancandoRecorrentes,
+    recorrentesParaLancar, lancarRecorrentes, lancandoRecorrentes, descartarRecorrente, descartandoRecorrente,
     retiradas, retiradasDevs, aDonaDeve, retiradasPeriodo,
   } = useFinanceiro(mesRef);
   const devPorRetirada = somaDevolucoesPorRetirada(retiradasDevs);
@@ -1555,7 +1598,24 @@ export default function Financeiro() {
 
         {/* ── Recorrentes do mês anterior não lançadas (mesma regra do web) ── */}
         {!isError && podeDespesas && recorrentesParaLancar.length > 0 && (
-          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.2)', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.2)', borderRadius: 14, padding: 12, gap: 8 }}>
+            {recorrentesParaLancar.map((t, i) => (
+              <View key={`${t.descricao}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber }}>{t.descricao}</Text>
+                <TouchableOpacity disabled={descartandoRecorrente}
+                  onPress={() => { descartarRecorrente(t as typeof t & { id?: string }, 'pular').catch(e => Alert.alert('Erro', (e as Error).message)); }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.amber }}>Pular mês</Text>
+                </TouchableOpacity>
+                <TouchableOpacity disabled={descartandoRecorrente}
+                  onPress={() => Alert.alert('Encerrar série', `"${t.descricao}" não será mais sugerida nos meses seguintes (lançamentos já feitos continuam).`, [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Encerrar', style: 'destructive', onPress: () => { descartarRecorrente(t as typeof t & { id?: string }, 'encerrar').catch(e => Alert.alert('Erro', (e as Error).message)); } },
+                  ])}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.amber }}>Encerrar</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <RefreshCw size={14} color={C.amber} strokeWidth={2} />
             <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.amber }}>
               {textoRecorrentesPendentes(recorrentesParaLancar.length)}
@@ -1577,6 +1637,7 @@ export default function Financeiro() {
                 {lancandoRecorrentes ? 'Lançando...' : 'Lançar agora'}
               </Text>
             </TouchableOpacity>
+            </View>
           </View>
         )}
 

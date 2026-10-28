@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  recorrentesParaLancarNoMes, montarLancamentosRecorrentes, vencimentoNoMes, chaveDespesa, textoRecorrentesPendentes,
+  recorrentesParaLancarNoMes, montarLancamentosRecorrentes, vencimentoNoMes, fimDoMesAnterior, planejarExclusaoRecorrencia, chaveDespesa, textoRecorrentesPendentes,
   type DespesaRecorrenteTemplate,
 } from '@shared/despesas';
 import { carregarHistoricoRecorrentesMensais, lancarRecorrentesMensais, COLUNAS_HISTORICO_RECORRENTE } from '@shared/despesas-consultas';
@@ -140,5 +140,26 @@ describe('inserção em lote', () => {
     const s = stub({ data: [], error: null });
     expect(await lancarRecorrentesMensais(s.db, 'emp', '2026-09', [])).toEqual({ inseridas: 0, jaExistiam: 0 });
     expect(s.inserts).toHaveLength(0);
+  });
+});
+
+describe('descartar recorrentes', () => {
+  const hist = [{ descricao: 'Aluguel', categoria: null, valor: 100, periodicidade: 'mensal', data_vencimento: '2026-09-05' }];
+
+  it('série pulada no mês não é sugerida', () => {
+    expect(recorrentesParaLancarNoMes(hist, [], '2026-10-01', ['Aluguel||'])).toHaveLength(0);
+    expect(recorrentesParaLancarNoMes(hist, [], '2026-10-01')).toHaveLength(1);
+  });
+
+  it('fimDoMesAnterior', () => {
+    expect(fimDoMesAnterior('2026-10-01')).toBe('2026-09-30');
+    expect(fimDoMesAnterior('2026-01-01')).toBe('2025-12-31');
+  });
+
+  it('planejarExclusaoRecorrencia respeita escopo e pagos', () => {
+    const linhas = [{ id: 'a', status: 'pago' }, { id: 'b', status: 'pendente' }, { id: 'c', status: 'pendente' }];
+    expect(planejarExclusaoRecorrencia(linhas, 'serie', 'c', false)).toEqual({ apagar: ['b', 'c'], pagas: 1, pendentes: 2, mantidas: 1 });
+    expect(planejarExclusaoRecorrencia(linhas, 'serie', 'c', true).apagar).toEqual(['a', 'b', 'c']);
+    expect(planejarExclusaoRecorrencia(linhas, 'uma', 'b', false).apagar).toEqual(['b']);
   });
 });
