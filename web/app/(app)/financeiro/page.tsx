@@ -26,8 +26,8 @@ import { avancarComEnter } from '@/lib/formNav';
 import { KpisFinanceiroSkeleton, GraficosDespesasSkeleton } from './FinanceiroSkeleton';
 import { format, addMonths, subMonths, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra, recorrentesParaLancarNoMes, montarLancamentosRecorrentes, textoRecorrentesPendentes, textoLancamentoRecorrentes, type DespesaRecorrenteTemplate } from '@shared/despesas';
-import { carregarHistoricoRecorrentesMensais, lancarRecorrentesMensais } from '@shared/despesas-consultas';
+import { buildDespesaPagamentoUpdate, formatValorMonetarioInput, parseValorMonetario, diasParaVencimento, progressoVencimento, calcularRecorrenciaAtePorParcelas, clampParcelaAtual, calcularParcelaDerivada, dividirValorCompra, recorrentesParaLancarNoMes, planejarExclusaoRecorrencia, fimDoMesAnterior, chaveDespesa, montarLancamentosRecorrentes, textoRecorrentesPendentes, textoLancamentoRecorrentes, type DespesaRecorrenteTemplate } from '@shared/despesas';
+import { carregarHistoricoRecorrentesMensais, lancarRecorrentesMensais, carregarChavesPuladas, pularMesRecorrente, encerrarSerieRecorrente, carregarSerieRecorrente, excluirRecorrencia } from '@shared/despesas-consultas';
 import {
   somaDevolucoesPorRetirada, saldoEmprestimo, saldoDevedorTotal,
   statusParcela, montarRetiradaSociaInsert, montarDevolucaoInsert,
@@ -60,7 +60,7 @@ const supabase = createClient();
 // ── Tipos ─────────────────────────────────────────────────────
 
 type Despesa = {
-  id: string; descricao: string; categoria?: string;
+  id: string; empresa_id?: string; descricao: string; categoria?: string;
   valor: number; recorrente: boolean; periodicidade?: string;
   data_vencimento?: string; data_pagamento?: string; recorrencia_ate?: string;
   parcela_atual?: number; total_parcelas?: number; valor_total_compra?: number;
@@ -782,6 +782,9 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
   const [salvando,      setSalvando]      = useState(false);
   const [excluindo,     setExcluindo]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [escopoExc,     setEscopoExc]     = useState<'uma' | 'serie'>('uma');
+  const [incluirPagos,  setIncluirPagos]  = useState(false);
+  const [serieExc,      setSerieExc]      = useState<{ id: string; status: string; data_vencimento: string | null }[] | null>(null);
   const [erro,          setErro]          = useState('');
 
   async function salvar(e: React.FormEvent) {
@@ -836,7 +839,37 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 
   // Excluir despesa é só da dona (policy 'despesas: owner pode deletar'): o botão só aparece
   // para ela, e o .select('id') transforma uma recusa da RLS em mensagem (antes: sucesso falso).
+  // Recorrente: mostra o que será apagado (série) e, ao excluir, impede que ela volte no banner.
+  useEffect(() => {
+    if (!confirmDelete || !despesa.recorrente || !despesa.empresa_id) return;
+    let vivo = true;
+    carregarSerieRecorrente(supabase, despesa.empresa_id, despesa)
+      .then(r => { if (vivo) setSerieExc(r); })
+      .catch(e => { if (vivo) setErro((e as Error).message); });
+    return () => { vivo = false; };
+  }, [confirmDelete]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const planoExc = serieExc ? planejarExclusaoRecorrencia(serieExc, escopoExc, despesa.id, incluirPagos) : null;
+
+  async function excluirRecorrente() {
+    if (!despesa.empresa_id || !serieExc || !planoExc) return;
+    if (planoExc.apagar.length === 0) { setErro('Nada a apagar: os lançamentos pagos são mantidos. Marque "apagar também os pagos" se quiser removê-los.'); return; }
+    setExcluindo(true); setErro('');
+    try {
+      const restantes = serieExc.filter(l => !planoExc.apagar.includes(l.id) && l.data_vencimento)
+        .sort((a, b) => (b.data_vencimento ?? '').localeCompare(a.data_vencimento ?? ''));
+      await excluirRecorrencia(supabase, despesa.empresa_id, {
+        chave: chaveDespesa(despesa), escopo: escopoExc, apagar: planoExc.apagar,
+        mesPulado: despesa.data_vencimento ?? new Date().toISOString().slice(0, 10),
+        modeloRestante: restantes[0] ? { id: restantes[0].id, data_vencimento: restantes[0].data_vencimento! } : undefined,
+      });
+      onSalvo();
+    } catch (e) { setErro((e as Error).message); }
+    setExcluindo(false);
+  }
+
   async function excluir() {
+    if (despesa.recorrente) { await excluirRecorrente(); return; }
     setExcluindo(true); setErro('');
     const { data: apagadas, error } = await supabase.from('despesas').delete().eq('id', despesa.id).select('id');
     setExcluindo(false);
@@ -975,14 +1008,28 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
           {erro && <p className="text-red text-sm">{erro}</p>}
           {podeExcluir && <div className="border-t border-border pt-3">
             {confirmDelete ? (
+              <div className="flex flex-col gap-2">
+              {despesa.recorrente && (
+                <div className="flex flex-col gap-1.5 text-xs text-text-2">
+                  <label className="flex items-center gap-2"><input type="radio" className="accent-primary" checked={escopoExc === 'uma'} onChange={() => setEscopoExc('uma')}/> Só este lançamento (não volta neste mês)</label>
+                  <label className="flex items-center gap-2"><input type="radio" className="accent-primary" checked={escopoExc === 'serie'} onChange={() => setEscopoExc('serie')}/> A série inteira (nunca mais é sugerida)</label>
+                  {!serieExc && <p className="text-text-4">Carregando lançamentos...</p>}
+                  {planoExc && <p className="text-text-3">{planoExc.apagar.length} serão apagados{planoExc.mantidas > 0 ? `, ${planoExc.mantidas} pago${planoExc.mantidas !== 1 ? 's' : ''} mantido${planoExc.mantidas !== 1 ? 's' : ''}` : ''}.</p>}
+                  {planoExc && planoExc.pagas > 0 && (
+                    <label className="flex items-center gap-2"><input type="checkbox" className="accent-primary" checked={incluirPagos} onChange={e => setIncluirPagos(e.target.checked)}/> Apagar também os {planoExc.pagas} pago{planoExc.pagas !== 1 ? 's' : ''}</label>
+                  )}
+                  {incluirPagos && planoExc && planoExc.pagas > 0 && <p className="text-red">Atenção: lucro e relatórios dos meses passados vão mudar.</p>}
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <p className="text-xs text-red flex-1">Confirmar exclusão?</p>
                 <button type="button" onClick={() => setConfirmDelete(false)}
                   className="px-3 h-8 rounded-lg border border-border text-xs text-text-2 hover:bg-bg transition">Cancelar</button>
-                <button type="button" onClick={excluir} disabled={excluindo}
+                <button type="button" onClick={excluir} disabled={excluindo || (despesa.recorrente && !serieExc)}
                   className="px-3 h-8 rounded-lg bg-red text-white text-xs font-bold hover:opacity-90 transition disabled:opacity-50">
                   {excluindo ? 'Excluindo...' : 'Excluir'}
                 </button>
+              </div>
               </div>
             ) : (
               <button type="button" onClick={() => setConfirmDelete(true)}
@@ -1086,7 +1133,7 @@ export default function FinanceiroPage() {
     setErroCarga(null);
 
     try {
-      const [dados, despLista, recMesAnt, taxasLista, reservaLista, retiradasDados] = await Promise.all([
+      const [dados, despLista, recMesAnt, taxasLista, reservaLista, retiradasDados, chavesPuladas] = await Promise.all([
         // KPIs do mês, do mês anterior e dos 6 meses do gráfico — uma busca só.
         carregarDadosFinanceiros(supabase, empId, uniaoLimites(limitesMes(chaves6[0]), periodo)),
         // Lista de despesas do mês (pendentes + pagas)
@@ -1116,6 +1163,8 @@ export default function FinanceiroPage() {
         isOwner
           ? carregarRetiradas(supabase, empId)
           : Promise.resolve({ rows: [] as RetiradaSociaRow[], devs: [] as RetiradaSociaDevolucaoRow[] }),
+        // Séries marcadas "pular" neste mês (erro de carga aborta: sem isso o banner sugeriria de novo).
+        carregarChavesPuladas(supabase, empId, periodo.startDate),
       ]);
 
       if (req !== reqRef.current) return;   // resposta velha: outra carga já começou
@@ -1141,7 +1190,7 @@ export default function FinanceiroPage() {
       // Auto-lançamento: regra única (shared/despesas). Só chega aqui se a lista
       // de despesas do mês veio sem erro — com erro, nada é proposto.
       const todasMensais = recMesAnt;
-      setRecorrentesParaLancar(recorrentesParaLancarNoMes(todasMensais, (despLista.data ?? []) as Despesa[], periodo.startDate));
+      setRecorrentesParaLancar(recorrentesParaLancarNoMes(todasMensais, (despLista.data ?? []) as Despesa[], periodo.startDate, chavesPuladas));
       setHistoricoMensal(todasMensais);
 
       setRetiradasTodas(retiradasDados.rows as RetiradaSocia[]);
@@ -1175,6 +1224,22 @@ export default function FinanceiroPage() {
     }
     setLancandoRec(false);
     setRecorrentesParaLancar([]);
+    recarregar();
+  }
+
+  /** Pular este mês / encerrar série de um item do banner. Recarrega ao fim. */
+  async function descartarRecorrente(t: RecorrenteTemplate & { id?: string }, acao: 'pular' | 'encerrar') {
+    if (!empresaId || erroCarga || loading || lancandoRec) return;
+    if (acao === 'encerrar' && !confirm(`Encerrar "${t.descricao}"? Ela não será mais sugerida nos meses seguintes (lançamentos já feitos continuam).`)) return;
+    setLancandoRec(true);
+    const inicioMes = limitesMes(chaveDoMesExibido(mesRef)).startDate;
+    try {
+      if (acao === 'pular') await pularMesRecorrente(supabase, empresaId, chaveDespesa(t), inicioMes);
+      else if (t.id) await encerrarSerieRecorrente(supabase, empresaId, t.id, fimDoMesAnterior(inicioMes));
+    } catch (e) {
+      alert(`Erro: ${(e as Error).message}`);
+    }
+    setLancandoRec(false);
     recarregar();
   }
 
@@ -1475,7 +1540,17 @@ export default function FinanceiroPage() {
 
           {/* Banner: despesas recorrentes não lançadas */}
           {!loading && !erroCarga && recorrentesParaLancar.length > 0 && (
-            <div className="flex items-center gap-3 px-5 py-3 bg-amber-soft border-b border-amber/20">
+            <div className="flex flex-col gap-2 px-5 py-3 bg-amber-soft border-b border-amber/20">
+              {podeDespesas && recorrentesParaLancar.map((t, i) => (
+                <div key={chaveDespesa(t) + i} className="flex items-center gap-2 text-xs text-amber">
+                  <span className="flex-1 truncate font-semibold">{t.descricao}</span>
+                  <button onClick={() => descartarRecorrente(t as RecorrenteTemplate & { id?: string }, 'pular')} disabled={lancandoRec}
+                    className="font-bold hover:underline disabled:opacity-50">Pular este mês</button>
+                  <button onClick={() => descartarRecorrente(t as RecorrenteTemplate & { id?: string }, 'encerrar')} disabled={lancandoRec}
+                    className="font-bold hover:underline disabled:opacity-50">Encerrar série</button>
+                </div>
+              ))}
+            <div className="flex items-center gap-3">
               <RefreshCw size={14} className="text-amber flex-shrink-0" strokeWidth={2.5}/>
               <p className="text-xs text-amber font-semibold flex-1">
                 {textoRecorrentesPendentes(recorrentesParaLancar.length)}
@@ -1486,6 +1561,7 @@ export default function FinanceiroPage() {
                   {lancandoRec ? 'Lançando...' : 'Lançar agora'}
                 </button>
               )}
+            </div>
             </div>
           )}
 

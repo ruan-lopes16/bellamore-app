@@ -299,15 +299,37 @@ export function chaveDespesa(d: { descricao: string; categoria?: string | null }
  * Templates a lançar no mês que começa em `inicioMes`. `historico` = recorrentes
  * mensais anteriores, mais recente primeiro; `despesasDoMes` = lista do mês
  * (CARREGADA COM SUCESSO — com erro, não chame: duplicaria tudo).
+ * `chavesPuladas` = séries que o usuário marcou "pular" neste mês (também não são sugeridas).
  */
 export function recorrentesParaLancarNoMes<T extends RecorrenteTemplateHistorico>(
   historico: T[], despesasDoMes: { descricao: string; categoria?: string | null; data_vencimento?: string | null }[], inicioMes: string,
+  chavesPuladas: Iterable<string> = [],
 ): T[] {
   // Só conta quem VENCE no mês: a lista do mês também traz despesas de outro mês pagas
   // nele, e essas não podem bloquear o lançamento (o servidor só olha data_vencimento).
   const mes = inicioMes.slice(0, 7);
   const doMes = despesasDoMes.filter(d => d.data_vencimento == null || d.data_vencimento.slice(0, 7) === mes);
-  return templatesRecorrentesParaLancar(historico, new Set(doMes.map(chaveDespesa)), inicioMes);
+  const bloqueadas = new Set([...doMes.map(chaveDespesa), ...chavesPuladas]);
+  return templatesRecorrentesParaLancar(historico, bloqueadas, inicioMes);
+}
+
+/** Último dia do mês anterior a `inicioMes` ('yyyy-MM-dd') — valor de `recorrencia_ate` para encerrar a série. */
+export function fimDoMesAnterior(inicioMes: string): string {
+  const [ano, mes] = inicioMes.slice(0, 7).split('-').map(Number);
+  return new Date(Date.UTC(ano, mes - 1, 0)).toISOString().slice(0, 10);
+}
+
+/**
+ * O que a exclusão de uma recorrência apaga. `serie` = todos os lançamentos da série;
+ * pagos só entram com `incluirPagos`. Mostrado na confirmação antes de apagar.
+ */
+export function planejarExclusaoRecorrencia(
+  linhasDaSerie: { id: string; status: string }[], escopo: 'uma' | 'serie', idAtual: string, incluirPagos: boolean,
+): { apagar: string[]; pagas: number; pendentes: number; mantidas: number } {
+  const alvo = escopo === 'uma' ? linhasDaSerie.filter(l => l.id === idAtual) : linhasDaSerie;
+  const pagas = alvo.filter(l => l.status === 'pago').length;
+  const apagar = alvo.filter(l => incluirPagos || l.status !== 'pago').map(l => l.id);
+  return { apagar, pagas, pendentes: alvo.length - pagas, mantidas: alvo.length - apagar.length };
 }
 
 /** Dia do vencimento do template no mês 'yyyy-MM' (dia 31 em fevereiro → último dia). */

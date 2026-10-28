@@ -21,6 +21,68 @@ export async function carregarHistoricoRecorrentesMensais(
     .range(de, ate));
 }
 
+const ERRO_TABELA_PULADAS = 'Falta aplicar a migration 096 (despesas_recorrentes_puladas) no Supabase.';
+function tabelaPuladasAusente(msg: string): boolean { return /despesas_recorrentes_puladas/.test(msg) && /(does not exist|schema cache|not find)/i.test(msg); }
+
+/** Chaves das séries marcadas "pular" no mês `inicioMes` ('yyyy-MM-dd'). Sem a migration 096 = lista vazia. Lança outros erros. */
+export async function carregarChavesPuladas(db: ClienteDb, empresaId: string, inicioMes: string): Promise<string[]> {
+  const { data, error } = await db.from('despesas_recorrentes_puladas')
+    .select('chave').eq('empresa_id', empresaId).eq('mes', `${inicioMes.slice(0, 7)}-01`);
+  if (error) {
+    if (tabelaPuladasAusente(error.message)) return [];
+    throw new Error(error.message);
+  }
+  return ((data ?? []) as { chave: string }[]).map(r => r.chave);
+}
+
+/** Marca a série como "não vale neste mês". Idempotente. Lança erro. */
+export async function pularMesRecorrente(db: ClienteDb, empresaId: string, chave: string, inicioMes: string): Promise<void> {
+  const { error } = await db.from('despesas_recorrentes_puladas')
+    .upsert({ empresa_id: empresaId, chave, mes: `${inicioMes.slice(0, 7)}-01` }, { onConflict: 'empresa_id,chave,mes', ignoreDuplicates: true });
+  if (error) throw new Error(tabelaPuladasAusente(error.message) ? ERRO_TABELA_PULADAS : error.message);
+}
+
+/** Encerra a série: grava `recorrencia_ate` ('yyyy-MM-dd') no modelo mais recente. No banner use `fimDoMesAnterior(inicioMes)`. Lança erro. */
+export async function encerrarSerieRecorrente(db: ClienteDb, empresaId: string, modeloId: string, recorrenciaAte: string): Promise<void> {
+  const { data, error } = await db.from('despesas')
+    .update({ recorrencia_ate: recorrenciaAte }).eq('id', modeloId).eq('empresa_id', empresaId).select('id');
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) throw new Error('Sem permissão para encerrar esta recorrência.');
+}
+
+/** Lançamentos recorrentes de uma série (descrição+categoria), para a confirmação de exclusão. Lança erro. */
+export async function carregarSerieRecorrente(
+  db: ClienteDb, empresaId: string, d: { descricao: string; categoria?: string | null },
+): Promise<{ id: string; status: string; data_vencimento: string | null }[]> {
+  const linhas = await buscarTodasOuLancar<{ id: string; status: string; data_vencimento: string | null; categoria: string | null }>((de, ate) => db.from('despesas')
+    .select('id, status, data_vencimento, categoria, descricao')
+    .eq('empresa_id', empresaId).eq('recorrente', true).eq('descricao', d.descricao)
+    .order('id').range(de, ate));
+  const chave = chaveDespesa(d);
+  return linhas.filter(l => chaveDespesa({ descricao: d.descricao, categoria: l.categoria }) === chave);
+}
+
+/**
+ * Exclui uma recorrência. Sempre impede a volta: marca o mês como pulado (`escopo: 'uma'`) ou
+ * encerra o modelo (`'serie'`, se sobrar linha paga, senão não sobra nada para sugerir).
+ * Confere as linhas apagadas (DELETE é só da dona; RLS devolve sucesso com 0 linhas). Lança erro.
+ */
+export async function excluirRecorrencia(
+  db: ClienteDb, empresaId: string,
+  p: { chave: string; escopo: 'uma' | 'serie'; apagar: string[]; mesPulado: string; modeloRestante?: { id: string; data_vencimento: string } },
+): Promise<void> {
+  if (p.escopo === 'uma') await pularMesRecorrente(db, empresaId, p.chave, p.mesPulado);
+  if (p.apagar.length > 0) {
+    const { data, error } = await db.from('despesas').delete().eq('empresa_id', empresaId).in('id', p.apagar).select('id');
+    if (error) throw new Error(error.message);
+    if ((data ?? []).length !== p.apagar.length) throw new Error('Só a dona pode excluir despesas (nem todas foram apagadas).');
+  }
+  // Sobrou linha (paga): ela viraria o modelo e a série voltaria — encerra no próprio vencimento.
+  if (p.escopo === 'serie' && p.modeloRestante) {
+    await encerrarSerieRecorrente(db, empresaId, p.modeloRestante.id, p.modeloRestante.data_vencimento);
+  }
+}
+
 /**
  * Grava as linhas de `montarLancamentosRecorrentes` no mês `mesChave` ('AAAA-MM').
  * Imediatamente antes do insert, reconsulta no banco as despesas do mês (qualquer
