@@ -3,7 +3,7 @@
  * que passam o próprio client. Regras puras ficam em ./permissoes.
  */
 import {
-  CHAVES_PERMISSAO, configVazia, ehChavePermissao, permissoesPadrao, resolverPermissao,
+  CHAVES_PERMISSAO, configVazia, ehChavePermissao, resolverPermissao,
   type ConfigPermissoes, type LinhaHistorico, type LinhasPermissao, type MudancaPermissao,
   type Papel, type PermissoesUsuario,
 } from './permissoes';
@@ -22,24 +22,25 @@ export function papelDeRole(role: string | null | undefined): Papel | null {
 }
 
 /**
- * Permissões efetivas da pessoa logada (RPC `minhas_permissoes`). Nunca lança: se a migration
- * 083 ainda não foi aplicada (ou der qualquer erro), devolve os padrões do papel — que são o
- * comportamento de antes da feature. Isso deixa o deploy seguro em qualquer ordem.
+ * Permissões efetivas da pessoa logada (RPC `minhas_permissoes`). Nunca lança. Com a RPC
+ * falhando (rede, erro do banco, resposta estranha) devolve `null`: quem consome mostra erro com
+ * "Tentar de novo" e não libera nada. Antes devolvia os padrões do papel (deploy da 083 em
+ * qualquer ordem), mas isso passava por cima de exceções gravadas — uma chave tirada da pessoa
+ * voltava a valer. A 083 está em produção desde 07/10/2026.
  */
 export async function carregarMinhasPermissoes(
   sb: ClienteDbPermissoes, empresaId: string, isOwner: boolean, papel: Papel | null,
-): Promise<PermissoesUsuario> {
+): Promise<PermissoesUsuario | null> {
   if (isOwner) return { isOwner: true, papel, chaves: [...CHAVES_PERMISSAO] };
-  const padrao: PermissoesUsuario = { isOwner: false, papel, chaves: permissoesPadrao(papel) };
   try {
     const { data, error } = await sb.rpc('minhas_permissoes', { p_empresa: empresaId });
-    if (error || !Array.isArray(data)) return padrao;
+    if (error || !Array.isArray(data)) return null;
     const chaves = (data as { chave: string; permitido: boolean }[])
       .filter(r => r.permitido && ehChavePermissao(r.chave))
       .map(r => r.chave as (typeof CHAVES_PERMISSAO)[number]);
     return { isOwner: false, papel, chaves };
   } catch {
-    return padrao;
+    return null;
   }
 }
 

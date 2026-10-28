@@ -16,6 +16,12 @@ interface AuthStore extends AuthState {
   permissoes: PermissoesUsuario;
   /** `false` enquanto as permissões da empresa atual ainda não chegaram (evita tratar "vazio" como "sem permissão"). */
   permissoesCarregadas: boolean;
+  /**
+   * `true` quando a RPC de permissões falhou (`carregarMinhasPermissoes` → `null`): o _layout raiz
+   * mostra o erro com "Tentar de novo", `permissoesCarregadas` fica `false` (as telas esperam, não
+   * expulsam) e nada é liberado (`chaves: []`).
+   */
+  permissoesErro: boolean;
   /** Recarrega as permissões efetivas (ao entrar, trocar de empresa e voltar ao app). */
   recarregarPermissoes: () => Promise<void>;
   selecionarEmpresa: (empresa: Empresa, role: PerfilRole, isOwner: boolean) => void;
@@ -35,6 +41,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   semEmpresa: false,
   permissoes: PERMISSOES_VAZIAS,
   permissoesCarregadas: false,
+  permissoesErro: false,
 
   carregarSessao: async (opts) => {
     const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -85,9 +92,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     // Permissões da empresa escolhida ANTES do set: um único set, sem janela com `chaves: []`.
     // Owner entra com roleAtivo 'gestor' — isOwner manda.
     const escolhidaOwner = escolhida?.isOwner ?? false;
-    const permissoes = escolhida
+    // Falha da RPC (null): nada liberado, telas esperando e o erro com "Tentar de novo" no _layout.
+    const carregadas = escolhida
       ? await carregarMinhasPermissoes(supabase, escolhida.empresa.id, escolhidaOwner, escolhidaOwner ? null : papelDeRole(escolhida.role))
       : PERMISSOES_VAZIAS;
+    const permissoes = carregadas ?? PERMISSOES_VAZIAS;
 
     set({
       user: userProfile,
@@ -97,12 +106,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       isOwner: escolhidaOwner,
       semEmpresa: disponíveis.length === 0,
       permissoes,
-      permissoesCarregadas: true,
+      permissoesCarregadas: carregadas !== null,
+      permissoesErro: carregadas === null,
     });
   },
 
   selecionarEmpresa: (empresa, role, isOwner) => {
-    set({ empresaAtiva: empresa, roleAtivo: role, isOwner, permissoes: PERMISSOES_VAZIAS, permissoesCarregadas: false });
+    set({ empresaAtiva: empresa, roleAtivo: role, isOwner, permissoes: PERMISSOES_VAZIAS, permissoesCarregadas: false, permissoesErro: false });
     void get().recarregarPermissoes();
   },
 
@@ -111,7 +121,17 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     if (!empresaAtiva) return;
     // Owner entra no store com roleAtivo 'gestor' (ver carregarSessao) — isOwner manda.
     const permissoes = await carregarMinhasPermissoes(supabase, empresaAtiva.id, isOwner, isOwner ? null : papelDeRole(roleAtivo));
-    if (get().empresaAtiva?.id === empresaAtiva.id) set({ permissoes, permissoesCarregadas: true });
+    if (get().empresaAtiva?.id !== empresaAtiva.id) return;
+    if (permissoes) {
+      set({ permissoes, permissoesCarregadas: true, permissoesErro: false });
+      return;
+    }
+    // Falhou. Releitura ao voltar ao app com as permissões desta empresa já carregadas: mantém as
+    // que vieram do banco (não libera nada novo, nunca cai nos padrões do papel). Sem permissões
+    // válidas (1ª carga, troca de empresa ou "Tentar de novo" depois de erro): nada liberado + erro.
+    const s = get();
+    if (s.permissoesCarregadas && !s.permissoesErro) return;
+    set({ permissoes: PERMISSOES_VAZIAS, permissoesCarregadas: false, permissoesErro: true });
   },
 
   limparSessao: () => {
@@ -124,6 +144,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       semEmpresa: false,
       permissoes: PERMISSOES_VAZIAS,
       permissoesCarregadas: false,
+      permissoesErro: false,
     });
   },
 

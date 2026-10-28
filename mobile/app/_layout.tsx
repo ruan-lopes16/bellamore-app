@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
 import { registrarPushToken, rotaParaNotificacao } from '@/lib/notifications';
 import { TapSpark } from '@/components/TapSpark';
+import { ErroPermissoes } from '@/components/ErroPermissoes';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -24,7 +25,7 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
-  const { carregarSessao, roleAtivo, isOwner, user, semEmpresa } = useAuthStore();
+  const { carregarSessao, roleAtivo, isOwner, user, semEmpresa, permissoesErro } = useAuthStore();
   const notifListener = useRef<Notifications.Subscription>();
   const responseListener = useRef<Notifications.Subscription>();
 
@@ -99,6 +100,8 @@ export default function RootLayout() {
       <TapSpark>
         <Stack screenOptions={{ headerShown: false }} />
       </TapSpark>
+      {/* Permissões não carregaram: nada liberado, erro com "Tentar de novo" por cima da tela. */}
+      {user && permissoesErro && <ErroPermissoes />}
     </QueryClientProvider>
   );
 }

@@ -2,11 +2,17 @@
 import { createContext, useContext, useMemo } from 'react';
 import { pode, type Acesso, type PermissoesUsuario } from '@shared/permissoes';
 
-const Ctx = createContext<PermissoesUsuario>({ isOwner: false, papel: null, chaves: [] });
+/** Sem permissões carregadas: nada liberado. */
+const SEM_PERMISSOES: PermissoesUsuario = { isOwner: false, papel: null, chaves: [] };
 
-/** Disponibiliza para componentes client as permissões lidas no servidor (getAppContext). */
-export function PermissoesProvider({ value, children }: { value: PermissoesUsuario; children: React.ReactNode }) {
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+const Ctx = createContext<PermissoesUsuario>(SEM_PERMISSOES);
+
+/**
+ * Disponibiliza para componentes client as permissões lidas no servidor (getAppContext).
+ * `null` (RPC falhou) vira "nada liberado" — o AppLayout já mostra o erro no lugar da página.
+ */
+export function PermissoesProvider({ value, children }: { value: PermissoesUsuario | null; children: React.ReactNode }) {
+  return <Ctx.Provider value={value ?? SEM_PERMISSOES}>{children}</Ctx.Provider>;
 }
 
 /** Uso: const { pode } = usePermissoes(); if (pode('clientes.arquivar')) ... */

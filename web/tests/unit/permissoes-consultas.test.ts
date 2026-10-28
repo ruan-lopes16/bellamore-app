@@ -16,7 +16,7 @@ function fakeQuery(resposta: unknown) {
 describe('carregarMinhasPermissoes', () => {
   it('dona: todas as chaves, sem consultar', async () => {
     const sb = { from: vi.fn(), rpc: vi.fn() };
-    const r = await carregarMinhasPermissoes(sb, 'e', true, null);
+    const r = (await carregarMinhasPermissoes(sb, 'e', true, null))!;
     expect(r.isOwner).toBe(true);
     expect(sb.rpc).not.toHaveBeenCalled();
   });
@@ -28,21 +28,33 @@ describe('carregarMinhasPermissoes', () => {
         { chave: 'clientes.cadastrar', permitido: false },
         { chave: 'chave.velha', permitido: true },
       ], error: null }) };
-    const r = await carregarMinhasPermissoes(sb, 'e', false, 'profissional');
+    const r = (await carregarMinhasPermissoes(sb, 'e', false, 'profissional'))!;
     expect(sb.rpc).toHaveBeenCalledWith('minhas_permissoes', { p_empresa: 'e' });
     expect(r.chaves).toEqual(['agenda.excluir']);
   });
 
-  it('erro (ex.: migration 083 ainda não aplicada) → padrões do papel', async () => {
+  // A 083 já está em produção: falha da RPC nunca vira "padrões do papel" (passariam por cima de
+  // exceções gravadas, ex.: uma permissão retirada da pessoa). A tela mostra erro e "Tentar de novo".
+  it('erro da RPC → null (nunca os padrões do papel)', async () => {
     const sb = { from: vi.fn(), rpc: vi.fn().mockResolvedValue({ data: null, error: { code: 'PGRST202', message: 'not found' } }) };
     const r = await carregarMinhasPermissoes(sb, 'e', false, 'profissional');
-    expect([...r.chaves].sort()).toEqual(permissoesPadrao('profissional').sort());
+    expect(r).toBeNull();
+    expect(permissoesPadrao('profissional').length).toBeGreaterThan(0);
   });
 
-  it('exceção lançada → padrões do papel', async () => {
+  it('exceção lançada → null', async () => {
     const sb = { from: vi.fn(), rpc: vi.fn().mockRejectedValue(new Error('rede')) };
-    const r = await carregarMinhasPermissoes(sb, 'e', false, 'gestor');
-    expect([...r.chaves].sort()).toEqual(permissoesPadrao('gestor').sort());
+    expect(await carregarMinhasPermissoes(sb, 'e', false, 'gestor')).toBeNull();
+  });
+
+  it('resposta que não é lista → null', async () => {
+    const sb = { from: vi.fn(), rpc: vi.fn().mockResolvedValue({ data: { chave: 'x' }, error: null }) };
+    expect(await carregarMinhasPermissoes(sb, 'e', false, 'profissional')).toBeNull();
+  });
+
+  it('lista vazia é resposta válida (nenhuma chave), não erro', async () => {
+    const sb = { from: vi.fn(), rpc: vi.fn().mockResolvedValue({ data: [], error: null }) };
+    expect(await carregarMinhasPermissoes(sb, 'e', false, 'profissional')).toEqual({ isOwner: false, papel: 'profissional', chaves: [] });
   });
 });
 

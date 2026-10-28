@@ -20,7 +20,11 @@ export type AppContext = {
   empresaId: string;
   role: string | null;
   isOwner: boolean;
-  permissoes: PermissoesUsuario;
+  /**
+   * `null` = a RPC `minhas_permissoes` falhou: o AppLayout mostra o erro com "Tentar de novo" no
+   * lugar da página, `pode(null, …)` é sempre falso e `exigirAcesso` não redireciona.
+   */
+  permissoes: PermissoesUsuario | null;
   empresa: AppEmpresaContext;
 };
 

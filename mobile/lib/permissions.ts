@@ -10,7 +10,12 @@ export type { Acesso };
 export function usePermissoes() {
   const p = useAuthStore(s => s.permissoes);
   const permissoesCarregadas = useAuthStore(s => s.permissoesCarregadas);
-  return useMemo(() => ({ ...p, permissoesCarregadas, pode: (a: Acesso) => pode(p, a) }), [p, permissoesCarregadas]);
+  // Erro ao carregar: `chaves: []` (nada liberado) e o _layout raiz mostra "Tentar de novo".
+  const permissoesErro = useAuthStore(s => s.permissoesErro);
+  return useMemo(
+    () => ({ ...p, permissoesCarregadas, permissoesErro, pode: (a: Acesso) => pode(p, a) }),
+    [p, permissoesCarregadas, permissoesErro],
+  );
 }
 
 // Retorna a rota inicial baseada no perfil
