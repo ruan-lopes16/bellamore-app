@@ -154,10 +154,13 @@ describe('alertasCalculados — por permissão', () => {
     expect(alertasCalculados({ estoqueBaixo: null, despesasVencendo: null, comandasNaoFechadas: null }, dona, { userId: EU, agora: AGORA })).toEqual([]);
   });
 
-  it('linhas sem data_hora_fim nem profissional_id (formato de carregarDadosAlertas) confiam no filtro da consulta', () => {
+  it('agendamento sem data_hora_fim confia no filtro da consulta; comanda sempre confere a profissional', () => {
     const l = alertasCalculados({
       agendamentosHoje: [{ id: 'x', data_hora_inicio: '2026-10-28T20:00:00Z', status: 'agendado', profissional_id: EU, cliente: { nome: 'Ana' }, servico: null }],
-      comandasNaoFechadas: [{ id: 'n', data_hora_inicio: '2026-10-27T13:00:00Z' }],
+      comandasNaoFechadas: [
+        { id: 'n', data_hora_inicio: '2026-10-27T13:00:00Z', profissional_id: EU },
+        { id: 'm', data_hora_inicio: '2026-10-26T13:00:00Z', profissional_id: null },
+      ],
     }, prof('comanda.fechar'), { userId: EU, agora: AGORA });
     expect(l.map(a => a.titulo)).toEqual(['17:00 — Ana', '1 comanda não fechada']);
   });

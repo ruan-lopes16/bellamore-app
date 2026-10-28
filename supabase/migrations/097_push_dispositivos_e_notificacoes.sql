@@ -17,10 +17,11 @@
 --    empresa ativa dela. users.push_token guardava um token só por pessoa e sem empresa: com duas
 --    empresas, o lembrete de uma ia para quem estava olhando a outra. `token` é único: um aparelho
 --    pertence a uma conta e a uma empresa por vez (a que está aberta no app).
---    RLS: a pessoa vê e insere só os próprios registros, e só de empresa em que tem vínculo ativo
---    (minha_empresas(): vínculo ativo em empresa_membros ou dona por empresas.owner_id). Apagar
---    exige só ser o dono do registro: quem perdeu o vínculo ainda precisa conseguir tirar o próprio
---    aparelho ao sair (apagar o próprio token nunca expõe nada). Sem policy de UPDATE: trocar de
+--    RLS: a pessoa insere só os próprios registros, e só de empresa em que tem vínculo ativo
+--    (minha_empresas(): vínculo ativo em empresa_membros ou dona por empresas.owner_id). Ver e apagar
+--    exigem só ser o dono do registro: quem perdeu o vínculo ainda precisa conseguir tirar o próprio
+--    aparelho ao sair, e o DELETE com WHERE/RETURNING também passa pela policy de SELECT (se ela
+--    exigisse vínculo, o DELETE afetaria 0 linhas em silêncio). Ver o próprio token não expõe nada. Sem policy de UPDATE: trocar de
 --    empresa passa pela função abaixo. Os crons leem com service_role (fora da RLS) e só mandam
 --    para os dispositivos da empresa do aviso.
 --
@@ -84,8 +85,10 @@ create index if not exists idx_push_dispositivos_empresa_user
 alter table public.push_dispositivos enable row level security;
 
 drop policy if exists "push_dispositivos: ver proprios" on public.push_dispositivos;
+-- Sem exigir vínculo: o DELETE ... where token ... returning (removerDispositivoPush) também passa por
+-- esta policy, e quem perdeu o vínculo precisa conseguir tirar o próprio aparelho.
 create policy "push_dispositivos: ver proprios" on public.push_dispositivos
-  for select using (user_id = auth.uid() and empresa_id in (select minha_empresas()));
+  for select using (user_id = auth.uid());
 
 drop policy if exists "push_dispositivos: inserir proprios" on public.push_dispositivos;
 create policy "push_dispositivos: inserir proprios" on public.push_dispositivos

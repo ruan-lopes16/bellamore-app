@@ -124,7 +124,8 @@ export type EntradaAgendamentoAlerta = {
 export type EntradaEstoqueBaixo = { id: string; nome: string; estoque_atual: number | string; estoque_minimo: number | string };
 export type EntradaDespesaAlerta = { id: string; descricao: string; valor: number | string; data_vencimento: string };
 export type EntradaComissaoAlerta = { id: string; valor_comissao: number | string; profissional_id: string | null; profissional?: Nome };
-export type EntradaComandaAberta = { id: string; data_hora_inicio: string; profissional_id?: string | null };
+/** `profissional_id` é obrigatório: sem `agenda.gerenciar_outras` a regra só mostra as próprias. */
+export type EntradaComandaAberta = { id: string; data_hora_inicio: string; profissional_id: string | null };
 
 /**
  * Entrada de `alertasCalculados` — o `DadosAlertas` de `./notificacoes-consultas` encaixa aqui.
@@ -254,10 +255,9 @@ export function alertasCalculados(
   }
 
   if (p('comanda.fechar') && dados.comandasNaoFechadas) {
-    // Sem `profissional_id` na linha, vale o filtro da consulta (que já restringe às próprias).
     const outras = p('agenda.gerenciar_outras');
     const lista = dados.comandasNaoFechadas
-      .filter(c => outras || c.profissional_id === undefined || proprio(c.profissional_id))
+      .filter(c => outras || proprio(c.profissional_id))
       .sort((a, b) => instanteMs(a.data_hora_inicio) - instanteMs(b.data_hora_inicio));
     if (lista.length > 0) {
       const n = lista.length;
@@ -273,7 +273,8 @@ export function alertasCalculados(
   }
 
   if (dados.aniversariantes) {
-    for (const a of aniversariantesProximos(dados.aniversariantes, hoje)) {
+    // Próximos 7 dias (hoje em destaque), todos: sem o teto de 8 do Dashboard, igual ao web antigo.
+    for (const a of aniversariantesProximos(dados.aniversariantes, hoje, { limite: Infinity })) {
       out.push({
         id: `aniv-${a.id}`,
         grupo: 'aniversarios',

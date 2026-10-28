@@ -44,11 +44,12 @@ describe('migration 097 — texto', () => {
     expect(corpo).toContain('alter table public.push_dispositivos enable row level security;');
   });
 
-  it('RLS: só os próprios registros; ver e inserir só de empresa com vínculo ativo', () => {
+  it('RLS: só os próprios registros; inserir só de empresa com vínculo ativo; ver e apagar sem vínculo', () => {
     const ver = policy('push_dispositivos: ver proprios', 'push_dispositivos');
     expect(ver).toContain('for select');
     expect(ver).toContain('user_id = auth.uid()');
-    expect(ver).toContain('minha_empresas()');
+    // O DELETE com WHERE/RETURNING passa pela policy de SELECT: exigir vínculo travaria quem saiu.
+    expect(ver).not.toContain('minha_empresas()');
     const ins = policy('push_dispositivos: inserir proprios', 'push_dispositivos');
     expect(ins).toContain('for insert');
     expect(ins).toContain('user_id = auth.uid()');
@@ -217,6 +218,14 @@ describe('097 em PGlite — RLS de push_dispositivos', () => {
     await como(P2);
     expect(await q(`delete from push_dispositivos where token = 'ExponentPushToken[p1]' returning id`)).toEqual([]);
     expect(await q(`delete from push_dispositivos where token = 'tok-p2-b' returning token`)).toEqual([{ token: 'tok-p2-b' }]);
+  });
+
+  it('quem perdeu o vínculo ainda apaga o próprio aparelho (como removerDispositivoPush: where token + returning)', async () => {
+    // O DELETE com WHERE/RETURNING também passa pela policy de SELECT: ela não pode exigir vínculo.
+    await admin(`insert into push_dispositivos (user_id, empresa_id, plataforma, token) values ($1, $2, 'expo', 'tok-p3-antigo')`, [P3, E1]);
+    await como(P3);
+    expect(await q(`delete from push_dispositivos where token = 'tok-p3-antigo' returning id`)).toHaveLength(1);
+    expect(await admin(`select count(*)::int n from push_dispositivos where token = 'tok-p3-antigo'`)).toEqual([{ n: 0 }]);
   });
 });
 

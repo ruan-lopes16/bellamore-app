@@ -47,7 +47,7 @@
 
 - **`shared/notificacoes.ts`:**
   - `TIPOS_NOTIFICACAO` com rótulo e ícone: `agendamento`, `resumo`, `estoque_baixo`, `bloqueio_pendente`, `bloqueio_aprovado`, `bloqueio_recusado`. Os tipos mortos (`comissao`, `pagamento`, `cliente_sumido`) saem.
-  - `alertasCalculados(dados, permissoes)` devolve os 5 alertas do web: agendamentos de hoje, estoque baixo, despesas vencendo, comissões pendentes e aniversariantes de hoje. Cada alerta só aparece com a permissão correspondente (`estoque.acessar`, `financeiro.ver`, `comissoes.ver_todas` ou as próprias comissões, `agenda.ver_equipe` ou a própria agenda). Também entram as comandas não fechadas, com `comanda.fechar`.
+  - `alertasCalculados(dados, permissoes)` devolve os 5 alertas do web: agendamentos de hoje, estoque baixo, despesas vencendo, comissões pendentes e aniversariantes dos próximos 7 dias (hoje em destaque, todos, sem o teto de 8 do Dashboard), como o web já mostra. *Decisão da revisão (28/10), para o dono confirmar: a versão anterior desta spec dizia "de hoje".* Cada alerta só aparece com a permissão correspondente (`estoque.acessar`, `financeiro.ver`, `comissoes.ver_todas` ou as próprias comissões, `agenda.ver_equipe` ou a própria agenda). Também entram as comandas não fechadas, com `comanda.fechar`.
   - `contagemSino(alertas, naoLidas)`.
   - Datas sempre em Brasília: corrige o `hojeStr` do web, que hoje sai em UTC.
 - **`shared/notificacoes-consultas.ts`:**
@@ -65,7 +65,7 @@
 
 **Migration 097:**
 - Tabela `push_dispositivos` com `id`, `user_id`, `empresa_id`, `plataforma` (`'expo'|'web'`), `token` (unique), `criado_em`, `visto_em`.
-- RLS: a pessoa vê, insere e apaga só os próprios registros, e só de empresa em que tem vínculo ativo.
+- RLS: a pessoa vê, insere e apaga só os próprios registros. Inserir exige vínculo ativo com a empresa; ver e apagar não (quem perdeu o vínculo precisa tirar o próprio aparelho, e o DELETE com `where`/`returning` passa pela policy de SELECT).
 - Backfill de `users.push_token` para `push_dispositivos` (empresa = a mais antiga do usuário).
 - As linhas de `web_push_subscriptions` continuam como estão.
 

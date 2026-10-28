@@ -96,11 +96,15 @@ export async function marcarTodasLidas(db: ClienteDb, empresaId: string, userId:
 export type AgendamentoAlertaRow = {
   id: string;
   data_hora_inicio: string;
+  data_hora_fim: string | null;
   status: string;
   profissional_id: string | null;
   cliente: { nome: string | null } | null;
   servico: { nome: string | null } | null;
 };
+
+/** Comanda não fechada com a profissional do atendimento: `alertasCalculados` confere as próprias. */
+export type ComandaNaoFechadaAlertaRow = ComandaNaoFechadaRow & { profissional_id: string | null };
 
 export type ProdutoEstoqueBaixoRow = { id: string; nome: string; estoque_atual: number; estoque_minimo: number; unidade: string | null };
 
@@ -127,7 +131,7 @@ export type DadosAlertas = {
   /** Clientes ativas com aniversário cadastrado (o filtro do dia é de `alertasCalculados`). */
   aniversariantes: ClienteAniversario[];
   /** Com `comanda.fechar`: só as dela sem `agenda.gerenciar_outras` (é o que ela consegue fechar). */
-  comandasNaoFechadas: ComandaNaoFechadaRow[] | null;
+  comandasNaoFechadas: ComandaNaoFechadaAlertaRow[] | null;
   /** Agenda e comissões restritas à própria pessoa (para o texto do alerta). */
   soPropriaAgenda: boolean;
   soPropriasComissoes: boolean;
@@ -156,7 +160,7 @@ export async function carregarDadosAlertas(
 
   const agendamentos = buscarTodasOuLancar<AgendamentoAlertaRow>((de, ate) => {
     let q = db.from('agendamentos')
-      .select('id, data_hora_inicio, status, profissional_id, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
+      .select('id, data_hora_inicio, data_hora_fim, status, profissional_id, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
       .eq('empresa_id', empresaId)
       .gte('data_hora_fim', agoraIso).lte('data_hora_inicio', fimHoje)
       .not('status', 'in', '("concluido","cancelado","faltou")');
@@ -186,8 +190,9 @@ export async function carregarDadosAlertas(
   }).then(ls => ls.map(c => ({ ...c, valor_comissao: num(c.valor_comissao) })));
 
   const comandas = pode('comanda.fechar')
-    ? buscarTodasOuLancar<ComandaNaoFechadaRow>((de, ate) => {
-        let q = aplicarFiltroComandasNaoFechadas(db.from('agendamentos').select('id, data_hora_inicio'), empresaId, agoraIso);
+    ? buscarTodasOuLancar<ComandaNaoFechadaAlertaRow>((de, ate) => {
+        // `profissional_id` vai junto: a regra refaz o filtro das próprias (nunca depende só da consulta).
+        let q = aplicarFiltroComandasNaoFechadas(db.from('agendamentos').select('id, data_hora_inicio, profissional_id'), empresaId, agoraIso);
         if (soPropriasComandas) q = q.eq('profissional_id', userId);
         return q.order('data_hora_inicio', { ascending: true }).order('id').range(de, ate);
       })
