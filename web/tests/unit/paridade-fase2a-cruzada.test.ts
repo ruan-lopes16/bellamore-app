@@ -69,6 +69,8 @@ describe('todas as telas usam as funções únicas e nenhum cálculo antigo sobr
     'web/app/(app)/relatorios/page.tsx':  ['carregarDadosFinanceiros(', 'calcularKpisFinanceiros('],
     'web/app/(app)/dashboard/DashboardProfissionalView.tsx': ['resumoComissoesProfissional(', 'faturamentoPrevistoDia('],
     'mobile/hooks/useFinanceiro.ts':      ['carregarDadosFinanceiros(', 'calcularKpisFinanceiros('],
+    // A tela também grava datas (excluir recorrência): as regras de data valem para ela.
+    'mobile/app/(empresa)/financeiro.tsx': [],
     'mobile/hooks/useDashboard.ts':       ['carregarDadosFinanceiros(', 'calcularKpisFinanceiros('],
     'mobile/hooks/useRelatorios.ts':      ['carregarDadosFinanceiros(', 'calcularKpisFinanceiros('],
     'mobile/hooks/useProfissional.ts':    ['resumoComissoesProfissional(', 'faturamentoPrevistoDia('],

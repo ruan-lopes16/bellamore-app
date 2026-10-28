@@ -33,7 +33,7 @@ import {
   statusParcela, montarRetiradaSociaInsert, montarDevolucaoInsert,
 } from '@shared/retiradas-socia';
 import {
-  limitesMes, somarMeses, uniaoLimites, chaveDoMesExibido, getMonthQueryBounds,
+  limitesMes, somarMeses, uniaoLimites, chaveDoMesExibido, getMonthQueryBounds, hojeBRT,
 } from '@shared/periodos';
 import {
   calcularKpisFinanceiros, recortarDados, evolucaoMensal, rankingAtendimentos,
@@ -860,7 +860,8 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
         .sort((a, b) => (b.data_vencimento ?? '').localeCompare(a.data_vencimento ?? ''));
       await excluirRecorrencia(supabase, despesa.empresa_id, {
         chave: chaveDespesa(despesa), escopo: escopoExc, apagar: planoExc.apagar,
-        mesPulado: despesa.data_vencimento ?? new Date().toISOString().slice(0, 10),
+        // Sem vencimento: o mês de hoje em Brasília (em UTC, a noite do último dia caía no mês seguinte).
+        mesPulado: despesa.data_vencimento ?? hojeBRT(),
         modeloRestante: restantes[0] ? { id: restantes[0].id, data_vencimento: restantes[0].data_vencimento! } : undefined,
       });
       onSalvo();

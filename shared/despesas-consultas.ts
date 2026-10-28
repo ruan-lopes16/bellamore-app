@@ -35,11 +35,19 @@ export async function carregarChavesPuladas(db: ClienteDb, empresaId: string, in
   return ((data ?? []) as { chave: string }[]).map(r => r.chave);
 }
 
-/** Marca a série como "não vale neste mês". Idempotente. Lança erro. */
+/**
+ * Marca a série como "não vale neste mês". Idempotente. Lança erro.
+ * Confere a gravação: com `ignoreDuplicates`, 0 linhas devolvidas só é sucesso se o mês já estava
+ * pulado (reconsulta); senão a escrita não aconteceu e a tela avisa, nunca sucesso falso.
+ */
 export async function pularMesRecorrente(db: ClienteDb, empresaId: string, chave: string, inicioMes: string): Promise<void> {
-  const { error } = await db.from('despesas_recorrentes_puladas')
-    .upsert({ empresa_id: empresaId, chave, mes: `${inicioMes.slice(0, 7)}-01` }, { onConflict: 'empresa_id,chave,mes', ignoreDuplicates: true });
+  const { data, error } = await db.from('despesas_recorrentes_puladas')
+    .upsert({ empresa_id: empresaId, chave, mes: `${inicioMes.slice(0, 7)}-01` }, { onConflict: 'empresa_id,chave,mes', ignoreDuplicates: true })
+    .select('id');
   if (error) throw new Error(tabelaPuladasAusente(error.message) ? ERRO_TABELA_PULADAS : error.message);
+  if ((data ?? []).length > 0) return;
+  const jaPuladas = await carregarChavesPuladas(db, empresaId, inicioMes);
+  if (!jaPuladas.includes(chave)) throw new Error('Sem permissão para pular este mês da recorrência.');
 }
 
 /** Encerra a série: grava `recorrencia_ate` ('yyyy-MM-dd') no modelo mais recente. No banner use `fimDoMesAnterior(inicioMes)`. Lança erro. */
