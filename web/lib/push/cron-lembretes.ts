@@ -69,7 +69,7 @@ export async function executarCronLembretes(deps: DepsCron & { agora: Date }): P
   for (const empresa of (empresas ?? []) as { id: string }[]) {
     const empId = empresa.id;
 
-    const [{ data: membros }, { data: subs }, { data: agsRaw }] = await Promise.all([
+    const [{ data: membros, error: errMembros }, { data: subs, error: errSubs }, { data: agsRaw }] = await Promise.all([
       db.from('empresa_membros').select('user_id, role, usuario:users(notif_lembrete_atendimento)').eq('empresa_id', empId).eq('ativo', true),
       db.from('web_push_subscriptions').select('user_id, endpoint, p256dh, auth').eq('empresa_id', empId),
       db.from('agendamentos').select(SEL)
@@ -82,6 +82,13 @@ export async function executarCronLembretes(deps: DepsCron & { agora: Date }): P
     const elegiveis = selecionarLembrete(((agsRaw ?? []) as any[]).map(mapAg), agora);
     if (!elegiveis.length) continue;
 
+    // Leitura falhou: NÃO marca nada (marcar sem conseguir enviar perderia todos os lembretes da
+    // empresa nesta passada). A janela de ±5 min dá ao próximo cron a chance de enviar.
+    if (errMembros || errSubs) {
+      console.error('[lembretes] Erro ao ler membros/inscrições; tenta no próximo cron:', (errMembros ?? errSubs).message);
+      continue;
+    }
+
     const subsPorUser = inscricoesPorUsuario(subs as InscricaoWeb[] | null);
     const querLembrete = new Set(
       ((membros ?? []) as any[])
@@ -89,6 +96,7 @@ export async function executarCronLembretes(deps: DepsCron & { agora: Date }): P
         .map(m => m.user_id as string),
     );
     const disp = await carregarDispositivosExpo(db, empId, [...querLembrete], { legado: false });
+    if (disp.erro) continue; // mesmo motivo: sem marcar, o próximo cron tenta de novo
 
     for (const ag of elegiveis) {
       // Marca primeiro: só quem conseguir marcar (ainda vazio) envia.

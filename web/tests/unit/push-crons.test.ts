@@ -217,8 +217,11 @@ function cenarioLembrete(o: {
   membros?: unknown[];
   usuarios?: unknown[];
   vinculos?: unknown[];
+  falha?: (q: Consulta) => Resp | undefined;
 } = {}) {
   return dbFalso(q => {
+    const f = o.falha?.(q);
+    if (f) return f;
     if (q.tabela === 'empresas') return { data: [{ id: 'emp-1', owner_id: 'dona' }], error: null };
     if (q.tabela === 'empresa_membros' && eqDe(q, 'empresa_id')) return { data: o.membros ?? [
       { user_id: 'prof', role: 'profissional', usuario: { notif_lembrete_atendimento: true } },
@@ -311,6 +314,36 @@ describe('executarCronLembretes', () => {
     await executarCronLembretes({ db, agora: AGORA, enviarWeb, fetchFn: fetchExpo().fn });
     const del = consultas.find(c => c.tabela === 'web_push_subscriptions' && ehDelete(c))!;
     expect(tem(del, 'eq', 'endpoint', 'https://w/prof')).toBe(true);
+  });
+
+  it('falha ao ler membros, inscrições web ou aparelhos: não marca nem envia (tenta de novo no próximo cron)', async () => {
+    const erroDb: Resp = { data: null, error: { message: 'timeout' } };
+    const falhas: ((q: Consulta) => Resp | undefined)[] = [
+      q => (q.tabela === 'empresa_membros' && eqDe(q, 'empresa_id') ? erroDb : undefined),
+      q => (q.tabela === 'web_push_subscriptions' && !ehDelete(q) ? erroDb : undefined),
+      q => (q.tabela === 'push_dispositivos' && !ehDelete(q) ? erroDb : undefined),
+    ];
+    for (const falha of falhas) {
+      const erro = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { db, consultas } = cenarioLembrete({ falha });
+      const enviarWeb = vi.fn(async () => ({}));
+      const { fn, chamadas } = fetchExpo();
+      const r = await executarCronLembretes({ db, agora: AGORA, enviarWeb, fetchFn: fn });
+      expect(consultas.some(c => c.tabela === 'agendamentos' && ehUpdate(c))).toBe(false);
+      expect(enviarWeb).not.toHaveBeenCalled();
+      expect(chamadas).toEqual([]);
+      expect(consultas.some(c => c.tabela === 'notificacoes')).toBe(false);
+      expect(r.enviados).toBe(0);
+      erro.mockRestore();
+    }
+  });
+
+  it('sem a 097 continua marcando e mandando o web push (tabela ausente não é falha de leitura)', async () => {
+    const { db, consultas } = cenarioLembrete({ dispositivos: 'sem097' });
+    const enviarWeb = vi.fn(async () => ({}));
+    await executarCronLembretes({ db, agora: AGORA, enviarWeb, fetchFn: fetchExpo().fn });
+    expect(consultas.some(c => c.tabela === 'agendamentos' && ehUpdate(c))).toBe(true);
+    expect(enviarWeb).toHaveBeenCalledTimes(1);
   });
 
   it('sem a 097: o lembrete NÃO usa users.push_token (o app antigo já agenda o lembrete local)', async () => {

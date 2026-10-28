@@ -35,7 +35,12 @@ export type MensagemExpo = {
 export type OpcoesExpo = { fetchFn?: typeof fetch; accessToken?: string };
 
 /** Aparelhos expo por usuário. `legado` = vieram de `users.push_token` (nunca escrever neles). */
-export type DispositivosExpo = { porUsuario: Map<string, string[]>; legado: boolean };
+export type DispositivosExpo = {
+  porUsuario: Map<string, string[]>;
+  legado: boolean;
+  /** A leitura falhou (erro do banco que NÃO é "097 ausente"): o mapa vazio não quer dizer "ninguém tem aparelho". */
+  erro?: boolean;
+};
 
 const TOKEN_EXPO = /^Expo(nent)?PushToken\[.+\]$/;
 const ehTokenExpo = (t: unknown): t is string => typeof t === 'string' && TOKEN_EXPO.test(t.trim());
@@ -120,7 +125,7 @@ export async function carregarDispositivosExpo(
     }
     if (!semMigration097(error)) {
       console.error('[push] Erro ao ler push_dispositivos:', error.message);
-      return { porUsuario, legado: false };
+      return { porUsuario, legado: false, erro: true };
     }
     if (!opcoes.legado) return { porUsuario, legado: false };
 
@@ -133,7 +138,7 @@ export async function carregarDispositivosExpo(
     ]);
     if (rU.error || rV.error) {
       console.error('[push] Erro ao ler o token antigo (users.push_token):', (rU.error ?? rV.error).message);
-      return { porUsuario, legado: true };
+      return { porUsuario, legado: true, erro: true };
     }
     const empresasDe = new Map<string, Set<string>>();
     for (const v of (rV.data ?? []) as { user_id: string; empresa_id: string }[]) {
@@ -149,7 +154,7 @@ export async function carregarDispositivosExpo(
     return { porUsuario, legado: true };
   } catch (e) {
     console.error('[push] Falha ao carregar aparelhos:', msgErro(e));
-    return { porUsuario, legado: false };
+    return { porUsuario, legado: false, erro: true };
   }
 }
 
