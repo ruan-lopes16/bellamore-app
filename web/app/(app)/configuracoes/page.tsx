@@ -1,5 +1,6 @@
 'use client';
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -254,6 +255,7 @@ export default function ConfiguracoesPage() {
 }
 
 function ConfiguracoesConteudo() {
+  const empresaAtiva = useEmpresaAtiva();
   const router = useRouter();
   const params = useSearchParams();
   const { pode, papel } = usePermissoes();
@@ -362,9 +364,8 @@ function ConfiguracoesConteudo() {
       setPerfilEmail(user.email ?? '');
       setEmailPendente(user.new_email ?? '');
 
-      const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId };
       if (!membro) return;
 
       setEmpresaId(membro.empresa_id);

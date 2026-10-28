@@ -24,6 +24,7 @@
  * - `fetchMes()`: busca contagem por dia para o calendário mensal (só quando view = 'mes')
  */
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -2124,6 +2125,7 @@ function ListaDia({ ags, bloqueios, loading, dataSel, empresaId, onNovo, onStatu
 // ── Tela principal ────────────────────────────────────────────
 
 export default function AgendaPage() {
+  const empresaAtiva = useEmpresaAtiva();
 
 
   const [view,      setView]      = useState<'semana' | 'mes' | 'timeline'>('timeline');
@@ -2198,8 +2200,8 @@ export default function AgendaPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId };
       setEmpresaId(membro?.empresa_id ?? null);
       setMeuUserId(user.id);
       // Valor inicial pela preferência "Minha agenda abre em" (Configurações → Meu perfil).
@@ -2221,7 +2223,7 @@ export default function AgendaPage() {
                 .eq('empresa_id', membro.empresa_id)
                 .in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true)
             : supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
-                .eq('empresa_id', membro.empresa_id).eq('user_id', user.id).limit(1),
+                .eq('empresa_id', membro.empresa_id).eq('user_id', user.id),
         ]);
         setCategoriasCustom((cats ?? []) as CategoriaCustom[]);
         const membrosMapeados = ((profs ?? []) as any[])

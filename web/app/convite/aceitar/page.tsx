@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { rotaInicial } from '@/lib/permissions';
+import { trocarEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import type { PerfilRole } from '@/types';
 
 type Estado = 'carregando' | 'formulario' | 'sucesso' | 'erro';
@@ -33,18 +34,20 @@ export default function AceitarConvitePage() {
 
       setNome((user.user_metadata?.nome as string) || '');
 
-      const { data: membro } = await supabase
-        .from('empresa_membros')
-        .select('role, empresa:empresas(nome)')
-        .eq('user_id', user.id)
-        .eq('ativo', true)
-        .limit(1)
-        .single();
-
-      if (membro) {
-        setRole(membro.role as PerfilRole | 'owner');
-        setEmpresaNome((membro.empresa as unknown as { nome: string } | null)?.nome ?? '');
-      }
+      // Empresa do convite = o vínculo ativo mais recente (a API devolve em ordem de criação).
+      // Com outra empresa já existente, ela passa a ser a ativa (cookie validado pelo servidor).
+      try {
+        const res = await fetch('/api/empresa-ativa');
+        if (res.ok) {
+          const { vinculos } = await res.json() as { vinculos: { empresa_id: string; nome: string; role: string | null }[] };
+          const convite = vinculos[vinculos.length - 1];
+          if (convite) {
+            setRole((convite.role ?? 'profissional') as PerfilRole | 'owner');
+            setEmpresaNome(convite.nome);
+            if (vinculos.length >= 2) await trocarEmpresaAtiva(convite.empresa_id).catch(() => {});
+          }
+        }
+      } catch { /* só o nome da empresa no topo: segue sem ele */ }
 
       setEstado('formulario');
     })();

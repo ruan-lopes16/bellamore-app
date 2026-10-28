@@ -8,6 +8,7 @@ import {
   type ConviteRecebido,
 } from '@shared/convites-consultas';
 import { rotuloPapelEquipe } from '@shared/equipe';
+import { trocarEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 
 const supabase = createClient();
 
@@ -15,11 +16,11 @@ const supabase = createClient();
  * Banner da convidada: convites pendentes para a conta logada, com Aceitar e Recusar.
  * Sem a migration 092 `carregarMeusConvites` devolve lista vazia e nada aparece.
  *
- * Empresa depois do aceite: o web usa o primeiro vínculo ativo (`getAppContext`, `limit(1)`) e
- * ainda não tem seletor de empresa ativa.
+ * Empresa depois do aceite:
  * - `semEmpresa` (tela /criar-empresa): a empresa nova é a única, então vai direto para o painel.
- * - Dentro do app (já tem empresa): não recarrega (a página continuaria na empresa antiga ou cairia
- *   numa qualquer) e mostra o aviso de `mensagemConviteAceitoOutraEmpresa`.
+ * - Dentro do app (já tem empresa): grava a empresa nova como ativa (`POST /api/empresa-ativa`) e
+ *   abre o painel dela. Se a troca falhar, fica na empresa atual e mostra o aviso de
+ *   `mensagemConviteAceitoOutraEmpresa` (escolher pelo seletor do menu).
  */
 export default function ConvitesRecebidosBanner({ semEmpresa = false }: { semEmpresa?: boolean }) {
   const [convites, setConvites] = useState<ConviteRecebido[]>([]);
@@ -46,7 +47,13 @@ export default function ConvitesRecebidosBanner({ semEmpresa = false }: { semEmp
           window.location.assign('/dashboard');
           return; // a trava fica ligada até a página trocar
         }
-        setAviso(mensagemConviteAceitoOutraEmpresa(c.empresa_nome));
+        try {
+          await trocarEmpresaAtiva(c.empresa_id);
+          window.location.assign('/dashboard');
+          return; // a trava fica ligada até a página trocar
+        } catch {
+          setAviso(mensagemConviteAceitoOutraEmpresa(c.empresa_nome));
+        }
       } else {
         await recusarConvite(supabase, c.id);
       }

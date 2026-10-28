@@ -1,5 +1,8 @@
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
+import { COOKIE_EMPRESA_ATIVA } from '@shared/empresa-ativa';
+import { resolverEmpresaAtiva } from '@/lib/auth/empresa-ativa';
 import { createClient } from '@/lib/supabase/server';
 import { carregarMinhasPermissoes, papelDeRole } from '@shared/permissoes-consultas';
 import type { PermissoesUsuario } from '@shared/permissoes';
@@ -26,6 +29,8 @@ export type AppContext = {
    */
   permissoes: PermissoesUsuario | null;
   empresa: AppEmpresaContext;
+  /** Empresas em que a pessoa tem vínculo ativo (seletor de empresa, só com 2 ou mais). */
+  vinculos: { empresa_id: string; nome: string }[];
 };
 
 /**
@@ -47,18 +52,16 @@ export const getAppContext = cache(async (): Promise<AppContext> => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) redirect('/login');
 
-    const { data: membro } = await supabase
-      .from('empresa_membros')
-      .select('empresa_id, role, empresa:empresas(id, nome, logo_url, segmento, meta_mensal)')
-      .eq('user_id', user.id)
-      .eq('ativo', true)
-      .limit(1)
-      .single();
+    // Empresa ativa: cookie `bm_empresa` se for vínculo ativo da pessoa, senão a mais antiga
+    // (regra única de shared). Nunca "a primeira que o banco devolveu".
+    const cookieStore = await cookies();
+    const { ativo: membro, vinculos } = await resolverEmpresaAtiva(
+      supabase, user.id, cookieStore.get(COOKIE_EMPRESA_ATIVA)?.value,
+    );
 
     if (!membro) redirect('/criar-empresa');
 
-    const empresa = membro.empresa as unknown as AppEmpresaContext | null;
-    if (!empresa) redirect('/criar-empresa');
+    const empresa: AppEmpresaContext = membro.empresa;
 
     const isOwner = membro.role === 'owner';
     const permissoes = await carregarMinhasPermissoes(supabase, membro.empresa_id, isOwner, papelDeRole(membro.role));
@@ -71,6 +74,7 @@ export const getAppContext = cache(async (): Promise<AppContext> => {
       isOwner,
       permissoes,
       empresa,
+      vinculos: vinculos.map(v => ({ empresa_id: v.empresa_id, nome: v.empresa.nome })),
     };
   } catch (err) {
     if (isNextRedirectError(err)) throw err;

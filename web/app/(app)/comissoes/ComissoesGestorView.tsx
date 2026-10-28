@@ -7,6 +7,7 @@
  * em Brasília), PERIODOS_COMISSAO, @shared/comissoes. "Pagar" = só as
  * pendentes do período exibido.
  */
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Banknote, CircleCheck, X, ChevronDown } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -41,6 +42,7 @@ function avatarGradient(nome: string) {
 }
 
 export default function ComissoesGestorView() {
+  const empresaAtiva = useEmpresaAtiva();
   const { pode } = usePermissoes();
   // O UPDATE de `comissoes` no banco exige `comissoes.pagar` (ver_todas só lista).
   const podePagar = pode('comissoes.pagar');
@@ -75,9 +77,8 @@ export default function ComissoesGestorView() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const data = { empresa_id: empresaAtiva.empresaId };
       if (data) setEmpresaId(data.empresa_id);
     })();
   }, []);

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, UserPlus, Phone, X, ChevronRight, Users, CalendarPlus, Crown, AlertTriangle, UserX, Hourglass, LayoutGrid, List, MapPin } from 'lucide-react';
@@ -235,6 +236,7 @@ function Tags({ cliente, agregado, hojeChave }: { cliente: ClienteBase; agregado
 }
 
 export default function ClientesPage() {
+  const empresaAtiva = useEmpresaAtiva();
   const router    = useRouter();
   const { pode } = usePermissoes();
   const [base,      setBase]      = useState<BaseClientes | null>(null);
@@ -252,9 +254,8 @@ export default function ClientesPage() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setErroCarga('Sessão expirada. Entre de novo.'); return; }
-        const { data: membro, error } = await supabase.from('empresa_membros').select('empresa_id')
-          .eq('user_id', user.id).eq('ativo', true).limit(1).single();
-        if (error || !membro) { setErroCarga('Não foi possível identificar a empresa.'); return; }
+        // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+        const membro = { empresa_id: empresaAtiva.empresaId };
         setEmpresaId(membro.empresa_id);
         setBase(await carregarBaseClientes(supabase, membro.empresa_id));
       } catch (e) {

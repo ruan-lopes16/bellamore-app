@@ -16,6 +16,7 @@ import { useScrollLock } from '@/lib/useScrollLock';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { pode, type Acesso, type PermissoesUsuario } from '@/lib/permissions';
+import SeletorEmpresa, { type OpcaoEmpresa } from '@/components/SeletorEmpresa';
 
 const supabase = createClient();
 
@@ -70,12 +71,15 @@ export default function Sidebar({
   empresaLogo,
   empresaSegmento,
   permissoes,
+  vinculos,
 }: {
   empresaId: string;
   empresaNome: string;
   empresaLogo: string | null;
   empresaSegmento: string;
   permissoes: PermissoesUsuario;
+  /** Empresas em que a pessoa tem vínculo ativo (o seletor só aparece com 2 ou mais). */
+  vinculos: OpcaoEmpresa[];
 }) {
   const pathname        = usePathname();
   const router          = useRouter();
@@ -160,6 +164,9 @@ export default function Sidebar({
               <p className="text-sm font-bold truncate" style={{ color: 'var(--color-ink)', lineHeight: 1.2 }}>{empresaNome}</p>
             </div>
           </div>
+          {vinculos.length >= 2 && (
+            <div className="mt-3"><SeletorEmpresa vinculos={vinculos} empresaId={empresaId} /></div>
+          )}
         </div>
 
         {/* Nav principal */}
@@ -302,6 +309,9 @@ export default function Sidebar({
                 <X size={15} style={{ color: 'var(--color-ink3)' }} strokeWidth={2.5}/>
               </button>
             </div>
+            {vinculos.length >= 2 && (
+              <div className="px-4 pt-3"><SeletorEmpresa vinculos={vinculos} empresaId={empresaId} /></div>
+            )}
             {/* Grid de itens */}
             <div className="grid grid-cols-4 gap-1 p-3">
               {maisNavFiltrado.map(({ href, label, icon: Icon }) => {

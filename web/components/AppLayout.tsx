@@ -4,13 +4,14 @@ import { PermissoesProvider } from '@/components/PermissoesProvider';
 import ConvitesRecebidosBanner from '@/components/ConvitesRecebidosBanner';
 import { PrivacyProvider, PRIVACY_NOFLASH_SCRIPT } from '@/components/privacy';
 import ErroPermissoes from '@/components/ErroPermissoes';
+import { EmpresaAtivaProvider } from '@/components/EmpresaAtivaProvider';
 import type { PermissoesUsuario } from '@shared/permissoes';
 
 /** Permissões que falharam ao carregar: o menu mostra só o que não depende de chave. */
 const NADA_LIBERADO: PermissoesUsuario = { isOwner: false, papel: null, chaves: [] };
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const { empresa, empresaId, permissoes } = await getAppContext();
+  const { empresa, empresaId, permissoes, role, isOwner, vinculos } = await getAppContext();
 
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--color-bg)' }}>
@@ -21,6 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         empresaLogo={empresa.logo_url ?? null}
         empresaSegmento={empresa.segmento ?? 'Estúdio'}
         permissoes={permissoes ?? NADA_LIBERADO}
+        vinculos={vinculos}
       />
       {/* Desktop: margin-left da sidebar. Mobile: a bottom nav come o rodape e a
           status bar translucida come o topo, entao os dois lados reservam a
@@ -34,11 +36,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           de ficar preso à tela). Sem efeito visual: este <main> nunca precisou
           rolar por conta própria, a altura sempre acompanha o conteúdo. */}
       <main className="flex-1 lg:ml-60 pt-[var(--bm-mobile-content-top)] lg:pt-8 pb-[var(--bm-mobile-content-bottom)] lg:pb-10 px-4 lg:px-8 bm-page overflow-x-hidden overflow-y-visible min-w-0">
-        <PermissoesProvider value={permissoes}>
-          <ConvitesRecebidosBanner />
-          {/* RPC de permissões falhou: erro com "Tentar de novo" no lugar da página, nada liberado. */}
-          {permissoes ? <PrivacyProvider>{children}</PrivacyProvider> : <ErroPermissoes />}
-        </PermissoesProvider>
+        {/* Empresa ativa resolvida no servidor: as telas client leem daqui (useEmpresaAtiva). */}
+        <EmpresaAtivaProvider value={{ empresaId, role, isOwner }}>
+          <PermissoesProvider value={permissoes}>
+            <ConvitesRecebidosBanner />
+            {/* RPC de permissões falhou: erro com "Tentar de novo" no lugar da página, nada liberado. */}
+            {permissoes ? <PrivacyProvider>{children}</PrivacyProvider> : <ErroPermissoes />}
+          </PermissoesProvider>
+        </EmpresaAtivaProvider>
       </main>
     </div>
   );

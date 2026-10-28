@@ -25,6 +25,7 @@
  * A tabela exibe "3 pct (36 un)" quando qtd_por_unidade > 1.
  */
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus, Package2, AlertTriangle, DollarSign, Wallet,
@@ -573,6 +574,7 @@ function MovModal({ produto, onClose, onSalvo }: {
 // ── Tela principal ────────────────────────────────────────────
 
 export default function EstoquePage() {
+  const empresaAtiva = useEmpresaAtiva();
   const { pode } = usePermissoes();
 
   // ── Estado: aba ───────────────────────────────────────────────
@@ -614,8 +616,8 @@ export default function EstoquePage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId };
       if (!membro) return;
       setEmpresaId(membro.empresa_id);
       const [prods, un] = await Promise.all([

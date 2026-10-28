@@ -46,12 +46,12 @@ export type ConvitePendente = {
 export const MENSAGEM_CONVITE_PENDENTE = 'Convite enviado. Ela precisa aceitar no app ou no site.';
 
 /**
- * Aviso do web depois do aceite para quem já está em outra empresa: o site usa o primeiro vínculo
- * ativo e ainda não tem seletor de empresa, então não dá para levar a pessoa à empresa nova.
+ * Aviso depois do aceite para quem já está em outra empresa, quando não deu para trocar a empresa
+ * ativa para a nova (o caminho normal grava a empresa nova como ativa e abre o painel dela).
  */
 export function mensagemConviteAceitoOutraEmpresa(empresaNome: string): string {
-  return `Convite aceito. Você agora faz parte da equipe de ${empresaNome}. O site ainda não troca de empresa `
-    + 'e continua mostrando a empresa em que você já estava. No app, você escolhe a empresa em Mais.';
+  return `Convite aceito. Você agora faz parte da equipe de ${empresaNome}. Não foi possível abrir essa empresa agora: `
+    + 'escolha-a no seletor de empresa do menu.';
 }
 
 /** Quem pode cancelar um convite pendente (além de `equipe.gerenciar`): convite de gestora só a dona. */

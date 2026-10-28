@@ -20,6 +20,7 @@
  * Serviços · Equipe · Top clientes · Insumos consumidos
  */
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   TrendingUp, BarChart2, Users, Package, Scissors,
@@ -204,6 +205,7 @@ function ChartBar({ label, value, maxValue }: { label: string; value: number; ma
 // ── Página principal ──────────────────────────────────────────
 
 export default function RelatoriosPage() {
+  const empresaAtiva = useEmpresaAtiva();
   // O UPDATE de `comissoes` no banco exige `comissoes.pagar` (igual ao app e às outras telas de pagar).
   const permissoes = usePermissoes();
   const podePagarComissoes = permissoes.pode('comissoes.pagar');
@@ -270,9 +272,8 @@ export default function RelatoriosPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const data = { empresa_id: empresaAtiva.empresaId };
       if (data) {
         setEmpresaId(data.empresa_id);
         const { data: emp } = await supabase.from('empresas').select('owner_id').eq('id', data.empresa_id).single();

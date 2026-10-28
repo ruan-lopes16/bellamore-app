@@ -18,6 +18,7 @@
  * - Marcação individual ou em lote como "lida"
  */
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
@@ -76,6 +77,7 @@ function fmtData(d: string) {
 // ── Página ────────────────────────────────────────────────────
 
 export default function NotificacoesPage() {
+  const empresaAtiva = useEmpresaAtiva();
   const { pode } = usePermissoes();
 
   const [loading,       setLoading]       = useState(true);
@@ -92,9 +94,8 @@ export default function NotificacoesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId };
       if (!membro) return;
 
       const empId = membro.empresa_id;
