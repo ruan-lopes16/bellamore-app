@@ -31,7 +31,7 @@ import { ptBR } from 'date-fns/locale';
 import { useAuthStore } from '@/stores/authStore';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { useDashboard } from '@/hooks/useDashboard';
-import { useNotificacoes } from '@/hooks/useNotificacoes';
+import { useSino } from '@/hooks/useNotificacoes';
 import { usePermissoes } from '@/lib/permissions';
 import TiltCard from '@/components/TiltCard';
 import { SparkLinha } from '@/components/SparkLinha';
@@ -134,7 +134,8 @@ export default function Dashboard() {
     refetch,
   } = useDashboard(mesSolicitado, { podeVerFinanceiro, podeFecharComanda });
 
-  const { countNaoLidas: countNotifNaoLidas } = useNotificacoes();
+  // Sino = avisos não lidos + alertas que pedem ação (contagemSino, igual ao web). null = sem número.
+  const countNotifNaoLidas = useSino() ?? 0;
 
   const [fontsLoaded] = useFonts({
     Fraunces_400Regular,

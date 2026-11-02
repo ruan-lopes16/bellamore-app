@@ -203,3 +203,17 @@ export function useResumoComissoesPendentes(ativa = true) {
     queryFn: async () => resumoComissoesPendentes(await carregarComissoesPendentes(supabase, empresaId!)),
   });
 }
+
+/**
+ * Comandas não fechadas (mesma consulta e chave do alerta do Dashboard), para o badge do menu
+ * Comanda no Mais. `ativa` = `pode('comanda.fechar')`: sem a chave a consulta nem roda.
+ */
+export function useComandasNaoFechadas(ativa: boolean) {
+  const empresaId = useAuthStore(s => s.empresaAtiva?.id);
+  return useQuery({
+    queryKey: ['comandas-nao-fechadas', empresaId],
+    enabled: !!empresaId && ativa,
+    staleTime: 1000 * 60,
+    queryFn: async () => resumoComandasNaoFechadas(await carregarComandasNaoFechadas(supabase, empresaId!, new Date().toISOString())),
+  });
+}

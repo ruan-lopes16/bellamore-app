@@ -1,10 +1,19 @@
-import { View } from 'react-native';
-import { Tabs } from 'expo-router';
+import { View, ActivityIndicator } from 'react-native';
+import { Tabs, useSegments } from 'expo-router';
 import { BannerConvites } from '@/components/BannerConvites';
+import { SemAcesso } from '@/components/SemAcesso';
 import { usePermissoes } from '@/lib/permissions';
+import { permissaoDaRota } from '@shared/permissoes';
 
 export default function EmpresaLayout() {
-  const { pode } = usePermissoes();
+  const { pode, permissoesCarregadas, permissoesErro } = usePermissoes();
+  // Guarda por rota, com o mesmo mapa do `exigirAcesso` do web: protege também o deep link.
+  const segments = useSegments();
+  const acesso = permissaoDaRota(segments);
+  // Permissões ainda chegando: a tela protegida espera (nunca abre nem expulsa antes da hora).
+  // Com erro, o _layout raiz já cobre tudo com "Tentar de novo".
+  const esperando = !!acesso && !permissoesCarregadas && !permissoesErro;
+  const semAcesso = !!acesso && permissoesCarregadas && !pode(acesso);
 
   return (
     <View style={{ flex: 1 }}>
@@ -36,6 +45,12 @@ export default function EmpresaLayout() {
       ))}
     </Tabs>
     <BannerConvites />
+    {esperando && (
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#F4F1EE', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#2C1654" />
+      </View>
+    )}
+    {semAcesso && <SemAcesso />}
     </View>
   );
 }

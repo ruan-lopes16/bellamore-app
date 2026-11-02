@@ -66,6 +66,8 @@ describe('badges conferem .error', () => {
   });
   it('app: badge de comissões do menu e sino de notificações conferem o erro', () => {
     expect(ler('mobile/app/(empresa)/mais.tsx')).toMatch(/isError/);
-    expect(ler('mobile/hooks/useNotificacoes.ts')).toMatch(/lista\.isError/);
+    // Sino = contagemSino: com erro na 1ª carga a parte vem null e não há número (nunca um falso).
+    expect(ler('mobile/hooks/useNotificacoes.ts')).toMatch(/isError/);
+    expect(ler('mobile/hooks/useNotificacoes.ts')).toContain('contagemSino(alertas, naoLidas)');
   });
 });

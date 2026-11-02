@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import {
   Scissors, Users, DollarSign, Settings, LogOut,
-  ChevronRight, Package, BarChart2, Bell, Gift, CheckCircle, ShoppingCart,
+  ChevronRight, Package, BarChart2, Bell, Gift, ShoppingCart, Receipt,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -20,8 +20,10 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
-import { usePermissoes, rotaInicial } from '@/lib/permissions';
-import { useResumoComissoesPendentes } from '@/hooks/useDashboard';
+import { usePermissoes } from '@/lib/permissions';
+import { useResumoComissoesPendentes, useComandasNaoFechadas } from '@/hooks/useDashboard';
+import { SeletorEmpresa } from '@/components/SeletorEmpresa';
+import { useSino } from '@/hooks/useNotificacoes';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -96,29 +98,19 @@ function MenuItem({
 
 export default function Mais() {
   const insets = useSafeAreaInsets();
-  const { user, empresaAtiva, roleAtivo, isOwner, sair, selecionarEmpresa, empresasDisponiveis } = useAuthStore();
-  const role = isOwner ? 'owner' : (roleAtivo ?? 'profissional');
+  const { user, empresaAtiva, roleAtivo, isOwner, sair } = useAuthStore();
+  // Sem fallback de papel: indefinido = ainda carregando (o rótulo fica vazio até chegar).
+  const role = isOwner ? 'owner' : roleAtivo;
   const { pode } = usePermissoes();
-
-  const AVATAR_BG = ['#2C1654', '#0D7E5F', '#B45309', '#7C3AED', '#C0392B'];
-
-  function trocarEmpresa(empresa: typeof empresasDisponiveis[0]) {
-    selecionarEmpresa(empresa.empresa, empresa.isOwner ? 'gestor' : empresa.role, empresa.isOwner);
-    const r = empresa.isOwner ? 'owner' : empresa.role;
-    router.replace(rotaInicial(r) as any);
-  }
-
-  function roleLabelText(r: string, owner: boolean) {
-    if (owner) return 'Proprietário(a)';
-    if (r === 'gestor') return 'Gestor(a)';
-    if (r === 'profissional') return 'Profissional';
-    return 'Cliente';
-  }
 
   // Badge do menu = TODAS as pendentes (mesma regra do alerta do Dashboard e do badge da Sidebar web).
   // Consulta com erro não mostra número (nem o antigo guardado no cache).
   const pendentesQ = useResumoComissoesPendentes(pode('comissoes.ver_todas'));
   const pendentes = pendentesQ.isError ? undefined : pendentesQ.data;
+  // Comandas não fechadas (mesma consulta do alerta do Dashboard), só com `comanda.fechar`.
+  const comandasQ = useComandasNaoFechadas(pode('comanda.fechar'));
+  const comandasAbertas = comandasQ.isError ? undefined : comandasQ.data;
+  const sino = useSino();
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -213,7 +205,7 @@ export default function Mais() {
                 fontFamily: 'PlusJakartaSans_400Regular',
                 fontSize: 12, color: C.text3,
               }}>
-                {isOwner ? 'Proprietário' : role === 'gestor' ? 'Gestor' : 'Profissional'}
+                {isOwner ? 'Proprietário' : role === 'gestor' ? 'Gestor' : role === 'profissional' ? 'Profissional' : ''}
                 {' · '}{empresaAtiva?.nome}
               </Text>
             </View>
@@ -221,70 +213,8 @@ export default function Mais() {
           </TouchableOpacity>
         </MotiView>
 
-        {/* ── Trocar empresa ── */}
-        {empresasDisponiveis.length > 1 && (
-          <MotiView
-            from={{ opacity: 0, translateY: 6 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 350, delay: 80 }}
-            style={{ marginHorizontal: 24, marginBottom: 16 }}
-          >
-            <Text style={{
-              fontFamily: 'PlusJakartaSans_700Bold',
-              fontSize: 11, color: C.text3,
-              textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10,
-            }}>
-              Empresas
-            </Text>
-            <View style={{
-              backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-              borderRadius: 18, overflow: 'hidden',
-              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-            }}>
-              {empresasDisponiveis.map(({ empresa, role: empRole, isOwner: empOwner }, idx) => {
-                const isAtiva = empresa.id === empresaAtiva?.id;
-                const iniciais = empresa.nome.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
-                const avatarBg = AVATAR_BG[idx % AVATAR_BG.length];
-                const isLast = idx === empresasDisponiveis.length - 1;
-                return (
-                  <TouchableOpacity
-                    key={empresa.id}
-                    onPress={() => !isAtiva && trocarEmpresa({ empresa, role: empRole, isOwner: empOwner })}
-                    activeOpacity={isAtiva ? 1 : 0.7}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 14,
-                      paddingVertical: 13, paddingHorizontal: 16,
-                      borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border,
-                      backgroundColor: isAtiva ? C.primarySoft : C.surface,
-                    }}
-                  >
-                    <View style={{
-                      width: 36, height: 36, borderRadius: 10,
-                      backgroundColor: avatarBg,
-                      alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: '#fff' }}>
-                        {iniciais}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>
-                        {empresa.nome}
-                      </Text>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 1 }}>
-                        {roleLabelText(empRole, empOwner)}
-                      </Text>
-                    </View>
-                    {isAtiva
-                      ? <CheckCircle size={18} color={C.accent} strokeWidth={2} />
-                      : <ChevronRight size={16} color={C.text4} strokeWidth={2} />
-                    }
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </MotiView>
-        )}
+        {/* ── Trocar empresa (só com 2+ vínculos) ── */}
+        <SeletorEmpresa style={{ marginHorizontal: 24, marginBottom: 16 }} />
 
         {/* ── Gestão ── */}
         {/* Serviços e Pacotes são sempre visíveis; os demais itens seguem as chaves de permissão. */}
@@ -320,6 +250,16 @@ export default function Mais() {
                 iconBg={C.primarySoft} iconColor={C.accent}
                 onPress={() => router.push('/(empresa)/pacotes' as any)}
               />
+              {pode('comanda.fechar') && (
+                <MenuItem
+                  icon={<Receipt size={16} color={C.rose} strokeWidth={2} />}
+                  label="Comanda"
+                  sublabel={comandasAbertas && comandasAbertas.quantidade > 0 ? 'Comandas não fechadas' : 'Fechar atendimentos'}
+                  iconBg={C.roseSoft} iconColor={C.rose}
+                  badge={comandasAbertas?.quantidade ?? 0}
+                  onPress={() => router.push('/(empresa)/nova-comanda' as any)}
+                />
+              )}
               {pode('equipe.gerenciar') && (
                 <MenuItem
                   icon={<Users size={16} color={C.accent} strokeWidth={2} />}
@@ -393,6 +333,7 @@ export default function Mais() {
               label="Notificações"
               sublabel="Alertas e lembretes"
               iconBg={C.roseSoft} iconColor={C.rose}
+              badge={sino ?? 0}
               onPress={() => router.push('/(empresa)/notificacoes' as any)}
             />
             <View style={{ borderBottomWidth: 0 }}>

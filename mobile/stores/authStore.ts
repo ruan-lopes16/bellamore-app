@@ -1,9 +1,22 @@
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
+import { desativarPushDoAparelho } from '@/lib/notifications';
 import type { User, Empresa, EmpresaMembro, AuthState } from '@/types';
 import type { PerfilRole } from '@/types';
 import { carregarMinhasPermissoes, papelDeRole } from '@shared/permissoes-consultas';
 import type { PermissoesUsuario } from '@shared/permissoes';
+import { escolherEmpresaAtiva, STORAGE_EMPRESA_ATIVA } from '@shared/empresa-ativa';
+
+/** Lê a empresa salva no aparelho (falha de leitura = sem preferência). */
+async function empresaSalva(): Promise<string | null> {
+  try { return await AsyncStorage.getItem(STORAGE_EMPRESA_ATIVA); } catch { return null; }
+}
+
+/** Salva a empresa escolhida no aparelho (falha de escrita só perde a preferência). */
+async function salvarEmpresa(empresaId: string): Promise<void> {
+  try { await AsyncStorage.setItem(STORAGE_EMPRESA_ATIVA, empresaId); } catch { /* preferência perdida */ }
+}
 
 const PERMISSOES_VAZIAS: PermissoesUsuario = { isOwner: false, papel: null, chaves: [] };
 
@@ -25,6 +38,11 @@ interface AuthStore extends AuthState {
   /** Recarrega as permissões efetivas (ao entrar, trocar de empresa e voltar ao app). */
   recarregarPermissoes: () => Promise<void>;
   selecionarEmpresa: (empresa: Empresa, role: PerfilRole, isOwner: boolean) => void;
+  /**
+   * Troca a empresa ativa pelo menu: salva no aparelho (`bm_empresa`) e recarrega a sessão com ela.
+   * Quem chama invalida as queries (`SeletorEmpresa`).
+   */
+  trocarEmpresa: (empresaId: string) => Promise<void>;
   sair: () => Promise<void>;
   /** Zera o estado local de sessão (sem chamar o Supabase) — usado quando a sessão expira. */
   limparSessao: () => void;
@@ -83,11 +101,15 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       }
     });
 
-    // Mantém a empresa ativa se ainda estiver disponível; senão, a primeira
-    const manter = opts?.manterEmpresaId
-      ? disponíveis.find((d) => d.empresa.id === opts.manterEmpresaId)
-      : undefined;
-    const escolhida = manter ?? disponíveis[0];
+    // Empresa ativa: a que já estava na tela (troca/recarga) ou a salva no aparelho, se ainda for
+    // um vínculo ativo; senão a mais antiga — sempre a mesma (regra única de shared/empresa-ativa).
+    const preferida = opts?.manterEmpresaId ?? (await empresaSalva());
+    const vinculos = disponíveis.map((d) => {
+      const m = membros?.find((x: EmpresaMembro) => x.empresa_id === d.empresa.id) as EmpresaMembro | undefined;
+      return { id: m?.id ?? d.empresa.id, empresa_id: d.empresa.id, created_at: m?.created_at ?? d.empresa.created_at, d };
+    });
+    const escolhida = escolherEmpresaAtiva(vinculos, preferida)?.d;
+    if (escolhida) void salvarEmpresa(escolhida.empresa.id);
 
     // Permissões da empresa escolhida ANTES do set: um único set, sem janela com `chaves: []`.
     // Owner entra com roleAtivo 'gestor' — isOwner manda.
@@ -112,8 +134,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   selecionarEmpresa: (empresa, role, isOwner) => {
+    void salvarEmpresa(empresa.id);
     set({ empresaAtiva: empresa, roleAtivo: role, isOwner, permissoes: PERMISSOES_VAZIAS, permissoesCarregadas: false, permissoesErro: false });
     void get().recarregarPermissoes();
+  },
+
+  trocarEmpresa: async (empresaId) => {
+    await salvarEmpresa(empresaId);
+    await get().carregarSessao({ manterEmpresaId: empresaId });
   },
 
   recarregarPermissoes: async () => {
@@ -149,6 +177,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   sair: async () => {
+    // Antes do signOut: a RLS só deixa apagar o aparelho com a sessão. Também cancela os lembretes locais.
+    await desativarPushDoAparelho();
     await supabase.auth.signOut();
     get().limparSessao();
   },

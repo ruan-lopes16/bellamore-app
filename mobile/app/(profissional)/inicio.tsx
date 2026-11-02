@@ -6,7 +6,7 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Target, Pencil, AlertTriangle, UserX, CalendarDays } from 'lucide-react-native';
+import { Target, Pencil, AlertTriangle, UserX, CalendarDays, Bell } from 'lucide-react-native';
 import { format } from 'date-fns';
 import { hojeBRT, limitesMes } from '@shared/periodos';
 import { ptBR } from 'date-fns/locale';
@@ -23,6 +23,8 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
+import { SeletorEmpresa } from '@/components/SeletorEmpresa';
+import { useSino } from '@/hooks/useNotificacoes';
 import {
   useAgendaProfissional, useKpisDiaProfissional, useResumoComissoes,
   useMetaPessoal, useDefinirMetaPessoal, useClientesReconquistaProfissional,
@@ -120,6 +122,8 @@ export default function Inicio() {
   const erro = errKpis ?? errResumo ?? errAgenda;
   const { data: meta, refetch: refetchMeta } = useMetaPessoal();
   const { data: reconquista, refetch: refetchReconquista } = useClientesReconquistaProfissional();
+  // Sino da profissional: avisos não lidos + alertas que a permissão dela deixa ver (contagemSino).
+  const sino = useSino();
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -155,6 +159,26 @@ export default function Inicio() {
               {format(hoje, "EEEE, d 'de' MMMM", { locale: ptBR })}
             </Text>
             <PrivacyToggle />
+            <TouchableOpacity
+              onPress={() => router.push('/(profissional)/notificacoes' as any)}
+              accessibilityLabel="Notificações"
+              style={{
+                width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)',
+                alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <Bell size={16} color="#fff" strokeWidth={1.8} />
+              {!!sino && sino > 0 && (
+                <View style={{
+                  position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8,
+                  backgroundColor: C.rose, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
+                }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: '#fff', lineHeight: 11 }}>
+                    {sino > 9 ? '9+' : sino}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
         </LinearGradient>
 
@@ -191,6 +215,9 @@ export default function Inicio() {
             </View>
           ))}
         </View>
+
+        {/* Trocar de empresa (só com 2+ vínculos) */}
+        <SeletorEmpresa style={{ marginHorizontal: 24, marginBottom: 16 }} />
 
         <MetaPessoalCard meta={meta ?? null} faturamentoBruto={resumoMes?.faturamentoBruto ?? 0} empresaId={empresaAtiva?.id ?? ''} />
 

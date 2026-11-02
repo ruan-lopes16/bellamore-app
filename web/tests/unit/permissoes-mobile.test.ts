@@ -55,9 +55,12 @@ describe('app: botões consultam a chave certa', () => {
   // Exceção explícita à decisão de 02/10 (sem telas novas na área da profissional): `novo-agendamento.tsx`
   // só reexporta a tela da empresa e é alcançada pelo botão do horário vazio e pelo "Editar" do detalhe,
   // sem menu nem aba (registrada com href: null no _layout).
+  // Exceção explícita pedida pelo dono na fase "Paridade Configurações, Notificações e Papéis" (28/10):
+  // `notificacoes.tsx` (Alertas + Avisos, a mesma tela da empresa), aberta pelo sino do Início e pelo
+  // toque na notificação push (`rotaDoAviso` aponta para /(profissional)/notificacoes).
   it('área da profissional não ganhou telas novas', () => {
     expect(readdirSync(join(mob, 'app', '(profissional)')).sort()).toEqual(
-      ['_layout.tsx', 'agenda.tsx', 'agendamento', 'comissoes.tsx', 'configuracoes.tsx', 'inicio.tsx', 'novo-agendamento.tsx', 'pacotes.tsx', 'servicos.tsx'].sort(),
+      ['_layout.tsx', 'agenda.tsx', 'agendamento', 'comissoes.tsx', 'configuracoes.tsx', 'inicio.tsx', 'notificacoes.tsx', 'novo-agendamento.tsx', 'pacotes.tsx', 'servicos.tsx'].sort(),
     );
   });
 });
