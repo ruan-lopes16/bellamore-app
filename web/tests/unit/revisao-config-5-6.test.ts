@@ -238,7 +238,8 @@ describe('senha mínima 8 em toda troca de senha', () => {
   });
   it.each(['mobile/app/(empresa)/configuracoes.tsx', 'mobile/app/(profissional)/configuracoes.tsx'])('%s não ignora senha curta em silêncio', (p) => {
     const s = ler(p);
-    expect(s).toContain('validarSenhaOpcional(');
+    // Com a confirmação (revisão da Task 7): mesma regra de shared, que delega a validarNovaSenha.
+    expect(s).toContain('validarSenhaOpcionalComConfirmacao(novaSenha, confirmaSenha)');
     expect(s).not.toMatch(/length >= 6/);
   });
 });
