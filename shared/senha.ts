@@ -24,3 +24,12 @@ export function validarSenhaOpcional(nova: string): string | null {
   if (nova.length === 0) return null;
   return nova.length < SENHA_MINIMA ? MSG_CURTA : null;
 }
+
+/**
+ * Campo opcional com confirmação (Configurações do app): os dois vazios = não trocar (`null`);
+ * qualquer um preenchido segue a regra da senha nova (mínimo e confirmação iguais), como no web.
+ */
+export function validarSenhaOpcionalComConfirmacao(nova: string, confirmacao: string): string | null {
+  if (nova.length === 0 && confirmacao.length === 0) return null;
+  return validarNovaSenha(nova, confirmacao);
+}

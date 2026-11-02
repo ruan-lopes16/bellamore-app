@@ -17,6 +17,7 @@ import { carregarPreferenciaAgenda, salvarPreferenciaAgenda, type PreferenciaAge
 import { CartoesConfig } from '@/components/configuracoes/CartoesConfig';
 import { parseValorBR } from '@shared/comanda-fechamento';
 import { lerEnderecoEmpresa, serializarEnderecoEmpresa } from '@shared/endereco';
+import { MENSAGEM_EMAIL_CONFIRMACAO, validarTrocaEmail, salvarPreferenciaNotificacao } from '@shared/configuracoes-empresa';
 import { validarNovaSenha, SENHA_MINIMA } from '@/lib/senha';
 
 const supabase = createClient();
@@ -578,28 +579,30 @@ function ConfiguracoesConteudo() {
   async function alterarPrefNotif(campo: 'notif_resumo_diario' | 'notif_lembrete_atendimento', valor: boolean) {
     const setter = campo === 'notif_resumo_diario' ? setNotifResumo : setNotifLembrete;
     setter(valor);
-    const { error } = await supabase.from('users').update({ [campo]: valor }).eq('id', userId);
-    if (error) {
+    // Regra única (web e app): confere erro E linhas — 0 linhas sem erro não é "salvo".
+    try {
+      await salvarPreferenciaNotificacao(supabase, userId, campo, valor);
+    } catch (e) {
       setter(!valor);
-      showToast('Não deu pra salvar a preferência. Tente de novo.');
+      showToast(e instanceof Error ? e.message : 'Não deu pra salvar a preferência. Tente de novo.');
     }
   }
 
   async function solicitarMudancaEmail() {
     setErroEmail('');
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(novoEmail)) { setErroEmail('E-mail inválido.'); return; }
-    if (novoEmail !== novoEmailConf)  { setErroEmail('Os e-mails não coincidem.'); return; }
-    if (novoEmail === perfilEmail)    { setErroEmail('O novo e-mail deve ser diferente do atual.'); return; }
+    // Mesma validação do app (shared): formato, confirmação e diferente do atual, sem diferenciar maiúsculas.
+    const erroValidacao = validarTrocaEmail(novoEmail, novoEmailConf, perfilEmail);
+    if (erroValidacao) { setErroEmail(erroValidacao); return; }
+    const email = novoEmail.trim().toLowerCase();
 
     setEnviandoLink(true);
-    const { error } = await supabase.auth.updateUser({ email: novoEmail });
+    const { error } = await supabase.auth.updateUser({ email });
     setEnviandoLink(false);
 
     if (error) { setErroEmail(error.message); return; }
 
-    setEmailEnviado(novoEmail);
-    setEmailPendente(novoEmail);
+    setEmailEnviado(email);
+    setEmailPendente(email);
     setAlterandoEmail(false);
     setNovoEmail('');
     setNovoEmailConf('');
@@ -1068,7 +1071,7 @@ function ConfiguracoesConteudo() {
                   style={{ background: 'var(--color-green-soft)', borderColor: 'rgba(52,201,146,0.25)' }}>
                   <Check size={14} style={{ color: 'var(--color-green)', flexShrink: 0 }}/>
                   <p className="text-xs font-semibold" style={{ color: 'var(--color-green)' }}>
-                    Link enviado para {emailEnviado}. Verifique sua caixa de entrada.
+                    {MENSAGEM_EMAIL_CONFIRMACAO}
                   </p>
                 </div>
               )}

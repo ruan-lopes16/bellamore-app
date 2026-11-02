@@ -19,7 +19,13 @@ import {
   type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { formatarMoeda } from '@shared/moeda';
-import { useTema } from '@/lib/tema';
+import { useTema, PALETA_CLARA } from '@/lib/tema';
+
+/**
+ * Cartão de cada pagamento: fundo claro do método (`m.bg`) também no modo escuro, então o
+ * conteúdo usa a paleta clara (ilha clara) — com a cor de texto do tema o valor ficaria ilegível.
+ */
+const CL = PALETA_CLARA;
 
 
 /** Métodos de pagamento do app (rótulo e cores do chip). */
@@ -109,25 +115,25 @@ export default function PagamentosEditor<S extends SplitEditavel>({
             const bandeiras = s.bandeira && !ativasB.some(b => b.chave === s.bandeira)
               ? [...ativasB, { chave: s.bandeira, nome: nomeBandeira(config, s.bandeira) }] : ativasB;
             return (
-              <View key={i} style={{ backgroundColor: m.bg, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: C.border, gap: 8 }}>
+              <View key={i} style={{ backgroundColor: m.bg, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: CL.border, gap: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', height: 32, gap: 8 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: m.cor, flex: 1 }}>{m.label}</Text>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>R$</Text>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: CL.text3 }}>R$</Text>
                   <TextInput
                     value={s.valor}
                     onChangeText={v => setSplits(prev => prev.map((x, j) => j === i ? { ...x, valor: v } : x))}
                     keyboardType="decimal-pad" placeholder="0,00"
-                    placeholderTextColor={C.text4} editable={!desabilitado}
-                    style={{ width: 80, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text, textAlign: 'right' }}
+                    placeholderTextColor={CL.text4} editable={!desabilitado}
+                    style={{ width: 80, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: CL.text, textAlign: 'right' }}
                   />
                   <TouchableOpacity onPress={() => removerSplit(i)}
                     style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
-                    <X size={14} color={C.text4} />
+                    <X size={14} color={CL.text4} />
                   </TouchableOpacity>
                 </View>
                 {isCard && maquininhasAtivas(config).length >= 2 && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>Maquininha:</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: CL.text3 }}>Maquininha:</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                       {(() => {
                         // Maquininha gravada que foi desativada continua visível no pagamento reaberto
@@ -140,7 +146,7 @@ export default function PagamentosEditor<S extends SplitEditavel>({
                               accessibilityRole="button" accessibilityState={{ selected: ativa }}
                               style={{
                                 paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
-                                borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? C.surface : 'transparent',
+                                borderColor: ativa ? m.cor : CL.border, backgroundColor: ativa ? CL.surface : 'transparent',
                               }}>
                               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{mq.nome}</Text>
                             </TouchableOpacity>
@@ -159,7 +165,7 @@ export default function PagamentosEditor<S extends SplitEditavel>({
                           accessibilityRole="button" accessibilityState={{ selected: ativa }}
                           style={{
                             paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
-                            borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? 'rgba(255,255,255,0.6)' : 'transparent',
+                            borderColor: ativa ? m.cor : CL.border, backgroundColor: ativa ? 'rgba(255,255,255,0.6)' : 'transparent',
                             opacity: ativa ? 1 : 0.6,
                           }}>
                           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{b.nome}</Text>
@@ -170,7 +176,7 @@ export default function PagamentosEditor<S extends SplitEditavel>({
                 )}
                 {s.metodo === 'credito' && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>Parcelas:</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: CL.text3 }}>Parcelas:</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                       {opcoesParcelas.map(n => {
                         const ativa = (s.parcelas ?? 1) === n;
@@ -179,7 +185,7 @@ export default function PagamentosEditor<S extends SplitEditavel>({
                             accessibilityRole="button" accessibilityState={{ selected: ativa }}
                             style={{
                               paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, borderWidth: 1,
-                              borderColor: ativa ? m.cor : C.border, backgroundColor: ativa ? C.surface : 'transparent',
+                              borderColor: ativa ? m.cor : CL.border, backgroundColor: ativa ? CL.surface : 'transparent',
                             }}>
                             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>
                               {n}x{n === 1 ? ' (à vista)' : ''}
@@ -191,7 +197,7 @@ export default function PagamentosEditor<S extends SplitEditavel>({
                   </View>
                 )}
                 {isCard && taxa === null && (
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: CL.amber }}>
                     Taxa não cadastrada para esta combinação
                   </Text>
                 )}

@@ -100,3 +100,12 @@ export async function salvarPreferenciaNotificacao(
   if (error) throw new Error(mensagemErroBanco(error, 'salvar a preferência de notificação'));
   if (!Array.isArray(data) || data.length === 0) throw new Error('Não foi possível salvar a preferência. Tente de novo.');
 }
+
+/** Aviso ao trocar de aba nas Configurações com alterações não salvas (o Salvar grava só a aba aberta). */
+export const MENSAGEM_ALTERACOES_NAO_SALVAS =
+  'Você tem alterações não salvas nesta aba. Salve antes de trocar ou descarte as alterações.';
+
+/** `true` quando o conteúdo do formulário mudou em relação ao que foi carregado/salvo. */
+export function temAlteracoes(inicial: unknown, atual: unknown): boolean {
+  return JSON.stringify(inicial) !== JSON.stringify(atual);
+}

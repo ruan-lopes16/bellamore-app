@@ -90,7 +90,7 @@ export function VisaoMes({ mes, diaSelecionado, hoje, contagem, carregando, erro
         ))}
       </View>
       {erro && (
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: '#C0392B', marginTop: 8 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.red, marginTop: 8 }}>
           Não foi possível carregar a contagem do mês. Puxe para atualizar.
         </Text>
       )}

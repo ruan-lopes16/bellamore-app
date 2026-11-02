@@ -31,3 +31,14 @@ export function resolverEsquemaTema(modo: ModoTema, sistema: string | null | und
   if (modo === 'claro' || modo === 'escuro') return modo;
   return sistema === 'dark' ? 'escuro' : 'claro';
 }
+
+/**
+ * Fundo de um cartão pintado pela cor da categoria do serviço. No claro, o pastel de sempre (texto
+ * escuro por cima); no escuro, a própria cor com ~15% de opacidade sobre o fundo escuro, para o texto
+ * claro do tema continuar legível. `null` no escuro quando a cor não é `#RRGGBB`: quem chama usa a
+ * superfície do tema.
+ */
+export function fundoCategoriaNoTema(cor: string, bgClaro: string, escuro: boolean): string | null {
+  if (!escuro) return bgClaro;
+  return /^#[0-9A-Fa-f]{6}$/.test(cor) ? `${cor}26` : null;
+}

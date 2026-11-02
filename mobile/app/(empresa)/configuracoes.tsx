@@ -31,13 +31,14 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import { PermissoesPanel } from '@/components/PermissoesPanel';
 import { supabase } from '@/lib/supabase';
 import { comTemaDoUsuario, useTema, TemaClaroFixo, PALETA_CLARA } from '@/lib/tema';
-import { validarSenhaOpcional } from '@shared/senha';
+import { validarSenhaOpcionalComConfirmacao } from '@shared/senha';
 import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
 import { mensagemErroBanco } from '@shared/erros';
 import { maskCNPJ, validaCNPJ, maskCEP, maskPhone, maskMoeda, formatMoeda, parseMoeda, digits } from '@shared/mascaras';
 import { lerEnderecoEmpresa, serializarEnderecoEmpresa, type EnderecoEmpresa } from '@shared/endereco';
 import {
   SEGMENTOS_EMPRESA, enderecoDoViaCep, dadosDoCnpj, caminhoLogoEmpresa, validarArquivoLogo, montarPayloadEmpresa,
+  MENSAGEM_ALTERACOES_NAO_SALVAS, temAlteracoes,
 } from '@shared/configuracoes-empresa';
 import { salvarPreferenciaAgenda, type PreferenciaAgenda } from '@shared/agenda-consultas';
 import { chavePreferenciaAgenda, usePreferenciaAgenda } from '@/hooks/usePreferenciaAgenda';
@@ -158,8 +159,48 @@ function Configuracoes() {
   const [nomeUser,     setNomeUser]     = useState(user?.nome ?? '');
   const [telefoneUser, setTelefoneUser] = useState(maskPhone(user?.telefone ?? ''));
   const [novaSenha,    setNovaSenha]    = useState('');
+  const [confirmaSenha, setConfirmaSenha] = useState('');
 
   const [salvando, setSalvando] = useState(false);
+
+  // O Salvar grava só a aba aberta: guarda o que foi carregado/salvo de cada aba para avisar
+  // antes de trocar com alterações pendentes (senão a pessoa salvaria a outra aba achando que
+  // salvou tudo).
+  const formEmpresa = {
+    nomeEmpresa, segmento, telefoneEmp, cnpj, metaMensal, endereco, horarios,
+    taxaAtiva, taxaModo, taxaValor, taxaAplicaCancelado, taxaAplicaFaltou, reservaAtiva, reservaModo, reservaValor,
+  };
+  const formPerfil = { nomeUser, telefoneUser, novaSenha, confirmaSenha };
+  const [salvoEmpresa, setSalvoEmpresa] = useState(() => formEmpresa);
+  const [salvoPerfil,  setSalvoPerfil]  = useState(() => formPerfil);
+
+  function restaurarEmpresa(s: typeof formEmpresa) {
+    setNomeEmpresa(s.nomeEmpresa); setSegmento(s.segmento); setTelefoneEmp(s.telefoneEmp); setCnpj(s.cnpj);
+    setMetaMensal(s.metaMensal); setEndereco(s.endereco); setHorarios(s.horarios);
+    setTaxaAtiva(s.taxaAtiva); setTaxaModo(s.taxaModo); setTaxaValor(s.taxaValor);
+    setTaxaAplicaCancelado(s.taxaAplicaCancelado); setTaxaAplicaFaltou(s.taxaAplicaFaltou);
+    setReservaAtiva(s.reservaAtiva); setReservaModo(s.reservaModo); setReservaValor(s.reservaValor);
+  }
+  function restaurarPerfil(s: typeof formPerfil) {
+    setNomeUser(s.nomeUser); setTelefoneUser(s.telefoneUser); setNovaSenha(s.novaSenha); setConfirmaSenha(s.confirmaSenha);
+  }
+
+  function trocarAba(nova: string) {
+    if (nova === aba) return;
+    const pendente = aba === 'empresa' ? temAlteracoes(salvoEmpresa, formEmpresa)
+      : aba === 'perfil' ? temAlteracoes(salvoPerfil, formPerfil) : false;
+    if (!pendente) { setAbaEscolhida(nova); return; }
+    Alert.alert('Alterações não salvas', MENSAGEM_ALTERACOES_NAO_SALVAS, [
+      { text: 'Continuar editando', style: 'cancel' },
+      {
+        text: 'Descartar', style: 'destructive',
+        onPress: () => {
+          if (aba === 'empresa') restaurarEmpresa(salvoEmpresa); else restaurarPerfil(salvoPerfil);
+          setAbaEscolhida(nova);
+        },
+      },
+    ]);
+  }
 
   // "Minha agenda abre em": salva na hora (não depende do botão Salvar) e mostra o retorno.
   const prefAgenda = usePreferenciaAgenda();
@@ -274,10 +315,12 @@ function Configuracoes() {
   // ── Salvar tudo ───────────────────────────────────────────
   async function salvar() {
     if (!empresaAtiva || !user) return;
-    // Senha preenchida e curta: avisa (antes era ignorada em silêncio e a tela dizia "Salvo!").
-    const erroSenha = validarSenhaOpcional(novaSenha);
-    if (erroSenha) { Alert.alert('Senha', erroSenha); return; }
     const naAbaEmpresa = aba === 'empresa';
+    // Senha (só na aba do perfil): curta ou sem confirmação igual avisa, nunca é ignorada.
+    if (aba === 'perfil') {
+      const erroSenha = validarSenhaOpcionalComConfirmacao(novaSenha, confirmaSenha);
+      if (erroSenha) { Alert.alert('Senha', erroSenha); return; }
+    }
     if (naAbaEmpresa && ehDona && cnpj.trim() && !validaCNPJ(cnpj)) {
       Alert.alert('CNPJ', 'CNPJ inválido. Verifique os dígitos.');
       return;
@@ -343,6 +386,8 @@ function Configuracoes() {
       return;
     }
     setSalvando(false);
+    if (naAbaEmpresa) setSalvoEmpresa(formEmpresa);
+    if (aba === 'perfil') setSalvoPerfil({ ...formPerfil, novaSenha: '', confirmaSenha: '' });
 
     // Invalida cache para refletir mudanças
     qc.invalidateQueries({ queryKey: ['empresa'] });
@@ -363,7 +408,7 @@ function Configuracoes() {
     }
 
     Alert.alert('Salvo!', 'Configurações atualizadas com sucesso.');
-    setNovaSenha('');
+    setNovaSenha(''); setConfirmaSenha('');
   }
 
   // ── Logout ────────────────────────────────────────────────
@@ -467,7 +512,7 @@ function Configuracoes() {
 
           {/* ── Abas ── */}
           <View style={{ marginHorizontal: 24, marginTop: 16 }}>
-            <SmoothTabs tabs={abasDisponiveis} active={aba} onChange={setAbaEscolhida} />
+            <SmoothTabs tabs={abasDisponiveis} active={aba} onChange={trocarAba} />
           </View>
 
           {aba === 'permissoes' && vePermissoes && empresaAtiva && user && (
@@ -779,7 +824,9 @@ function Configuracoes() {
                 value={telefoneUser} onChange={(v) => setTelefoneUser(maskPhone(v))} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
               <TrocarEmail />
               <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
-                value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry ultimo />
+                value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry />
+              <Campo label="Confirmar nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+                value={confirmaSenha} onChange={setConfirmaSenha} placeholder="Repita a nova senha" secureTextEntry ultimo />
             </View>
           </MotiView>
 

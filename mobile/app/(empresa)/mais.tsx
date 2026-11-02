@@ -329,7 +329,7 @@ function Mais() {
                 icon={<Settings size={16} color={C.text2} strokeWidth={2} />}
                 label="Configurações da empresa"
                 sublabel="Horários, dados e integrações"
-                iconBg="#F3F4F6" iconColor={C.text2}
+                iconBg={C.bg} iconColor={C.text2}
                 onPress={() => router.push('/(empresa)/configuracoes' as any)}
               />
             </View>

@@ -41,6 +41,7 @@ import {
 } from '@shared/agenda-grade';
 import { formatarMoeda } from '@shared/moeda';
 import { comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
+import { fundoCategoriaNoTema } from '@shared/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -70,8 +71,10 @@ function iniciaisNome(nome: string) {
 function AgendamentoCard({ ag, index }: {
   ag: AgendamentoCompleto; index: number;
 }) {
-  const { C } = useTema();
+  const { C, escuro } = useTema();
   const cfg       = CATEGORIA_CONFIG[ag.categoria];
+  // Escuro: o pastel claro com o texto claro do tema ficaria ilegível — usa a cor translúcida.
+  const fundoCard = fundoCategoriaNoTema(cfg.border, cfg.bg, escuro) ?? C.surface;
   const statusCfg = statusConfig(C)[ag.status] ?? statusConfig(C).agendado;
 
   return (
@@ -84,7 +87,7 @@ function AgendamentoCard({ ag, index }: {
         onPress={() => router.push(`/(profissional)/agendamento/${ag.id}` as any)}
         activeOpacity={0.85}
         style={{
-          backgroundColor: cfg.bg,
+          backgroundColor: fundoCard,
           borderRadius: 14,
           borderLeftWidth: 3,
           borderLeftColor: cfg.border,
@@ -99,7 +102,7 @@ function AgendamentoCard({ ag, index }: {
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, flex: 1 }} numberOfLines={1}>
             {ag.cliente?.nome}
           </Text>
-          <View style={{ backgroundColor: 'rgba(255,255,255,0.75)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 }}>
+          <View style={{ backgroundColor: escuro ? C.surface : 'rgba(255,255,255,0.75)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3 }}>
               {horaBRT(ag.data_hora_inicio)} – {horaBRT(ag.data_hora_fim)}
             </Text>
@@ -387,7 +390,7 @@ function AgendaProfissional() {
                         key={b.id}
                         style={{
                           borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
-                          backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+                          backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : C.roseSoft,
                           padding: 10, marginBottom: 6,
                           opacity: b.situacao === 'pendente' ? 0.6 : 1,
                           flexDirection: 'row', alignItems: 'flex-start', gap: 8,

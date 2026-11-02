@@ -34,7 +34,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "O app usa suas fotos para trocar a logo da empresa."
+          "photosPermission": "O app usa suas fotos para trocar a logo da empresa.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ]
     ],

@@ -24,7 +24,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { BarraDeStatus, comTemaDoUsuario, useTema } from '@/lib/tema';
-import { validarSenhaOpcional } from '@shared/senha';
+import { validarSenhaOpcionalComConfirmacao } from '@shared/senha';
 import { mensagemErroBanco } from '@shared/erros';
 import { maskPhone } from '@shared/mascaras';
 import { SeletorEmpresa } from '@/components/SeletorEmpresa';
@@ -48,6 +48,7 @@ function ConfiguracoesProfissional() {
   const [nomeUser,     setNomeUser]     = useState(user?.nome ?? '');
   const [telefoneUser, setTelefoneUser] = useState(maskPhone(user?.telefone ?? ''));
   const [novaSenha,    setNovaSenha]    = useState('');
+  const [confirmaSenha, setConfirmaSenha] = useState('');
 
   const [salvando, setSalvando] = useState(false);
 
@@ -64,8 +65,8 @@ function ConfiguracoesProfissional() {
   // Perfil e senha (as preferências de notificação ficam no card, salvas na hora).
   async function salvar() {
     if (!user) return;
-    // Senha preenchida e curta: avisa (antes era ignorada em silêncio e a tela dizia "Salvo!").
-    const erroSenhaCurta = validarSenhaOpcional(novaSenha);
+    // Senha preenchida (curta ou sem confirmação igual): avisa (antes era ignorada em silêncio e a tela dizia "Salvo!").
+    const erroSenhaCurta = validarSenhaOpcionalComConfirmacao(novaSenha, confirmaSenha);
     if (erroSenhaCurta) { Alert.alert('Senha', erroSenhaCurta); return; }
     setSalvando(true);
 
@@ -94,7 +95,7 @@ function ConfiguracoesProfissional() {
     const atual = useAuthStore.getState().user;
     if (atual) useAuthStore.setState({ user: { ...atual, nome: nomeUser.trim(), telefone: telefoneUser.trim() || undefined } });
     Alert.alert('Salvo!', 'Configurações atualizadas com sucesso.');
-    setNovaSenha('');
+    setNovaSenha(''); setConfirmaSenha('');
   }
 
   function handleLogout() {
@@ -158,7 +159,9 @@ function ConfiguracoesProfissional() {
                 value={telefoneUser} onChange={(v) => setTelefoneUser(maskPhone(v))} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
               <TrocarEmail />
               <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
-                value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry ultimo />
+                value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry />
+              <Campo label="Confirmar nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+                value={confirmaSenha} onChange={setConfirmaSenha} placeholder="Repita a nova senha" secureTextEntry ultimo />
             </View>
           </MotiView>
 

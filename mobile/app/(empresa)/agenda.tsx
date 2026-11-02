@@ -49,6 +49,7 @@ import { definicaoAgenda } from '@shared/exportacao/agenda';
 import { ConfirmarRemoverBloqueio } from '@/components/ConfirmarRemoverBloqueio';
 import { formatarMoeda } from '@shared/moeda';
 import { BarraDeStatus, comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
+import { fundoCategoriaNoTema } from '@shared/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -92,11 +93,13 @@ function nomesServicos(ag: AgendamentoCompleto): string {
 // ── Card de agendamento ──────────────────────────────────────
 
 function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number }) {
-  const { C } = useTema();
+  const { C, escuro } = useTema();
   const cfgBase    = CATEGORIA_CONFIG[ag.categoria];
+  const border     = ag.categoriaResolvida?.cor ?? cfgBase.border;
+  // Escuro: o pastel claro com o texto claro do tema ficaria ilegível — usa a cor translúcida.
   const cfg        = {
-    bg:     ag.categoriaResolvida?.bg  ?? cfgBase.bg,
-    border: ag.categoriaResolvida?.cor ?? cfgBase.border,
+    bg:     fundoCategoriaNoTema(border, ag.categoriaResolvida?.bg ?? cfgBase.bg, escuro) ?? C.surface,
+    border,
   };
   const statusCfg  = statusConfig(C)[ag.status] ?? statusConfig(C).agendado;
   const [c1, c2]   = avatarColors(ag.profissional?.nome ?? '');
@@ -126,7 +129,7 @@ function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, flex: 1 }} numberOfLines={1}>
             {ag.cliente?.nome}
           </Text>
-          <View style={{ backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 }}>
+          <View style={{ backgroundColor: escuro ? C.surface : 'rgba(255,255,255,0.7)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3 }}>
               {horaStr(ag.data_hora_inicio)} – {horaStr(ag.data_hora_fim)}
             </Text>
@@ -340,7 +343,7 @@ function Agenda() {
     return (
       <View key={b.id} style={{
         borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
-        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : C.roseSoft,
         padding: 10, marginBottom: 6, flexDirection: 'row', alignItems: 'flex-start', gap: 8,
       }}>
         <View style={{ flex: 1 }}>
