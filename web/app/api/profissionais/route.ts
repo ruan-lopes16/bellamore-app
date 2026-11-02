@@ -4,6 +4,7 @@ import { podeAtribuirRole, pode } from '@/lib/permissions';
 import { quemChama, traduzirErroEmailAuth } from '@/lib/auth/quem-chama';
 import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
 import { podeGerenciarMembro } from '@shared/permissoes';
+import { validarSenhaMinima } from '@shared/senha';
 import { emailValido, montarPatchVinculo, vinculoParaGravar, type TipoContrato } from '@shared/equipe';
 import { gravarConvitePendente, faltaMigration092 } from '@/lib/equipe/convite-pendente';
 
@@ -50,8 +51,9 @@ export async function POST(req: NextRequest) {
     if (!empresaId || !nome?.trim() || !email?.trim() || !senha) {
       return NextResponse.json({ error: 'Nome, e-mail, senha e empresa são obrigatórios.' }, { status: 400 });
     }
-    if (String(senha).length < 6) {
-      return NextResponse.json({ error: 'A senha deve ter pelo menos 6 caracteres.' }, { status: 400 });
+    const erroSenha = validarSenhaMinima(String(senha));
+    if (erroSenha) {
+      return NextResponse.json({ error: erroSenha }, { status: 400 });
     }
     if (!emailValido(String(email))) {
       return NextResponse.json({ error: 'E-mail inválido.' }, { status: 400 });

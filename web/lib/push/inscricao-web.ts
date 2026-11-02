@@ -10,6 +10,23 @@ export interface ClienteDbInscricao {
   from(tabela: string): any;
 }
 
+/**
+ * Tira a inscrição de web push DESTE navegador da pessoa que está saindo (chamar antes do
+ * signOut: a RLS de `web_push_subscriptions` só deixa apagar com a sessão). Sem isso, num
+ * computador compartilhado, os lembretes e o resumo da conta anterior chegariam a quem entrasse
+ * depois. Nunca lança: sair não falha por causa do push. @returns se apagou sem erro.
+ */
+export async function removerInscricaoWebPush(db: ClienteDbInscricao, userId: string, endpoint: string): Promise<boolean> {
+  if (!userId || !endpoint) return false;
+  try {
+    const { error } = await db.from('web_push_subscriptions').delete().eq('user_id', userId).eq('endpoint', endpoint)
+      .select('id');
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
 type CorpoInscricao = { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } | null };
 
 export async function gravarInscricaoWebPush(

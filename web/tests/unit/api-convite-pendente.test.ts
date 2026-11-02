@@ -112,7 +112,7 @@ const escritasEmMembros = () => ops.filter(o => o.tabela === 'empresa_membros' &
 const escritasConvite = () => ops.filter(o => o.tabela === 'convites_equipe' && o.acao !== 'select');
 
 const ROTAS = [
-  ['profissionais', postProfissionais, { senha: '123456' }],
+  ['profissionais', postProfissionais, { senha: '12345678' }],
   ['convites', postConvites, {}],
 ] as const;
 
@@ -205,7 +205,7 @@ describe('POST — conta nova continua com vínculo na hora', () => {
   it('profissionais: cria a conta e o vínculo', async () => {
     auth.createUser.mockResolvedValue({ data: { user: { id: ALVO } }, error: null });
     cenario({ vinculo: null });
-    const r = await postProfissionais(req({ empresaId: EMP, nome: 'Ana', email: 'ana@x.com', senha: '123456' }));
+    const r = await postProfissionais(req({ empresaId: EMP, nome: 'Ana', email: 'ana@x.com', senha: '12345678' }));
     expect((await r.json()).status).toBe('criado');
     expect(escritasEmMembros().map(o => o.acao)).toEqual(['upsert']);
     expect(escritasConvite()).toEqual([]);

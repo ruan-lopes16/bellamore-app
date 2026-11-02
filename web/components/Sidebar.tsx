@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { pode, type Acesso, type PermissoesUsuario } from '@/lib/permissions';
 import SeletorEmpresa, { type OpcaoEmpresa } from '@/components/SeletorEmpresa';
+import { desinscreverPushDoNavegador } from '@/components/SwRegister';
 
 const supabase = createClient();
 
@@ -123,6 +124,8 @@ export default function Sidebar({
   }, [atualizarBadges]);
 
   async function sair() {
+    // Antes do signOut: a inscrição de push deste navegador sai junto com a conta.
+    await desinscreverPushDoNavegador();
     await supabase.auth.signOut();
     router.push('/login');
   }

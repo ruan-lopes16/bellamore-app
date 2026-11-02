@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { removerInscricaoWebPush } from '@/lib/push/inscricao-web';
 
 function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -55,6 +57,22 @@ export async function registrarEInscrever(): Promise<void> {
 export async function sincronizarPushSeAtivo(): Promise<void> {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   await registrarEInscrever();
+}
+
+/**
+ * Ao sair: tira do servidor a inscrição deste navegador da pessoa logada (a próxima conta que
+ * entrar aqui se inscreve de novo pelo SwRegister). Nunca lança.
+ */
+export async function desinscreverPushDoNavegador(): Promise<void> {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const reg = await navigator.serviceWorker.getRegistration('/');
+    const sub = await reg?.pushManager.getSubscription();
+    if (!sub) return;
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) await removerInscricaoWebPush(supabase, user.id, sub.endpoint);
+  } catch { /* sair nunca falha por causa do push */ }
 }
 
 /**

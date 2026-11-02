@@ -17,6 +17,14 @@ export function validarNovaSenha(nova: string, confirmacao: string): string | nu
 }
 
 /**
+ * Senha de acesso sem confirmação no mesmo passo: cadastro (a confirmação é conferida à parte),
+ * senha definida pela dona na Equipe e `POST /api/profissionais` (servidor). Mesmo mínimo.
+ */
+export function validarSenhaMinima(senha: string): string | null {
+  return senha.length < SENHA_MINIMA ? MSG_CURTA : null;
+}
+
+/**
  * Campo opcional ("deixe em branco para manter", Configurações do app): vazio = não trocar (`null`);
  * preenchido e curto = erro (nunca ignorado em silêncio).
  */

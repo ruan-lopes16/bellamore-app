@@ -22,6 +22,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { supabase } from '@/lib/supabase';
+import { SENHA_MINIMA, validarSenhaMinima } from '@shared/senha';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -111,8 +112,9 @@ export default function Register() {
       Alert.alert('Atenção', 'Preencha nome, e-mail e senha.');
       return;
     }
-    if (senha.length < 6) {
-      Alert.alert('Atenção', 'Senha deve ter pelo menos 6 caracteres.');
+    const erroSenha = validarSenhaMinima(senha);
+    if (erroSenha) {
+      Alert.alert('Atenção', erroSenha);
       return;
     }
     if (senha !== confirmar) {
@@ -235,7 +237,7 @@ export default function Register() {
             label="Senha"
             value={senha}
             onChangeText={setSenha}
-            placeholder="Mínimo 6 caracteres"
+            placeholder={`Mínimo ${SENHA_MINIMA} caracteres`}
             secureTextEntry={!mostrarSenha}
             icon={<Lock size={16} color={C.text4} strokeWidth={1.8} />}
             rightIcon={
