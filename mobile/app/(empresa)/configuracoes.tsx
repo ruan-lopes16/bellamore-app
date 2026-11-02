@@ -29,6 +29,7 @@ import { usePermissoes } from '@/lib/permissions';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { PermissoesPanel } from '@/components/PermissoesPanel';
 import { supabase } from '@/lib/supabase';
+import { validarSenhaOpcional } from '@shared/senha';
 import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
 import { mensagemErroBanco } from '@shared/erros';
 import { salvarPreferenciaAgenda, type PreferenciaAgenda } from '@shared/agenda-consultas';
@@ -230,6 +231,9 @@ export default function Configuracoes() {
   // ── Salvar tudo ───────────────────────────────────────────
   async function salvar() {
     if (!empresaAtiva || !user) return;
+    // Senha preenchida e curta: avisa (antes era ignorada em silêncio e a tela dizia "Salvo!").
+    const erroSenha = validarSenhaOpcional(novaSenha);
+    if (erroSenha) { Alert.alert('Senha', erroSenha); return; }
     setSalvando(true);
 
     // Empresa: dados e horários só a dona; taxas só com config.taxas (permissão só de tela: o UPDATE de `empresas` no banco
@@ -268,9 +272,9 @@ export default function Configuracoes() {
       }).eq('id', user.id),
     ];
 
-    // Atualiza senha se preenchida
-    if (novaSenha.trim().length >= 6) {
-      ops.push(supabase.auth.updateUser({ password: novaSenha.trim() }));
+    // Atualiza senha se preenchida (curta já foi recusada no início de salvar)
+    if (novaSenha.length > 0) {
+      ops.push(supabase.auth.updateUser({ password: novaSenha }));
     }
 
     const results = await Promise.all(ops);

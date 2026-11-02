@@ -34,7 +34,8 @@ describe('app: falha das permissões', () => {
     expect(store).toContain('permissoesErro');
     expect(store).not.toContain('permissoesPadrao');
     expect(store).toContain('carregadas ?? PERMISSOES_VAZIAS');
-    expect(store).toContain('permissoesCarregadas: carregadas !== null');
+    // Empresas com erro também não liberam nada (sessão incompleta: erro com "Tentar de novo").
+    expect(store).toContain('permissoesCarregadas: !erroEmpresas && carregadas !== null');
     expect(store).toContain("set({ permissoes: PERMISSOES_VAZIAS, permissoesCarregadas: false, permissoesErro: true });");
   });
   it('_layout raiz mostra o erro com "Tentar de novo"', () => {

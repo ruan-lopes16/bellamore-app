@@ -302,3 +302,105 @@ export function contagemSino(alertas: readonly Alerta[] | null, naoLidas: number
   const n = (g: GrupoAlerta) => alertas.filter(a => a.grupo === g).length;
   return n('estoque') + n('despesas') + (n('comissoes') > 0 ? 1 : 0) + (n('comandas') > 0 ? 1 : 0) + naoLidas;
 }
+
+// ── Sino e badges dos menus (contagens leves) ─────────────────────
+
+/**
+ * Contagens que o sino e os badges dos menus usam (`carregarContagensSino`, em
+ * ./notificacoes-consultas): só `count head`, sem baixar linhas. `null` = não consultado (sem a
+ * permissão). As consultas já vêm filtradas como `alertasCalculados` filtra.
+ */
+export type ContagensSino = {
+  /** Produtos com estoque baixo (`estoque.acessar`). */
+  estoqueBaixo: number | null;
+  /** Despesas pendentes de hoje a hoje+7, Brasília (`financeiro.ver`). */
+  despesasVencendo: number | null;
+  /** Comissões pendentes: todas com `comissoes.ver_todas`, senão só as próprias. */
+  comissoesPendentes: number;
+  /** Comandas não fechadas (`comanda.fechar`); sem `agenda.gerenciar_outras`, só as próprias. */
+  comandasNaoFechadas: number | null;
+};
+
+/** Números do sino e dos badges Comissões/Comanda. `null` = sem número confiável (mantém o anterior). */
+export type BadgesMenu = { sino: number | null; comissoes: number | null; comandas: number | null };
+
+/**
+ * Sino e badges dos menus (Sidebar do web, Mais/Dashboard/Início do app). O sino dá o mesmo número
+ * que `contagemSino(alertasCalculados(...))` da tela de Notificações (travado por teste), sem carregar
+ * aniversariantes nem agenda do dia, que não contam no sino.
+ */
+export function badgesDoMenu(
+  c: ContagensSino | null, permissoes: PermissoesUsuario | null, naoLidas: number | null,
+): BadgesMenu {
+  if (!c || !permissoes) return { sino: null, comissoes: null, comandas: null };
+  const p = (a: Acesso) => pode(permissoes, a);
+  const estoque = p('estoque.acessar') ? c.estoqueBaixo ?? 0 : 0;
+  const despesas = p('financeiro.ver') ? c.despesasVencendo ?? 0 : 0;
+  const comandas = p('comanda.fechar') ? c.comandasNaoFechadas ?? 0 : 0;
+  const sino = naoLidas === null ? null
+    : estoque + despesas + (c.comissoesPendentes > 0 ? 1 : 0) + (comandas > 0 ? 1 : 0) + naoLidas;
+  return { sino, comissoes: c.comissoesPendentes, comandas };
+}
+
+// ── Exibição (iguais em web e app) ────────────────────────────────
+
+/** Textos da tela de Notificações, os mesmos nas duas plataformas. */
+export const TEXTOS_NOTIFICACOES = {
+  titulo: 'Notificações',
+  secaoAlertas: 'Alertas',
+  secaoAvisos: 'Avisos',
+  filtroTodas: 'Todas',
+  filtroNaoLidas: 'Não lidas',
+  marcarTodas: 'Marcar todas como lidas',
+  marcando: 'Marcando...',
+  marcarUma: 'Marcar como lida',
+  semAlertasTitulo: 'Tudo em ordem!',
+  semAlertas: 'Nenhum alerta no momento.',
+  semAvisos: 'Nenhum aviso registrado ainda.',
+  semAvisosNaoLidos: 'Nenhum aviso não lido.',
+  mostrarMais: 'Mostrar mais',
+  carregando: 'Carregando...',
+  tentarDeNovo: 'Tentar de novo',
+  erroAlertas: 'Não foi possível carregar os alertas.',
+  erroAvisos: 'Não foi possível carregar os avisos.',
+  erroMarcar: 'Não foi possível marcar o aviso como lido.',
+  erroMarcarTodas: 'Não foi possível marcar os avisos como lidos.',
+  avisoNaoMarcado: 'Este aviso não pôde ser marcado (pode ter sido apagado). Atualize a lista.',
+} as const;
+
+/** "—" (sem número), "1 não lida", "N não lidas". */
+export function rotuloNaoLidas(n: number | null): string {
+  if (n === null) return '—';
+  return `${n} ${n === 1 ? 'não lida' : 'não lidas'}`;
+}
+
+/** Agendamentos de hoje (mostrados como 1 linha-resumo expansível) e os demais alertas, na ordem. */
+export function separarAlertas(alertas: readonly Alerta[]): { agendamentos: Alerta[]; outros: Alerta[] } {
+  return {
+    agendamentos: alertas.filter(a => a.grupo === 'agendamentos'),
+    outros: alertas.filter(a => a.grupo !== 'agendamentos'),
+  };
+}
+
+/** Linha-resumo dos agendamentos de hoje ("2 atendimentos hoje" / "próximo 09:00 — Ana"); `null` sem nenhum. */
+export function resumoAgendamentosHoje(ags: readonly Alerta[]): { titulo: string; descricao: string } | null {
+  if (ags.length === 0) return null;
+  return { titulo: `${ags.length} ${plural(ags.length, 'atendimento', 'atendimentos')} hoje`, descricao: `próximo ${ags[0].titulo}` };
+}
+
+/**
+ * O destino tem tela própria nesta plataforma/área? Na área da profissional do app não há cliente,
+ * estoque, financeiro nem comanda: `rotaDoDestino` cairia na própria tela de Notificações, então o
+ * toque não navega (só marca o aviso como lido).
+ */
+export function alertaTemRota(destino: DestinoAlerta, plataforma: Plataforma, area: AreaApp = 'empresa'): boolean {
+  if (destino.tela === 'notificacoes') return false;
+  if (plataforma === 'web' || area === 'empresa') return true;
+  return Object.prototype.hasOwnProperty.call(APP_PROFISSIONAL, destino.tela);
+}
+
+/** O aviso leva a outra tela? Tipo desconhecido (rota = Notificações) → `false`. */
+export function avisoTemRota(tipo: string | null | undefined, plataforma: Plataforma, area: AreaApp = 'empresa'): boolean {
+  const t = tipoNotificacao(tipo);
+  return !!t && alertaTemRota(DESTINO_DO_TIPO[t], plataforma, area);
+}

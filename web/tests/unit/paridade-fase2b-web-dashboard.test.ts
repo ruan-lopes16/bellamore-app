@@ -19,8 +19,8 @@ describe('web Dashboard com as regras únicas', () => {
     expect(page).toContain('href="/comissoes"');
   });
   it('Sidebar com os mesmos filtros e o dia de Brasília', () => {
-    // Os filtros (comandas não fechadas, despesas vencendo, dia de Brasília) vêm de carregarDadosAlertas.
-    expect(sidebar).toContain('carregarDadosAlertas(');
+    // Os filtros (comandas não fechadas, despesas vencendo, dia de Brasília) vêm de carregarContagensSino.
+    expect(sidebar).toContain('carregarContagensSino(');
     expect(sidebar).not.toMatch(/toISOString\(\)\.slice\(0,\s*10\)/);
   });
   it('SparkBars usa a geometria única', () => {

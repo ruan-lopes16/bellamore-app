@@ -114,7 +114,7 @@ describe('app: seletor de empresa nos dois menus', () => {
 describe('app: Notificações com alertas e avisos', () => {
   const hook = ler('hooks/useNotificacoes.ts');
   it('hook usa as consultas e regras de shared', () => {
-    for (const f of ['carregarAvisos(', 'contarAvisosNaoLidos(', 'carregarDadosAlertas(', 'marcarLidas(', 'marcarTodasLidas(supabase', 'alertasCalculados(', 'contagemSino(']) {
+    for (const f of ['carregarAvisos(', 'contarAvisosNaoLidos(', 'carregarDadosAlertas(', 'marcarLidas(', 'marcarTodasLidas(supabase', 'alertasCalculados(', 'carregarContagensSino(', 'badgesDoMenu(']) {
       expect(hook).toContain(f);
     }
     // Avisos de uma empresa nunca aparecem na outra.
@@ -123,7 +123,8 @@ describe('app: Notificações com alertas e avisos', () => {
   });
   it('uma tela só para as duas áreas, com Alertas, Avisos e filtro Não lidas', () => {
     const t = ler('components/TelaNotificacoes.tsx');
-    for (const s of ['Alertas', 'Avisos', 'Não lidas', 'Marcar todas como lidas', 'rotaDoAviso(', 'rotaDoDestino(', 'TIPOS_NOTIFICACAO', 'VISUAL_ALERTA']) {
+    // Textos de shared (TEXTOS_NOTIFICACOES), os mesmos do web.
+    for (const s of ['T.secaoAlertas', 'T.secaoAvisos', 'T.filtroNaoLidas', 'T.marcarTodas', 'rotaDoAviso(', 'rotaDoDestino(', 'TIPOS_NOTIFICACAO', 'VISUAL_ALERTA']) {
       expect(t).toContain(s);
     }
     expect(ler('app/(empresa)/notificacoes.tsx')).toContain('area="empresa"');
@@ -141,7 +142,9 @@ describe('app: Notificações com alertas e avisos', () => {
   it('badge de comandas não fechadas no menu Mais', () => {
     const m = ler('app/(empresa)/mais.tsx');
     expect(m).toContain("pode('comanda.fechar')");
-    expect(m).toContain('useComandasNaoFechadas(');
+    // Badge pela regra única da Sidebar web (só as próprias sem agenda.gerenciar_outras).
+    expect(m).toContain('useBadgesMenu()');
+    expect(m).toContain('badge={comandasAbertas ?? 0}');
   });
 });
 

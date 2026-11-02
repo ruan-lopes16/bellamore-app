@@ -21,9 +21,8 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
-import { useResumoComissoesPendentes, useComandasNaoFechadas } from '@/hooks/useDashboard';
 import { SeletorEmpresa } from '@/components/SeletorEmpresa';
-import { useSino } from '@/hooks/useNotificacoes';
+import { useBadgesMenu } from '@/hooks/useNotificacoes';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -103,14 +102,10 @@ export default function Mais() {
   const role = isOwner ? 'owner' : roleAtivo;
   const { pode } = usePermissoes();
 
-  // Badge do menu = TODAS as pendentes (mesma regra do alerta do Dashboard e do badge da Sidebar web).
-  // Consulta com erro não mostra número (nem o antigo guardado no cache).
-  const pendentesQ = useResumoComissoesPendentes(pode('comissoes.ver_todas'));
-  const pendentes = pendentesQ.isError ? undefined : pendentesQ.data;
-  // Comandas não fechadas (mesma consulta do alerta do Dashboard), só com `comanda.fechar`.
-  const comandasQ = useComandasNaoFechadas(pode('comanda.fechar'));
-  const comandasAbertas = comandasQ.isError ? undefined : comandasQ.data;
-  const sino = useSino();
+  // Sino e badges Comissões/Comanda pela regra única da Sidebar web (`badgesDoMenu`): comissões
+  // todas com `comissoes.ver_todas` (senão as próprias); comandas com `comanda.fechar`, só as
+  // próprias sem `agenda.gerenciar_outras`. Erro na 1ª carga (isError) → sem número, nunca um falso.
+  const { sino, comissoes: pendentes, comandas: comandasAbertas } = useBadgesMenu();
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -254,9 +249,9 @@ export default function Mais() {
                 <MenuItem
                   icon={<Receipt size={16} color={C.rose} strokeWidth={2} />}
                   label="Comanda"
-                  sublabel={comandasAbertas && comandasAbertas.quantidade > 0 ? 'Comandas não fechadas' : 'Fechar atendimentos'}
+                  sublabel={(comandasAbertas ?? 0) > 0 ? 'Comandas não fechadas' : 'Fechar atendimentos'}
                   iconBg={C.roseSoft} iconColor={C.rose}
-                  badge={comandasAbertas?.quantidade ?? 0}
+                  badge={comandasAbertas ?? 0}
                   onPress={() => router.push('/(empresa)/nova-comanda' as any)}
                 />
               )}
@@ -275,7 +270,7 @@ export default function Mais() {
                   label="Comissões"
                   sublabel="Repasses da equipe"
                   iconBg={C.amberSoft} iconColor={C.amber}
-                  badge={pendentes?.quantidade ?? 0}
+                  badge={pendentes ?? 0}
                   onPress={() => router.push('/(empresa)/comissoes' as any)}
                 />
               )}

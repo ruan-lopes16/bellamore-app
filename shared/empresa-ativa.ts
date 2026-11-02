@@ -48,3 +48,24 @@ export function escolherEmpresaAtiva<T extends VinculoEmpresa>(
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   })[0];
 }
+
+/** O mínimo do client supabase-js usado por `temVinculoAtivo`. */
+export interface ClienteDbVinculo {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  from(tabela: string): any;
+}
+
+/**
+ * A pessoa já participa de alguma empresa (vínculo ativo em `empresa_membros` ou dona de empresa
+ * ativa)? Usado antes de criar empresa: a RPC `criar_empresa_completo` não confere isso, e uma
+ * 2ª empresa por engano só se evita aqui.
+ * @throws Error se a leitura falhar — nunca vira "sem empresa".
+ */
+export async function temVinculoAtivo(db: ClienteDbVinculo, userId: string): Promise<boolean> {
+  const [membros, donas] = await Promise.all([
+    db.from('empresa_membros').select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('ativo', true),
+    db.from('empresas').select('id', { count: 'exact', head: true }).eq('owner_id', userId).eq('ativo', true),
+  ]);
+  if (membros.error || donas.error) throw new Error('Não foi possível conferir suas empresas. Confira a conexão e tente de novo.');
+  return (membros.count ?? 0) + (donas.count ?? 0) > 0;
+}

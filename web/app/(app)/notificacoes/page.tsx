@@ -26,8 +26,9 @@ import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import {
-  alertasCalculados, rotaDoAviso, rotaDoDestino, tipoNotificacao,
-  TIPOS_NOTIFICACAO, VISUAL_ALERTA, type Alerta, type CorAviso,
+  alertasCalculados, alertaTemRota, avisoTemRota, resumoAgendamentosHoje, rotaDoAviso, rotaDoDestino,
+  rotuloNaoLidas, separarAlertas, tipoNotificacao, TEXTOS_NOTIFICACOES as T, TIPOS_NOTIFICACAO, VISUAL_ALERTA,
+  type Alerta, type CorAviso,
 } from '@shared/notificacoes';
 import {
   carregarAvisos, carregarDadosAlertas, contarAvisosNaoLidos, marcarLidas, marcarTodasLidas,
@@ -47,6 +48,9 @@ const cor = (c: CorAviso) => ({ fg: `var(--color-${c})`, bg: `var(--color-${c}-s
 
 type Filtro = 'todas' | 'nao_lidas';
 
+/** Tela do alerta (no web todo destino tem tela; a regra é a mesma do app). */
+const hrefAlerta = (a: Alerta) => (alertaTemRota(a.destino, 'web') ? rotaDoDestino(a.destino, 'web') : '/notificacoes');
+
 const rotuloSecao: React.CSSProperties = { fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em' };
 
 function ErroCarga({ texto, onTentar }: { texto: string; onTentar: () => void }) {
@@ -57,7 +61,7 @@ function ErroCarga({ texto, onTentar }: { texto: string; onTentar: () => void })
       <p style={{ flex: 1, fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--color-red)' }}>{texto}</p>
       <button type="button" onClick={onTentar} className="press flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold"
         style={{ background: 'var(--color-surface)', color: 'var(--color-ink2)', border: '1px solid var(--color-border)' }}>
-        <RefreshCw size={12}/> Tentar de novo
+        <RefreshCw size={12}/> {T.tentarDeNovo}
       </button>
     </div>
   );
@@ -102,7 +106,7 @@ export default function NotificacoesPage() {
       const dados = await carregarDadosAlertas(supabase, empresaId, { userId, pode: permissoes.pode });
       setAlertas(alertasCalculados(dados, permissoes, { userId }));
     } catch (e) {
-      setErroAlertas(e instanceof Error ? e.message : 'Não foi possível carregar os alertas.');
+      setErroAlertas(e instanceof Error ? e.message : T.erroAlertas);
     }
   }, [empresaId, userId, permissoes]);
 
@@ -125,7 +129,7 @@ export default function NotificacoesPage() {
       setPagina(p);
     } catch (e) {
       if (req !== reqAvisos.current) return;
-      setErroAvisos(e instanceof Error ? e.message : 'Não foi possível carregar os avisos.');
+      setErroAvisos(e instanceof Error ? e.message : T.erroAvisos);
     } finally {
       if (req === reqAvisos.current) setCarregandoMais(false);
     }
@@ -144,7 +148,7 @@ export default function NotificacoesPage() {
     setAviso('');
     try {
       const { confirmados } = await marcarLidas(supabase, [id]);
-      if (confirmados.length === 0) { setAviso('Este aviso não pôde ser marcado (pode ter sido apagado). Recarregue a página.'); return; }
+      if (confirmados.length === 0) { setAviso(T.avisoNaoMarcado); return; }
       setAvisos(prev => {
         if (!prev) return prev;
         return filtro === 'nao_lidas' ? prev.filter(a => a.id !== id) : prev.map(a => (a.id === id ? { ...a, lida: true } : a));
@@ -152,7 +156,7 @@ export default function NotificacoesPage() {
       setNaoLidas(n => (n === null ? n : Math.max(0, n - 1)));
       avisarSino();
     } catch (e) {
-      setAviso(e instanceof Error ? e.message : 'Não foi possível marcar o aviso como lido.');
+      setAviso(e instanceof Error ? e.message : T.erroMarcar);
     }
   }
 
@@ -164,20 +168,20 @@ export default function NotificacoesPage() {
       await Promise.all([carregarPagina(0), contar()]);
       avisarSino();
     } catch (e) {
-      setAviso(e instanceof Error ? e.message : 'Não foi possível marcar os avisos como lidos.');
+      setAviso(e instanceof Error ? e.message : T.erroMarcarTodas);
     } finally {
       setMarcando(false);
     }
   }
 
-  /** Abrir um aviso marca como lido e leva para a tela dele. */
+  /** Abrir um aviso marca como lido e leva para a tela dele (aviso sem tela própria só marca). */
   function abrirAviso(a: AvisoRow) {
     if (!a.lida) marcarUma(a.id);
-    router.push(rotaDoAviso(a.tipo, 'web'));
+    if (avisoTemRota(a.tipo, 'web')) router.push(rotaDoAviso(a.tipo, 'web'));
   }
 
-  const alertasAg = (alertas ?? []).filter(a => a.grupo === 'agendamentos');
-  const outrosAlertas = (alertas ?? []).filter(a => a.grupo !== 'agendamentos');
+  const { agendamentos: alertasAg, outros: outrosAlertas } = separarAlertas(alertas ?? []);
+  const resumoAg = resumoAgendamentosHoje(alertasAg);
   const urgentes = (alertas ?? []).filter(a => a.urgente).length;
 
   // ── Render ────────────────────────────────────────────────────
@@ -206,13 +210,13 @@ export default function NotificacoesPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
         <div>
           <p style={{ ...rotuloSecao, marginBottom: 2 }}>Central</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Notificações</h1>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>{T.titulo}</h1>
         </div>
         {(naoLidas ?? 0) > 0 && (
           <button onClick={marcarTodas} disabled={marcando} className="press flex items-center gap-2 px-4 h-10 rounded-2xl text-sm font-bold"
             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-ink2)', fontFamily: 'var(--font-sans)', opacity: marcando ? 0.5 : 1 }}>
             <CheckCheck size={15}/>
-            {marcando ? 'Marcando...' : 'Marcar todas como lidas'}
+            {marcando ? T.marcando : T.marcarTodas}
           </button>
         )}
       </div>
@@ -224,7 +228,7 @@ export default function NotificacoesPage() {
       {/* ── Alertas (calculados na hora) ── */}
       <section className="mb-8">
         <div className="flex items-baseline justify-between pb-3 mb-2">
-          <h2 style={rotuloSecao}>Alertas</h2>
+          <h2 style={rotuloSecao}>{T.secaoAlertas}</h2>
           {alertas && alertas.length > 0 && (
             <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 999, background: urgentes > 0 ? 'var(--color-rose)' : 'var(--color-amber-soft)', color: urgentes > 0 ? '#fff' : 'var(--color-amber)' }}>
               {alertas.length}
@@ -243,13 +247,13 @@ export default function NotificacoesPage() {
             <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: 'var(--color-green-soft)' }}>
               <Check size={22} style={{ color: 'var(--color-green)' }}/>
             </div>
-            <p style={{ fontFamily: 'var(--font-sans)', fontWeight: 700, color: 'var(--color-ink)', marginBottom: 4 }}>Tudo em ordem!</p>
-            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--color-ink4)' }}>Nenhum alerta no momento.</p>
+            <p style={{ fontFamily: 'var(--font-sans)', fontWeight: 700, color: 'var(--color-ink)', marginBottom: 4 }}>{T.semAlertasTitulo}</p>
+            <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--color-ink4)' }}>{T.semAlertas}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
             {/* Agendamentos de hoje: 1 linha-resumo expansível em vez do "paredão" de N linhas. */}
-            {alertasAg.length > 0 && (() => {
+            {resumoAg && (() => {
               const v = cor(VISUAL_ALERTA.agendamentos.cor);
               const Icon = icone(VISUAL_ALERTA.agendamentos.icone);
               return (
@@ -261,10 +265,10 @@ export default function NotificacoesPage() {
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700, color: 'var(--color-ink)' }}>
-                        {alertasAg.length} {alertasAg.length === 1 ? 'atendimento' : 'atendimentos'} hoje
+                        {resumoAg.titulo}
                       </p>
                       <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--color-ink3)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        próximo {alertasAg[0].titulo}
+                        {resumoAg.descricao}
                       </p>
                     </div>
                     <ChevronRight size={14} style={{ color: 'var(--color-ink4)', flexShrink: 0, transform: agsExpandido ? 'rotate(90deg)' : 'none', transition: 'transform 150ms ease' }}/>
@@ -272,7 +276,7 @@ export default function NotificacoesPage() {
                   {agsExpandido && (
                     <div style={{ borderTop: '1px solid var(--color-border)' }} className="flex flex-col">
                       {alertasAg.map(a => (
-                        <Link key={a.id} href={rotaDoDestino(a.destino, 'web')}
+                        <Link key={a.id} href={hrefAlerta(a)}
                           className="press flex items-center gap-3 px-4 py-3"
                           style={{ borderBottom: '1px solid var(--color-border)' }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -292,7 +296,7 @@ export default function NotificacoesPage() {
               const v = cor(visual.cor);
               const Icon = icone(visual.icone);
               return (
-                <Link key={alerta.id} href={rotaDoDestino(alerta.destino, 'web')}
+                <Link key={alerta.id} href={hrefAlerta(alerta)}
                   className="press bm-stagger flex items-center gap-4 p-4 rounded-2xl"
                   style={{ '--bm-i': i, '--bm-step': '60ms', background: alerta.urgente ? 'var(--color-rose-soft)' : 'var(--color-surface)', border: `1px solid ${alerta.urgente ? 'rgba(220,38,38,0.2)' : 'var(--color-border)'}`, display: 'flex', alignItems: 'center', gap: 16 } as React.CSSProperties}>
                   <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: v.bg }}>
@@ -316,13 +320,13 @@ export default function NotificacoesPage() {
       <section>
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-2">
           <div className="flex items-baseline gap-2">
-            <h2 style={rotuloSecao}>Avisos</h2>
+            <h2 style={rotuloSecao}>{T.secaoAvisos}</h2>
             <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 999, background: 'var(--color-primary)', color: '#fff' }}>
-              {naoLidas === null ? '—' : `${naoLidas} ${naoLidas === 1 ? 'não lida' : 'não lidas'}`}
+              {rotuloNaoLidas(naoLidas)}
             </span>
           </div>
           <div className="flex gap-1 p-1 rounded-xl" role="tablist" style={{ background: 'var(--color-bg2)', border: '1px solid var(--color-border)' }}>
-            {([['todas', 'Todas'], ['nao_lidas', 'Não lidas']] as const).map(([k, rotulo]) => (
+            {([['todas', T.filtroTodas], ['nao_lidas', T.filtroNaoLidas]] as const).map(([k, rotulo]) => (
               <button key={k} type="button" role="tab" aria-selected={filtro === k} onClick={() => setFiltro(k)}
                 className="press h-8 px-3 rounded-lg text-xs font-bold"
                 style={filtro === k
@@ -344,7 +348,7 @@ export default function NotificacoesPage() {
           <div className="rounded-2xl p-8 text-center" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
             <Bell size={28} style={{ margin: '0 auto 12px', color: 'var(--color-ink4)' }}/>
             <p style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--color-ink4)' }}>
-              {filtro === 'nao_lidas' ? 'Nenhum aviso não lido.' : 'Nenhum aviso registrado ainda.'}
+              {filtro === 'nao_lidas' ? T.semAvisosNaoLidos : T.semAvisos}
             </p>
           </div>
         ) : (
@@ -375,7 +379,7 @@ export default function NotificacoesPage() {
                     {n.mensagem && <p style={{ fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--color-ink3)', marginTop: 3 }}>{n.mensagem}</p>}
                   </button>
                   {!n.lida && (
-                    <button onClick={() => marcarUma(n.id)} title="Marcar como lida" aria-label="Marcar como lida"
+                    <button onClick={() => marcarUma(n.id)} title={T.marcarUma} aria-label={T.marcarUma}
                       className="press w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0"
                       style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
                       <Check size={13}/>
@@ -389,7 +393,7 @@ export default function NotificacoesPage() {
               <button type="button" onClick={() => carregarPagina(pagina + 1)} disabled={carregandoMais}
                 className="press h-10 rounded-2xl text-sm font-bold disabled:opacity-50"
                 style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-ink2)' }}>
-                {carregandoMais ? 'Carregando...' : 'Mostrar mais'}
+                {carregandoMais ? T.carregando : T.mostrarMais}
               </button>
             )}
           </div>

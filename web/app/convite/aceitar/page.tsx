@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { validarNovaSenha, SENHA_MINIMA } from '@/lib/senha';
 import { rotaInicial } from '@/lib/permissions';
 import { trocarEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import type { PerfilRole } from '@/types';
@@ -58,12 +59,9 @@ export default function AceitarConvitePage() {
     e.preventDefault();
     setErro('');
 
-    if (senha.length < 6) {
-      setErro('A senha deve ter pelo menos 6 caracteres.');
-      return;
-    }
-    if (senha !== confirmar) {
-      setErro('As senhas não coincidem.');
+    const erroSenha = validarNovaSenha(senha, confirmar);
+    if (erroSenha) {
+      setErro(erroSenha);
       return;
     }
 
@@ -116,7 +114,7 @@ export default function AceitarConvitePage() {
                 <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Senha</label>
                 <input
                   type="password" value={senha} onChange={e => setSenha(e.target.value)}
-                  placeholder="mínimo 6 caracteres" required minLength={6}
+                  placeholder={`mínimo ${SENHA_MINIMA} caracteres`} required minLength={SENHA_MINIMA}
                   className="w-full h-11 px-3.5 rounded-xl border border-border bg-bg text-text text-sm font-medium placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
                 />
               </div>
@@ -125,7 +123,7 @@ export default function AceitarConvitePage() {
                 <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Confirmar senha</label>
                 <input
                   type="password" value={confirmar} onChange={e => setConfirmar(e.target.value)}
-                  placeholder="repita a senha" required minLength={6}
+                  placeholder="repita a senha" required minLength={SENHA_MINIMA}
                   className="w-full h-11 px-3.5 rounded-xl border border-border bg-bg text-text text-sm font-medium placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
                 />
               </div>

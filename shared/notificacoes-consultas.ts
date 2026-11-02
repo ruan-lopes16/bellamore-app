@@ -13,7 +13,11 @@
  */
 import { mensagemErroBanco } from './erros';
 import { buscarTodasOuLancar, type ClienteDb } from './kpis-financeiros-consultas';
-import { aplicarFiltroComandasNaoFechadas, carregarAniversariantes, carregarDespesasVencendo, type DespesaVencendoRow } from './dashboard-consultas';
+import {
+  aplicarFiltroComandasNaoFechadas, aplicarFiltroDespesasVencendo, carregarAniversariantes, carregarDespesasVencendo,
+  type DespesaVencendoRow,
+} from './dashboard-consultas';
+import type { ContagensSino } from './notificacoes';
 import type { ClienteAniversario, ComandaNaoFechadaRow } from './dashboard';
 import { hojeBRT, limitesDias } from './periodos';
 import type { PodeFn } from './permissoes';
@@ -205,4 +209,46 @@ export async function carregarDadosAlertas(
     agendamentosHoje, estoqueBaixo, despesasVencendo, comissoesPendentes, aniversariantes, comandasNaoFechadas,
     soPropriaAgenda, soPropriasComissoes, hoje,
   };
+}
+
+// ── Sino (contagens leves) ───────────────────────────────────
+
+const HEAD = { count: 'exact', head: true } as const;
+type RespostaContagem = { count: number | null; error: { code?: string; message: string } | null };
+
+/**
+ * Contagens do sino e dos badges dos menus (`badgesDoMenu`), com as MESMAS regras e filtros de
+ * `carregarDadosAlertas`, mas só `count head`: sem baixar clientes, agenda do dia nem o histórico
+ * de comandas a cada página aberta. Só consulta o que `acesso.pode` libera.
+ * @throws Error se qualquer contagem falhar (o menu mantém o número anterior).
+ */
+export async function carregarContagensSino(
+  db: ClienteDb, empresaId: string, acesso: { userId: string; pode: PodeFn }, agora: Date = new Date(),
+): Promise<ContagensSino> {
+  const { userId, pode } = acesso;
+  const contar = async (q: PromiseLike<RespostaContagem>, acao: string) => {
+    const { count, error } = await q;
+    if (error) throw new Error(mensagemErroBanco(error, acao));
+    return count ?? 0;
+  };
+
+  const estoque = pode('estoque.acessar')
+    ? contar(db.from('v_produtos_estoque_baixo').select('id', HEAD).eq('empresa_id', empresaId).eq('ativo', true), 'contar o estoque baixo')
+    : Promise.resolve(null);
+  const despesas = pode('financeiro.ver')
+    ? contar(aplicarFiltroDespesasVencendo(db.from('despesas').select('id', HEAD), empresaId, hojeBRT(agora)), 'contar as despesas vencendo')
+    : Promise.resolve(null);
+  let qCom = db.from('comissoes').select('id', HEAD).eq('empresa_id', empresaId).eq('status', 'pendente');
+  if (!pode('comissoes.ver_todas')) qCom = qCom.eq('profissional_id', userId);
+  const comissoes = contar(qCom, 'contar as comissões pendentes');
+  let comandas: Promise<number | null> = Promise.resolve(null);
+  if (pode('comanda.fechar')) {
+    let q = aplicarFiltroComandasNaoFechadas(db.from('agendamentos').select('id', HEAD), empresaId, agora.toISOString());
+    if (!pode('agenda.gerenciar_outras')) q = q.eq('profissional_id', userId);
+    comandas = contar(q, 'contar as comandas não fechadas');
+  }
+
+  const [estoqueBaixo, despesasVencendo, comissoesPendentes, comandasNaoFechadas] =
+    await Promise.all([estoque, despesas, comissoes, comandas]);
+  return { estoqueBaixo, despesasVencendo, comissoesPendentes, comandasNaoFechadas };
 }

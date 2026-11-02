@@ -9,8 +9,8 @@ import {
   Banknote, X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { carregarDadosAlertas, contarAvisosNaoLidos } from '@shared/notificacoes-consultas';
-import { badgesSidebar, EVENTO_SINO } from '@/lib/sino';
+import { carregarContagensSino, contarAvisosNaoLidos } from '@shared/notificacoes-consultas';
+import { badgesDoMenu, EVENTO_SINO } from '@/lib/sino';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
@@ -97,17 +97,18 @@ export default function Sidebar({
   /**
    * Sino e badges pelas mesmas regras da tela de Notificações (shared): só o que a permissão deixa
    * ver (despesas só com financeiro.ver, estoque com estoque.acessar, comissões todas ou as
-   * próprias, comandas com comanda.fechar). Carga com erro mantém o número anterior.
+   * próprias, comandas com comanda.fechar). Só contagens (`count head`), não os dados completos
+   * dos alertas: a Sidebar carrega em toda página. Carga com erro mantém o número anterior.
    */
   const atualizarBadges = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const acesso = { userId: user.id, pode: (a: Acesso) => pode(permissoes, a) };
-    const [dados, naoLidas] = await Promise.all([
-      carregarDadosAlertas(supabase, empresaId, acesso).catch(() => null),
+    const [contagens, naoLidas] = await Promise.all([
+      carregarContagensSino(supabase, empresaId, acesso).catch(() => null),
       contarAvisosNaoLidos(supabase, empresaId, user.id).catch(() => null),
     ]);
-    const b = badgesSidebar(dados, permissoes, user.id, naoLidas);
+    const b = badgesDoMenu(contagens, permissoes, naoLidas);
     if (b.sino !== null) setAlertCount(b.sino);
     if (b.comissoes !== null) setComissoesCount(b.comissoes);
     if (b.comandas !== null) setComandasAbertasCount(b.comandas);

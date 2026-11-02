@@ -33,7 +33,8 @@ describe('app Comissões = web Comissões', () => {
   });
   it('menu Mais com Comissões e badge de pendentes', () => {
     expect(mais).toContain("router.push('/(empresa)/comissoes'");
-    expect(mais).toContain('useResumoComissoesPendentes(');
+    // Badge pela regra única dos menus (badgesDoMenu): todas com comissoes.ver_todas.
+    expect(mais).toContain('useBadgesMenu()');
     expect(mais).toContain('badge=');
     expect(dash).toContain('export function useResumoComissoesPendentes');
   });

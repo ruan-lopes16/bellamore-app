@@ -78,7 +78,9 @@ export default function RootLayout() {
     // Sem permissão concedida: nem push nem lembrete local.
     if (!user || !empresaAtiva) return;
     sincronizarPushDispositivo({ userId: user.id, empresaId: empresaAtiva.id, pedirPermissao: false })
-      .catch(() => { /* push é acessório: a falha não trava o app; Configurações mostra o status */ });
+      // Push é acessório: a falha não trava o app. Fica guardada (`erroRegistroPush`, mostrada em
+      // Configurações) e no log, só a mensagem — nunca o token.
+      .catch((e: unknown) => { console.warn('[push] registro do aparelho falhou:', e instanceof Error ? e.message : String(e)); });
   }, [user?.id, empresaAtiva?.id]);
 
   useEffect(() => {

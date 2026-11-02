@@ -4,7 +4,8 @@
  * web (@shared/notificacoes-consultas, @shared/notificacoes):
  * - Avisos: linhas de `notificacoes` da pessoa NA EMPRESA ATIVA, paginadas, com filtro "Não lidas";
  * - Alertas: calculados na hora, só com o que a permissão da pessoa deixa ver;
- * - Sino: `contagemSino` (avisos não lidos + alertas que pedem ação).
+ * - Sino e badges dos menus: `badgesDoMenu` sobre contagens leves (`carregarContagensSino`): o mesmo
+ *   número de `contagemSino` da tela, sem baixar clientes e comandas em cada menu (igual à Sidebar web).
  * Toda chave começa com 'notificacoes' (o push recebido invalida tudo de uma vez).
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -12,10 +13,10 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import {
-  carregarAvisos, contarAvisosNaoLidos, carregarDadosAlertas, marcarLidas, marcarTodasLidas,
+  carregarAvisos, contarAvisosNaoLidos, carregarContagensSino, carregarDadosAlertas, marcarLidas, marcarTodasLidas,
   type AvisoRow,
 } from '@shared/notificacoes-consultas';
-import { alertasCalculados, contagemSino, type Alerta } from '@shared/notificacoes';
+import { alertasCalculados, badgesDoMenu, type Alerta, type BadgesMenu } from '@shared/notificacoes';
 
 export type { AvisoRow, Alerta };
 
@@ -59,14 +60,35 @@ export function useAvisosNaoLidos() {
   return { naoLidas: q.data ?? null, isError: q.isError && q.data === undefined, refetch: q.refetch };
 }
 
+/** Contagens do sino e dos badges (só `count head`, pela permissão de quem vê). */
+function useContagensSino() {
+  const { userId, empresaId, perm } = useContexto();
+  const { pode, permissoesCarregadas, isOwner, papel, chaves } = perm;
+  return useQuery({
+    queryKey: ['notificacoes', 'contagens', empresaId, userId, isOwner, papel, chaves.join(',')],
+    enabled: !!empresaId && !!userId && permissoesCarregadas,
+    staleTime: MINUTO,
+    refetchInterval: 2 * MINUTO,
+    queryFn: () => carregarContagensSino(supabase, empresaId!, { userId: userId!, pode }),
+  });
+}
+
 /**
- * Número do sino. `null` = sem número confiável (carregando ou erro na 1ª carga): não mostra badge.
- * Depois de uma carga boa, um erro de recarga mantém o número anterior (o cache), nunca um falso.
+ * Sino e badges Comissões/Comanda dos menus, pela mesma regra da Sidebar do web (`badgesDoMenu`).
+ * `null` = sem número confiável (carregando ou erro na 1ª carga): não mostra badge. Depois de uma
+ * carga boa, um erro de recarga mantém o número anterior (o cache), nunca um falso.
  */
-export function useSino(): number | null {
-  const { alertas } = useAlertas();
+export function useBadgesMenu(): BadgesMenu {
+  const { perm } = useContexto();
+  const q = useContagensSino();
   const { naoLidas } = useAvisosNaoLidos();
-  return contagemSino(alertas, naoLidas);
+  const permissoes = perm.permissoesCarregadas ? { isOwner: perm.isOwner, papel: perm.papel, chaves: perm.chaves } : null;
+  return badgesDoMenu(q.isError && !q.data ? null : q.data ?? null, permissoes, naoLidas);
+}
+
+/** Número do sino: avisos não lidos + alertas que pedem ação (`badgesDoMenu`). */
+export function useSino(): number | null {
+  return useBadgesMenu().sino;
 }
 
 /** Avisos da tela, paginados (TAMANHO_PAGINA_AVISOS), com o filtro "Não lidas". */

@@ -35,6 +35,11 @@ interface AuthStore extends AuthState {
    * expulsam) e nada é liberado (`chaves: []`).
    */
   permissoesErro: boolean;
+  /**
+   * `true` quando a leitura das empresas (vínculos ou empresas da dona) falhou: a sessão ficou
+   * incompleta, `semEmpresa` nunca é ligado por isso e "Tentar de novo" recarrega a sessão inteira.
+   */
+  erroEmpresas: boolean;
   /** Recarrega as permissões efetivas (ao entrar, trocar de empresa e voltar ao app). */
   recarregarPermissoes: () => Promise<void>;
   selecionarEmpresa: (empresa: Empresa, role: PerfilRole, isOwner: boolean) => void;
@@ -60,6 +65,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   permissoes: PERMISSOES_VAZIAS,
   permissoesCarregadas: false,
   permissoesErro: false,
+  erroEmpresas: false,
 
   carregarSessao: async (opts) => {
     const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -73,18 +79,22 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       .single();
 
     // Busca todas as empresas que o usuário pertence (como membro)
-    const { data: membros } = await supabase
+    const { data: membros, error: erroMembros } = await supabase
       .from('empresa_membros')
       .select('*, empresa:empresas(*)')
       .eq('user_id', authUser.id)
       .eq('ativo', true);
 
     // Busca empresas onde ele é owner
-    const { data: ownedEmpresas } = await supabase
+    const { data: ownedEmpresas, error: erroOwned } = await supabase
       .from('empresas')
       .select('*')
       .eq('owner_id', authUser.id)
       .eq('ativo', true);
+    // Leitura com erro nunca vira "sem empresa": o _layout mandaria para Criar empresa e a pessoa
+    // poderia criar uma 2ª empresa por engano. Fica com o que veio e `permissoesErro` mostra
+    // "Tentar de novo" (que recarrega a sessão inteira quando não há empresa ativa).
+    const erroEmpresas = !!erroMembros || !!erroOwned;
 
     const disponíveis: AuthStore['empresasDisponiveis'] = [];
 
@@ -126,10 +136,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       empresaAtiva: escolhida?.empresa ?? null,
       roleAtivo: escolhidaOwner ? 'gestor' : (escolhida?.role ?? null),
       isOwner: escolhidaOwner,
-      semEmpresa: disponíveis.length === 0,
+      semEmpresa: !erroEmpresas && disponíveis.length === 0,
       permissoes,
-      permissoesCarregadas: carregadas !== null,
-      permissoesErro: carregadas === null,
+      permissoesCarregadas: !erroEmpresas && carregadas !== null,
+      permissoesErro: erroEmpresas || carregadas === null,
+      erroEmpresas,
     });
   },
 
@@ -145,7 +156,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   recarregarPermissoes: async () => {
-    const { empresaAtiva, isOwner, roleAtivo } = get();
+    const { empresaAtiva, isOwner, roleAtivo, erroEmpresas } = get();
+    // Sessão incompleta (empresas não carregaram): "Tentar de novo" relê tudo.
+    if (erroEmpresas) { await get().carregarSessao({ manterEmpresaId: empresaAtiva?.id }); return; }
     if (!empresaAtiva) return;
     // Owner entra no store com roleAtivo 'gestor' (ver carregarSessao) — isOwner manda.
     const permissoes = await carregarMinhasPermissoes(supabase, empresaAtiva.id, isOwner, isOwner ? null : papelDeRole(roleAtivo));
@@ -173,6 +186,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       permissoes: PERMISSOES_VAZIAS,
       permissoesCarregadas: false,
       permissoesErro: false,
+      erroEmpresas: false,
     });
   },
 

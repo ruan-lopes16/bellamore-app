@@ -8,11 +8,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { destinoCallback, urlCallback } from '@/lib/auth/destino-pos-login';
 import { validarNovaSenha, SENHA_MINIMA } from '@/lib/senha';
-import { badgesSidebar } from '@/lib/sino';
 import { gravarInscricaoWebPush } from '@/lib/push/inscricao-web';
 import { isProtectedAppPath } from '@/lib/auth/proxy-rules';
-import type { DadosAlertas } from '@shared/notificacoes-consultas';
-import type { PermissoesUsuario } from '@shared/permissoes';
 
 const ler = (p: string) => readFileSync(join(__dirname, '..', '..', '..', p), 'utf8');
 
@@ -167,58 +164,17 @@ describe('gravarInscricaoWebPush', () => {
 
 // ── Sino e badges da Sidebar ──────────────────────────────────
 
-const AGORA = new Date('2026-10-28T15:00:00Z'); // 12:00 em Brasília
-const base = (): DadosAlertas => ({
-  agendamentosHoje: [],
-  estoqueBaixo: [{ id: 'p1', nome: 'Óleo', estoque_atual: 0, estoque_minimo: 2, unidade: null }],
-  despesasVencendo: [{ id: 'd1', descricao: 'Luz', valor: 100, data_vencimento: '2026-10-29' } as DadosAlertas['despesasVencendo'] extends (infer T)[] | null ? T : never],
-  comissoesPendentes: [
-    { id: 'c1', valor_comissao: 10, profissional_id: 'u1', profissional: { nome: 'Ana' } },
-    { id: 'c2', valor_comissao: 10, profissional_id: 'u2', profissional: { nome: 'Bia' } },
-    { id: 'c3', valor_comissao: 10, profissional_id: 'u2', profissional: { nome: 'Bia' } },
-  ],
-  aniversariantes: [],
-  comandasNaoFechadas: [
-    { id: 'a1', data_hora_inicio: '2026-10-27T13:00:00Z', profissional_id: 'u1' },
-    { id: 'a2', data_hora_inicio: '2026-10-27T14:00:00Z', profissional_id: 'u2' },
-  ] as DadosAlertas['comandasNaoFechadas'],
-  soPropriaAgenda: false, soPropriasComissoes: false, hoje: '2026-10-28',
-});
-const dona: PermissoesUsuario = { isOwner: true, papel: null, chaves: [] };
-const prof = (chaves: string[]): PermissoesUsuario => ({ isOwner: false, papel: 'profissional', chaves: chaves as PermissoesUsuario['chaves'] });
-
-describe('badgesSidebar', () => {
-  it('dona: sino = estoque + despesas + 1 comissões + 1 comandas + não lidas', () => {
-    const b = badgesSidebar(base(), dona, 'u1', 3, AGORA);
-    expect(b.sino).toBe(1 + 1 + 1 + 1 + 3);
-    expect(b.comissoes).toBe(3);
-    expect(b.comandas).toBe(2);
-  });
-  it('sem financeiro.ver a despesa não entra no sino', () => {
-    const b = badgesSidebar(base(), prof(['estoque.acessar']), 'u1', 0, AGORA);
-    // estoque 1 + comissões próprias 1; sem comanda.fechar → sem comandas.
-    expect(b.sino).toBe(2);
-    expect(b.comissoes).toBe(1);
-    expect(b.comandas).toBe(0);
-  });
-  it('comanda.fechar sem gerenciar_outras conta só as próprias', () => {
-    const b = badgesSidebar(base(), prof(['comanda.fechar']), 'u1', 0, AGORA);
-    expect(b.comandas).toBe(1);
-  });
-  it('dados com erro (null) → tudo null (mantém o número anterior)', () => {
-    expect(badgesSidebar(null, dona, 'u1', 0, AGORA)).toEqual({ sino: null, comissoes: null, comandas: null });
-    expect(badgesSidebar(base(), dona, 'u1', null, AGORA).sino).toBeNull();
-  });
-  it('Sidebar usa contagemSino pelas funções de shared, sem contagens próprias', () => {
+// A regra (sino = contagemSino da tela, badges por permissão) é testada em
+// revisao-config-5-6.test.ts (badgesDoMenu + carregarContagensSino, a mesma do app).
+describe('Sidebar', () => {
+  it('usa as contagens leves e a regra única de shared, sem contagens próprias', () => {
     const src = ler('web/components/Sidebar.tsx');
-    expect(src).toContain('carregarDadosAlertas(');
+    expect(src).toContain('carregarContagensSino(');
     expect(src).toContain('contarAvisosNaoLidos(');
-    expect(src).toContain('badgesSidebar(');
+    expect(src).toContain('badgesDoMenu(');
     expect(src).not.toContain("from('comissoes')");
     expect(src).toContain('EVENTO_SINO');
-    const sino = ler('web/lib/sino.ts');
-    expect(sino).toContain('contagemSino(');
-    expect(sino).toContain('alertasCalculados(');
+    expect(ler('web/lib/sino.ts')).toContain("from '@shared/notificacoes'");
   });
 });
 
@@ -232,9 +188,10 @@ describe('Notificações web', () => {
       'rotuloDataHoraBRT(']) expect(src).toContain(t);
   });
   it('duas seções e filtro Não lidas', () => {
-    expect(src).toContain('>Alertas<');
-    expect(src).toContain('>Avisos<');
-    expect(src).toContain('Não lidas');
+    // Textos de shared (TEXTOS_NOTIFICACOES), os mesmos do app.
+    expect(src).toContain('{T.secaoAlertas}');
+    expect(src).toContain('{T.secaoAvisos}');
+    expect(src).toContain('T.filtroNaoLidas');
   });
   it('datas em Brasília (sem hojeStr em UTC)', () => {
     expect(src).not.toMatch(/toISOString\(\)\.slice\(0,\s*10\)/);

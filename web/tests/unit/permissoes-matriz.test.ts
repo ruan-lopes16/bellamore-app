@@ -197,9 +197,10 @@ describe('matriz de permissões — correções de tela', () => {
 
   it('badge de comandas da Sidebar exige comanda.fechar, como o Dashboard (D10)', () => {
     // A regra dos badges saiu da Sidebar para web/lib/sino.ts (a mesma da tela de Notificações).
-    expect(tela('web/components/Sidebar.tsx')).toContain('badgesSidebar(');
-    const sino = readFileSync(join(raiz, 'web/lib/sino.ts'), 'utf8');
-    expect(sino).toMatch(/pode\(permissoes, 'comanda\.fechar'\)\s*&&\s*dados\.comandasNaoFechadas/);
+    expect(tela('web/components/Sidebar.tsx')).toContain('badgesDoMenu(');
+    // Regra única em shared (badgesDoMenu), a mesma do app.
+    const sino = readFileSync(join(raiz, 'shared/notificacoes.ts'), 'utf8');
+    expect(sino).toMatch(/const comandas = p\('comanda\.fechar'\) \? c\.comandasNaoFechadas/);
   });
 
   it('insumos do serviço conferem o erro (D5)', () => {

@@ -23,6 +23,7 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
+import { validarSenhaOpcional } from '@shared/senha';
 
 // ── Constantes ───────────────────────────────────────────────
 
@@ -106,6 +107,9 @@ export default function ConfiguracoesProfissional() {
 
   async function salvar() {
     if (!user) return;
+    // Senha preenchida e curta: avisa (antes era ignorada em silêncio e a tela dizia "Salvo!").
+    const erroSenhaCurta = validarSenhaOpcional(novaSenha);
+    if (erroSenhaCurta) { Alert.alert('Senha', erroSenhaCurta); return; }
     setSalvando(true);
 
     const { error: erroPerfil } = await supabase.from('users').update({
@@ -116,8 +120,8 @@ export default function ConfiguracoesProfissional() {
     }).eq('id', user.id);
 
     let erroSenha: { message: string } | null = null;
-    if (novaSenha.trim().length >= 6) {
-      const { error } = await supabase.auth.updateUser({ password: novaSenha.trim() });
+    if (novaSenha.length > 0) {
+      const { error } = await supabase.auth.updateUser({ password: novaSenha });
       erroSenha = error;
     }
 

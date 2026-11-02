@@ -28,9 +28,21 @@ let ultimosLembretes: { ags: LembreteAtendimento[]; ligado: boolean } | null = n
 
 type LembreteAtendimento = { id: string; dataHoraInicio: string; clienteNome: string | null; servicoNome: string | null };
 
+// Mensagem da última sincronização que FALHOU por outro motivo que não a 097/permissão (rede,
+// token Expo, RPC recusada). `null` = a última deu certo. Configurações (Task 7) mostra o status.
+let ultimoErro: string | null = null;
+
 /** Resultado da última sincronização do aparelho (null = ainda não sincronizou nesta sessão). */
 export function resultadoRegistroPush(): ResultadoRegistroPush | null {
   return ultimoResultado;
+}
+
+/**
+ * Erro da última sincronização (null = sem erro). Enquanto houver erro, o aparelho fica sem push
+ * novo e sem lembrete local (`usarLembreteLocal` só libera com `'sem_migration'`): nunca em dobro.
+ */
+export function erroRegistroPush(): string | null {
+  return ultimoErro;
 }
 
 /** Situação da permissão de notificações do sistema (`'sem_suporte'` em simulador). */
@@ -56,6 +68,22 @@ export async function cancelarLembretesLocais(): Promise<void> {
  * @throws Error com mensagem em português se o registro falhar por outro motivo.
  */
 export async function sincronizarPushDispositivo(opts: {
+  userId: string; empresaId: string; pedirPermissao: boolean;
+}): Promise<ResultadoRegistroPush> {
+  try {
+    const r = await sincronizar(opts);
+    ultimoErro = null;
+    return r;
+  } catch (e) {
+    ultimoErro = e instanceof Error && e.message ? e.message : 'Não foi possível ativar as notificações neste aparelho.';
+    // Sem um 'sem_migration' confirmado, os lembretes locais (de um binário antigo, por exemplo)
+    // saem: o aparelho pode seguir registrado no servidor e o lembrete chegaria em dobro.
+    if (!usarLembreteLocal(ultimoResultado)) await cancelarLembretesLocais();
+    throw new Error(ultimoErro);
+  }
+}
+
+async function sincronizar(opts: {
   userId: string; empresaId: string; pedirPermissao: boolean;
 }): Promise<ResultadoRegistroPush> {
   // Simuladores não têm suporte a push nativo
@@ -127,6 +155,7 @@ export async function desativarPushDoAparelho(): Promise<void> {
   } catch { /* sair nunca falha por causa do push */ }
   await cancelarLembretesLocais();
   ultimoResultado = null;
+  ultimoErro = null;
   ultimoToken = null;
   ultimosLembretes = null;
 }
