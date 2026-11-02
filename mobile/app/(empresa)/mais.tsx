@@ -1,5 +1,5 @@
 import {
-  View, Text, TouchableOpacity, ScrollView, StatusBar, Alert,
+  View, Text, TouchableOpacity, ScrollView, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,19 +23,10 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { SeletorEmpresa } from '@/components/SeletorEmpresa';
 import { useBadgesMenu } from '@/hooks/useNotificacoes';
+import { BarraDeStatus, comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 // ── Item de menu ─────────────────────────────────────────────
 
@@ -51,6 +42,7 @@ function MenuItem({
   onPress: () => void;
   danger?: boolean;
 }) {
+  const { C } = useTema();
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -95,7 +87,8 @@ function MenuItem({
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Mais() {
+function Mais() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { user, empresaAtiva, roleAtivo, isOwner, sair } = useAuthStore();
   // Sem fallback de papel: indefinido = ainda carregando (o rótulo fica vazio até chegar).
@@ -129,7 +122,7 @@ export default function Mais() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <BarraDeStatus comFundo />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -379,3 +372,5 @@ export default function Mais() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Mais);

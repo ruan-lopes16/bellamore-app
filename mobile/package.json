@@ -24,6 +24,7 @@
     "expo-device": "~6.0.2",
     "expo-file-system": "~17.0.1",
     "expo-font": "~12.0.7",
+    "expo-image-picker": "~15.0.7",
     "expo-linear-gradient": "~13.0.2",
     "expo-notifications": "~0.28.0",
     "expo-print": "~13.0.1",

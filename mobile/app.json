@@ -6,7 +6,7 @@
     "scheme": "appestetica",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -30,7 +30,13 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O app usa suas fotos para trocar a logo da empresa."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

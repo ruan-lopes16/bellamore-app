@@ -5,11 +5,8 @@
 import { View, Text, TouchableOpacity } from 'react-native';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { gradeCalendarioMes, rotuloMesAno, somarMeses } from '@shared/periodos';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC', primary: '#2C1654', primarySoft: '#EEE8F8', accent: '#9B6FE8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 const CABECALHO = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 
@@ -25,6 +22,7 @@ export function VisaoMes({ mes, diaSelecionado, hoje, contagem, carregando, erro
   onMudarMes: (mes: string) => void;
   onAbrirDia: (dia: string) => void;
 }) {
+  const { C } = useTema();
   const grade = gradeCalendarioMes(mes, diaSelecionado);
   const semanas = Array.from({ length: 6 }, (_, i) => grade.slice(i * 7, i * 7 + 7));
   const botao = {

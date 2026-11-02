@@ -19,14 +19,8 @@ import {
   type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { formatarMoeda } from '@shared/moeda';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 /** Métodos de pagamento do app (rótulo e cores do chip). */
 export const METODOS_PAGAMENTO = [
@@ -58,6 +52,7 @@ type Props<S extends SplitEditavel> = {
 export default function PagamentosEditor<S extends SplitEditavel>({
   splits, setSplits, config, resumo, permitirCortesia, desabilitado = false,
 }: Props<S>) {
+  const { C } = useTema();
   const { recebido, falta, troco } = resumo;
 
   function adicionarSplit(metodo: string) {

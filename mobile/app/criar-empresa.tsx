@@ -17,6 +17,7 @@ import {
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { maskPhone } from '@shared/mascaras';
+import { serializarEnderecoEmpresa } from '@shared/endereco';
 
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
@@ -117,7 +118,8 @@ export default function CriarEmpresa() {
     const { error } = await supabase.rpc('criar_empresa_completo', {
       p_nome:     nome.trim(),
       p_telefone: telefone.trim() || null,
-      p_endereco: endereco.trim() || null,
+      // Mesmo formato de Configurações (JSON de shared); esta tela só tem o campo livre → rua.
+      p_endereco: serializarEnderecoEmpresa({ rua: endereco }),
     });
     if (error) { setErro(error.message); setSalvando(false); return; }
 

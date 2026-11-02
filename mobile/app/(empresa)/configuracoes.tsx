@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, TextInput,
+  View, Text, ScrollView, TouchableOpacity, TextInput, Image,
   Alert, ActivityIndicator, StatusBar, Switch,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
@@ -8,9 +8,10 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
+import * as ImagePicker from 'expo-image-picker';
 import {
-  Store, Phone, MapPin, FileText, User, Lock,
-  Camera, LogOut, Save, ChevronLeft, Image as ImageIcon, Percent, Bell,
+  Store, Phone, MapPin, FileText, User, Lock, Target,
+  Camera, LogOut, Save, ChevronLeft, Image as ImageIcon, Percent,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -29,23 +30,24 @@ import { usePermissoes } from '@/lib/permissions';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { PermissoesPanel } from '@/components/PermissoesPanel';
 import { supabase } from '@/lib/supabase';
+import { comTemaDoUsuario, useTema, TemaClaroFixo, PALETA_CLARA } from '@/lib/tema';
 import { validarSenhaOpcional } from '@shared/senha';
 import { formatValorMonetarioInput, parseValorMonetario } from '@shared/despesas';
 import { mensagemErroBanco } from '@shared/erros';
+import { maskCNPJ, validaCNPJ, maskCEP, maskPhone, maskMoeda, formatMoeda, parseMoeda, digits } from '@shared/mascaras';
+import { lerEnderecoEmpresa, serializarEnderecoEmpresa, type EnderecoEmpresa } from '@shared/endereco';
+import {
+  SEGMENTOS_EMPRESA, enderecoDoViaCep, dadosDoCnpj, caminhoLogoEmpresa, validarArquivoLogo, montarPayloadEmpresa,
+} from '@shared/configuracoes-empresa';
 import { salvarPreferenciaAgenda, type PreferenciaAgenda } from '@shared/agenda-consultas';
 import { chavePreferenciaAgenda, usePreferenciaAgenda } from '@/hooks/usePreferenciaAgenda';
 import { CartoesConfig } from '@/components/configuracoes/CartoesConfig';
+import { CampoConfig as Campo } from '@/components/configuracoes/CampoConfig';
+import { CardNotificacoesCelular } from '@/components/configuracoes/CardNotificacoesCelular';
+import { SeletorModoTema } from '@/components/configuracoes/SeletorModoTema';
+import { TrocarEmail } from '@/components/configuracoes/TrocarEmail';
 
 // ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const;
 const DIAS_LABEL: Record<typeof DIAS[number], string> = {
@@ -73,63 +75,26 @@ const HORARIO_DEFAULT: Horarios = {
   dom: { aberto: false, inicio: '09:00', fim: '13:00' },
 };
 
+/** Extensão → tipo, quando o seletor de imagens não informa o `mimeType`. */
+const MIME_POR_EXTENSAO: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+
 // ── Helpers ──────────────────────────────────────────────────
 
 function initials(nome: string) {
   return nome.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
 
-// ── Campo de formulário ───────────────────────────────────────
-
-function Campo({
-  label, icon, value, onChange, placeholder, secureTextEntry = false, keyboardType = 'default', editavel = true,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  secureTextEntry?: boolean;
-  keyboardType?: 'default' | 'phone-pad' | 'numeric' | 'decimal-pad';
-  /** false = somente leitura (quem não é a dona vê os dados da empresa, mas não edita). */
-  editavel?: boolean;
-}) {
-  return (
-    <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border }}>
-      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>
-        {label}
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          {icon}
-        </View>
-        <TextInput
-          value={value}
-          onChangeText={onChange}
-          placeholder={placeholder}
-          placeholderTextColor={C.text4}
-          secureTextEntry={secureTextEntry}
-          keyboardType={keyboardType}
-          editable={editavel}
-          style={{
-            flex: 1,
-            fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text,
-          }}
-        />
-      </View>
-    </View>
-  );
-}
-
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Configuracoes() {
+function Configuracoes() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user, sair, roleAtivo, isOwner: souOwner, selecionarEmpresa } = useAuthStore();
   const qc = useQueryClient();
   const { pode, papel } = usePermissoes();
   const params = useLocalSearchParams<{ aba?: string; membro?: string }>();
-  // Dados da empresa e horários são fixos da dona; as taxas seguem a chave config.taxas.
+  // Dados da empresa (logo, CNPJ, endereço, segmento, meta, horários) só a dona; as taxas seguem a
+  // chave config.taxas — quem tem só ela vê só as taxas (decisão de 29/09; trigger da 083).
   const ehDona = pode('dona');
   const podeEditarTaxa = pode('config.taxas');
   // Abas: Empresa (dona ou quem tem config.taxas), Permissões (dona/gestora), Meu perfil (todos).
@@ -147,9 +112,20 @@ export default function Configuracoes() {
 
   // Dados da empresa
   const [nomeEmpresa,  setNomeEmpresa]  = useState(empresaAtiva?.nome ?? '');
-  const [telefoneEmp,  setTelefoneEmp]  = useState(empresaAtiva?.telefone ?? '');
-  const [endereco,     setEndereco]     = useState(empresaAtiva?.endereco ?? '');
-  const [cnpj,         setCnpj]         = useState(empresaAtiva?.cnpj ?? '');
+  const [segmento,     setSegmento]     = useState(empresaAtiva?.segmento ?? 'Estúdio');
+  const [telefoneEmp,  setTelefoneEmp]  = useState(maskPhone(empresaAtiva?.telefone ?? ''));
+  const [cnpj,         setCnpj]         = useState(maskCNPJ(empresaAtiva?.cnpj ?? ''));
+  const [metaMensal,   setMetaMensal]   = useState(empresaAtiva?.meta_mensal ? formatMoeda(Number(empresaAtiva.meta_mensal)) : '');
+  // Endereço em campos, pela regra única de shared (JSON; lê também o formato antigo e texto livre).
+  const [endereco,     setEndereco]     = useState<EnderecoEmpresa>(() => lerEnderecoEmpresa(empresaAtiva?.endereco));
+  const [buscandoCep,  setBuscandoCep]  = useState(false);
+  const [buscandoCnpj, setBuscandoCnpj] = useState(false);
+  const [logoUrl,      setLogoUrl]      = useState(empresaAtiva?.logo_url ?? '');
+  const [enviandoLogo, setEnviandoLogo] = useState(false);
+
+  function setCampoEndereco(campo: keyof EnderecoEmpresa, valor: string) {
+    setEndereco((e) => ({ ...e, [campo]: valor }));
+  }
 
   // Horários — carrega do banco ou usa default
   const horariosRaw = (empresaAtiva?.horario_funcionamento ?? {}) as Partial<Horarios>;
@@ -178,14 +154,10 @@ export default function Configuracoes() {
     formatValorMonetarioInput(Number(empresaAtiva?.taxa_reserva_valor ?? 0))
   );
 
-  // Minha conta
+  // Minha conta (as preferências de notificação ficam no card, salvas na hora)
   const [nomeUser,     setNomeUser]     = useState(user?.nome ?? '');
-  const [telefoneUser, setTelefoneUser] = useState(user?.telefone ?? '');
+  const [telefoneUser, setTelefoneUser] = useState(maskPhone(user?.telefone ?? ''));
   const [novaSenha,    setNovaSenha]    = useState('');
-
-  // Preferências de notificação (por usuário, migration 077)
-  const [notifResumo,   setNotifResumo]   = useState(user?.notif_resumo_diario ?? true);
-  const [notifLembrete, setNotifLembrete] = useState(user?.notif_lembrete_atendimento ?? true);
 
   const [salvando, setSalvando] = useState(false);
 
@@ -228,68 +200,149 @@ export default function Configuracoes() {
     setHorarios((h) => ({ ...h, [dia]: { ...h[dia], [campo]: val } }));
   }
 
+  // ── CEP (ViaCEP) e CNPJ (BrasilAPI), iguais ao web ───────────
+  async function mudarCep(valor: string) {
+    const mascarado = maskCEP(valor);
+    setCampoEndereco('cep', mascarado);
+    const d = digits(mascarado);
+    if (d.length !== 8) return;
+    setBuscandoCep(true);
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${d}/json/`);
+      const achado = enderecoDoViaCep(res.ok ? await res.json() : null);
+      if (achado) setEndereco((e) => ({ ...e, ...achado }));
+    } catch { /* sem rede: a dona preenche à mão */ }
+    finally { setBuscandoCep(false); }
+  }
+
+  async function mudarCnpj(valor: string) {
+    const mascarado = maskCNPJ(valor);
+    setCnpj(mascarado);
+    const d = digits(mascarado);
+    if (d.length !== 14 || !validaCNPJ(mascarado)) return;
+    setBuscandoCnpj(true);
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${d}`);
+      if (!res.ok) return;
+      const dados = dadosDoCnpj(await res.json(), { nome: nomeEmpresa, telefone: telefoneEmp });
+      if (dados.nome) setNomeEmpresa(dados.nome);
+      if (dados.telefone) setTelefoneEmp(dados.telefone);
+      if (dados.endereco) setEndereco((e) => ({ ...e, ...dados.endereco }));
+    } catch { /* sem rede: a dona preenche à mão */ }
+    finally { setBuscandoCnpj(false); }
+  }
+
+  // ── Logo (bucket `logos`, mesmo caminho do web; grava logo_url na hora) ──
+  async function trocarLogo() {
+    if (!ehDona || !empresaAtiva || enviandoLogo) return;
+    const permissao = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissao.granted) {
+      Alert.alert('Sem acesso às fotos', 'Permita o acesso às fotos nos ajustes do aparelho para trocar a logo.');
+      return;
+    }
+    const escolha = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.8,
+    });
+    if (escolha.canceled || !escolha.assets?.[0]) return;
+    const foto = escolha.assets[0];
+    const ext = (foto.fileName ?? foto.uri).split('.').pop()?.toLowerCase() ?? 'jpg';
+    const mime = foto.mimeType ?? MIME_POR_EXTENSAO[ext] ?? null;
+    const erroArquivo = validarArquivoLogo(mime, foto.fileSize ?? null);
+    if (erroArquivo) { Alert.alert('Logo', erroArquivo); return; }
+
+    setEnviandoLogo(true);
+    try {
+      const corpo = await (await fetch(foto.uri)).arrayBuffer();
+      const caminho = caminhoLogoEmpresa(empresaAtiva.id, ext === 'jpeg' ? 'jpg' : ext);
+      const { error: erroUpload } = await supabase.storage.from('logos').upload(caminho, corpo, { contentType: mime ?? 'image/jpeg' });
+      if (erroUpload) throw new Error('Não foi possível enviar a logo. Tente de novo.');
+      const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(caminho);
+      const { data: linhas, error } = await supabase.from('empresas')
+        .update({ logo_url: publicUrl }).eq('id', empresaAtiva.id).select('id');
+      if (error || !linhas || linhas.length === 0) {
+        throw new Error(mensagemErroBanco(error ?? { code: '42501' }, 'salvar a logo'));
+      }
+      setLogoUrl(publicUrl);
+      selecionarEmpresa({ ...useAuthStore.getState().empresaAtiva!, logo_url: publicUrl }, roleAtivo ?? 'gestor', souOwner);
+    } catch (e) {
+      Alert.alert('Logo', e instanceof Error ? e.message : 'Não foi possível trocar a logo.');
+    } finally {
+      setEnviandoLogo(false);
+    }
+  }
+
   // ── Salvar tudo ───────────────────────────────────────────
   async function salvar() {
     if (!empresaAtiva || !user) return;
     // Senha preenchida e curta: avisa (antes era ignorada em silêncio e a tela dizia "Salvo!").
     const erroSenha = validarSenhaOpcional(novaSenha);
     if (erroSenha) { Alert.alert('Senha', erroSenha); return; }
+    const naAbaEmpresa = aba === 'empresa';
+    if (naAbaEmpresa && ehDona && cnpj.trim() && !validaCNPJ(cnpj)) {
+      Alert.alert('CNPJ', 'CNPJ inválido. Verifique os dígitos.');
+      return;
+    }
     setSalvando(true);
 
-    // Empresa: dados e horários só a dona; taxas só com config.taxas (permissão só de tela: o UPDATE de `empresas` no banco
-    // é liberado a dona/gestora — migration 049).
-    const dadosEmpresa = ehDona ? {
-      nome:                 nomeEmpresa.trim(),
-      telefone:             telefoneEmp.trim() || null,
-      endereco:             endereco.trim() || null,
-      cnpj:                 cnpj.trim() || null,
-      horario_funcionamento: horarios,
-    } : {};
-    const taxasEmpresa = podeEditarTaxa ? {
-      taxa_cancelamento_ativa:            taxaAtiva,
-      taxa_cancelamento_modo:             taxaModo,
-      taxa_cancelamento_valor:            parseValorMonetario(taxaValor) ?? 0,
-      taxa_cancelamento_aplica_cancelado: taxaAplicaCancelado,
-      taxa_cancelamento_aplica_faltou:    taxaAplicaFaltou,
-      taxa_reserva_ativa:   reservaAtiva,
-      taxa_reserva_modo:    reservaModo,
-      taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
-    } : {};
-    const payloadEmpresa = { ...dadosEmpresa, ...taxasEmpresa };
+    // Empresa: dados só a dona; taxas só com config.taxas (o trigger da 083 recusa outras colunas).
+    const payloadEmpresa = naAbaEmpresa ? montarPayloadEmpresa({
+      ehDona,
+      podeTaxas: podeEditarTaxa,
+      dados: {
+        nome:                  nomeEmpresa.trim(),
+        segmento:              segmento || 'Estúdio',
+        telefone:              telefoneEmp.trim() || null,
+        endereco:              serializarEnderecoEmpresa(endereco),
+        cnpj:                  cnpj.trim() || null,
+        meta_mensal:           parseMoeda(metaMensal),
+        horario_funcionamento: horarios,
+      },
+      taxas: {
+        taxa_cancelamento_ativa:            taxaAtiva,
+        taxa_cancelamento_modo:             taxaModo,
+        taxa_cancelamento_valor:            parseValorMonetario(taxaValor) ?? 0,
+        taxa_cancelamento_aplica_cancelado: taxaAplicaCancelado,
+        taxa_cancelamento_aplica_faltou:    taxaAplicaFaltou,
+        taxa_reserva_ativa:   reservaAtiva,
+        taxa_reserva_modo:    reservaModo,
+        taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
+      },
+    }) : {};
 
-    const ops: Promise<any>[] = [
-      // Atualiza empresa (só se a pessoa pode editar alguma coisa dela)
-      ...(Object.keys(payloadEmpresa).length > 0
-        ? [supabase.from('empresas').update(payloadEmpresa).eq('id', empresaAtiva.id).select('id')]
-        : []),
+    try {
+      if (Object.keys(payloadEmpresa).length > 0) {
+        const { data, error } = await supabase.from('empresas').update(payloadEmpresa).eq('id', empresaAtiva.id).select('id');
+        // UPDATE de empresas recusado pelo RLS volta sem erro e sem linha: não finge que salvou.
+        if (error || !data || data.length === 0) {
+          throw new Error(mensagemErroBanco(error ?? { code: '42501' }, 'salvar as configurações da empresa'));
+        }
+      }
 
-      // Atualiza perfil do usuário
-      supabase.from('users').update({
-        nome:     nomeUser.trim(),
-        telefone: telefoneUser.trim() || null,
-        notif_resumo_diario:       notifResumo,
-        notif_lembrete_atendimento: notifLembrete,
-      }).eq('id', user.id),
-    ];
-
-    // Atualiza senha se preenchida (curta já foi recusada no início de salvar)
-    if (novaSenha.length > 0) {
-      ops.push(supabase.auth.updateUser({ password: novaSenha }));
+      if (aba === 'perfil') {
+        const { data, error } = await supabase.from('users').update({
+          nome:     nomeUser.trim(),
+          telefone: telefoneUser.trim() || null,
+        }).eq('id', user.id).select('id');
+        if (error || !data || data.length === 0) {
+          throw new Error(mensagemErroBanco(error ?? { code: '42501' }, 'salvar o perfil'));
+        }
+        if (novaSenha.length > 0) {
+          const { error: erroAuth } = await supabase.auth.updateUser({ password: novaSenha });
+          if (erroAuth) {
+            throw new Error(/different from the old/i.test(erroAuth.message)
+              ? 'A nova senha deve ser diferente da atual.'
+              : 'Não foi possível trocar a senha. Tente de novo.');
+          }
+        }
+        const atual = useAuthStore.getState().user;
+        if (atual) useAuthStore.setState({ user: { ...atual, nome: nomeUser.trim(), telefone: telefoneUser.trim() || undefined } });
+      }
+    } catch (e) {
+      setSalvando(false);
+      Alert.alert('Erro ao salvar', e instanceof Error ? e.message : 'Não foi possível salvar.');
+      return;
     }
-
-    const results = await Promise.all(ops);
     setSalvando(false);
-
-    const erros = results.filter((r) => r.error);
-    if (erros.length > 0) {
-      Alert.alert('Erro ao salvar', mensagemErroBanco(erros[0].error, 'salvar as configurações'));
-      return;
-    }
-    // UPDATE de empresas recusado pelo RLS volta sem erro e sem linha: não finge que salvou.
-    if (Object.keys(payloadEmpresa).length > 0 && (results[0]?.data?.length ?? 0) === 0) {
-      Alert.alert('Erro ao salvar', mensagemErroBanco({ code: '42501' }, 'salvar as configurações da empresa'));
-      return;
-    }
 
     // Invalida cache para refletir mudanças
     qc.invalidateQueries({ queryKey: ['empresa'] });
@@ -298,13 +351,15 @@ export default function Configuracoes() {
     // Re-busca a empresa atualizada e atualiza o Zustand authStore — a tela de
     // Novo agendamento lê `empresaAtiva` do authStore (não do React Query),
     // então sem isso a taxa de reserva/cancelamento só apareceria após reabrir o app.
-    const { data: empresaAtualizada } = await supabase
-      .from('empresas')
-      .select('*')
-      .eq('id', empresaAtiva.id)
-      .single();
-    if (empresaAtualizada) {
-      selecionarEmpresa(empresaAtualizada, roleAtivo ?? 'gestor', souOwner);
+    if (Object.keys(payloadEmpresa).length > 0) {
+      const { data: empresaAtualizada } = await supabase
+        .from('empresas')
+        .select('*')
+        .eq('id', empresaAtiva.id)
+        .single();
+      if (empresaAtualizada) {
+        selecionarEmpresa(empresaAtualizada, roleAtivo ?? 'gestor', souOwner);
+      }
     }
 
     Alert.alert('Salvo!', 'Configurações atualizadas com sucesso.');
@@ -328,6 +383,17 @@ export default function Configuracoes() {
       ]
     );
   }
+
+  const tituloSecao = (texto: string) => (
+    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 20, marginBottom: 10, marginHorizontal: 24 }}>
+      {texto}
+    </Text>
+  );
+  const cartao = {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    borderRadius: 18, marginHorizontal: 24, overflow: 'hidden' as const,
+    shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+  };
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
@@ -364,25 +430,36 @@ export default function Configuracoes() {
                 Configurações
               </Text>
 
-              {/* Logo + nome */}
+              {/* Logo + nome (trocar a logo: só a dona) */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                <TouchableOpacity style={{
-                  width: 64, height: 64, borderRadius: 18,
-                  backgroundColor: 'rgba(255,255,255,0.1)',
-                  borderWidth: 2, borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.25)',
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <ImageIcon size={22} color="rgba(255,255,255,0.3)" strokeWidth={1.5} />
+                <TouchableOpacity
+                  onPress={() => void trocarLogo()}
+                  disabled={!ehDona || enviandoLogo}
+                  accessibilityLabel="Logo da empresa"
+                  style={{
+                    width: 64, height: 64, borderRadius: 18, overflow: 'hidden',
+                    backgroundColor: 'rgba(255,255,255,0.1)',
+                    borderWidth: logoUrl ? 0 : 2, borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.25)',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  {enviandoLogo
+                    ? <ActivityIndicator color="#fff" />
+                    : logoUrl
+                      ? <Image source={{ uri: logoUrl }} style={{ width: 64, height: 64 }} resizeMode="cover" />
+                      : <ImageIcon size={22} color="rgba(255,255,255,0.3)" strokeWidth={1.5} />}
                 </TouchableOpacity>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: '#fff', marginBottom: 3 }}>
                     {nomeEmpresa || 'Nome do estúdio'}
                   </Text>
-                  <TouchableOpacity>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: 'rgba(155,111,232,0.9)' }}>
-                      Alterar logo
-                    </Text>
-                  </TouchableOpacity>
+                  {ehDona && (
+                    <TouchableOpacity onPress={() => void trocarLogo()} disabled={enviandoLogo}>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: 'rgba(155,111,232,0.9)' }}>
+                        {enviandoLogo ? 'Enviando…' : logoUrl ? 'Alterar logo' : 'Enviar logo'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             </MotiView>
@@ -394,45 +471,87 @@ export default function Configuracoes() {
           </View>
 
           {aba === 'permissoes' && vePermissoes && empresaAtiva && user && (
-            <View style={{ marginHorizontal: 24, marginTop: 16 }}>
-              <PermissoesPanel empresaId={empresaAtiva.id} meuUserId={user.id} membroInicial={params.membro || undefined} />
-            </View>
+            // Painel ainda sem tema escuro: fica claro (ilha) também no modo escuro.
+            <TemaClaroFixo>
+              <View style={{ marginHorizontal: 24, marginTop: 16, backgroundColor: PALETA_CLARA.bg, borderRadius: 16, padding: 8 }}>
+                <PermissoesPanel empresaId={empresaAtiva.id} meuUserId={user.id} membroInicial={params.membro || undefined} />
+              </View>
+            </TemaClaroFixo>
           )}
 
           {aba === 'empresa' && (<>
-          {/* ── Dados da Empresa ── */}
+          {ehDona && (<>
+          {/* ── Dados da Empresa (só a dona) ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 60 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 20, marginBottom: 10, marginHorizontal: 24 }}>
-              Dados da Empresa
-            </Text>
-            <View style={{
-              backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-              borderRadius: 18, marginHorizontal: 24, overflow: 'hidden',
-              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-            }}>
+            {tituloSecao('Dados da Empresa')}
+            <View style={cartao}>
               <Campo label="Nome" icon={<Store size={13} color={C.primary} strokeWidth={1.8} />}
-                value={nomeEmpresa} onChange={setNomeEmpresa} placeholder="Nome do estúdio" editavel={ehDona} />
-              <Campo label="Telefone" icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
-                value={telefoneEmp} onChange={setTelefoneEmp} placeholder="(00) 00000-0000" keyboardType="phone-pad" editavel={ehDona} />
-              <Campo label="Endereço" icon={<MapPin size={13} color={C.primary} strokeWidth={1.8} />}
-                value={endereco} onChange={setEndereco} placeholder="Rua, número — Cidade" editavel={ehDona} />
-              <View style={{ borderBottomWidth: 0 }}>
-                <Campo label="CNPJ" icon={<FileText size={13} color={C.primary} strokeWidth={1.8} />}
-                  value={cnpj} onChange={setCnpj} placeholder="00.000.000/0001-00" keyboardType="numeric" editavel={ehDona} />
+                value={nomeEmpresa} onChange={setNomeEmpresa} placeholder="Nome do estúdio" />
+              <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+                  Segmento
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {SEGMENTOS_EMPRESA.map((op) => {
+                    const ativo = segmento === op;
+                    return (
+                      <TouchableOpacity key={op} onPress={() => setSegmento(op)} accessibilityState={{ selected: ativo }}
+                        style={{
+                          height: 32, paddingHorizontal: 12, borderRadius: 16, justifyContent: 'center',
+                          backgroundColor: ativo ? C.primary : C.bg, borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                        }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? '#fff' : C.text2 }}>{op}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
+              <Campo label="CNPJ" icon={<FileText size={13} color={C.primary} strokeWidth={1.8} />}
+                value={cnpj} onChange={(v) => void mudarCnpj(v)} placeholder="00.000.000/0001-00" keyboardType="numeric"
+                buscando={buscandoCnpj} maxLength={18} />
+              {cnpj.length === 18 && !validaCNPJ(cnpj) && (
+                <Text style={{ marginHorizontal: 16, marginTop: -4, marginBottom: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.red }}>
+                  CNPJ inválido. Verifique os dígitos.
+                </Text>
+              )}
+              <Campo label="Telefone" icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
+                value={telefoneEmp} onChange={(v) => setTelefoneEmp(maskPhone(v))} placeholder="(00) 00000-0000" keyboardType="phone-pad" ultimo />
             </View>
+          </MotiView>
+
+          {/* ── Endereço (campos, gravado por serializarEnderecoEmpresa) ── */}
+          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 90 }}>
+            {tituloSecao('Endereço')}
+            <View style={cartao}>
+              <Campo label={'CEP'} icon={<MapPin size={13} color={C.primary} strokeWidth={1.8} />}
+                value={endereco.cep} onChange={(v) => void mudarCep(v)} placeholder="00000-000" keyboardType="numeric"
+                buscando={buscandoCep} maxLength={9} />
+              <Campo label={'Rua'} value={endereco.rua} onChange={(v) => setCampoEndereco('rua', v)} placeholder="Rua, avenida…" />
+              <Campo label={'Número'} value={endereco.numero} onChange={(v) => setCampoEndereco('numero', v)} placeholder="Nº" />
+              <Campo label={'Complemento'} value={endereco.complemento} onChange={(v) => setCampoEndereco('complemento', v)} placeholder="Sala, andar… (opcional)" />
+              <Campo label={'Bairro'} value={endereco.bairro} onChange={(v) => setCampoEndereco('bairro', v)} placeholder="Bairro" />
+              <Campo label={'Cidade'} value={endereco.cidade} onChange={(v) => setCampoEndereco('cidade', v)} placeholder="Cidade" />
+              <Campo label={'UF'} value={endereco.uf} onChange={(v) => setCampoEndereco('uf', v.toUpperCase())} placeholder="UF"
+                maxLength={2} autoCapitalize="characters" ultimo />
+            </View>
+          </MotiView>
+
+          {/* ── Meta mensal ── */}
+          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 100 }}>
+            {tituloSecao('Meta mensal de receita')}
+            <View style={cartao}>
+              <Campo label="Meta de receita bruta (R$)" icon={<Target size={13} color={C.primary} strokeWidth={1.8} />}
+                value={metaMensal} onChange={(v) => setMetaMensal(maskMoeda(v))} placeholder="0,00" keyboardType="numeric" ultimo />
+            </View>
+            <Text style={{ marginHorizontal: 24, marginTop: 6, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+              Aparece como barra de progresso no Dashboard.
+            </Text>
           </MotiView>
 
           {/* ── Horários de Funcionamento ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 120 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 20, marginBottom: 10, marginHorizontal: 24 }}>
-              Horários de Funcionamento
-            </Text>
-            <View style={{
-              backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-              borderRadius: 18, marginHorizontal: 24, overflow: 'hidden',
-              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-            }}>
+            {tituloSecao('Horários de Funcionamento')}
+            <View style={cartao}>
               {DIAS.map((dia, i) => {
                 const h = horarios[dia];
                 return (
@@ -444,7 +563,6 @@ export default function Configuracoes() {
                       borderBottomWidth: i < DIAS.length - 1 ? 1 : 0, borderBottomColor: C.border,
                     }}
                   >
-                    {/* Nome do dia */}
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12,
                       color: h.aberto ? C.text : C.text4, width: 32,
@@ -452,44 +570,33 @@ export default function Configuracoes() {
                       {DIAS_LABEL[dia]}
                     </Text>
 
-                    {/* Toggle */}
                     <Switch
                       value={h.aberto}
                       onValueChange={() => toggleDia(dia)}
-                      disabled={!ehDona}
                       trackColor={{ false: C.border, true: C.green }}
                       thumbColor="#fff"
                       style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
                     />
 
-                    {/* Horário ou "Fechado" */}
                     {h.aberto ? (
                       <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <TextInput
-                          value={h.inicio}
-                          onChangeText={(v) => setHorarioDia(dia, 'inicio', v)}
-                          editable={ehDona}
-                          style={{
-                            backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
-                            borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
-                            fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text,
-                            width: 60, textAlign: 'center',
-                          }}
-                        />
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>
-                          até
-                        </Text>
-                        <TextInput
-                          value={h.fim}
-                          onChangeText={(v) => setHorarioDia(dia, 'fim', v)}
-                          editable={ehDona}
-                          style={{
-                            backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
-                            borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
-                            fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text,
-                            width: 60, textAlign: 'center',
-                          }}
-                        />
+                        {(['inicio', 'fim'] as const).map((campo, j) => (
+                          <View key={campo} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            {j === 1 && (
+                              <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>até</Text>
+                            )}
+                            <TextInput
+                              value={h[campo]}
+                              onChangeText={(v) => setHorarioDia(dia, campo, v)}
+                              style={{
+                                backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                                borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+                                fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text,
+                                width: 60, textAlign: 'center',
+                              }}
+                            />
+                          </View>
+                        ))}
                       </View>
                     ) : (
                       <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text4, fontStyle: 'italic', flex: 1 }}>
@@ -501,7 +608,9 @@ export default function Configuracoes() {
               })}
             </View>
           </MotiView>
+          </>)}
 
+          {podeEditarTaxa && (<>
           {/* ── Taxa de Cancelamento ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 150 }}
             style={{ marginHorizontal: 24, marginTop: 20 }}
@@ -514,13 +623,8 @@ export default function Configuracoes() {
                 Gera uma cobrança pendente no Financeiro ao cancelar um agendamento ou registrar falta.
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Switch
-                  value={taxaAtiva}
-                  onValueChange={v => { if (podeEditarTaxa) setTaxaAtiva(v); }}
-                  disabled={!podeEditarTaxa}
-                  trackColor={{ false: C.border, true: C.primary }}
-                  thumbColor="#fff"
-                />
+                <Switch value={taxaAtiva} onValueChange={setTaxaAtiva}
+                  trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
                   Cobrar taxa automaticamente
                 </Text>
@@ -528,26 +632,18 @@ export default function Configuracoes() {
               {taxaAtiva && (
                 <>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setTaxaModo('percentual')}
-                      style={{
-                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-                        borderWidth: 1, borderColor: taxaModo === 'percentual' ? C.primary : C.border,
-                        backgroundColor: taxaModo === 'percentual' ? C.primarySoft : 'transparent',
-                      }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: taxaModo === 'percentual' ? C.primary : C.text3 }}>
-                        % do serviço
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setTaxaModo('fixo')}
-                      style={{
-                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-                        borderWidth: 1, borderColor: taxaModo === 'fixo' ? C.primary : C.border,
-                        backgroundColor: taxaModo === 'fixo' ? C.primarySoft : 'transparent',
-                      }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: taxaModo === 'fixo' ? C.primary : C.text3 }}>
-                        Valor fixo (R$)
-                      </Text>
-                    </TouchableOpacity>
+                    {([['percentual', '% do serviço'], ['fixo', 'Valor fixo (R$)']] as const).map(([m, rotulo]) => (
+                      <TouchableOpacity key={m} onPress={() => setTaxaModo(m)}
+                        style={{
+                          flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                          borderWidth: 1, borderColor: taxaModo === m ? C.primary : C.border,
+                          backgroundColor: taxaModo === m ? C.primarySoft : 'transparent',
+                        }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: taxaModo === m ? C.primary : C.text3 }}>
+                          {rotulo}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
                   <Campo
                     label={taxaModo === 'percentual' ? 'Percentual da taxa' : 'Valor da taxa'}
@@ -557,18 +653,18 @@ export default function Configuracoes() {
                     placeholder="0,00"
                     keyboardType="decimal-pad"
                   />
-                  <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setTaxaAplicaCancelado(v => !v)}
+                  <TouchableOpacity onPress={() => setTaxaAplicaCancelado(v => !v)}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <Switch value={taxaAplicaCancelado} onValueChange={v => { if (podeEditarTaxa) setTaxaAplicaCancelado(v); }}
-                      disabled={!podeEditarTaxa} trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
+                    <Switch value={taxaAplicaCancelado} onValueChange={setTaxaAplicaCancelado}
+                      trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
                     <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text2 }}>
                       Aplicar quando cancelado
                     </Text>
                   </TouchableOpacity>
-                  <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setTaxaAplicaFaltou(v => !v)}
+                  <TouchableOpacity onPress={() => setTaxaAplicaFaltou(v => !v)}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <Switch value={taxaAplicaFaltou} onValueChange={v => { if (podeEditarTaxa) setTaxaAplicaFaltou(v); }}
-                      disabled={!podeEditarTaxa} trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
+                    <Switch value={taxaAplicaFaltou} onValueChange={setTaxaAplicaFaltou}
+                      trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
                     <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text2 }}>
                       Aplicar quando o cliente faltar
                     </Text>
@@ -590,13 +686,8 @@ export default function Configuracoes() {
                 Sugere um valor de taxa de reserva (editável) ao criar um novo agendamento.
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Switch
-                  value={reservaAtiva}
-                  onValueChange={v => { if (podeEditarTaxa) setReservaAtiva(v); }}
-                  disabled={!podeEditarTaxa}
-                  trackColor={{ false: C.border, true: C.primary }}
-                  thumbColor="#fff"
-                />
+                <Switch value={reservaAtiva} onValueChange={setReservaAtiva}
+                  trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
                   Sugerir taxa de reserva ao agendar
                 </Text>
@@ -604,26 +695,18 @@ export default function Configuracoes() {
               {reservaAtiva && (
                 <>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setReservaModo('percentual')}
-                      style={{
-                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-                        borderWidth: 1, borderColor: reservaModo === 'percentual' ? C.primary : C.border,
-                        backgroundColor: reservaModo === 'percentual' ? C.primarySoft : 'transparent',
-                      }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === 'percentual' ? C.primary : C.text3 }}>
-                        % do serviço
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity disabled={!podeEditarTaxa} onPress={() => setReservaModo('fixo')}
-                      style={{
-                        flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-                        borderWidth: 1, borderColor: reservaModo === 'fixo' ? C.primary : C.border,
-                        backgroundColor: reservaModo === 'fixo' ? C.primarySoft : 'transparent',
-                      }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === 'fixo' ? C.primary : C.text3 }}>
-                        Valor fixo (R$)
-                      </Text>
-                    </TouchableOpacity>
+                    {([['percentual', '% do serviço'], ['fixo', 'Valor fixo (R$)']] as const).map(([m, rotulo]) => (
+                      <TouchableOpacity key={m} onPress={() => setReservaModo(m)}
+                        style={{
+                          flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                          borderWidth: 1, borderColor: reservaModo === m ? C.primary : C.border,
+                          backgroundColor: reservaModo === m ? C.primarySoft : 'transparent',
+                        }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === m ? C.primary : C.text3 }}>
+                          {rotulo}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
                   <Campo
                     label={reservaModo === 'percentual' ? 'Percentual sugerido' : 'Valor sugerido'}
@@ -638,34 +721,31 @@ export default function Configuracoes() {
             </View>
           </MotiView>
 
-          {/* ── Cartões (maquininhas, bandeiras e taxas) ── */}
+          {/* ── Cartões (maquininhas, bandeiras e taxas) — painel ainda sem tema escuro: ilha clara ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 160 }}
             style={{ marginHorizontal: 24, marginTop: 16 }}>
-            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
-              <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>
-                Cartões
-              </Text>
-              {empresaAtiva && <CartoesConfig empresaId={empresaAtiva.id} />}
-            </View>
+            <TemaClaroFixo>
+              <View style={{ backgroundColor: PALETA_CLARA.surface, borderWidth: 1, borderColor: PALETA_CLARA.border, borderRadius: 16, padding: 18, gap: 14 }}>
+                <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: PALETA_CLARA.text }}>
+                  Cartões
+                </Text>
+                {empresaAtiva && <CartoesConfig empresaId={empresaAtiva.id} />}
+              </View>
+            </TemaClaroFixo>
           </MotiView>
+          </>)}
 
           </>)}
 
           {aba === 'perfil' && (<>
           {/* ── Minha Conta ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 180 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 20, marginBottom: 10, marginHorizontal: 24 }}>
-              Minha Conta
-            </Text>
-            <View style={{
-              backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-              borderRadius: 18, marginHorizontal: 24, overflow: 'hidden',
-              shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-            }}>
+            {tituloSecao('Minha Conta')}
+            <View style={cartao}>
               {/* Avatar */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, padding: 16, borderBottomWidth: 1, borderBottomColor: C.border }}>
                 <View style={{ position: 'relative' }}>
-                  <TouchableOpacity style={{
+                  <View style={{
                     width: 56, height: 56, borderRadius: 16,
                     backgroundColor: C.primarySoft,
                     alignItems: 'center', justifyContent: 'center',
@@ -673,7 +753,7 @@ export default function Configuracoes() {
                     <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.primary }}>
                       {initials(nomeUser || 'U')}
                     </Text>
-                  </TouchableOpacity>
+                  </View>
                   <View style={{
                     position: 'absolute', bottom: -2, right: -2,
                     width: 20, height: 20, borderRadius: 6,
@@ -696,53 +776,22 @@ export default function Configuracoes() {
               <Campo label="Nome" icon={<User size={13} color={C.primary} strokeWidth={1.8} />}
                 value={nomeUser} onChange={setNomeUser} placeholder="Seu nome" />
               <Campo label="Telefone" icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
-                value={telefoneUser} onChange={setTelefoneUser} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
-              <View style={{ borderBottomWidth: 0 }}>
-                <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
-                  value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry />
-              </View>
+                value={telefoneUser} onChange={(v) => setTelefoneUser(maskPhone(v))} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
+              <TrocarEmail />
+              <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+                value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry ultimo />
             </View>
           </MotiView>
 
-          {/* ── Notificações ── */}
-          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 200 }}
-            style={{ marginHorizontal: 24, marginTop: 20 }}
-          >
-            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Bell size={16} color={C.primary} strokeWidth={1.8} />
-                <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>
-                  Notificações
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setNotifResumo((v) => !v)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Switch value={notifResumo} onValueChange={setNotifResumo}
-                  trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
-                    Resumo do dia
-                  </Text>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
-                    1x por dia, às 07:00
-                  </Text>
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setNotifLembrete((v) => !v)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Switch value={notifLembrete} onValueChange={setNotifLembrete}
-                  trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
-                    Lembrete de atendimento
-                  </Text>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
-                    30 min antes de cada atendimento
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </MotiView>
+          {/* ── Notificações no celular (status, Ativar e preferências salvas na hora) ── */}
+          <View style={{ marginHorizontal: 24, marginTop: 20 }}>
+            <CardNotificacoesCelular />
+          </View>
+
+          {/* ── Aparência (modo escuro) ── */}
+          <View style={{ marginHorizontal: 24, marginTop: 20 }}>
+            <SeletorModoTema />
+          </View>
 
           {pode('agenda.ver_equipe') && prefAgenda.data !== null && (
             <View style={{ marginHorizontal: 24, marginTop: 20 }}>
@@ -842,3 +891,5 @@ export default function Configuracoes() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(Configuracoes);

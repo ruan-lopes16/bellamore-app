@@ -6,8 +6,8 @@
 import type { ReactNode } from 'react';
 import { View, Text, ScrollView } from 'react-native';
 import { agruparPorHora } from '@shared/agenda-grade';
+import { useTema } from '@/lib/tema';
 
-const C = { surface: '#FFFFFF', border: '#E8E2DC', primary: '#2C1654', text2: '#4A3F5C', linha: '#D8D0C8' };
 
 const LARGURA_HORA = 48;
 
@@ -20,6 +20,7 @@ export function TimelineColunas<T extends { data_hora_inicio: string }>({
   renderCelula: (profissionalId: string, itensDaHora: T[], hora: number) => ReactNode;
   larguraColuna?: number;
 }) {
+  const { C } = useTema();
   const porHora = colunas.map((c) => agruparPorHora(c.itens));
 
   if (colunas.length === 0) {

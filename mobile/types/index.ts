@@ -44,6 +44,9 @@ export interface Empresa {
   endereco?: string;
   telefone?: string;
   logo_url?: string;
+  segmento?: string | null;
+  /** Meta de receita bruta do mês (Dashboard). */
+  meta_mensal?: number | null;
   horario_funcionamento?: Record<string, { inicio: string; fim: string }>;
   ativo: boolean;
   created_at: string;

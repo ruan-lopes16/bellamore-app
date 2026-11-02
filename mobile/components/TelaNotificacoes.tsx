@@ -20,26 +20,17 @@ import {
   TEXTOS_NOTIFICACOES as T, TIPOS_NOTIFICACAO, VISUAL_ALERTA, tipoNotificacao, type AreaApp, type CorAviso,
 } from '@shared/notificacoes';
 import { rotuloDataHoraBRT } from '@shared/periodos';
+import { BarraDeStatus, useTema, type Paleta } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 /** Cores dos tokens de shared (`CorAviso`) na paleta do app. */
-const COR: Record<CorAviso, { fg: string; bg: string }> = {
+const corAviso = (C: Paleta): Record<CorAviso, { fg: string; bg: string }> => ({
   primary: { fg: C.primary, bg: C.primarySoft },
   amber: { fg: C.amber, bg: C.amberSoft },
   green: { fg: C.green, bg: C.greenSoft },
   red: { fg: C.red, bg: C.redSoft },
   rose: { fg: C.rose, bg: C.roseSoft },
-};
+});
 
 /** Ícones pelo nome lucide de shared (iguais em lucide-react e lucide-react-native). */
 const ICONES: Record<string, typeof Bell> = {
@@ -48,7 +39,8 @@ const ICONES: Record<string, typeof Bell> = {
 
 function Icone({ nome, cor }: { nome: string; cor: CorAviso }) {
   const I = ICONES[nome] ?? Bell;
-  const c = COR[cor];
+  const { C } = useTema();
+  const c = corAviso(C)[cor];
   return (
     <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
       <I size={15} color={c.fg} strokeWidth={1.8} />
@@ -65,6 +57,7 @@ function Pilula({ texto, fundo, cor }: { texto: string; fundo: string; cor: stri
 }
 
 function Secao({ titulo, extra, children }: { titulo: string; extra?: React.ReactNode; children: React.ReactNode }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 20 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 24, marginBottom: 8 }}>
@@ -81,6 +74,7 @@ function Secao({ titulo, extra, children }: { titulo: string; extra?: React.Reac
 }
 
 function Caixa({ children }: { children: React.ReactNode }) {
+  const { C } = useTema();
   return (
     <View style={{ backgroundColor: C.surface, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.border }}>
       {children}
@@ -89,6 +83,7 @@ function Caixa({ children }: { children: React.ReactNode }) {
 }
 
 function Mensagem({ texto, titulo }: { texto: string; titulo?: string }) {
+  const { C } = useTema();
   return (
     <View style={{ paddingHorizontal: 24, paddingVertical: 14 }}>
       {!!titulo && <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text, marginBottom: 2 }}>{titulo}</Text>}
@@ -99,6 +94,7 @@ function Mensagem({ texto, titulo }: { texto: string; titulo?: string }) {
 
 /** Erro de carga com "Tentar de novo" (igual ao web: nunca lista vazia por falha). */
 function ErroCarga({ texto, onTentar }: { texto: string; onTentar: () => void }) {
+  const { C } = useTema();
   return (
     <View style={{ paddingHorizontal: 24, paddingVertical: 14, backgroundColor: C.redSoft }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.red, marginBottom: 8 }}>{texto}</Text>
@@ -110,6 +106,7 @@ function ErroCarga({ texto, onTentar }: { texto: string; onTentar: () => void })
 }
 
 function LinhaAlerta({ alerta, ultimo, onPress }: { alerta: Alerta; ultimo: boolean; onPress: (() => void) | null }) {
+  const { C } = useTema();
   const v = VISUAL_ALERTA[alerta.grupo];
   return (
     <TouchableOpacity
@@ -135,6 +132,7 @@ function LinhaAlerta({ alerta, ultimo, onPress }: { alerta: Alerta; ultimo: bool
 function LinhaAviso({ aviso, ultimo, onPress, onMarcar }: {
   aviso: AvisoRow; ultimo: boolean; onPress: () => void; onMarcar: () => void;
 }) {
+  const { C } = useTema();
   const t = tipoNotificacao(aviso.tipo);
   const v = t ? TIPOS_NOTIFICACAO[t] : null;
   return (
@@ -154,7 +152,7 @@ function LinhaAviso({ aviso, ultimo, onPress, onMarcar }: {
           <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: aviso.lida ? C.text2 : C.text }}>{aviso.titulo}</Text>
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text4 }}>{rotuloDataHoraBRT(aviso.created_at)}</Text>
         </View>
-        {!!v && <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: COR[v.cor].fg, marginTop: 2 }}>{v.rotulo}</Text>}
+        {!!v && <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: corAviso(C)[v.cor].fg, marginTop: 2 }}>{v.rotulo}</Text>}
         {!!aviso.mensagem && (
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, lineHeight: 17, marginTop: 3 }}>{aviso.mensagem}</Text>
         )}
@@ -183,6 +181,7 @@ function LinhaAviso({ aviso, ultimo, onPress, onMarcar }: {
  * Uma tela só para as duas áreas.
  */
 export function TelaNotificacoes({ area }: { area: AreaApp }) {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const [filtro, setFiltro] = useState<'todas' | 'nao-lidas'>('todas');
   const [agsExpandido, setAgsExpandido] = useState(false);
@@ -236,7 +235,7 @@ export function TelaNotificacoes({ area }: { area: AreaApp }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <BarraDeStatus comFundo />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 100 }}

@@ -23,7 +23,6 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
-import { SeletorEmpresa } from '@/components/SeletorEmpresa';
 import { useSino } from '@/hooks/useNotificacoes';
 import {
   useAgendaProfissional, useKpisDiaProfissional, useResumoComissoes,
@@ -31,17 +30,10 @@ import {
 } from '@/hooks/useProfissional';
 import { progressoMetaPessoal } from '@shared/dashboard-profissional';
 import { formatarMoeda } from '@shared/moeda';
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  rose: '#C0392B', roseSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 // ── Card de meta pessoal ──────────────────────────────────────
 
@@ -50,6 +42,7 @@ const C = {
 // escopo por empresa). O prop existe pra deixar explícito, no call site,
 // que este card é sempre relativo à empresa em foco na tela.
 function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number | null; faturamentoBruto: number; empresaId: string }) {
+  const { C } = useTema();
   const definirMeta = useDefinirMetaPessoal();
   const [editando, setEditando] = useState(false);
   const [valor, setValor] = useState(meta ? String(meta) : '');
@@ -107,7 +100,10 @@ function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number |
 
 // ── Tela principal ────────────────────────────────────────────
 
-export default function Inicio() {
+function Inicio() {
+  const { C: T } = useTema();
+  // Nesta tela o alerta ("rose") sempre foi o vermelho.
+  const C = { ...T, rose: T.red, roseSoft: T.redSoft };
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const hoje = new Date();
@@ -216,9 +212,6 @@ export default function Inicio() {
           ))}
         </View>
 
-        {/* Trocar de empresa (só com 2+ vínculos) */}
-        <SeletorEmpresa style={{ marginHorizontal: 24, marginBottom: 16 }} />
-
         <MetaPessoalCard meta={meta ?? null} faturamentoBruto={resumoMes?.faturamentoBruto ?? 0} empresaId={empresaAtiva?.id ?? ''} />
 
         {/* Agenda de hoje */}
@@ -283,3 +276,5 @@ export default function Inicio() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Inicio);

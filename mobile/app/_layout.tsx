@@ -12,6 +12,7 @@ import { sincronizarPushDispositivo, cancelarLembretesLocais, rotaParaNotificaca
 import { TapSpark } from '@/components/TapSpark';
 import { ErroPermissoes } from '@/components/ErroPermissoes';
 import { SemAcesso } from '@/components/SemAcesso';
+import { TemaProvider } from '@/lib/tema';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -111,6 +112,8 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      {/* Modo escuro: escolha da pessoa (AsyncStorage). Só as telas migradas a aplicam (lib/tema). */}
+      <TemaProvider>
       <TapSpark>
         <Stack screenOptions={{ headerShown: false }} />
       </TapSpark>
@@ -118,6 +121,7 @@ export default function RootLayout() {
       {user && permissoesErro && <ErroPermissoes />}
       {/* Logado com papel que o app não conhece: "Sem acesso", não o login. */}
       {user && roleAtivo && !isOwner && rotaInicial(roleAtivo) === '/(auth)/login' && <SemAcesso podeVoltar={false} />}
+      </TemaProvider>
     </QueryClientProvider>
   );
 }

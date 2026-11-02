@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Alert, StatusBar, KeyboardAvoidingView,
+  ActivityIndicator, Alert, KeyboardAvoidingView,
   Platform, Linking,
 } from 'react-native';
 import { router } from 'expo-router';
@@ -70,23 +70,15 @@ import {
   itensTelaACobrar, mesclarItensACobrar, exigeVenderPacote,
   TEXTO_ITEM_A_COBRAR, TITULO_TIRAR_A_COBRAR, MSG_A_COBRAR_SEM_090, AVISO_PENDENTES_NAO_CARREGADOS,
 } from '@shared/comanda-gravacao';
+import { BarraDeStatus, comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  red: '#EF4444', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
-const STATUS_COR: Record<string, { bg: string; text: string }> = {
+const statusCor = (C: Paleta): Record<string, { bg: string; text: string }> => ({
   agendado:   { bg: C.amberSoft, text: C.amber },
   confirmado: { bg: C.primarySoft, text: C.primary },
   concluido:  { bg: C.greenSoft, text: C.green },
   faltou:     { bg: C.redSoft, text: C.red },
-};
+});
 
 /** Métodos de pagamento (mesmos chips do bloco de pagamento compartilhado). */
 const METODOS = METODOS_PAGAMENTO;
@@ -188,7 +180,8 @@ type Etapa = 'lista' | 'comanda' | 'sucesso';
 /** Comanda só com extras que falhou depois de criada (mesmo texto no web). */
 const AVISO_COMANDA_PARCIAL = 'A comanda foi criada mas não terminou de gravar — confira em Comanda/Financeiro antes de lançar de novo';
 
-export default function NovaComandaScreen() {
+function NovaComandaScreen() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const empresaAtiva = useAuthStore(s => s.empresaAtiva);
   const meuUserId = useAuthStore(s => s.user?.id ?? '');
@@ -1415,7 +1408,7 @@ export default function NovaComandaScreen() {
   if (etapa === 'sucesso' && sucessoData) {
     return (
       <View style={{ flex: 1, backgroundColor: C.surface, paddingTop: insets.top }}>
-        <StatusBar barStyle="dark-content" />
+        <BarraDeStatus />
         <ScrollView contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, paddingVertical: 24 }}>
           <View style={{ marginBottom: 16 }}>
             <SuccessCheck size={84} />
@@ -1550,7 +1543,7 @@ export default function NovaComandaScreen() {
   if (etapa === 'lista') {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
-        <StatusBar barStyle="dark-content" />
+        <BarraDeStatus />
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}>
           <TouchableOpacity onPress={() => router.back()} style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
@@ -1764,7 +1757,7 @@ export default function NovaComandaScreen() {
                     {cliente.agendamentos.length > 1 && (
                       <View style={{ flexDirection: 'row', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
                         {cliente.agendamentos.map(ag => {
-                          const sc = STATUS_COR[ag.status] ?? { bg: C.bg, text: C.text3 };
+                          const sc = statusCor(C)[ag.status] ?? { bg: C.bg, text: C.text3 };
                           return (
                             <View key={ag.id} style={{ backgroundColor: sc.bg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
                               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: sc.text }}>{fmtHora(ag.data_hora_inicio)}</Text>
@@ -1787,7 +1780,7 @@ export default function NovaComandaScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={{ flex: 1, backgroundColor: C.surface, paddingTop: insets.top }}>
-        <StatusBar barStyle="dark-content" />
+        <BarraDeStatus />
 
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderColor: C.border }}>
@@ -2186,3 +2179,5 @@ export default function NovaComandaScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(NovaComandaScreen);

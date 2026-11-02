@@ -5,11 +5,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { CheckCircle, ChevronRight } from 'lucide-react-native';
 import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC', primary: '#2C1654', primarySoft: '#EEE8F8', accent: '#9B6FE8',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
 const AVATAR_BG = ['#2C1654', '#0D7E5F', '#B45309', '#7C3AED', '#C0392B'];
 
 function rotuloPapel(role: string, owner: boolean) {
@@ -26,6 +23,7 @@ function rotuloPapel(role: string, owner: boolean) {
  * aparelho de push na empresa nova.
  */
 export function SeletorEmpresa({ style }: { style?: object }) {
+  const { C } = useTema();
   const { empresasDisponiveis, empresaAtiva, trocarEmpresa } = useAuthStore();
   const qc = useQueryClient();
   const [trocando, setTrocando] = useState<string | null>(null);

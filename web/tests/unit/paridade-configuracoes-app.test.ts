@@ -102,9 +102,9 @@ describe('app: seletor de empresa nos dois menus', () => {
     expect(c).toContain('trocarEmpresa(');
     expect(c).toContain('invalidateQueries()');
   });
-  it('Mais e Início da profissional usam o seletor', () => {
+  it('Mais e Ajustes da profissional usam o seletor (saiu do Início na Task 7)', () => {
     expect(ler('app/(empresa)/mais.tsx')).toContain('<SeletorEmpresa');
-    expect(ler('app/(profissional)/inicio.tsx')).toContain('<SeletorEmpresa');
+    expect(ler('app/(profissional)/configuracoes.tsx')).toContain('<SeletorEmpresa');
   });
   it('Mais sem fallback de papel', () => {
     expect(ler('app/(empresa)/mais.tsx')).not.toMatch(/roleAtivo \?\? '(profissional|gestor)'/);

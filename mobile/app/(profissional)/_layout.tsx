@@ -1,16 +1,21 @@
 import { View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { BannerConvites } from '@/components/BannerConvites';
+import { usePreferenciaTema, PALETA_ESCURA } from '@/lib/tema';
 
 export default function ProfissionalLayout() {
+  // Barra de abas no tema da pessoa (modo escuro); as telas não migradas seguem claras.
+  const escuro = usePreferenciaTema().esquema === 'escuro';
   return (
     <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#6b21a8',
-        tabBarInactiveTintColor: '#9ca3af',
-        tabBarStyle: { borderTopColor: '#f3e8ff' },
+        tabBarActiveTintColor: escuro ? PALETA_ESCURA.accent : '#6b21a8',
+        tabBarInactiveTintColor: escuro ? PALETA_ESCURA.text3 : '#9ca3af',
+        tabBarStyle: escuro
+          ? { borderTopColor: PALETA_ESCURA.border, backgroundColor: PALETA_ESCURA.surface }
+          : { borderTopColor: '#f3e8ff' },
       }}
     >
       <Tabs.Screen name="inicio"        options={{ title: 'Início',       tabBarIcon: () => null }} />
