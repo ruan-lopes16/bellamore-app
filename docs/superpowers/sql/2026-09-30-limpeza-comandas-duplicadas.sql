@@ -42,13 +42,16 @@ delete from public.comandas c
 --    (confirmado pelo dono), mas a comanda vendeu o pacote DE NOVO: criou um 2º
 --    pacote ativo (8f8fc727, sem nenhuma sessão usada) e uma venda de R$315 que
 --    entrou no faturamento de setembro. Apaga venda, pacote duplicado e comanda.
-delete from public.vendas v
- where v.id = 'fd36c64b-5069-4293-8dd1-49f8a8ecf1c3'
-   and not exists (select 1 from public.venda_itens vi where vi.venda_id = v.id);
+--    Ordem (revisada em 2026-11-02): pacote ANTES da venda — o trigger da 096
+--    (trg_guarda_venda_de_pacote) recusa apagar venda que ainda tem pacote ligado.
 delete from public.pacote_clientes pc
  where pc.id = '8f8fc727-cd16-4b0f-87b9-1c7f9fe8a6cf'
    and not exists (select 1 from public.pacote_uso u where u.pacote_cliente_id = pc.id)
    and not exists (select 1 from public.agendamentos a where a.pacote_cliente_id = pc.id);
+delete from public.vendas v
+ where v.id = 'fd36c64b-5069-4293-8dd1-49f8a8ecf1c3'
+   and not exists (select 1 from public.venda_itens vi where vi.venda_id = v.id)
+   and not exists (select 1 from public.pacote_clientes pc where pc.venda_id = v.id);
 delete from public.pagamentos p
  where p.comanda_id = 'e5724812-223a-42c2-afff-a1218dee19e5'
    and not exists (select 1 from public.agendamentos a where a.comanda_id = p.comanda_id);

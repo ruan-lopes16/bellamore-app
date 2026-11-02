@@ -1427,7 +1427,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 **Pendências para produção:** seguir `docs/superpowers/notes/2026-11-02-deploy-configuracoes.md` — **097 antes do deploy**; build nativo novo do app (`expo-image-picker`, `expo-system-ui` + os já pendentes); `EXPO_ACCESS_TOKEN` na Vercel só se o projeto Expo exigir push seguro.
 
-**Decisão pendente do dono:** alerta de aniversariantes mostra os próximos 7 dias (hoje em destaque), como o web já fazia — confirmar ou trocar para só os de hoje.
+**Decisão do dono (2026-11-02):** alerta de aniversariantes mostra os próximos 7 dias (hoje em destaque), como o web já fazia — mantido.
 
 **Registrados, não corrigidos:** contraste do `primary`/`green` no escuro (precisa separar tokens — decisão de design); telas secundárias do app sem modo escuro (Financeiro, Relatórios, Equipe, Estoque, Vendas, Serviços, Pacotes, formulários e modais); sessão expirada no app continua recebendo push até alguém entrar; convite troca a empresa ao carregar; erro de leitura dos vínculos leva a `/login`; gestora sem `agenda.ver_equipe` recebe a contagem da empresa no resumo; token compartilhado por 2 usuários recebe só o 1º resumo; recibos assíncronos da Expo não são lidos. Há duas migrations com o número 096 (pacotes e despesas puladas, ambas aplicadas).
 
