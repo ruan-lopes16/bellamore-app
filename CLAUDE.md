@@ -1396,6 +1396,43 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-10-28 a 11-02 — Paridade Configurações, Notificações e Papéis (097)
+
+*Escopo: (1) push no app nativo pelo servidor — migration 097 (`push_dispositivos` com RLS e função de registro, backfill de*
+*`users.push_token`, "marcar como lida" versionado com trigger que só deixa mudar `lida`); crons de lembrete e resumo enviam também*
+*pela Expo Push API, por empresa, respeitando preferências e (no resumo) `financeiro.ver`/`estoque.acessar`; permissão de*
+*notificação só no clique ("Ativar notificações"); lembrete local só quando o servidor não pode mandar (`usarLembreteLocal`).*
+*(2) Empresa ativa escolhida e salva (cookie validado no web, AsyncStorage no app), seletor nas duas plataformas, nenhum*
+*`.limit(1)` de empresa no web. (3) Notificações iguais: "Alertas" (calculados, por permissão) + "Avisos", filtro "Não lidas",*
+*sino por contagem leve; tela de Notificações na área da profissional (exceção pedida pelo dono à regra de 02/10). (4) Configurações*
+*iguais: app com logo, CNPJ/CEP com busca, endereço em campos (`shared/endereco.ts`), segmento, meta, troca de e-mail e senha,*
+*modo escuro (telas principais); web com troca de senha e taxas por `parseValorBR`. (5) Login/convite: `next` seguro, convite e*
+*redefinir públicos, callback e criar-empresa sem 2ª empresa por engano; guardas de rota no app; permissões que falham nunca*
+*liberam nada. Também corrigidas 3 regressões do PR #157 (datas em UTC, inclusive no app). 8 tasks + revisões + revisão final (opus).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 3053/3053; mobile só com o erro pré-existente de `useAgenda.ts`; `next build` OK |
+| UX / Padrões    | 9.0  | Mesmos textos e seções nas duas plataformas (constantes em shared); aviso de alterações não salvas; modo escuro sem trechos ilegíveis |
+| Segurança       | 9.5  | Cookie de empresa validado contra vínculo; `next` só interno; permissões em `null` não liberam; sair do web remove a inscrição de push (computador compartilhado); dispositivo só da própria conta; senha mínima 8 em todo lugar |
+| Documentação    | 9.0  | Spec, plano, nota de deploy com conferências, cabeçalho da 097 |
+| Arquitetura     | 9.5  | Regras em shared (`empresa-ativa`, `notificacoes`, `endereco`, `senha`, `lembretes-locais`, `permissaoDaRota`); crons extraídos para `web/lib/push/*` testáveis |
+| Performance     | 9.0  | Sino por 4 contagens `head`; envio Expo em lotes de 100 |
+| Visual (UI)     | —    | Sem conta de teste local e app nativo não publicado — não executado |
+| **Completude**  | 9.0  | Todos os itens do inventário de Configurações/Notificações/Papéis; modo escuro parcial (telas secundárias ficam claras) |
+| **Proatividade**| 9.5  | Revisões acharam: falha passageira marcava todos os lembretes sem enviar; 2ª empresa por engano quando a leitura de vínculos falhava (web e app); quem perdeu o vínculo não conseguia apagar o próprio aparelho; Agenda e Comanda ilegíveis no escuro; sair do web deixava o navegador recebendo avisos da conta anterior; 3 regressões do #157 |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Pendências para produção:** seguir `docs/superpowers/notes/2026-11-02-deploy-configuracoes.md` — **097 antes do deploy**; build nativo novo do app (`expo-image-picker`, `expo-system-ui` + os já pendentes); `EXPO_ACCESS_TOKEN` na Vercel só se o projeto Expo exigir push seguro.
+
+**Decisão pendente do dono:** alerta de aniversariantes mostra os próximos 7 dias (hoje em destaque), como o web já fazia — confirmar ou trocar para só os de hoje.
+
+**Registrados, não corrigidos:** contraste do `primary`/`green` no escuro (precisa separar tokens — decisão de design); telas secundárias do app sem modo escuro (Financeiro, Relatórios, Equipe, Estoque, Vendas, Serviços, Pacotes, formulários e modais); sessão expirada no app continua recebendo push até alguém entrar; convite troca a empresa ao carregar; erro de leitura dos vínculos leva a `/login`; gestora sem `agenda.ver_equipe` recebe a contagem da empresa no resumo; token compartilhado por 2 usuários recebe só o 1º resumo; recibos assíncronos da Expo não são lidos. Há duas migrations com o número 096 (pacotes e despesas puladas, ambas aplicadas).
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
