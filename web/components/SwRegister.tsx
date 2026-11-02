@@ -37,11 +37,24 @@ export async function registrarEInscrever(): Promise<void> {
       applicationServerKey: urlBase64ToUint8Array(vapidKey),
     }));
 
-  await fetch('/api/push/subscribe', {
+  const res = await fetch('/api/push/subscribe', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(subscription),
   });
+  if (!res.ok) {
+    const corpo = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(corpo?.error ?? 'Não foi possível ativar as notificações.');
+  }
+}
+
+/**
+ * Re-sincroniza a inscrição de push quando a permissão já foi dada (ex.: depois de trocar de
+ * empresa, para a inscrição passar a apontar para a empresa nova). Sem permissão, não faz nada.
+ */
+export async function sincronizarPushSeAtivo(): Promise<void> {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  await registrarEInscrever();
 }
 
 /**

@@ -1,5 +1,6 @@
 'use client';
 import { createContext, useContext } from 'react';
+import { sincronizarPushSeAtivo } from '@/components/SwRegister';
 
 /** Empresa ativa resolvida no servidor (`getAppContext`), disponível para as telas client. */
 export type EmpresaAtiva = {
@@ -40,4 +41,7 @@ export async function trocarEmpresaAtiva(empresaId: string): Promise<void> {
     const corpo = await res.json().catch(() => null) as { error?: string } | null;
     throw new Error(corpo?.error ?? 'Não foi possível trocar de empresa.');
   }
+  // A inscrição de push deste aparelho passa a apontar para a empresa nova (upsert conferido).
+  // Falha aqui não desfaz a troca: o SwRegister tenta de novo quando a página recarrega.
+  await sincronizarPushSeAtivo().catch(() => {});
 }

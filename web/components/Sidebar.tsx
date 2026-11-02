@@ -9,11 +9,10 @@ import {
   Banknote, X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { hojeBRT } from '@shared/periodos';
-import { aplicarFiltroComandasNaoFechadas, aplicarFiltroDespesasVencendo } from '@shared/dashboard-consultas';
-import { contagemBadge, somarBadges } from '@shared/dashboard';
+import { carregarDadosAlertas, contarAvisosNaoLidos } from '@shared/notificacoes-consultas';
+import { badgesSidebar, EVENTO_SINO } from '@/lib/sino';
 import { useScrollLock } from '@/lib/useScrollLock';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { pode, type Acesso, type PermissoesUsuario } from '@/lib/permissions';
 import SeletorEmpresa, { type OpcaoEmpresa } from '@/components/SeletorEmpresa';
@@ -90,45 +89,37 @@ export default function Sidebar({
   // O drawer "Mais" e lg:hidden — so existe no mobile/tablet.
   useScrollLock(maisAberto, { apenasMobile: true });
 
-  const podeVerEstoque = pode(permissoes, 'estoque.acessar');
-  // Mesmo gate do card "Comandas não fechadas" do Dashboard (web e app): sem comanda.fechar não há o que fazer.
-  const podeFecharComanda = pode(permissoes, 'comanda.fechar');
   const navFiltrado          = NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
   const bottomNavFiltrado    = BOTTOM_NAV_DESKTOP.filter(item => !item.permissao || pode(permissoes, item.permissao));
   const mobileNavFiltrado    = MOBILE_NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
   const maisNavFiltrado      = MAIS_NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
 
-  useEffect(() => {
-    (async () => {
-      const [estoque, despesas, comissoes, comandas] = await Promise.all([
-        podeVerEstoque
-          ? supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
-              .eq('empresa_id', empresaId).eq('ativo', true)
-          : Promise.resolve({ count: 0 } as { count: number | null }),
-        aplicarFiltroDespesasVencendo(
-          supabase.from('despesas').select('id', { count: 'exact', head: true }), empresaId, hojeBRT()),
-        supabase.from('comissoes').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empresaId).eq('status', 'pendente'),
-        // Atendimentos já ocorridos sem comanda (regra única do Dashboard).
-        podeFecharComanda
-          ? aplicarFiltroComandasNaoFechadas(
-              supabase.from('agendamentos').select('id', { count: 'exact', head: true }), empresaId, new Date().toISOString())
-          : Promise.resolve({ count: 0 } as { count: number | null }),
-      ]);
+  /**
+   * Sino e badges pelas mesmas regras da tela de Notificações (shared): só o que a permissão deixa
+   * ver (despesas só com financeiro.ver, estoque com estoque.acessar, comissões todas ou as
+   * próprias, comandas com comanda.fechar). Carga com erro mantém o número anterior.
+   */
+  const atualizarBadges = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const acesso = { userId: user.id, pode: (a: Acesso) => pode(permissoes, a) };
+    const [dados, naoLidas] = await Promise.all([
+      carregarDadosAlertas(supabase, empresaId, acesso).catch(() => null),
+      contarAvisosNaoLidos(supabase, empresaId, user.id).catch(() => null),
+    ]);
+    const b = badgesSidebar(dados, permissoes, user.id, naoLidas);
+    if (b.sino !== null) setAlertCount(b.sino);
+    if (b.comissoes !== null) setComissoesCount(b.comissoes);
+    if (b.comandas !== null) setComandasAbertasCount(b.comandas);
+  }, [empresaId, permissoes]);
 
-      // Consulta com erro não vira número (0 ou total parcial): o badge mantém o valor anterior.
-      const comCount = contagemBadge(comissoes);
-      const comandasCount = contagemBadge(comandas);
-      if (comCount !== null) setComissoesCount(comCount);
-      if (comandasCount !== null) setComandasAbertasCount(comandasCount);
-      const total = somarBadges([
-        contagemBadge(estoque), contagemBadge(despesas),
-        comCount === null ? null : (comCount > 0 ? 1 : 0),
-        comandasCount === null ? null : (comandasCount > 0 ? 1 : 0),
-      ]);
-      if (total !== null) setAlertCount(total);
-    })();
-  }, [empresaId, podeVerEstoque, podeFecharComanda]);
+  useEffect(() => {
+    atualizarBadges().catch(() => {});
+    // A tela de Notificações avisa quando marca avisos como lidos.
+    const ouvir = () => { atualizarBadges().catch(() => {}); };
+    window.addEventListener(EVENTO_SINO, ouvir);
+    return () => window.removeEventListener(EVENTO_SINO, ouvir);
+  }, [atualizarBadges]);
 
   async function sair() {
     await supabase.auth.signOut();

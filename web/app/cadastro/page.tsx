@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { urlCallback } from '@/lib/auth/destino-pos-login';
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -44,7 +45,8 @@ export default function CadastroPage() {
       password: senha,
       options: {
         data: { nome: nome.trim() },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        // Conta nova não tem empresa: o link do e-mail leva direto para criar o estúdio.
+        emailRedirectTo: urlCallback(window.location.origin, '/criar-empresa'),
       },
     });
     setLoading(false);

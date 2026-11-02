@@ -198,9 +198,8 @@ describe('E2b — rota de resumo diário (motor em lib/push/cron-resumo.ts)', ()
 
 describe('E5 — alertas de agendamento colapsados', () => {
   const src = read('app/(app)/notificacoes/page.tsx');
-  it('separa os alertas de agendamento num array próprio', () => {
-    expect(src).toContain('const listaAg: Alerta[] = [];');
-    expect(src).toContain('setAlertasAg(listaAg)');
+  it('separa os alertas de agendamento num grupo próprio', () => {
+    expect(src).toContain("const alertasAg = (alertas ?? []).filter(a => a.grupo === 'agendamentos');");
   });
   it('tem estado de expandir e uma linha-resumo com contagem + próximo', () => {
     expect(src).toContain('agsExpandido');

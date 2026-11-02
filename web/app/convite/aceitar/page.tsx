@@ -27,7 +27,8 @@ export default function AceitarConvitePage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        setErro('Este link de convite é inválido ou já expirou. Peça para reenviarem o convite.');
+        // A rota é pública (proxy-rules): sem sessão, o link não veio do e-mail ou já expirou.
+        setErro('Convite inválido ou expirado. Peça para reenviarem o convite.');
         setEstado('erro');
         return;
       }

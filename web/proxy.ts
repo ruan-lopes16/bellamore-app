@@ -9,7 +9,8 @@ export async function proxy(request: NextRequest) {
 
   if (shouldRedirectToLogin({ pathname, cookieNames })) {
     const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('next', pathname);
+    // Com a query: o login volta para a mesma tela (ex.: /agenda?dia=…), validado por nextSeguro.
+    loginUrl.searchParams.set('next', pathname + request.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { TIPOS_NOTIFICACAO } from '@shared/notificacoes';
 
 const src = readFileSync(
   resolve(__dirname, '../..', 'app/(app)/notificacoes/page.tsx'),
@@ -8,30 +9,26 @@ const src = readFileSync(
 );
 
 // A tela de notificações renderiza cada linha da tabela `notificacoes` de forma
-// genérica — não há whitelist/filtro por `tipo` na query nem no map. O trigger da
-// migration 069 grava 3 tipos novos com título/mensagem já em pt-BR; aqui só
-// garantimos que a página dá ícone/cor a esses 3 tipos em vez de deixá-los no
-// render sem ícone.
+// genérica — sem whitelist por `tipo`. O visual de cada tipo (inclusive os 3 do
+// fluxo de bloqueio, trigger da 069) vem de TIPOS_NOTIFICACAO em shared, igual ao app.
 
 describe('notificacoes: rótulos dos tipos do fluxo de bloqueio', () => {
-  it('mapeia os 3 tipos novos (bloqueio pendente/aprovado/recusado)', () => {
-    for (const tipo of ['bloqueio_pendente', 'bloqueio_aprovado', 'bloqueio_recusado']) {
-      expect(src).toContain(tipo);
+  it('shared tem ícone + cor + rótulo para os 3 tipos de bloqueio', () => {
+    for (const tipo of ['bloqueio_pendente', 'bloqueio_aprovado', 'bloqueio_recusado'] as const) {
+      const v = TIPOS_NOTIFICACAO[tipo];
+      expect(v.icone).toBeTruthy();
+      expect(v.cor).toBeTruthy();
+      expect(v.rotulo).toBeTruthy();
     }
   });
 
-  it('cada tipo tem entrada com ícone + cor + bg no mapa de estilo', () => {
-    expect(src).toMatch(/bloqueio_pendente:\s*\{[\s\S]*?icon:[\s\S]*?cor:[\s\S]*?bg:[\s\S]*?\}/);
-    expect(src).toMatch(/bloqueio_aprovado:\s*\{[\s\S]*?icon:[\s\S]*?cor:[\s\S]*?bg:[\s\S]*?\}/);
-    expect(src).toMatch(/bloqueio_recusado:\s*\{[\s\S]*?icon:[\s\S]*?cor:[\s\S]*?bg:[\s\S]*?\}/);
-  });
-
-  it('importa os ícones lucide usados pelo mapa (Ban / X)', () => {
+  it('a tela importa os ícones lucide usados pelos tipos (Ban / X / Check)', () => {
     expect(src).toMatch(/import\s*\{[\s\S]*?\bBan\b[\s\S]*?\}\s*from 'lucide-react'/);
     expect(src).toMatch(/import\s*\{[\s\S]*?\bX\b[\s\S]*?\}\s*from 'lucide-react'/);
+    expect(src).toMatch(/import\s*\{[\s\S]*?\bCheck\b[\s\S]*?\}\s*from 'lucide-react'/);
   });
 
-  it('o mapa é consumido no render das notificações salvas (não é código morto)', () => {
-    expect(src).toMatch(/TIPO_NOTIF\[n\.tipo\]/);
+  it('o mapa de shared é consumido no render dos avisos (não é código morto)', () => {
+    expect(src).toMatch(/TIPOS_NOTIFICACAO\[t\]/);
   });
 });
