@@ -102,7 +102,8 @@ describe('I2 — salvar empresa / estoque não fingem sucesso', () => {
   it('web Configurações: não-dona manda só taxa_* e confere linhas afetadas', () => {
     const src = ler('web/app/(app)/configuracoes/page.tsx');
     const corpo = src.slice(src.indexOf('async function salvarEmpresa'), src.indexOf('async function salvarPerfil'));
-    expect(corpo).toMatch(/isOwner \? \{/);
+    // Regra de shared (montarPayloadEmpresa: só taxa_* para quem não é a dona, testada em configuracoes-app-task7).
+    expect(corpo).toMatch(/montarPayloadEmpresa\(\{\s*ehDona: isOwner,\s*podeTaxas: podeEditarTaxa,/);
     expect(corpo).toContain(".select('id')");
     expect(corpo).toMatch(/length === 0/);
   });

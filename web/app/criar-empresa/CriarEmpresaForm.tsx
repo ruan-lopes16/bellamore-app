@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { maskPhone } from '@/lib/masks';
+import { serializarEnderecoEmpresa } from '@shared/endereco';
 
 /**
  * Formulário de criar o estúdio. A página (server) só o mostra para quem ainda não tem vínculo
@@ -30,7 +31,8 @@ export default function CriarEmpresaForm({ banner }: { banner?: React.ReactNode 
     const { error } = await supabase.rpc('criar_empresa_completo', {
       p_nome:     nome.trim(),
       p_telefone: telefone.trim() || null,
-      p_endereco: endereco.trim() || null,
+      // Mesmo formato de Configurações e do app (JSON de shared); a tela só tem um campo.
+      p_endereco: serializarEnderecoEmpresa({ rua: endereco }),
     });
 
     setLoading(false);
