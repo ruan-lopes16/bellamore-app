@@ -1,5 +1,7 @@
 'use client';
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
+import { SENHA_MINIMA, validarSenhaMinima } from '@/lib/senha';
 import { useState, useEffect, useRef } from 'react';
 import {
   Plus, X, Phone, Edit3, PowerOff, Power, Percent, UserCog, ChevronDown, CheckCircle2,
@@ -100,8 +102,9 @@ function NovoProfModal({ empresaId, isOwner, onClose, onSalvo, onConvitePendente
     e.preventDefault();
     setErro('');
 
-    if (modoAcesso === 'senha' && senha.length < 6) {
-      setErro('A senha deve ter pelo menos 6 caracteres.');
+    const erroSenha = modoAcesso === 'senha' ? validarSenhaMinima(senha) : null;
+    if (erroSenha) {
+      setErro(erroSenha);
       return;
     }
 
@@ -261,7 +264,7 @@ function NovoProfModal({ empresaId, isOwner, onClose, onSalvo, onConvitePendente
                 <input
                   type={verSenha ? 'text' : 'password'}
                   value={senha} onChange={e => setSenha(e.target.value)}
-                  placeholder="mínimo 6 caracteres" required minLength={6}
+                  placeholder={`mínimo ${SENHA_MINIMA} caracteres`} required minLength={SENHA_MINIMA}
                   className={`${inputClass} pr-11 font-mono`}/>
                 <button type="button" onClick={() => setVerSenha(v => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3 hover:text-text-2 transition">
@@ -735,6 +738,7 @@ function HistoricoEquipePainel({ linhas, profs, carregando, erro, temMais, onMai
 }
 
 export default function EquipePage() {
+  const empresaAtiva = useEmpresaAtiva();
   const [profs,     setProfs]     = useState<Profissional[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [empresaId, setEmpresaId] = useState<string | null>(null);
@@ -825,8 +829,8 @@ export default function EquipePage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id, role')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId, role: empresaAtiva.role };
       if (!membro) { setLoading(false); return; }
       setEmpresaId(membro.empresa_id);
       setMeuUserId(user.id);

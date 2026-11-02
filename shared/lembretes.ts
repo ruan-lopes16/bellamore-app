@@ -100,3 +100,33 @@ export function corpoResumoDiarioProfissional(n: { atendimentos: number; comissa
   const valor = formatarMoeda(n.comissao);
   return `📅 ${n.atendimentos} atendimento${n.atendimentos === 1 ? '' : 's'} hoje\n💰 ${valor} em comissão hoje`;
 }
+
+/**
+ * Corpo do resumo diário de UM membro, já respeitando as permissões dele (Paridade
+ * Configurações, spec "Push"): a linha de despesas só vai para quem tem `financeiro.ver`, e a de
+ * estoque só para quem tem `estoque.acessar` (antes a gestora recebia tudo sem checagem).
+ * - `visao: 'empresa'` (dona/gestora): atendimentos da empresa + despesas/estoque permitidos.
+ * - `visao: 'pessoal'` (profissional): atendimentos e comissão dela (se tiver atendimento hoje)
+ *   + despesas/estoque, se alguém tiver liberado essas chaves para ela.
+ * Nada a reportar → string vazia (o chamador não envia nada).
+ */
+export function corpoResumoDoMembro(n: {
+  visao: 'empresa' | 'pessoal';
+  agendamentosEmpresa: number;
+  atendimentosDela: number;
+  comissaoDela: number;
+  despesasVencendo: number;
+  estoqueBaixo: number;
+  podeFinanceiro: boolean;
+  podeEstoque: boolean;
+}): string {
+  const despesasVencendo = n.podeFinanceiro ? n.despesasVencendo : 0;
+  const estoqueBaixo = n.podeEstoque ? n.estoqueBaixo : 0;
+  if (n.visao === 'empresa') {
+    return corpoResumoDiario({ agendamentos: n.agendamentosEmpresa, despesasVencendo, estoqueBaixo });
+  }
+  return [
+    corpoResumoDiarioProfissional({ atendimentos: n.atendimentosDela, comissao: n.comissaoDela }),
+    corpoResumoDiario({ agendamentos: 0, despesasVencendo, estoqueBaixo }),
+  ].filter(Boolean).join('\n');
+}

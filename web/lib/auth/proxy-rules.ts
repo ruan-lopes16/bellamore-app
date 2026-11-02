@@ -9,6 +9,9 @@ const PUBLIC_PREFIXES = [
   '/cadastro',
   '/verificar-email',
   '/esqueci-senha',
+  // Abertas sem sessão: mostram o próprio erro ("Convite inválido ou expirado" / link expirado).
+  '/redefinir-senha',
+  '/convite/aceitar',
   '/auth/callback',
   '/offline',
   '/icon',

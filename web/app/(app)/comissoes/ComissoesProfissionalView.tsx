@@ -6,6 +6,7 @@
  * e do app: carregarComissoesDoPeriodo (created_at em Brasília) filtrado
  * pela própria profissional, PERIODOS_COMISSAO e @shared/comissoes.
  */
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Banknote } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -26,6 +27,7 @@ import { formatarMoeda as fmtBRL } from '@shared/moeda';
 const supabase = createClient();
 
 export default function ComissoesProfissionalView() {
+  const empresaAtiva = useEmpresaAtiva();
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [userId,    setUserId]    = useState<string | null>(null);
   const [loading,   setLoading]   = useState(true);
@@ -48,9 +50,8 @@ export default function ComissoesProfissionalView() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserId(user.id);
-      const { data } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const data = { empresa_id: empresaAtiva.empresaId };
       if (data) setEmpresaId(data.empresa_id);
     })();
   }, []);

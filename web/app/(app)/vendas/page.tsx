@@ -22,6 +22,7 @@
  * Sem N+1: todos os produtos carregados de uma vez, filtro local.
  */
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   ShoppingCart, Search, Plus, Minus, X, Trash2,
@@ -117,6 +118,7 @@ function rotuloPagamento(config: ConfigCartoes, p: VendaHistorico['pagamentos_ve
 // ── Página principal ──────────────────────────────────────────
 
 export default function VendasPage() {
+  const empresaAtiva = useEmpresaAtiva();
   // Desconto e Cortesia: mesma regra da comanda (comanda.desconto). Sem a permissão, nada de
   // campo de desconto nem chip Cortesia; a cortesia automática de total R$ 0 continua valendo.
   const { pode } = usePermissoes();
@@ -175,9 +177,8 @@ export default function VendasPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const data = { empresa_id: empresaAtiva.empresaId };
       if (data) {
         setEmpresaId(data.empresa_id);
         try {

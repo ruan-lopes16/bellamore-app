@@ -25,7 +25,10 @@ describe('Fase 2B — correções da revisão final', () => {
     expect(s).toContain('disabled={pagandoId !== null}');
   });
   it('Mais: badge de comissões só consulta com permissão', () => {
-    expect(ler('mobile/app/(empresa)/mais.tsx')).toContain("useResumoComissoesPendentes(pode('comissoes.ver_todas'))");
+    // Desde a revisão das Tasks 5/6: contagens leves pela permissão (carregarContagensSino) e o item só com a chave.
+    const mais = ler('mobile/app/(empresa)/mais.tsx');
+    expect(mais).toContain('useBadgesMenu()');
+    expect(mais).toContain("{pode('comissoes.ver_todas') && (");
   });
   it('Relatórios mobile: badge de variação só sem erro', () => {
     expect(ler('mobile/app/(empresa)/relatorios.tsx')).toContain('{dFat !== null && !isError && (<View style={{');

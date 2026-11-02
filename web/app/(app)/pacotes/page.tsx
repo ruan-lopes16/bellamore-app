@@ -18,6 +18,7 @@
  *   `pacotes.vender` ou `agenda.gerenciar_outras` (a RLS da 093 confere cada escrita)
  */
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Plus, X, Trash2, Edit3, Check, Gift, Users, AlertCircle, Tag } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
@@ -87,6 +88,7 @@ function enriquecer(v: PacoteVendido, hoje: string): Vendido {
 // ── Página principal ──────────────────────────────────────────
 
 export default function PacotesPage() {
+  const empresaAtiva = useEmpresaAtiva();
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [aba,       setAba]       = useState<'catalogo' | 'vendidos' | 'relatorio'>('catalogo');
@@ -133,9 +135,8 @@ export default function PacotesPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const data = { empresa_id: empresaAtiva.empresaId };
       if (data) setEmpresaId(data.empresa_id);
     })();
     detectar096(supabase).then(setTem096);

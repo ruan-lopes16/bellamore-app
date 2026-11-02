@@ -6,7 +6,7 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Target, Pencil, AlertTriangle, UserX, CalendarDays } from 'lucide-react-native';
+import { Target, Pencil, AlertTriangle, UserX, CalendarDays, Bell } from 'lucide-react-native';
 import { format } from 'date-fns';
 import { hojeBRT, limitesMes } from '@shared/periodos';
 import { ptBR } from 'date-fns/locale';
@@ -23,23 +23,17 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
+import { useSino } from '@/hooks/useNotificacoes';
 import {
   useAgendaProfissional, useKpisDiaProfissional, useResumoComissoes,
   useMetaPessoal, useDefinirMetaPessoal, useClientesReconquistaProfissional,
 } from '@/hooks/useProfissional';
 import { progressoMetaPessoal } from '@shared/dashboard-profissional';
 import { formatarMoeda } from '@shared/moeda';
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  rose: '#C0392B', roseSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 // ── Card de meta pessoal ──────────────────────────────────────
 
@@ -48,6 +42,7 @@ const C = {
 // escopo por empresa). O prop existe pra deixar explícito, no call site,
 // que este card é sempre relativo à empresa em foco na tela.
 function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number | null; faturamentoBruto: number; empresaId: string }) {
+  const { C } = useTema();
   const definirMeta = useDefinirMetaPessoal();
   const [editando, setEditando] = useState(false);
   const [valor, setValor] = useState(meta ? String(meta) : '');
@@ -105,7 +100,10 @@ function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number |
 
 // ── Tela principal ────────────────────────────────────────────
 
-export default function Inicio() {
+function Inicio() {
+  const { C: T } = useTema();
+  // Nesta tela o alerta ("rose") sempre foi o vermelho.
+  const C = { ...T, rose: T.red, roseSoft: T.redSoft };
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const hoje = new Date();
@@ -120,6 +118,8 @@ export default function Inicio() {
   const erro = errKpis ?? errResumo ?? errAgenda;
   const { data: meta, refetch: refetchMeta } = useMetaPessoal();
   const { data: reconquista, refetch: refetchReconquista } = useClientesReconquistaProfissional();
+  // Sino da profissional: avisos não lidos + alertas que a permissão dela deixa ver (contagemSino).
+  const sino = useSino();
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -155,6 +155,26 @@ export default function Inicio() {
               {format(hoje, "EEEE, d 'de' MMMM", { locale: ptBR })}
             </Text>
             <PrivacyToggle />
+            <TouchableOpacity
+              onPress={() => router.push('/(profissional)/notificacoes' as any)}
+              accessibilityLabel="Notificações"
+              style={{
+                width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)',
+                alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <Bell size={16} color="#fff" strokeWidth={1.8} />
+              {!!sino && sino > 0 && (
+                <View style={{
+                  position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8,
+                  backgroundColor: C.rose, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
+                }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: '#fff', lineHeight: 11 }}>
+                    {sino > 9 ? '9+' : sino}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
         </LinearGradient>
 
@@ -256,3 +276,5 @@ export default function Inicio() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Inicio);

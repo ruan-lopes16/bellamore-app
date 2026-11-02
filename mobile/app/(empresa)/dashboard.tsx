@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, StatusBar, Platform,
+  RefreshControl, Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,13 +31,14 @@ import { ptBR } from 'date-fns/locale';
 import { useAuthStore } from '@/stores/authStore';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { useDashboard } from '@/hooks/useDashboard';
-import { useNotificacoes } from '@/hooks/useNotificacoes';
+import { useSino } from '@/hooks/useNotificacoes';
 import { usePermissoes } from '@/lib/permissions';
 import TiltCard from '@/components/TiltCard';
 import { SparkLinha } from '@/components/SparkLinha';
 import { rotuloMesAno, horaBRT, rotuloDataHoraBRT } from '@shared/periodos';
 import { cartoesKpiDashboard, rotuloProgressoMeta } from '@shared/dashboard';
 import { formatarMoeda } from '@shared/moeda';
+import { BarraDeStatus, comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Helpers ─────────────────────────────────────────────────
 
@@ -74,28 +75,11 @@ const STATUS_CONFIG = {
 
 // ── Constantes de cor ────────────────────────────────────────
 
-const C = {
-  bg:          '#F4F1EE',
-  surface:     '#FFFFFF',
-  border:      '#E8E2DC',
-  primary:     '#2C1654',
-  primarySoft: '#EEE8F8',
-  accent:      '#9B6FE8',
-  text:        '#1A1228',
-  text2:       '#4A3F5C',
-  text3:       '#8878A6',
-  text4:       '#B8AECC',
-  green:       '#0D7E5F',
-  greenSoft:   '#EAFAF5',
-  amber:       '#B45309',
-  amberSoft:   '#FEF3E2',
-  rose:        '#D4608A',
-  roseSoft:    '#FDF0F5',
-};
 
 // ── Componente principal ─────────────────────────────────────
 
-export default function Dashboard() {
+function Dashboard() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { user, empresaAtiva } = useAuthStore();
   const { pode } = usePermissoes();
@@ -134,7 +118,8 @@ export default function Dashboard() {
     refetch,
   } = useDashboard(mesSolicitado, { podeVerFinanceiro, podeFecharComanda });
 
-  const { countNaoLidas: countNotifNaoLidas } = useNotificacoes();
+  // Sino = avisos não lidos + alertas que pedem ação (contagemSino, igual ao web). null = sem número.
+  const countNotifNaoLidas = useSino() ?? 0;
 
   const [fontsLoaded] = useFonts({
     Fraunces_400Regular,
@@ -159,7 +144,7 @@ export default function Dashboard() {
   // ── RENDER ──────────────────────────────────────────────────
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <BarraDeStatus comFundo />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -1140,7 +1125,7 @@ export default function Dashboard() {
                 <TouchableOpacity
                   onPress={() => router.push('/(empresa)/comissoes' as any)}
                   style={{
-                    backgroundColor: '#F3EFFE',
+                    backgroundColor: C.primarySoft,
                     borderWidth: 1,
                     borderColor: 'rgba(155,111,232,0.12)',
                     borderRadius: 14,
@@ -1187,3 +1172,5 @@ export default function Dashboard() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Dashboard);

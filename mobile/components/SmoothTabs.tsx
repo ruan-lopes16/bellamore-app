@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, TouchableOpacity, Text, ScrollView, type ViewStyle } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
+import { useTema } from '@/lib/tema';
 
 export type SmoothTabItem = { key: string; label: string };
 
@@ -31,14 +32,20 @@ type Props = {
  */
 export function SmoothTabs({
   tabs, active, onChange, variant = 'pill',
-  activeColor = '#2C1750',
+  activeColor: activeColorProp,
   activeTextColor = '#fff',
-  inactiveTextColor = '#8878A6',
-  trackBg = '#FFFFFF',
-  trackBorder = '#E8E2DC',
+  inactiveTextColor: inactiveTextColorProp,
+  trackBg: trackBgProp,
+  trackBorder: trackBorderProp,
   fontFamily = 'PlusJakartaSans_600SemiBold',
   style,
 }: Props) {
+  // Cores padrão do tema aplicado (claro nas telas não migradas; escuro só nas que pediram o tema).
+  const { C, escuro } = useTema();
+  const activeColor = activeColorProp ?? (escuro ? C.primary : '#2C1750');
+  const inactiveTextColor = inactiveTextColorProp ?? C.text3;
+  const trackBg = trackBgProp ?? C.surface;
+  const trackBorder = trackBorderProp ?? C.border;
   const layouts = useRef<Record<string, { x: number; width: number }>>({});
   const indicatorX = useSharedValue(0);
   const indicatorW = useSharedValue(0);

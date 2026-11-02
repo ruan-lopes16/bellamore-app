@@ -170,10 +170,10 @@ describe('D — menu inferior troca Financeiro por Comanda', () => {
 // ── E. Lembretes / Notificações ──────────────────────────────
 
 describe('E2 — rota de lembretes por atendimento (30 min)', () => {
-  const src = read('app/api/cron/lembretes/route.ts');
+  const src = read('lib/push/cron-lembretes.ts');
   it('importa de @shared/lembretes e chama selecionarLembrete sem janela', () => {
     expect(src).toContain("from '@shared/lembretes'");
-    expect(src).toContain('selecionarLembrete(ags, agora)');
+    expect(src).toContain('selecionarLembrete(((agsRaw ?? []) as any[]).map(mapAg), agora)');
   });
   it('marca a coluna nova após enviar', () => {
     expect(src).toContain('lembrete_30min_em');
@@ -187,25 +187,26 @@ describe('E2 — rota de lembretes por atendimento (30 min)', () => {
   });
 });
 
-describe('E2b — rota de resumo diário', () => {
-  const src = read('app/api/cron/resumo-diario/route.ts');
+describe('E2b — rota de resumo diário (motor em lib/push/cron-resumo.ts)', () => {
+  const src = read('lib/push/cron-resumo.ts');
   it('usa corpoResumoDiario e as 3 contagens', () => {
-    expect(src).toContain('corpoResumoDiario');
+    expect(src).toContain('corpoResumoDoMembro');
     expect(src).toContain('v_produtos_estoque_baixo');
-    expect(src).toContain("eq('data_vencimento', hojeStr)");
+    expect(src).toContain("eq('data_vencimento', hoje)");
   });
 });
 
 describe('E5 — alertas de agendamento colapsados', () => {
   const src = read('app/(app)/notificacoes/page.tsx');
-  it('separa os alertas de agendamento num array próprio', () => {
-    expect(src).toContain('const listaAg: Alerta[] = [];');
-    expect(src).toContain('setAlertasAg(listaAg)');
+  it('separa os alertas de agendamento num grupo próprio', () => {
+    // Regra única em shared (separarAlertas), a mesma do app.
+    expect(src).toContain("const { agendamentos: alertasAg, outros: outrosAlertas } = separarAlertas(alertas ?? []);");
   });
   it('tem estado de expandir e uma linha-resumo com contagem + próximo', () => {
     expect(src).toContain('agsExpandido');
-    expect(src).toContain("'atendimento' : 'atendimentos'");
-    expect(src).toContain('próximo {alertasAg[0].titulo}');
+    // Texto "N atendimentos hoje" / "próximo ..." de shared (resumoAgendamentosHoje).
+    expect(src).toContain('resumoAgendamentosHoje(alertasAg)');
+    expect(src).toContain('{resumoAg.descricao}');
   });
 });
 

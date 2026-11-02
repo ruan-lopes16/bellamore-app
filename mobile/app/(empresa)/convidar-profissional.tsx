@@ -9,6 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import { ChevronLeft, Mail, User, Phone, Eye, EyeOff, Sparkles, Copy, Check, Lock, Percent } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
+import { SENHA_MINIMA, validarSenhaMinima } from '@shared/senha';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -115,7 +116,7 @@ export default function ConvidarProfissional() {
 
   const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const podeEnviar  = emailValido && nome.trim().length > 1
-    && (modoAcesso === 'convite' || senha.length >= 6);
+    && (modoAcesso === 'convite' || validarSenhaMinima(senha) === null);
 
   async function convidar() {
     if (!podeEnviar || !empresaAtiva) return;
@@ -347,7 +348,7 @@ export default function ConvidarProfissional() {
                 label=""
                 icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
                 value={senha} onChange={setSenha}
-                placeholder="mínimo 6 caracteres"
+                placeholder={`mínimo ${SENHA_MINIMA} caracteres`}
                 secureTextEntry={!verSenha}
                 rightIcon={
                   <TouchableOpacity onPress={() => setVerSenha(v => !v)}>

@@ -33,6 +33,8 @@ export const CHAVES_FINANCEIRO = [
   'prof-comissoes',
   'prof-kpis-dia',
   'equipe',
+  // Sino e badges dos menus: comissões, comandas e despesas mudam com as ações de dinheiro.
+  'notificacoes',
 ] as const;
 
 /** O mínimo de um QueryClient (TanStack Query) que esta função usa. */

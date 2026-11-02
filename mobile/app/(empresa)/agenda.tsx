@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, StatusBar, Pressable, Alert, ActivityIndicator,
+  RefreshControl, Pressable, Alert, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -48,25 +48,20 @@ import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoAgenda } from '@shared/exportacao/agenda';
 import { ConfirmarRemoverBloqueio } from '@/components/ConfirmarRemoverBloqueio';
 import { formatarMoeda } from '@shared/moeda';
+import { BarraDeStatus, comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
+import { fundoCategoriaNoTema } from '@shared/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8', accentSoft: 'rgba(155,111,232,0.06)',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
-const STATUS_CONFIG = {
+/** Cores de cada status no tema aplicado. */
+const statusConfig = (C: Paleta) => ({
   agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primary },
   confirmado: { label: 'Confirmado', bg: C.greenSoft,   color: C.green },
-  concluido:  { label: 'Concluído',  bg: '#F3F4F6',     color: '#6B7280' },
+  concluido:  { label: 'Concluído',  bg: C.bg,          color: C.text3 },
   faltou:     { label: 'Faltou',     bg: C.amberSoft,   color: C.amber },
-  cancelado:  { label: 'Cancelado',  bg: '#FEF2F2',     color: '#C0392B' },
-};
+  cancelado:  { label: 'Cancelado',  bg: C.redSoft,     color: C.red },
+} as Record<string, { label: string; bg: string; color: string }>);
 
 const AVATAR_COLORS: [string, string][] = [
   ['#7C3AED', '#A855F7'], ['#D4608A', '#F472B6'],
@@ -98,12 +93,15 @@ function nomesServicos(ag: AgendamentoCompleto): string {
 // ── Card de agendamento ──────────────────────────────────────
 
 function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number }) {
+  const { C, escuro } = useTema();
   const cfgBase    = CATEGORIA_CONFIG[ag.categoria];
+  const border     = ag.categoriaResolvida?.cor ?? cfgBase.border;
+  // Escuro: o pastel claro com o texto claro do tema ficaria ilegível — usa a cor translúcida.
   const cfg        = {
-    bg:     ag.categoriaResolvida?.bg  ?? cfgBase.bg,
-    border: ag.categoriaResolvida?.cor ?? cfgBase.border,
+    bg:     fundoCategoriaNoTema(border, ag.categoriaResolvida?.bg ?? cfgBase.bg, escuro) ?? C.surface,
+    border,
   };
-  const statusCfg  = STATUS_CONFIG[ag.status] ?? STATUS_CONFIG.agendado;
+  const statusCfg  = statusConfig(C)[ag.status] ?? statusConfig(C).agendado;
   const [c1, c2]   = avatarColors(ag.profissional?.nome ?? '');
 
   return (
@@ -131,7 +129,7 @@ function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, flex: 1 }} numberOfLines={1}>
             {ag.cliente?.nome}
           </Text>
-          <View style={{ backgroundColor: 'rgba(255,255,255,0.7)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 }}>
+          <View style={{ backgroundColor: escuro ? C.surface : 'rgba(255,255,255,0.7)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3 }}>
               {horaStr(ag.data_hora_inicio)} – {horaStr(ag.data_hora_fim)}
             </Text>
@@ -181,6 +179,7 @@ function AgendamentoCard({ ag, index }: { ag: AgendamentoCompleto; index: number
  * Quem chama só o desenha quando não há bloqueio dessa profissional nem bloqueio geral na hora.
  */
 function SlotVazio({ hora, dia, profissionalId }: { hora: number; dia: string; profissionalId: string }) {
+  const { C } = useTema();
   return (
     <TouchableOpacity
       onPress={() => router.push(`/(empresa)/novo-agendamento?data=${dia}&hora=${String(hora).padStart(2, '0')}:00&profissional=${profissionalId}` as any)}
@@ -208,7 +207,8 @@ function SlotVazio({ hora, dia, profissionalId }: { hora: number; dia: string; p
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Agenda() {
+function Agenda() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user } = useAuthStore();
   const { pode, permissoesCarregadas } = usePermissoes();
@@ -343,14 +343,14 @@ export default function Agenda() {
     return (
       <View key={b.id} style={{
         borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
-        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+        backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : C.roseSoft,
         padding: 10, marginBottom: 6, flexDirection: 'row', alignItems: 'flex-start', gap: 8,
       }}>
         <View style={{ flex: 1 }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
             {b.titulo || motivoBloqueioLabel(b.motivo)}
           </Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: '#8878A6' }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
             {horaBRT(b.data_inicio)}–{horaBRT(b.data_fim)}
             {b.situacao === 'pendente' ? '  · aguardando aprovação' : ''}
           </Text>
@@ -382,7 +382,7 @@ export default function Agenda() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <BarraDeStatus comFundo />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -416,7 +416,7 @@ export default function Agenda() {
             <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
               <BotaoExportar
                 definicao={definicaoAgenda(dia)}
-                getLinhas={() => agendamentos.map((a) => ({ inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null, profissional: a.profissional?.nome ?? null, valor: a.valor, status: STATUS_CONFIG[a.status]?.label ?? a.status }))}
+                getLinhas={() => agendamentos.map((a) => ({ inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null, profissional: a.profissional?.nome ?? null, valor: a.valor, status: statusConfig(C)[a.status]?.label ?? a.status }))}
                 cor={C.text2}
               />
               <TouchableOpacity style={{
@@ -445,7 +445,7 @@ export default function Agenda() {
           {/* Ações de bloqueio */}
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 24, marginBottom: 12, alignItems: 'center' }}>
             <TouchableOpacity onPress={() => setModalBloqueio(true)}
-              style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: '#E8E2DC', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ban size={14} color="#C9527F" strokeWidth={2} />
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>Bloquear</Text>
             </TouchableOpacity>
@@ -456,7 +456,7 @@ export default function Agenda() {
               </TouchableOpacity>
             )}
             {pendentesErro && (
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: '#C0392B' }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.red }}>
                 Erro ao carregar pendentes
               </Text>
             )}
@@ -603,7 +603,7 @@ export default function Agenda() {
 
         {/* ── Timeline (visão Dia) ── */}
         {visao === 'dia' && (erroDia ? (
-          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#C0392B' }}>
+          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red }}>
             Não foi possível carregar a agenda do dia. Puxe para atualizar.
           </Text>
         ) : filtro === TODAS ? (
@@ -630,7 +630,7 @@ export default function Agenda() {
 
                 {/* Conteúdo */}
                 <View style={{ flex: 1 }}>
-                  <View style={{ height: 1, backgroundColor: '#D8D0C8', marginBottom: 6 }} />
+                  <View style={{ height: 1, backgroundColor: C.linha, marginBottom: 6 }} />
                   {renderCelula(filtro, agPorHora[hora] ?? [], bloqPorHora[hora] ?? [], hora)}
                 </View>
               </View>
@@ -688,3 +688,5 @@ export default function Agenda() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Agenda);

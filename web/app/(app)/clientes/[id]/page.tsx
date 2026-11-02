@@ -1,5 +1,6 @@
 'use client';
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Phone, Calendar, Edit3, Trash2, ShieldCheck, MapPin, X, AlertCircle, MessageCircle, Archive, RotateCcw } from 'lucide-react';
@@ -463,6 +464,7 @@ function DetalheAtendimentoModal({ agendamentoId, comandaId, tituloLinha, onClos
 }
 
 export default function ClientePerfilPage() {
+  const empresaAtiva = useEmpresaAtiva();
   const router       = useRouter();
   const { id }       = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -548,8 +550,8 @@ export default function ClientePerfilPage() {
       else setLoadingHist(false);
 
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId };
       if (membro) setEmpresaId(membro.empresa_id);
     })();
   }, [id]);

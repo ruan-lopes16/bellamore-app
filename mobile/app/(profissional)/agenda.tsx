@@ -40,25 +40,20 @@ import {
   agruparPorHora, bloqueiosPorHora, dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana,
 } from '@shared/agenda-grade';
 import { formatarMoeda } from '@shared/moeda';
+import { comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
+import { fundoCategoriaNoTema } from '@shared/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
-const STATUS_CONFIG = {
+/** Cores de cada status no tema aplicado. */
+const statusConfig = (C: Paleta) => ({
   agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primary },
   confirmado: { label: 'Confirmado', bg: C.greenSoft,   color: C.green },
-  concluido:  { label: 'Concluído',  bg: '#F3F4F6',     color: '#6B7280' },
+  concluido:  { label: 'Concluído',  bg: C.bg,          color: C.text3 },
   faltou:     { label: 'Faltou',     bg: C.amberSoft,   color: C.amber },
-  cancelado:  { label: 'Cancelado',  bg: '#FEF2F2',     color: '#C0392B' },
-};
+  cancelado:  { label: 'Cancelado',  bg: C.redSoft,     color: C.red },
+} as Record<string, { label: string; bg: string; color: string }>);
 
 const AVATAR_COLORS: [string, string][] = [
   ['#7C3AED', '#A855F7'], ['#D4608A', '#F472B6'],
@@ -76,8 +71,11 @@ function iniciaisNome(nome: string) {
 function AgendamentoCard({ ag, index }: {
   ag: AgendamentoCompleto; index: number;
 }) {
+  const { C, escuro } = useTema();
   const cfg       = CATEGORIA_CONFIG[ag.categoria];
-  const statusCfg = STATUS_CONFIG[ag.status] ?? STATUS_CONFIG.agendado;
+  // Escuro: o pastel claro com o texto claro do tema ficaria ilegível — usa a cor translúcida.
+  const fundoCard = fundoCategoriaNoTema(cfg.border, cfg.bg, escuro) ?? C.surface;
+  const statusCfg = statusConfig(C)[ag.status] ?? statusConfig(C).agendado;
 
   return (
     <MotiView
@@ -89,7 +87,7 @@ function AgendamentoCard({ ag, index }: {
         onPress={() => router.push(`/(profissional)/agendamento/${ag.id}` as any)}
         activeOpacity={0.85}
         style={{
-          backgroundColor: cfg.bg,
+          backgroundColor: fundoCard,
           borderRadius: 14,
           borderLeftWidth: 3,
           borderLeftColor: cfg.border,
@@ -104,7 +102,7 @@ function AgendamentoCard({ ag, index }: {
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text, flex: 1 }} numberOfLines={1}>
             {ag.cliente?.nome}
           </Text>
-          <View style={{ backgroundColor: 'rgba(255,255,255,0.75)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 }}>
+          <View style={{ backgroundColor: escuro ? C.surface : 'rgba(255,255,255,0.75)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginLeft: 8 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3 }}>
               {horaBRT(ag.data_hora_inicio)} – {horaBRT(ag.data_hora_fim)}
             </Text>
@@ -139,6 +137,7 @@ function AgendamentoCard({ ag, index }: {
 
 /** Horário vazio. Quem chama não o desenha em hora com bloqueio dela ou geral (aprovado ou pendente). */
 function SlotVazio({ hora, dia, profissionalId }: { hora: number; dia: string; profissionalId: string }) {
+  const { C } = useTema();
   return (
     <TouchableOpacity
       onPress={() => router.push(`/(profissional)/novo-agendamento?data=${dia}&hora=${String(hora).padStart(2, '0')}:00&profissional=${profissionalId}` as any)}
@@ -166,7 +165,8 @@ function SlotVazio({ hora, dia, profissionalId }: { hora: number; dia: string; p
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function AgendaProfissional() {
+function AgendaProfissional() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { user, empresaAtiva } = useAuthStore();
 
@@ -356,7 +356,7 @@ export default function AgendaProfissional() {
 
         {/* ── Timeline (visão Dia) ── */}
         {visao === 'dia' && (erroDia ? (
-          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#C0392B' }}>
+          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red }}>
             Não foi possível carregar a agenda do dia. Puxe para atualizar.
           </Text>
         ) : (
@@ -375,7 +375,7 @@ export default function AgendaProfissional() {
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <View style={{ height: 1, backgroundColor: '#D8D0C8', marginBottom: 6 }} />
+                  <View style={{ height: 1, backgroundColor: C.linha, marginBottom: 6 }} />
                   {ags.length > 0
                     ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
                     : (bloqPorHora[hora]?.length ? null : (
@@ -390,7 +390,7 @@ export default function AgendaProfissional() {
                         key={b.id}
                         style={{
                           borderRadius: 10, borderWidth: 1, borderColor: 'rgba(201,82,127,0.35)',
-                          backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : '#FDF0F5',
+                          backgroundColor: b.situacao === 'pendente' ? 'rgba(201,82,127,0.06)' : C.roseSoft,
                           padding: 10, marginBottom: 6,
                           opacity: b.situacao === 'pendente' ? 0.6 : 1,
                           flexDirection: 'row', alignItems: 'flex-start', gap: 8,
@@ -460,3 +460,5 @@ export default function AgendaProfissional() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(AgendaProfissional);

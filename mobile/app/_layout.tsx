@@ -8,8 +8,11 @@ import { registrarGeradorUuid } from '@shared/uuid';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
-import { registrarPushToken, rotaParaNotificacao } from '@/lib/notifications';
+import { sincronizarPushDispositivo, cancelarLembretesLocais, rotaParaNotificacao } from '@/lib/notifications';
 import { TapSpark } from '@/components/TapSpark';
+import { ErroPermissoes } from '@/components/ErroPermissoes';
+import { SemAcesso } from '@/components/SemAcesso';
+import { TemaProvider } from '@/lib/tema';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -24,7 +27,7 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
-  const { carregarSessao, roleAtivo, isOwner, user, semEmpresa } = useAuthStore();
+  const { carregarSessao, roleAtivo, isOwner, user, semEmpresa, permissoesErro, empresaAtiva } = useAuthStore();
   const notifListener = useRef<Notifications.Subscription>();
   const responseListener = useRef<Notifications.Subscription>();
 
@@ -36,6 +39,8 @@ export default function RootLayout() {
           // Sessão expirada/encerrada: zera o estado local, senão o efeito de
           // redirecionamento (user/roleAtivo antigos) joga de volta para a home.
           useAuthStore.getState().limparSessao();
+          // Sem sessão não dá para tirar o aparelho do servidor; os lembretes locais saem já.
+          void cancelarLembretesLocais();
           router.replace('/(auth)/login');
         } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
           // TOKEN_REFRESHED (a cada ~1h) e USER_UPDATED (trocar senha) NÃO
@@ -63,15 +68,24 @@ export default function RootLayout() {
     if (user && semEmpresa) { router.replace('/criar-empresa' as any); return; }
     if (user && roleAtivo) {
       const rota = rotaInicial(isOwner ? 'owner' : roleAtivo);
-      router.replace(rota as any);
+      // Papel desconhecido logado: tela "Sem acesso" (abaixo), nunca o login.
+      if (rota !== '/(auth)/login') router.replace(rota as any);
     }
   }, [user?.id, roleAtivo, isOwner, semEmpresa]);
 
   useEffect(() => {
-    if (!user) return;
+    // Registra (idempotente) o aparelho na empresa ativa, na abertura e na troca de empresa.
+    // Nunca pede permissão aqui: o pedido só sai de "Ativar notificações" (Configurações).
+    // Sem permissão concedida: nem push nem lembrete local.
+    if (!user || !empresaAtiva) return;
+    sincronizarPushDispositivo({ userId: user.id, empresaId: empresaAtiva.id, pedirPermissao: false })
+      // Push é acessório: a falha não trava o app. Fica guardada (`erroRegistroPush`, mostrada em
+      // Configurações) e no log, só a mensagem — nunca o token.
+      .catch((e: unknown) => { console.warn('[push] registro do aparelho falhou:', e instanceof Error ? e.message : String(e)); });
+  }, [user?.id, empresaAtiva?.id]);
 
-    // Registra o token de push do dispositivo
-    registrarPushToken(user.id);
+  useEffect(() => {
+    if (!user) return;
 
     // Notificação recebida com app em primeiro plano
     notifListener.current = Notifications.addNotificationReceivedListener(() => {
@@ -82,8 +96,10 @@ export default function RootLayout() {
     responseListener.current = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const tipo = response.notification.request.content.data?.tipo as string | undefined;
-        const role = isOwner ? 'owner' : (roleAtivo ?? undefined);
-        const rota = rotaParaNotificacao(tipo, role);
+        // Área lida na hora do toque (a pessoa pode ter trocado de empresa depois do listener).
+        const s = useAuthStore.getState();
+        const area = !s.isOwner && s.roleAtivo === 'profissional' ? 'profissional' : 'empresa';
+        const rota = rotaParaNotificacao(tipo, area);
         router.push(rota as any);
       }
     );
@@ -96,9 +112,16 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      {/* Modo escuro: escolha da pessoa (AsyncStorage). Só as telas migradas a aplicam (lib/tema). */}
+      <TemaProvider>
       <TapSpark>
         <Stack screenOptions={{ headerShown: false }} />
       </TapSpark>
+      {/* Permissões não carregaram: nada liberado, erro com "Tentar de novo" por cima da tela. */}
+      {user && permissoesErro && <ErroPermissoes />}
+      {/* Logado com papel que o app não conhece: "Sem acesso", não o login. */}
+      {user && roleAtivo && !isOwner && rotaInicial(roleAtivo) === '/(auth)/login' && <SemAcesso podeVoltar={false} />}
+      </TemaProvider>
     </QueryClientProvider>
   );
 }

@@ -53,13 +53,14 @@ describe('empresa depois do aceite no web', () => {
     expect(ler('web/app/criar-empresa/page.tsx')).toMatch(/<ConvitesRecebidosBanner\s+semEmpresa\s*\/>/);
     expect(banner).toContain("window.location.assign('/dashboard')");
   });
-  it('quem já tem empresa vê o aviso, sem recarregar para a empresa errada', () => {
+  it('quem já tem empresa passa para a empresa nova; se a troca falhar, vê o aviso', () => {
     expect(ler('web/components/AppLayout.tsx')).toMatch(/<ConvitesRecebidosBanner\s*\/>/);
+    expect(banner).toContain('trocarEmpresaAtiva(c.empresa_id)');
     expect(banner).toContain('mensagemConviteAceitoOutraEmpresa(');
     expect(banner).not.toContain('window.location.reload');
     expect(mensagemConviteAceitoOutraEmpresa('Bellamore')).toBe(
-      'Convite aceito. Você agora faz parte da equipe de Bellamore. O site ainda não troca de empresa '
-      + 'e continua mostrando a empresa em que você já estava. No app, você escolhe a empresa em Mais.',
+      'Convite aceito. Você agora faz parte da equipe de Bellamore. Não foi possível abrir essa empresa agora: '
+      + 'escolha-a no seletor de empresa do menu.',
     );
   });
   it('trava de duplo clique por ref', () => {

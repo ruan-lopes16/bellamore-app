@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { validarNovaSenha, SENHA_MINIMA } from '@/lib/senha';
 import { rotaInicial } from '@/lib/permissions';
+import { trocarEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import type { PerfilRole } from '@/types';
 
 type Estado = 'carregando' | 'formulario' | 'sucesso' | 'erro';
@@ -26,25 +28,28 @@ export default function AceitarConvitePage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        setErro('Este link de convite é inválido ou já expirou. Peça para reenviarem o convite.');
+        // A rota é pública (proxy-rules): sem sessão, o link não veio do e-mail ou já expirou.
+        setErro('Convite inválido ou expirado. Peça para reenviarem o convite.');
         setEstado('erro');
         return;
       }
 
       setNome((user.user_metadata?.nome as string) || '');
 
-      const { data: membro } = await supabase
-        .from('empresa_membros')
-        .select('role, empresa:empresas(nome)')
-        .eq('user_id', user.id)
-        .eq('ativo', true)
-        .limit(1)
-        .single();
-
-      if (membro) {
-        setRole(membro.role as PerfilRole | 'owner');
-        setEmpresaNome((membro.empresa as unknown as { nome: string } | null)?.nome ?? '');
-      }
+      // Empresa do convite = o vínculo ativo mais recente (a API devolve em ordem de criação).
+      // Com outra empresa já existente, ela passa a ser a ativa (cookie validado pelo servidor).
+      try {
+        const res = await fetch('/api/empresa-ativa');
+        if (res.ok) {
+          const { vinculos } = await res.json() as { vinculos: { empresa_id: string; nome: string; role: string | null }[] };
+          const convite = vinculos[vinculos.length - 1];
+          if (convite) {
+            setRole((convite.role ?? 'profissional') as PerfilRole | 'owner');
+            setEmpresaNome(convite.nome);
+            if (vinculos.length >= 2) await trocarEmpresaAtiva(convite.empresa_id).catch(() => {});
+          }
+        }
+      } catch { /* só o nome da empresa no topo: segue sem ele */ }
 
       setEstado('formulario');
     })();
@@ -54,12 +59,9 @@ export default function AceitarConvitePage() {
     e.preventDefault();
     setErro('');
 
-    if (senha.length < 6) {
-      setErro('A senha deve ter pelo menos 6 caracteres.');
-      return;
-    }
-    if (senha !== confirmar) {
-      setErro('As senhas não coincidem.');
+    const erroSenha = validarNovaSenha(senha, confirmar);
+    if (erroSenha) {
+      setErro(erroSenha);
       return;
     }
 
@@ -112,7 +114,7 @@ export default function AceitarConvitePage() {
                 <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Senha</label>
                 <input
                   type="password" value={senha} onChange={e => setSenha(e.target.value)}
-                  placeholder="mínimo 6 caracteres" required minLength={6}
+                  placeholder={`mínimo ${SENHA_MINIMA} caracteres`} required minLength={SENHA_MINIMA}
                   className="w-full h-11 px-3.5 rounded-xl border border-border bg-bg text-text text-sm font-medium placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
                 />
               </div>
@@ -121,7 +123,7 @@ export default function AceitarConvitePage() {
                 <label className="block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5">Confirmar senha</label>
                 <input
                   type="password" value={confirmar} onChange={e => setConfirmar(e.target.value)}
-                  placeholder="repita a senha" required minLength={6}
+                  placeholder="repita a senha" required minLength={SENHA_MINIMA}
                   className="w-full h-11 px-3.5 rounded-xl border border-border bg-bg text-text text-sm font-medium placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
                 />
               </div>

@@ -35,7 +35,10 @@ describe('web Financeiro usa os números únicos de shared', () => {
   it('checa .error das consultas diretas e zera o estado na falha', () => {
     expect(src).toContain('[despLista, taxasLista, reservaLista]');
     expect(src).toContain('if (r.error) throw r.error;');
-    const catchBloco = src.slice(src.indexOf('} catch (e) {'));
+    // O catch da CARGA do mês (outros catches da tela, como o de excluir recorrente, vêm antes).
+    const iCarregar = src.indexOf('async function carregar(empId');
+    expect(iCarregar).toBeGreaterThan(-1);
+    const catchBloco = src.slice(src.indexOf('} catch (e) {', iCarregar));
     expect(catchBloco.slice(0, 700)).toContain('setKpis(KPIS_ZERADOS)');
     expect(src).toContain('Não foi possível carregar o financeiro deste mês');
   });

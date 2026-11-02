@@ -59,11 +59,15 @@ describe('badges conferem .error', () => {
     expect(somarBadges([1, 2, 0])).toBe(3);
     expect(somarBadges([1, null])).toBeNull();
   });
-  it('Sidebar web usa contagemBadge', () => {
-    expect(ler('web/components/Sidebar.tsx')).toMatch(/contagemBadge\(/);
+  it('Sidebar web: carga com erro vira null e mantém o número anterior (badgesSidebar)', () => {
+    const src = ler('web/components/Sidebar.tsx');
+    expect(src).toMatch(/badgesDoMenu\(/);
+    expect(src).toContain('if (b.sino !== null)');
   });
   it('app: badge de comissões do menu e sino de notificações conferem o erro', () => {
-    expect(ler('mobile/app/(empresa)/mais.tsx')).toMatch(/isError/);
-    expect(ler('mobile/hooks/useNotificacoes.ts')).toMatch(/lista\.isError/);
+    // Sino e badges = badgesDoMenu: com erro na 1ª carga a parte vem null e não há número (nunca um falso).
+    expect(ler('mobile/app/(empresa)/mais.tsx')).toContain('useBadgesMenu()');
+    expect(ler('mobile/hooks/useNotificacoes.ts')).toMatch(/isError/);
+    expect(ler('mobile/hooks/useNotificacoes.ts')).toContain('badgesDoMenu(');
   });
 });

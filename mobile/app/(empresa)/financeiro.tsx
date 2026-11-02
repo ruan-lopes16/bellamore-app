@@ -32,7 +32,7 @@ import {
 import { addMonths, subMonths, format, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useQueryClient } from '@tanstack/react-query';
-import { rotuloMesCurto, somarMeses } from '@shared/periodos';
+import { hojeBRT, rotuloMesCurto, somarMeses } from '@shared/periodos';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { variacaoPercentual } from '@shared/kpis-financeiros';
 import { textoLancamentoRecorrentes, textoRecorrentesPendentes, planejarExclusaoRecorrencia, chaveDespesa } from '@shared/despesas';
@@ -976,7 +976,8 @@ function ModalEditarDespesa({
         try {
           await excluirRecorrencia(supabase, item.empresa_id!, {
             chave: chaveDespesa(item), escopo, apagar: plano.apagar,
-            mesPulado: item.data_vencimento ?? new Date().toISOString().slice(0, 10),
+            // Sem vencimento: o mês de hoje em Brasília (igual ao web).
+            mesPulado: item.data_vencimento ?? hojeBRT(),
             modeloRestante: restantes[0] ? { id: restantes[0].id, data_vencimento: restantes[0].data_vencimento! } : undefined,
           });
           onSalvo(); onClose();

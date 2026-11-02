@@ -1,5 +1,6 @@
 'use client';
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Clock, Edit3, X, Trash2, Package2, Layers, Zap, EyeOff, ChevronDown, Tags } from 'lucide-react';
 import {
@@ -565,6 +566,7 @@ function ServicoCard({ servico, resolvida, podeGerenciar, onToggle, onEdit, onDe
 // ── Tela principal ────────────────────────────────────────────
 
 export default function ServicosPage() {
+  const empresaAtiva = useEmpresaAtiva();
   const [servicos,    setServicos]    = useState<Servico[]>([]);
   const [categorias,  setCategorias]  = useState<CategoriaCustom[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -594,13 +596,8 @@ export default function ServicosPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro, error: errMembro } = await supabase.from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).maybeSingle();
-      if (errMembro || !membro) {
-        setErroCarga(errMembro ? mensagemErroBanco(errMembro, 'carregar a empresa') : 'Você não faz parte de nenhuma empresa ativa.');
-        setLoading(false);
-        return;
-      }
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId };
       setEmpresaId(membro.empresa_id);
       const [{ data: servs, error: errServs }, { data: cats, error: errCats }] = await Promise.all([
         supabase.from('servicos').select('*')

@@ -38,6 +38,7 @@
  * pacotes e quantidades só leitura; valores de serviço, desconto e pagamentos editáveis.
  */
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Clock, User, Plus, Trash2, X, Check, ChevronRight, ChevronLeft,
@@ -203,6 +204,7 @@ const AVISO_COMANDA_PARCIAL = 'A comanda foi criada mas não terminou de gravar 
 // ── Componente principal ──────────────────────────────────────
 
 export default function ComandaPage() {
+  const empresaAtiva = useEmpresaAtiva();
   const { pode } = usePermissoes();
   const podeFechar       = pode('comanda.fechar');
   const podeDesconto     = pode('comanda.desconto');
@@ -303,9 +305,8 @@ export default function ComandaPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setMeuUserId(user.id);
-      const { data } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const data = { empresa_id: empresaAtiva.empresaId };
       if (data) {
         setEmpresaId(data.empresa_id);
         try {

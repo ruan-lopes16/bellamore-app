@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, StatusBar,
+  RefreshControl, 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -31,21 +31,15 @@ import {
   type ComissaoItem,
 } from '@/hooks/useProfissional';
 import { formatarMoeda } from '@shared/moeda';
+import { BarraDeStatus, comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 // ── Card de comissão ─────────────────────────────────────────
 
 function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
+  const { C } = useTema();
   const pago = item.status === 'pago';
 
   return (
@@ -114,7 +108,8 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Comissoes() {
+function Comissoes() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
 
@@ -150,7 +145,7 @@ export default function Comissoes() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <BarraDeStatus comFundo />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -341,3 +336,5 @@ export default function Comissoes() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Comissoes);

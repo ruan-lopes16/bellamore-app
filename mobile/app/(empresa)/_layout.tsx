@@ -1,19 +1,33 @@
-import { View } from 'react-native';
-import { Tabs } from 'expo-router';
+import { View, ActivityIndicator } from 'react-native';
+import { Tabs, useSegments } from 'expo-router';
 import { BannerConvites } from '@/components/BannerConvites';
+import { usePreferenciaTema, PALETA_ESCURA } from '@/lib/tema';
+import { SemAcesso } from '@/components/SemAcesso';
 import { usePermissoes } from '@/lib/permissions';
+import { permissaoDaRota } from '@shared/permissoes';
 
 export default function EmpresaLayout() {
-  const { pode } = usePermissoes();
+  // Barra de abas no tema da pessoa (modo escuro); as telas não migradas seguem claras.
+  const escuro = usePreferenciaTema().esquema === 'escuro';
+  const { pode, permissoesCarregadas, permissoesErro } = usePermissoes();
+  // Guarda por rota, com o mesmo mapa do `exigirAcesso` do web: protege também o deep link.
+  const segments = useSegments();
+  const acesso = permissaoDaRota(segments);
+  // Permissões ainda chegando: a tela protegida espera (nunca abre nem expulsa antes da hora).
+  // Com erro, o _layout raiz já cobre tudo com "Tentar de novo".
+  const esperando = !!acesso && !permissoesCarregadas && !permissoesErro;
+  const semAcesso = !!acesso && permissoesCarregadas && !pode(acesso);
 
   return (
     <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#6b21a8',
-        tabBarInactiveTintColor: '#9ca3af',
-        tabBarStyle: { borderTopColor: '#f3e8ff' },
+        tabBarActiveTintColor: escuro ? PALETA_ESCURA.accent : '#6b21a8',
+        tabBarInactiveTintColor: escuro ? PALETA_ESCURA.text3 : '#9ca3af',
+        tabBarStyle: escuro
+          ? { borderTopColor: PALETA_ESCURA.border, backgroundColor: PALETA_ESCURA.surface }
+          : { borderTopColor: '#f3e8ff' },
       }}
     >
       <Tabs.Screen name="dashboard"   options={{ title: 'Início',       tabBarIcon: () => null }} />
@@ -36,6 +50,12 @@ export default function EmpresaLayout() {
       ))}
     </Tabs>
     <BannerConvites />
+    {esperando && (
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#F4F1EE', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#2C1654" />
+      </View>
+    )}
+    {semAcesso && <SemAcesso />}
     </View>
   );
 }

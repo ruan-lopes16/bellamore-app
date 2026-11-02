@@ -6,11 +6,8 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { diasDaSemana, semanaVizinha } from '@shared/agenda';
 import { rotuloMesAno } from '@shared/periodos';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC', primary: '#2C1654', accent: '#9B6FE8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6',
-};
 
 const NOMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -23,6 +20,7 @@ export function FaixaSemana({ dia, hoje, contagem, onSelecionar }: {
   contagem?: Map<string, number>;
   onSelecionar: (dia: string) => void;
 }) {
+  const { C } = useTema();
   const semana = diasDaSemana(dia);
   const botao = {
     width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border,

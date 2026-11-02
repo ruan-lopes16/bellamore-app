@@ -1,9 +1,9 @@
 /** Alternância Dia / Mês da agenda do app, na mesma tela. */
 import { View, Text, TouchableOpacity } from 'react-native';
+import { useTema } from '@/lib/tema';
 
 export type VisaoAgenda = 'dia' | 'mes';
 
-const C = { surface: '#FFFFFF', border: '#E8E2DC', primary: '#2C1654', text3: '#8878A6' };
 
 const OPCOES: { valor: VisaoAgenda; rotulo: string }[] = [
   { valor: 'dia', rotulo: 'Dia' },
@@ -11,6 +11,7 @@ const OPCOES: { valor: VisaoAgenda; rotulo: string }[] = [
 ];
 
 export function AlternarVisao({ visao, onMudar }: { visao: VisaoAgenda; onMudar: (v: VisaoAgenda) => void }) {
+  const { C } = useTema();
   return (
     <View style={{
       flexDirection: 'row', marginHorizontal: 24, marginBottom: 12, padding: 3, borderRadius: 12,

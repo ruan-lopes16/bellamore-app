@@ -114,9 +114,8 @@ describe('matriz de permissões — UPDATE/DELETE sempre com .select (sem sucess
     'web/app/(app)/configuracoes/page.tsx users.update': 'perfil da própria pessoa',
     'web/app/(app)/notificacoes/page.tsx notificacoes.update': 'notificações da própria pessoa',
     'web/app/api/convites/route.ts users.update': 'service role',
-    'web/app/api/cron/lembretes/route.ts web_push_subscriptions.delete': 'service role',
-    'web/app/api/cron/lembretes/route.ts agendamentos.update': 'service role',
-    'web/app/api/cron/resumo-diario/route.ts web_push_subscriptions.delete': 'service role',
+    'web/lib/push/expo.ts web_push_subscriptions.delete': 'service role (crons): inscrição web que não existe mais (404/410)',
+    'web/lib/push/expo.ts push_dispositivos.delete': 'service role (crons): aparelho DeviceNotRegistered; 0 linhas é legítimo',
     'web/app/api/profissionais/route.ts users.upsert': 'service role',
     'web/app/api/profissionais/route.ts users.update': 'service role',
     'web/app/api/profissionais/route.ts empresa_membros.update': 'service role',
@@ -197,9 +196,11 @@ describe('matriz de permissões — correções de tela', () => {
   });
 
   it('badge de comandas da Sidebar exige comanda.fechar, como o Dashboard (D10)', () => {
-    const src = tela('web/components/Sidebar.tsx');
-    expect(src).toContain("const podeFecharComanda = pode(permissoes, 'comanda.fechar');");
-    expect(src).toMatch(/podeFecharComanda\s*\?\s*aplicarFiltroComandasNaoFechadas/);
+    // A regra dos badges saiu da Sidebar para web/lib/sino.ts (a mesma da tela de Notificações).
+    expect(tela('web/components/Sidebar.tsx')).toContain('badgesDoMenu(');
+    // Regra única em shared (badgesDoMenu), a mesma do app.
+    const sino = readFileSync(join(raiz, 'shared/notificacoes.ts'), 'utf8');
+    expect(sino).toMatch(/const comandas = p\('comanda\.fechar'\) \? c\.comandasNaoFechadas/);
   });
 
   it('insumos do serviço conferem o erro (D5)', () => {

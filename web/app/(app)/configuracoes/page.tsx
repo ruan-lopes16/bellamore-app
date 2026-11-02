@@ -1,12 +1,13 @@
 'use client';
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
-import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target, Ban, Banknote, Bell } from 'lucide-react';
-import { validaCNPJ, maskMoeda, parseMoeda, formatMoeda, maskComCursor } from '@/lib/masks';
+import { AlertCircle, Check, Upload, Building2, User, Clock, Moon, Sun, Loader2, ImageIcon, Mail, Target, Ban, Banknote, Bell, KeyRound } from 'lucide-react';
+import { validaCNPJ, maskCNPJ, maskPhone, maskMoeda, parseMoeda, formatMoeda, maskComCursor } from '@/lib/masks';
 import { registrarEInscrever } from '@/components/SwRegister';
 import Image from 'next/image';
 import { usePermissoes } from '@/components/PermissoesProvider';
@@ -14,6 +15,13 @@ import { PermissoesPanel } from '@/components/permissoes/PermissoesPanel';
 import { mensagemErroBanco } from '@shared/erros';
 import { carregarPreferenciaAgenda, salvarPreferenciaAgenda, type PreferenciaAgenda } from '@shared/agenda-consultas';
 import { CartoesConfig } from '@/components/configuracoes/CartoesConfig';
+import { parseValorBR } from '@shared/comanda-fechamento';
+import { lerEnderecoEmpresa, serializarEnderecoEmpresa } from '@shared/endereco';
+import {
+  MENSAGEM_EMAIL_CONFIRMACAO, validarTrocaEmail, salvarPreferenciaNotificacao,
+  SEGMENTOS_EMPRESA, enderecoDoViaCep, dadosDoCnpj, caminhoLogoEmpresa, validarArquivoLogo, montarPayloadEmpresa,
+} from '@shared/configuracoes-empresa';
+import { validarNovaSenha, SENHA_MINIMA } from '@/lib/senha';
 
 const supabase = createClient();
 
@@ -43,25 +51,6 @@ const HORARIO_DEFAULT: Horarios = {
 
 const inputCls = "w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition";
 const labelCls = "block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5";
-
-function maskPhone(raw: string): string {
-  const d = raw.replace(/\D/g, '').slice(0, 11);
-  if (d.length === 0) return '';
-  if (d.length <= 2)  return `(${d}`;
-  if (d.length <= 6)  return `(${d.slice(0, 2)}) ${d.slice(2)}`;
-  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-}
-
-function maskCnpj(raw: string): string {
-  const d = raw.replace(/\D/g, '').slice(0, 14);
-  if (d.length === 0)  return '';
-  if (d.length <= 2)   return d;
-  if (d.length <= 5)   return `${d.slice(0, 2)}.${d.slice(2)}`;
-  if (d.length <= 8)   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`;
-  if (d.length <= 12)  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`;
-  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
-}
 
 const SECTION_COLORS = {
   primary: { bg: 'var(--color-primary-soft)', fg: 'var(--color-primary)' },
@@ -254,6 +243,7 @@ export default function ConfiguracoesPage() {
 }
 
 function ConfiguracoesConteudo() {
+  const empresaAtiva = useEmpresaAtiva();
   const router = useRouter();
   const params = useSearchParams();
   const { pode, papel } = usePermissoes();
@@ -314,7 +304,8 @@ function ConfiguracoesConteudo() {
   const [numero,     setNumero]     = useState('');
   const [complemento,setComplemento]= useState('');
   const [bairro,     setBairro]     = useState('');
-  const [localidade, setLocalidade] = useState('');
+  const [cidade,     setCidade]     = useState('');
+  const [uf,         setUf]         = useState('');
   const [logoUrl,   setLogoUrl]   = useState('');
   const [logoPreview,setLogoPreview] = useState('');
   const [horarios,    setHorarios]    = useState<Horarios>(HORARIO_DEFAULT);
@@ -348,6 +339,12 @@ function ConfiguracoesConteudo() {
   const [erroEmail,      setErroEmail]      = useState('');
   const [emailEnviado,   setEmailEnviado]   = useState('');
 
+  // Troca de senha logada (o Supabase não exige a senha atual)
+  const [novaSenha,      setNovaSenha]      = useState('');
+  const [novaSenhaConf,  setNovaSenhaConf]  = useState('');
+  const [trocandoSenha,  setTrocandoSenha]  = useState(false);
+  const [msgSenha,       setMsgSenha]       = useState<{ ok: boolean; texto: string } | null>(null);
+
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(''), 3500);
@@ -362,9 +359,8 @@ function ConfiguracoesConteudo() {
       setPerfilEmail(user.email ?? '');
       setEmailPendente(user.new_email ?? '');
 
-      const { data: membro } = await supabase
-        .from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId };
       if (!membro) return;
 
       setEmpresaId(membro.empresa_id);
@@ -378,7 +374,7 @@ function ConfiguracoesConteudo() {
       if (empresa) {
         setNome(empresa.nome ?? '');
         setSegmento(empresa.segmento ?? 'Estúdio');
-        setCnpj(maskCnpj(empresa.cnpj ?? ''));
+        setCnpj(maskCNPJ(empresa.cnpj ?? ''));
         setTelefone(maskPhone(empresa.telefone ?? ''));
         setLogoUrl(empresa.logo_url ?? '');
         setLogoPreview(empresa.logo_url ?? '');
@@ -399,30 +395,10 @@ function ConfiguracoesConteudo() {
           setHorarios({ ...HORARIO_DEFAULT, ...(empresa.horario_funcionamento as Horarios) });
         }
 
-        // Faz parse do endereço salvo em partes separadas
-        const endRaw = (empresa.endereco ?? '').trim();
-        if (endRaw) {
-          const parts = endRaw.split(',').map((s: string) => s.trim()).filter(Boolean);
-          if (parts.length >= 3) {
-            setRua(parts[0]);
-            setLocalidade(parts[parts.length - 1]);
-            if (parts.length >= 4 && /^\d/.test(parts[1])) {
-              setNumero(parts[1]);
-              if (parts.length >= 5) {
-                // rua, numero, complemento, bairro, localidade
-                setComplemento(parts[2]);
-                setBairro(parts.slice(3, -1).join(', '));
-              } else {
-                // rua, numero, bairro, localidade (sem complemento)
-                setBairro(parts[2]);
-              }
-            } else {
-              setBairro(parts.slice(1, -1).join(', '));
-            }
-          } else {
-            setRua(endRaw);
-          }
-        }
+        // Endereço da empresa pela regra única de shared (JSON; lê também o formato antigo por vírgula).
+        const end = lerEnderecoEmpresa(empresa.endereco);
+        setCep(end.cep); setRua(end.rua); setNumero(end.numero); setComplemento(end.complemento);
+        setBairro(end.bairro); setCidade(end.cidade); setUf(end.uf);
       }
 
       if (perfil) {
@@ -442,12 +418,14 @@ function ConfiguracoesConteudo() {
     setBuscandoCep(true);
     try {
       const res  = await fetch(`https://viacep.com.br/ws/${d}/json/`);
-      const data = await res.json();
-      if (!data.erro) {
-        setRua(data.logradouro || '');
-        setBairro(data.bairro || '');
-        setLocalidade(`${data.localidade} - ${data.uf}`);
-        setNumero(''); // limpa para o usuário preencher
+      // Regra única (web e app): rua/bairro/cidade/UF e o número limpo para preencher.
+      const achado = enderecoDoViaCep(res.ok ? await res.json() : null);
+      if (achado) {
+        setRua(achado.rua ?? '');
+        setBairro(achado.bairro ?? '');
+        setCidade(achado.cidade ?? '');
+        setUf(achado.uf ?? '');
+        setNumero('');
       }
     } catch {}
     finally { setBuscandoCep(false); }
@@ -460,21 +438,18 @@ function ConfiguracoesConteudo() {
     try {
       const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${d}`);
       if (!res.ok) return;
-      const data = await res.json();
-      const nomeFantasia = data.nome_fantasia || data.razao_social;
-      if (nomeFantasia && !nome) setNome(nomeFantasia);
-      if (data.ddd_telefone_1 && !telefone) {
-        setTelefone(maskPhone((data.ddd_telefone_1 + (data.telefone_1 ?? '')).replace(/\D/g, '')));
-      }
-      if (data.cep) {
-        const cepFormatado = data.cep.replace(/\D/g, '').replace(/^(\d{5})(\d{3})$/, '$1-$2');
-        setCep(cepFormatado);
-      }
-      if (data.logradouro) {
-        setRua(data.logradouro);
-        setNumero(data.numero ?? '');
-        setBairro(data.bairro ?? '');
-        setLocalidade(`${data.municipio} - ${data.uf}`);
+      // Regra única (web e app): nome/telefone só preenchem vazios; endereço só com logradouro.
+      const dados = dadosDoCnpj(await res.json(), { nome, telefone });
+      if (dados.nome) setNome(dados.nome);
+      if (dados.telefone) setTelefone(dados.telefone);
+      const end = dados.endereco;
+      if (end) {
+        if (end.cep) setCep(end.cep);
+        setRua(end.rua ?? '');
+        setNumero(end.numero ?? '');
+        setBairro(end.bairro ?? '');
+        setCidade(end.cidade ?? '');
+        setUf(end.uf ?? '');
       }
     } catch {}
     finally { setBuscandoCnpj(false); }
@@ -484,15 +459,9 @@ function ConfiguracoesConteudo() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!ALLOWED.includes(file.type)) {
-      setErro('Formato inválido. Use JPEG, PNG ou WEBP.');
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      setErro('Arquivo muito grande. Máximo 2 MB.');
-      return;
-    }
+    // Tipos e tamanho iguais ao app (shared).
+    const erroArquivo = validarArquivoLogo(file.type, file.size);
+    if (erroArquivo) { setErro(erroArquivo); return; }
 
     // Prévia imediata via blob URL (sempre correto, sem cache)
     const objectUrl = URL.createObjectURL(file);
@@ -502,7 +471,7 @@ function ConfiguracoesConteudo() {
 
     // Nome único com timestamp → evita CDN cache do Supabase Storage
     const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const path = `empresa_${empresaId}_${Date.now()}.${ext}`;
+    const path = caminhoLogoEmpresa(empresaId, ext);
 
     const { error } = await supabase.storage.from('logos').upload(path, file);
 
@@ -518,10 +487,16 @@ function ConfiguracoesConteudo() {
     setLogoUrl(publicUrl);
     setLogoPreview(objectUrl); // mantém blob URL na prévia até o usuário salvar
 
-    await supabase.from('empresas').update({ logo_url: publicUrl }).eq('id', empresaId);
+    // Grava na hora e confere as linhas, igual ao app (0 linhas = RLS recusou).
+    const { data: linhasLogo, error: erroLogo } = await supabase.from('empresas')
+      .update({ logo_url: publicUrl }).eq('id', empresaId).select('id');
 
     setUploadando(false);
-    showToast('Logo atualizada! Clique em Salvar para confirmar.');
+    if (erroLogo || !linhasLogo || linhasLogo.length === 0) {
+      setErro(mensagemErroBanco(erroLogo ?? { code: '42501' }, 'salvar a logo'));
+      return;
+    }
+    showToast('Logo atualizada!');
   }
 
   async function salvarEmpresa(e: React.FormEvent) {
@@ -531,31 +506,33 @@ function ConfiguracoesConteudo() {
     if (isOwner && cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
     setSalvando(true); setErro('');
 
-    const enderecoFinal = [rua, numero, complemento, bairro, localidade].filter(Boolean).join(', ');
-
     // Dados da empresa só a dona. Quem salva só com config.taxas manda SÓ as colunas taxa_*
-    // (o trigger da 083 recusa qualquer outra coluna vinda de quem não é a dona).
-    const dadosEmpresa = isOwner ? {
-      nome:                  nome.trim(),
-      segmento:              segmento        || 'Estúdio',
-      cnpj:                  cnpj.trim()     || null,
-      telefone:              telefone.trim() || null,
-      endereco:              enderecoFinal   || null,
-      logo_url:              logoUrl         || null,
-      horario_funcionamento: horarios,
-      meta_mensal:           parseMoeda(metaMensal),
-    } : {};
-    const { data: atualizadas, error } = await supabase.from('empresas').update({
-      ...dadosEmpresa,
-      taxa_cancelamento_ativa:             taxaAtiva,
-      taxa_cancelamento_modo:              taxaModo,
-      taxa_cancelamento_valor:             parseFloat(taxaValor.replace(',', '.')) || 0,
-      taxa_cancelamento_aplica_cancelado:  taxaAplicaCancelado,
-      taxa_cancelamento_aplica_faltou:     taxaAplicaFaltou,
-      taxa_reserva_ativa: reservaAtiva,
-      taxa_reserva_modo:  reservaModo,
-      taxa_reserva_valor: parseFloat(reservaValor.replace(',', '.')) || 0,
-    }).eq('id', empresaId).select('id');
+    // (o trigger da 083 recusa qualquer outra coluna vinda de quem não é a dona) — regra de shared.
+    const payload = montarPayloadEmpresa({
+      ehDona: isOwner,
+      podeTaxas: podeEditarTaxa,
+      dados: {
+        nome:                  nome.trim(),
+        segmento:              segmento        || SEGMENTOS_EMPRESA[0],
+        cnpj:                  cnpj.trim()     || null,
+        telefone:              telefone.trim() || null,
+        endereco:              serializarEnderecoEmpresa({ cep, rua, numero, complemento, bairro, cidade, uf }),
+        logo_url:              logoUrl         || null,
+        horario_funcionamento: horarios,
+        meta_mensal:           parseMoeda(metaMensal),
+      },
+      taxas: {
+        taxa_cancelamento_ativa:             taxaAtiva,
+        taxa_cancelamento_modo:              taxaModo,
+        taxa_cancelamento_valor:             parseValorBR(taxaValor),
+        taxa_cancelamento_aplica_cancelado:  taxaAplicaCancelado,
+        taxa_cancelamento_aplica_faltou:     taxaAplicaFaltou,
+        taxa_reserva_ativa: reservaAtiva,
+        taxa_reserva_modo:  reservaModo,
+        taxa_reserva_valor: parseValorBR(reservaValor),
+      },
+    });
+    const { data: atualizadas, error } = await supabase.from('empresas').update(payload).eq('id', empresaId).select('id');
 
     setSalvando(false);
     // 0 linhas sem erro = RLS recusou (sem config.taxas no banco): não mostra "salvas".
@@ -585,31 +562,51 @@ function ConfiguracoesConteudo() {
   async function alterarPrefNotif(campo: 'notif_resumo_diario' | 'notif_lembrete_atendimento', valor: boolean) {
     const setter = campo === 'notif_resumo_diario' ? setNotifResumo : setNotifLembrete;
     setter(valor);
-    const { error } = await supabase.from('users').update({ [campo]: valor }).eq('id', userId);
-    if (error) {
+    // Regra única (web e app): confere erro E linhas — 0 linhas sem erro não é "salvo".
+    try {
+      await salvarPreferenciaNotificacao(supabase, userId, campo, valor);
+    } catch (e) {
       setter(!valor);
-      showToast('Não deu pra salvar a preferência. Tente de novo.');
+      showToast(e instanceof Error ? e.message : 'Não deu pra salvar a preferência. Tente de novo.');
     }
   }
 
   async function solicitarMudancaEmail() {
     setErroEmail('');
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(novoEmail)) { setErroEmail('E-mail inválido.'); return; }
-    if (novoEmail !== novoEmailConf)  { setErroEmail('Os e-mails não coincidem.'); return; }
-    if (novoEmail === perfilEmail)    { setErroEmail('O novo e-mail deve ser diferente do atual.'); return; }
+    // Mesma validação do app (shared): formato, confirmação e diferente do atual, sem diferenciar maiúsculas.
+    const erroValidacao = validarTrocaEmail(novoEmail, novoEmailConf, perfilEmail);
+    if (erroValidacao) { setErroEmail(erroValidacao); return; }
+    const email = novoEmail.trim().toLowerCase();
 
     setEnviandoLink(true);
-    const { error } = await supabase.auth.updateUser({ email: novoEmail });
+    const { error } = await supabase.auth.updateUser({ email });
     setEnviandoLink(false);
 
     if (error) { setErroEmail(error.message); return; }
 
-    setEmailEnviado(novoEmail);
-    setEmailPendente(novoEmail);
+    setEmailEnviado(email);
+    setEmailPendente(email);
     setAlterandoEmail(false);
     setNovoEmail('');
     setNovoEmailConf('');
+  }
+
+  /** Troca a senha de quem está logado: nova + confirmação, mínimo SENHA_MINIMA. */
+  async function trocarSenha() {
+    setMsgSenha(null);
+    const erroSenha = validarNovaSenha(novaSenha, novaSenhaConf);
+    if (erroSenha) { setMsgSenha({ ok: false, texto: erroSenha }); return; }
+    setTrocandoSenha(true);
+    const { error } = await supabase.auth.updateUser({ password: novaSenha });
+    setTrocandoSenha(false);
+    if (error) {
+      setMsgSenha({ ok: false, texto: /different from the old/i.test(error.message)
+        ? 'A nova senha deve ser diferente da atual.'
+        : 'Não foi possível trocar a senha. Tente de novo.' });
+      return;
+    }
+    setNovaSenha(''); setNovaSenhaConf('');
+    setMsgSenha({ ok: true, texto: 'Senha alterada.' });
   }
 
   function setHorarioDia(dia: DiaSemana, campo: keyof HorarioDia, valor: boolean | string) {
@@ -721,7 +718,7 @@ function ConfiguracoesConteudo() {
                   className={`${inputCls} cursor-pointer`}
                   style={{ appearance: 'auto' }}
                 >
-                  {['Estúdio', 'Clínica', 'Salão', 'Barbearia', 'Spa', 'Ateliê', 'Outro'].map(op => (
+                  {SEGMENTOS_EMPRESA.map(op => (
                     <option key={op} value={op}>{op}</option>
                   ))}
                 </select>
@@ -733,7 +730,7 @@ function ConfiguracoesConteudo() {
                 <div className="relative">
                   <input
                     value={cnpj}
-                    onChange={e => maskComCursor(e.target, maskCnpj, m => { setCnpj(m); buscarCNPJ(m); })}
+                    onChange={e => maskComCursor(e.target, maskCNPJ, m => { setCnpj(m); buscarCNPJ(m); })}
                     placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18}
                     className={inputCls} disabled={!isOwner}/>
                   {buscandoCnpj && <Loader2 size={14} className="absolute right-3 top-3 text-text-4 animate-spin"/>}
@@ -789,10 +786,17 @@ function ConfiguracoesConteudo() {
                 <input value={bairro} onChange={e => setBairro(e.target.value)}
                   className={inputCls} disabled={!isOwner}/>
               </div>
-              <div>
-                <label className={labelCls}>Cidade / Estado</label>
-                <input value={localidade} onChange={e => setLocalidade(e.target.value)}
-                  className={inputCls} disabled={!isOwner}/>
+              <div className="grid grid-cols-[1fr_72px] gap-3">
+                <div>
+                  <label className={labelCls}>Cidade</label>
+                  <input value={cidade} onChange={e => setCidade(e.target.value)}
+                    className={inputCls} disabled={!isOwner}/>
+                </div>
+                <div>
+                  <label className={labelCls}>UF</label>
+                  <input value={uf} onChange={e => setUf(e.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase())}
+                    maxLength={2} className={inputCls} disabled={!isOwner}/>
+                </div>
               </div>
             </div>
           </SectionCard>
@@ -1050,7 +1054,7 @@ function ConfiguracoesConteudo() {
                   style={{ background: 'var(--color-green-soft)', borderColor: 'rgba(52,201,146,0.25)' }}>
                   <Check size={14} style={{ color: 'var(--color-green)', flexShrink: 0 }}/>
                   <p className="text-xs font-semibold" style={{ color: 'var(--color-green)' }}>
-                    Link enviado para {emailEnviado}. Verifique sua caixa de entrada.
+                    {MENSAGEM_EMAIL_CONFIRMACAO}
                   </p>
                 </div>
               )}
@@ -1099,6 +1103,33 @@ function ConfiguracoesConteudo() {
                   </div>
                 </div>
               )}
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Trocar senha" icon={KeyRound} color="primary">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Nova senha</label>
+                <input type="password" value={novaSenha} onChange={e => setNovaSenha(e.target.value)}
+                  autoComplete="new-password" placeholder={`mínimo ${SENHA_MINIMA} caracteres`} className={inputCls}/>
+              </div>
+              <div>
+                <label className={labelCls}>Confirmar nova senha</label>
+                <input type="password" value={novaSenhaConf} onChange={e => setNovaSenhaConf(e.target.value)}
+                  autoComplete="new-password" placeholder="repita a senha" className={inputCls}/>
+              </div>
+            </div>
+            {msgSenha && (
+              <p className="text-xs" role={msgSenha.ok ? 'status' : 'alert'}
+                style={{ color: msgSenha.ok ? 'var(--color-green)' : 'var(--color-rose)' }}>{msgSenha.texto}</p>
+            )}
+            <div>
+              <button type="button" onClick={trocarSenha} disabled={trocandoSenha || !novaSenha || !novaSenhaConf}
+                className="press h-9 px-4 rounded-xl text-white text-xs font-bold transition disabled:opacity-40 flex items-center gap-1.5"
+                style={{ background: 'var(--color-primary)' }}>
+                {trocandoSenha && <Loader2 size={12} className="animate-spin"/>}
+                {trocandoSenha ? 'Trocando...' : 'Trocar senha'}
+              </button>
             </div>
           </SectionCard>
 

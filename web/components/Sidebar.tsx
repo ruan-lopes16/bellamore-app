@@ -9,13 +9,14 @@ import {
   Banknote, X,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { hojeBRT } from '@shared/periodos';
-import { aplicarFiltroComandasNaoFechadas, aplicarFiltroDespesasVencendo } from '@shared/dashboard-consultas';
-import { contagemBadge, somarBadges } from '@shared/dashboard';
+import { carregarContagensSino, contarAvisosNaoLidos } from '@shared/notificacoes-consultas';
+import { badgesDoMenu, EVENTO_SINO } from '@/lib/sino';
 import { useScrollLock } from '@/lib/useScrollLock';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { pode, type Acesso, type PermissoesUsuario } from '@/lib/permissions';
+import SeletorEmpresa, { type OpcaoEmpresa } from '@/components/SeletorEmpresa';
+import { desinscreverPushDoNavegador } from '@/components/SwRegister';
 
 const supabase = createClient();
 
@@ -70,12 +71,15 @@ export default function Sidebar({
   empresaLogo,
   empresaSegmento,
   permissoes,
+  vinculos,
 }: {
   empresaId: string;
   empresaNome: string;
   empresaLogo: string | null;
   empresaSegmento: string;
   permissoes: PermissoesUsuario;
+  /** Empresas em que a pessoa tem vínculo ativo (o seletor só aparece com 2 ou mais). */
+  vinculos: OpcaoEmpresa[];
 }) {
   const pathname        = usePathname();
   const router          = useRouter();
@@ -86,47 +90,42 @@ export default function Sidebar({
   // O drawer "Mais" e lg:hidden — so existe no mobile/tablet.
   useScrollLock(maisAberto, { apenasMobile: true });
 
-  const podeVerEstoque = pode(permissoes, 'estoque.acessar');
-  // Mesmo gate do card "Comandas não fechadas" do Dashboard (web e app): sem comanda.fechar não há o que fazer.
-  const podeFecharComanda = pode(permissoes, 'comanda.fechar');
   const navFiltrado          = NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
   const bottomNavFiltrado    = BOTTOM_NAV_DESKTOP.filter(item => !item.permissao || pode(permissoes, item.permissao));
   const mobileNavFiltrado    = MOBILE_NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
   const maisNavFiltrado      = MAIS_NAV.filter(item => !item.permissao || pode(permissoes, item.permissao));
 
-  useEffect(() => {
-    (async () => {
-      const [estoque, despesas, comissoes, comandas] = await Promise.all([
-        podeVerEstoque
-          ? supabase.from('v_produtos_estoque_baixo').select('id', { count: 'exact', head: true })
-              .eq('empresa_id', empresaId).eq('ativo', true)
-          : Promise.resolve({ count: 0 } as { count: number | null }),
-        aplicarFiltroDespesasVencendo(
-          supabase.from('despesas').select('id', { count: 'exact', head: true }), empresaId, hojeBRT()),
-        supabase.from('comissoes').select('id', { count: 'exact', head: true })
-          .eq('empresa_id', empresaId).eq('status', 'pendente'),
-        // Atendimentos já ocorridos sem comanda (regra única do Dashboard).
-        podeFecharComanda
-          ? aplicarFiltroComandasNaoFechadas(
-              supabase.from('agendamentos').select('id', { count: 'exact', head: true }), empresaId, new Date().toISOString())
-          : Promise.resolve({ count: 0 } as { count: number | null }),
-      ]);
+  /**
+   * Sino e badges pelas mesmas regras da tela de Notificações (shared): só o que a permissão deixa
+   * ver (despesas só com financeiro.ver, estoque com estoque.acessar, comissões todas ou as
+   * próprias, comandas com comanda.fechar). Só contagens (`count head`), não os dados completos
+   * dos alertas: a Sidebar carrega em toda página. Carga com erro mantém o número anterior.
+   */
+  const atualizarBadges = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const acesso = { userId: user.id, pode: (a: Acesso) => pode(permissoes, a) };
+    const [contagens, naoLidas] = await Promise.all([
+      carregarContagensSino(supabase, empresaId, acesso).catch(() => null),
+      contarAvisosNaoLidos(supabase, empresaId, user.id).catch(() => null),
+    ]);
+    const b = badgesDoMenu(contagens, permissoes, naoLidas);
+    if (b.sino !== null) setAlertCount(b.sino);
+    if (b.comissoes !== null) setComissoesCount(b.comissoes);
+    if (b.comandas !== null) setComandasAbertasCount(b.comandas);
+  }, [empresaId, permissoes]);
 
-      // Consulta com erro não vira número (0 ou total parcial): o badge mantém o valor anterior.
-      const comCount = contagemBadge(comissoes);
-      const comandasCount = contagemBadge(comandas);
-      if (comCount !== null) setComissoesCount(comCount);
-      if (comandasCount !== null) setComandasAbertasCount(comandasCount);
-      const total = somarBadges([
-        contagemBadge(estoque), contagemBadge(despesas),
-        comCount === null ? null : (comCount > 0 ? 1 : 0),
-        comandasCount === null ? null : (comandasCount > 0 ? 1 : 0),
-      ]);
-      if (total !== null) setAlertCount(total);
-    })();
-  }, [empresaId, podeVerEstoque, podeFecharComanda]);
+  useEffect(() => {
+    atualizarBadges().catch(() => {});
+    // A tela de Notificações avisa quando marca avisos como lidos.
+    const ouvir = () => { atualizarBadges().catch(() => {}); };
+    window.addEventListener(EVENTO_SINO, ouvir);
+    return () => window.removeEventListener(EVENTO_SINO, ouvir);
+  }, [atualizarBadges]);
 
   async function sair() {
+    // Antes do signOut: a inscrição de push deste navegador sai junto com a conta.
+    await desinscreverPushDoNavegador();
     await supabase.auth.signOut();
     router.push('/login');
   }
@@ -160,6 +159,9 @@ export default function Sidebar({
               <p className="text-sm font-bold truncate" style={{ color: 'var(--color-ink)', lineHeight: 1.2 }}>{empresaNome}</p>
             </div>
           </div>
+          {vinculos.length >= 2 && (
+            <div className="mt-3"><SeletorEmpresa vinculos={vinculos} empresaId={empresaId} /></div>
+          )}
         </div>
 
         {/* Nav principal */}
@@ -302,6 +304,9 @@ export default function Sidebar({
                 <X size={15} style={{ color: 'var(--color-ink3)' }} strokeWidth={2.5}/>
               </button>
             </div>
+            {vinculos.length >= 2 && (
+              <div className="px-4 pt-3"><SeletorEmpresa vinculos={vinculos} empresaId={empresaId} /></div>
+            )}
             {/* Grid de itens */}
             <div className="grid grid-cols-4 gap-1 p-3">
               {maisNavFiltrado.map(({ href, label, icon: Icon }) => {

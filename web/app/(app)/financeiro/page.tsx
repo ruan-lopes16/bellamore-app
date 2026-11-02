@@ -11,6 +11,7 @@
  * shared/kpis-financeiros.ts. Datas do mês em Brasília (@shared/periodos).
  */
 
+import { useEmpresaAtiva } from '@/components/EmpresaAtivaProvider';
 import { useState, useEffect, useRef } from 'react';
 import {
   Plus, TrendingUp, TrendingDown,
@@ -33,7 +34,7 @@ import {
   statusParcela, montarRetiradaSociaInsert, montarDevolucaoInsert,
 } from '@shared/retiradas-socia';
 import {
-  limitesMes, somarMeses, uniaoLimites, chaveDoMesExibido, getMonthQueryBounds,
+  limitesMes, somarMeses, uniaoLimites, chaveDoMesExibido, getMonthQueryBounds, hojeBRT,
 } from '@shared/periodos';
 import {
   calcularKpisFinanceiros, recortarDados, evolucaoMensal, rankingAtendimentos,
@@ -860,7 +861,8 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
         .sort((a, b) => (b.data_vencimento ?? '').localeCompare(a.data_vencimento ?? ''));
       await excluirRecorrencia(supabase, despesa.empresa_id, {
         chave: chaveDespesa(despesa), escopo: escopoExc, apagar: planoExc.apagar,
-        mesPulado: despesa.data_vencimento ?? new Date().toISOString().slice(0, 10),
+        // Sem vencimento: o mês de hoje em Brasília (em UTC, a noite do último dia caía no mês seguinte).
+        mesPulado: despesa.data_vencimento ?? hojeBRT(),
         modeloRestante: restantes[0] ? { id: restantes[0].id, data_vencimento: restantes[0].data_vencimento! } : undefined,
       });
       onSalvo();
@@ -1057,6 +1059,7 @@ function EditarDespesaModal({ despesa, onClose, onSalvo }: {
 // ── Tela principal ────────────────────────────────────────────
 
 export default function FinanceiroPage() {
+  const empresaAtiva = useEmpresaAtiva();
   const [mesRef,   setMesRef]   = useState(new Date());
   const [empresaId,setEmpresaId]= useState<string | null>(null);
   // As permissões já vêm resolvidas do servidor (contexto), então a 1ª carga não precisa esperar.
@@ -1109,8 +1112,8 @@ export default function FinanceiroPage() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membro } = await supabase.from('empresa_membros').select('empresa_id')
-        .eq('user_id', user.id).eq('ativo', true).limit(1).single();
+      // Empresa ativa resolvida no servidor (cookie validado), nunca uma empresa qualquer de empresa_membros.
+      const membro = { empresa_id: empresaAtiva.empresaId };
       if (membro) {
         setEmpresaId(membro.empresa_id);
       }

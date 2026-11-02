@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { urlCallback } from '@/lib/auth/destino-pos-login';
+import { SENHA_MINIMA, validarSenhaMinima } from '@/lib/senha';
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -33,6 +35,8 @@ export default function CadastroPage() {
     e.preventDefault();
     setErro('');
 
+    const erroSenha = validarSenhaMinima(senha);
+    if (erroSenha) { setErro(erroSenha); return; }
     if (senha !== confirmar) {
       setErro('As senhas não coincidem.');
       return;
@@ -44,7 +48,8 @@ export default function CadastroPage() {
       password: senha,
       options: {
         data: { nome: nome.trim() },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        // Conta nova não tem empresa: o link do e-mail leva direto para criar o estúdio.
+        emailRedirectTo: urlCallback(window.location.origin, '/criar-empresa'),
       },
     });
     setLoading(false);
@@ -102,7 +107,7 @@ export default function CadastroPage() {
                 <input
                   type={verSenha ? 'text' : 'password'}
                   value={senha} onChange={e => setSenha(e.target.value)}
-                  placeholder="mínimo 6 caracteres" required minLength={6}
+                  placeholder={`mínimo ${SENHA_MINIMA} caracteres`} required minLength={SENHA_MINIMA}
                   className={`${inputClass} pr-11`}
                 />
                 <button type="button" onClick={() => setVerSenha(v => !v)}
@@ -118,7 +123,7 @@ export default function CadastroPage() {
                 <input
                   type={verConfirmar ? 'text' : 'password'}
                   value={confirmar} onChange={e => setConfirmar(e.target.value)}
-                  placeholder="repita a senha" required minLength={6}
+                  placeholder="repita a senha" required minLength={SENHA_MINIMA}
                   className={`${inputClass} pr-11 ${confirmar && senha !== confirmar ? 'border-red focus:border-red focus:ring-red/20' : ''}`}
                 />
                 <button type="button" onClick={() => setVerConfirmar(v => !v)}

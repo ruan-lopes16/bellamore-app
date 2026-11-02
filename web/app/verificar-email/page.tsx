@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { urlCallback } from '@/lib/auth/destino-pos-login';
 
 const supabase = createClient();
 
@@ -22,7 +23,8 @@ function VerificarEmailContent() {
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      // Mesmo destino do cadastro: conta nova vai criar o estúdio.
+      options: { emailRedirectTo: urlCallback(window.location.origin, '/criar-empresa') },
     });
     setReenviando(false);
     if (error) setAviso({ tipo: 'erro', texto: error.message });

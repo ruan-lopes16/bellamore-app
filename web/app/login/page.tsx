@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { nextSeguro } from '@shared/navegacao';
 
 function EyeIcon({ open }: { open: boolean }) {
   return open ? (
@@ -16,9 +17,17 @@ function EyeIcon({ open }: { open: boolean }) {
   );
 }
 
+/** useSearchParams exige Suspense nesta versão do Next (build estático). */
 export default function LoginPage() {
+  return <Suspense fallback={null}><LoginConteudo/></Suspense>;
+}
+
+function LoginConteudo() {
   const router = useRouter();
+  const params = useSearchParams();
   const supabase = createClient();
+  // Volta para onde a pessoa estava (proxy manda ?next=); só caminho interno, senão /dashboard.
+  const destino = nextSeguro(params.get('next'));
 
   const [email,       setEmail]       = useState('');
   const [senha,       setSenha]       = useState('');
@@ -37,7 +46,7 @@ export default function LoginPage() {
       return;
     }
     // Mantém loading=true — overlay fica visível durante a navegação
-    router.push('/dashboard');
+    router.push(destino);
     router.refresh();
   }
 

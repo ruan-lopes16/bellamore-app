@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, Pressable,
-  RefreshControl, StatusBar,
+  RefreshControl, 
 } from 'react-native';
 import { router } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
@@ -37,18 +37,10 @@ import {
   ROTULO_FILTRO, ROTULO_SEGMENTO, FILTROS_CLIENTES, CARTOES_CLIENTES,
   type Agregado, type ClienteBase, type FiltroClientes, type ChaveCartaoClientes,
 } from '@shared/clientes-segmentos';
+import { BarraDeStatus, comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 const AVATAR_COLORS: [string, string][] = [
   ['#7C3AED', '#A855F7'], ['#D4608A', '#F472B6'],
@@ -57,21 +49,21 @@ const AVATAR_COLORS: [string, string][] = [
 ];
 
 /** Cor de cada tag (pelo rótulo de `tagsDaLinha`; "Arquivada" usa a padrão). */
-const COR_TAG: Record<string, { bg: string; color: string }> = {
+const corTag = (C: Paleta): Record<string, { bg: string; color: string }> => ({
   [ROTULO_SEGMENTO.vip]:        { bg: C.amberSoft,   color: C.amber },
   [ROTULO_SEGMENTO.nova]:       { bg: C.greenSoft,   color: C.green },
   [ROTULO_SEGMENTO.recorrente]: { bg: C.primarySoft, color: C.primary },
   [ROTULO_SEGMENTO.em_risco]:   { bg: C.amberSoft,   color: C.amber },
-  [ROTULO_SEGMENTO.sumida]:     { bg: '#FEF2F2',     color: '#C0392B' },
-};
-const COR_TAG_PADRAO = { bg: C.bg, color: C.text3 };
+  [ROTULO_SEGMENTO.sumida]:     { bg: C.redSoft,     color: C.red },
+});
+const corTagPadrao = (C: Paleta) => ({ bg: C.bg, color: C.text3 });
 
 const FILTROS: { key: FiltroClientes; label: string }[] = FILTROS_CLIENTES.map((key) => ({ key, label: ROTULO_FILTRO[key] }));
 
 /** Cor do número de cada cartão (rótulo e filtro vêm de `CARTOES_CLIENTES`). */
-const COR_CARTAO: Record<ChaveCartaoClientes, string> = {
+const corCartao = (C: Paleta): Record<ChaveCartaoClientes, string> => ({
   total: C.text, novasMes: C.green, vip: C.amber, em_risco: C.amber, sumida: C.rose, nunca_atendida: C.text2,
-};
+});
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -86,6 +78,7 @@ function iniciaisNome(nome: string) {
 // ── Componente de item ───────────────────────────────────────
 
 function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agregado: Agregado | undefined; hoje: string; index: number }) {
+  const { C } = useTema();
   const [c1] = avatarColors(item.nome);
   const segmentos = segmentosDaCliente(item, agregado, hoje);
   const tags = tagsDaLinha(item, agregado, hoje);
@@ -148,7 +141,7 @@ function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agreg
           </Text>
           <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
             {tags.map((tag) => {
-              const cfg = COR_TAG[tag] ?? COR_TAG_PADRAO;
+              const cfg = corTag(C)[tag] ?? corTagPadrao(C);
               return (
                 <View key={tag} style={{
                   backgroundColor: cfg.bg, borderRadius: 6,
@@ -189,7 +182,8 @@ function ClienteItem({ item, agregado, hoje, index }: { item: ClienteBase; agreg
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Clientes() {
+function Clientes() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const { pode } = usePermissoes();
@@ -225,7 +219,7 @@ export default function Clientes() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <BarraDeStatus comFundo />
 
       <FlashList
         data={clientes}
@@ -386,7 +380,7 @@ export default function Clientes() {
                   >
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_700Bold',
-                      fontSize: 22, color: COR_CARTAO[k.chave],
+                      fontSize: 22, color: corCartao(C)[k.chave],
                       letterSpacing: -0.5, lineHeight: 24, marginBottom: 3,
                     }}>
                       {contagem && !isError ? contagem[k.chave] : '—'}
@@ -493,3 +487,5 @@ export default function Clientes() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Clientes);

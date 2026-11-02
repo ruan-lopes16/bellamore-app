@@ -75,11 +75,58 @@ export type PermissoesUsuario = { isOwner: boolean; papel: Papel | null; chaves:
 /** `'dona'` = coisas fixas da dona, fora do catálogo (dados da empresa, retiradas, mudar papel). */
 export type Acesso = ChavePermissao | 'dona';
 
-/** Decide se a pessoa logada pode fazer `a`. A dona sempre pode. */
-export function pode(u: PermissoesUsuario, a: Acesso): boolean {
+/**
+ * Decide se a pessoa logada pode fazer `a`. A dona sempre pode. `null` = permissões não
+ * carregadas (RPC falhou): nunca libera nada.
+ */
+export function pode(u: PermissoesUsuario | null, a: Acesso): boolean {
+  if (!u) return false;
   if (u.isOwner) return true;
   if (a === 'dona') return false;
   return u.chaves.includes(a);
+}
+
+// ── Guarda de rotas ─────────────────────────────────────────────
+
+/**
+ * Telas com guarda, pelo 1º segmento da rota. As 5 primeiras são exatamente os layouts do web que
+ * chamam `exigirAcesso` (teste `permissao-da-rota.test.ts` varre os layouts e cobra este mapa).
+ * As demais são telas do app que no web são modais dentro de outra tela (o botão que abre o modal
+ * já esconde a ação sem a chave); no app são rotas e alcançáveis por deep link.
+ */
+const ROTAS_COM_GUARDA: Readonly<Record<string, Acesso>> = {
+  // Web (exigirAcesso) — também valem no app, com o mesmo nome de rota.
+  equipe: 'equipe.gerenciar',
+  estoque: 'estoque.acessar',
+  financeiro: 'financeiro.ver',
+  relatorios: 'financeiro.ver',
+  vendas: 'vendas.acessar',
+  // Só no app.
+  'convidar-profissional': 'equipe.gerenciar',
+  'editar-profissional': 'equipe.gerenciar',
+  'novo-produto': 'estoque.acessar',
+  'editar-produto': 'estoque.acessar',
+  'nova-despesa': 'financeiro.ver',
+  'nova-retirada': 'dona',
+  'novo-servico': 'servicos.gerenciar',
+  'editar-servico': 'servicos.gerenciar',
+  'novo-pacote': 'pacotes.gerenciar',
+  'editar-pacote': 'pacotes.gerenciar',
+  'novo-cliente': 'clientes.cadastrar',
+};
+
+/**
+ * Acesso exigido por uma rota, ou `null` se ela é liberada a todos. Aceita caminho do web
+ * (`/financeiro/x?y`), do app (`/(empresa)/editar-produto/123`) ou os segmentos do expo-router
+ * (`useSegments()`: `['(empresa)', 'editar-produto', '[id]']`). Grupos `(…)` são ignorados.
+ */
+export function permissaoDaRota(rota: string | readonly string[]): Acesso | null {
+  const caminho = typeof rota === 'string' ? rota.split(/[?#]/)[0] : rota.join('/');
+  const segs = caminho.split('/').filter(s => s && !/^\(.*\)$/.test(s));
+  if (segs.length === 0) return null;
+  // Editar cliente (app: cliente/[id]/editar). O perfil e a anamnese têm regra própria na tela.
+  if (segs[0] === 'cliente' && segs[2] === 'editar') return 'clientes.editar';
+  return Object.prototype.hasOwnProperty.call(ROTAS_COM_GUARDA, segs[0]) ? ROTAS_COM_GUARDA[segs[0]] : null;
 }
 
 /** Aviso do Financeiro e dos Relatórios para quem só enxerga as próprias comandas. */

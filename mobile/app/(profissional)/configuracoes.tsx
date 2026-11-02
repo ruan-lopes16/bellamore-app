@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, TextInput,
-  Alert, ActivityIndicator, StatusBar, Switch,
+  View, Text, ScrollView, TouchableOpacity,
+  Alert, ActivityIndicator,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import {
-  User, Phone, Lock, LogOut, Save, Bell,
+  User, Phone, Lock, LogOut, Save,
 } from 'lucide-react-native';
 import {
   useFonts,
@@ -23,74 +23,32 @@ import {
 
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
-
-// ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
-
-// ── Campo de formulário ───────────────────────────────────────
-
-function Campo({
-  label, icon, value, onChange, placeholder, secureTextEntry = false, keyboardType = 'default',
-}: {
-  label: string;
-  icon: React.ReactNode;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  secureTextEntry?: boolean;
-  keyboardType?: 'default' | 'phone-pad' | 'numeric' | 'decimal-pad';
-}) {
-  return (
-    <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border }}>
-      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>
-        {label}
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          {icon}
-        </View>
-        <TextInput
-          value={value}
-          onChangeText={onChange}
-          placeholder={placeholder}
-          placeholderTextColor={C.text4}
-          secureTextEntry={secureTextEntry}
-          keyboardType={keyboardType}
-          style={{
-            flex: 1,
-            fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text,
-          }}
-        />
-      </View>
-    </View>
-  );
-}
+import { BarraDeStatus, comTemaDoUsuario, useTema } from '@/lib/tema';
+import { validarSenhaOpcionalComConfirmacao } from '@shared/senha';
+import { mensagemErroBanco } from '@shared/erros';
+import { maskPhone } from '@shared/mascaras';
+import { SeletorEmpresa } from '@/components/SeletorEmpresa';
+import { CampoConfig as Campo } from '@/components/configuracoes/CampoConfig';
+import { CardNotificacoesCelular } from '@/components/configuracoes/CardNotificacoesCelular';
+import { SeletorModoTema } from '@/components/configuracoes/SeletorModoTema';
+import { TrocarEmail } from '@/components/configuracoes/TrocarEmail';
 
 // ── Tela principal ───────────────────────────────────────────
 
 /**
- * Configurações da profissional — versão enxuta da tela de gestão: só a
- * própria conta (nome, telefone, senha) e preferências de notificação.
- * Nada de dados da empresa, horários ou taxas — isso é papel de gestor/owner.
+ * Configurações da profissional — versão enxuta da tela de gestão: a própria conta (nome,
+ * telefone, e-mail, senha), notificações no celular, aparência e a troca de empresa (só com 2+
+ * vínculos). Nada de dados da empresa, horários ou taxas — isso é papel de gestor/owner.
  */
-export default function ConfiguracoesProfissional() {
+function ConfiguracoesProfissional() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { user, sair } = useAuthStore();
 
   const [nomeUser,     setNomeUser]     = useState(user?.nome ?? '');
-  const [telefoneUser, setTelefoneUser] = useState(user?.telefone ?? '');
+  const [telefoneUser, setTelefoneUser] = useState(maskPhone(user?.telefone ?? ''));
   const [novaSenha,    setNovaSenha]    = useState('');
-
-  // Preferências de notificação (por usuário, migration 077)
-  const [notifResumo,   setNotifResumo]   = useState(user?.notif_resumo_diario ?? true);
-  const [notifLembrete, setNotifLembrete] = useState(user?.notif_lembrete_atendimento ?? true);
+  const [confirmaSenha, setConfirmaSenha] = useState('');
 
   const [salvando, setSalvando] = useState(false);
 
@@ -104,33 +62,40 @@ export default function ConfiguracoesProfissional() {
 
   if (!fontsLoaded) return null;
 
+  // Perfil e senha (as preferências de notificação ficam no card, salvas na hora).
   async function salvar() {
     if (!user) return;
+    // Senha preenchida (curta ou sem confirmação igual): avisa (antes era ignorada em silêncio e a tela dizia "Salvo!").
+    const erroSenhaCurta = validarSenhaOpcionalComConfirmacao(novaSenha, confirmaSenha);
+    if (erroSenhaCurta) { Alert.alert('Senha', erroSenhaCurta); return; }
     setSalvando(true);
 
-    const { error: erroPerfil } = await supabase.from('users').update({
+    const { data, error: erroPerfil } = await supabase.from('users').update({
       nome:     nomeUser.trim(),
       telefone: telefoneUser.trim() || null,
-      notif_resumo_diario:        notifResumo,
-      notif_lembrete_atendimento: notifLembrete,
-    }).eq('id', user.id);
-
-    let erroSenha: { message: string } | null = null;
-    if (novaSenha.trim().length >= 6) {
-      const { error } = await supabase.auth.updateUser({ password: novaSenha.trim() });
-      erroSenha = error;
-    }
-
-    setSalvando(false);
-
-    const erro = erroPerfil ?? erroSenha;
-    if (erro) {
-      Alert.alert('Erro ao salvar', erro.message);
+    }).eq('id', user.id).select('id');
+    if (erroPerfil || !data || data.length === 0) {
+      setSalvando(false);
+      Alert.alert('Erro ao salvar', mensagemErroBanco(erroPerfil ?? { code: '42501' }, 'salvar o perfil'));
       return;
     }
 
+    if (novaSenha.length > 0) {
+      const { error } = await supabase.auth.updateUser({ password: novaSenha });
+      if (error) {
+        setSalvando(false);
+        Alert.alert('Erro ao salvar', /different from the old/i.test(error.message)
+          ? 'A nova senha deve ser diferente da atual.'
+          : 'Não foi possível trocar a senha. Tente de novo.');
+        return;
+      }
+    }
+
+    setSalvando(false);
+    const atual = useAuthStore.getState().user;
+    if (atual) useAuthStore.setState({ user: { ...atual, nome: nomeUser.trim(), telefone: telefoneUser.trim() || undefined } });
     Alert.alert('Salvo!', 'Configurações atualizadas com sucesso.');
-    setNovaSenha('');
+    setNovaSenha(''); setConfirmaSenha('');
   }
 
   function handleLogout() {
@@ -153,7 +118,7 @@ export default function ConfiguracoesProfissional() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       <View style={{ flex: 1, backgroundColor: C.bg }}>
-        <StatusBar barStyle="dark-content" />
+        <BarraDeStatus />
 
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -175,6 +140,9 @@ export default function ConfiguracoesProfissional() {
             </Text>
           </MotiView>
 
+          {/* Trocar de empresa (só com 2+ vínculos) */}
+          <SeletorEmpresa style={{ marginHorizontal: 24, marginBottom: 16 }} />
+
           {/* ── Minha Conta ── */}
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 60 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10, marginHorizontal: 24 }}>
@@ -188,53 +156,24 @@ export default function ConfiguracoesProfissional() {
               <Campo label="Nome" icon={<User size={13} color={C.primary} strokeWidth={1.8} />}
                 value={nomeUser} onChange={setNomeUser} placeholder="Seu nome" />
               <Campo label="Telefone" icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
-                value={telefoneUser} onChange={setTelefoneUser} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
-              <View style={{ borderBottomWidth: 0 }}>
-                <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
-                  value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry />
-              </View>
+                value={telefoneUser} onChange={(v) => setTelefoneUser(maskPhone(v))} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
+              <TrocarEmail />
+              <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+                value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry />
+              <Campo label="Confirmar nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+                value={confirmaSenha} onChange={setConfirmaSenha} placeholder="Repita a nova senha" secureTextEntry ultimo />
             </View>
           </MotiView>
 
-          {/* ── Notificações ── */}
-          <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 120 }}
-            style={{ marginHorizontal: 24, marginTop: 20 }}
-          >
-            <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Bell size={16} color={C.primary} strokeWidth={1.8} />
-                <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>
-                  Notificações
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setNotifResumo((v) => !v)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Switch value={notifResumo} onValueChange={setNotifResumo}
-                  trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
-                    Resumo do dia
-                  </Text>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
-                    1x por dia, às 07:00
-                  </Text>
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setNotifLembrete((v) => !v)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Switch value={notifLembrete} onValueChange={setNotifLembrete}
-                  trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>
-                    Lembrete de atendimento
-                  </Text>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
-                    30 min antes de cada atendimento
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </MotiView>
+          {/* ── Notificações no celular (status, Ativar e preferências salvas na hora) ── */}
+          <View style={{ marginHorizontal: 24, marginTop: 20 }}>
+            <CardNotificacoesCelular />
+          </View>
+
+          {/* ── Aparência (modo escuro) ── */}
+          <View style={{ marginHorizontal: 24, marginTop: 20 }}>
+            <SeletorModoTema />
+          </View>
 
           {/* ── Botão Salvar ── */}
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 380, delay: 180 }}
@@ -289,3 +228,5 @@ export default function ConfiguracoesProfissional() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(ConfiguracoesProfissional);
