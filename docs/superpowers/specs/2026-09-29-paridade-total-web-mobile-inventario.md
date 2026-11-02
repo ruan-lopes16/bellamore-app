@@ -233,6 +233,6 @@ Legenda de arquivos: W = `web/app/(app)/…`; M = `mobile/app/(empresa)/…`; MP
 1. **P0** — fundação: entidade cliente, anamnese, navegação, onboarding. Sem isso, nenhuma paridade de tela importa.
 2. **P1** — dinheiro: `shared/kpis-financeiros.ts`; comanda e PDV idênticos; estoque; equipe e comissões.
 3. **P2** — módulo a módulo (Agenda → Clientes → Serviços/Pacotes → Configurações/Notificações), sempre extraindo a regra para `shared/`.
-4. Limpeza de dados duplicados em produção (comandas de 25/06, 25/09 e 28/09) — SQL entregue ao dono.
+4. Limpeza de dados duplicados em produção (comandas de 25/06, 25/09 e 28/09) — SQL entregue ao dono e já aplicado (conferido em 2026-11-02).
 
 Cada fase segue o fluxo spec → plano → execução por tarefa com revisão, e fecha com `tsc` web zerado, `tsc` mobile sem novos erros (baseline: 9) e suíte web verde.

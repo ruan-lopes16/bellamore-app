@@ -690,7 +690,7 @@ automaticamente, preservando o comportamento antigo pra esse caminho específico
    ```
 5. No dia seguinte (PWAs com JS antigo), repetir a 2ª consulta. Se aparecer linha, rodar o 080 de novo (é idempotente).
 6. Empresas "Teste QA" e "AC Beauty Academy" duplicada (sem nenhum dado vinculado): `delete from public.empresas where id in ('2c7c7874-0e82-4526-a8b2-869c352b7905','f9066170-85a2-4924-ace4-9f8dfc647910');`
-7. Duplicatas de comanda (25/06 vazias, 25/09 venda de pacote indevida, 28/09 dobradas): SQL de limpeza a ser entregue na próxima sessão.
+7. Duplicatas de comanda (25/06 vazias, 25/09 venda de pacote indevida, 28/09 dobradas): ~~SQL de limpeza~~ — **já aplicada em produção** (conferido em 2026-11-02: nenhuma comanda sem atendimento).
 
 **Próximas fases de paridade** (ver inventário): P1 dinheiro (`shared/kpis-financeiros.ts`, comanda/PDV, estoque, equipe/comissões) → P2 Agenda → Clientes (segmentação unificada) → Serviços/Pacotes → Configurações/Notificações/Papéis.
 
