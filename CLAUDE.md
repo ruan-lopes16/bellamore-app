@@ -1425,7 +1425,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 **Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
 
-**Pendências para produção:** seguir `docs/superpowers/notes/2026-11-02-deploy-configuracoes.md` — **097 antes do deploy**; build nativo novo do app (`expo-image-picker`, `expo-system-ui` + os já pendentes); `EXPO_ACCESS_TOKEN` na Vercel só se o projeto Expo exigir push seguro.
+**Pendências para produção:** ~~097~~ — **aplicada em produção em 2026-11-02** (conferência: 3 policies em `push_dispositivos`, `notificacoes` com "ver proprias" + a nova de UPDATE; produção não tinha policy de UPDATE em `notificacoes` antes, então "marcar como lida" não gravava nada até a 097); build nativo novo do app (`expo-image-picker`, `expo-system-ui` + os já pendentes); `EXPO_ACCESS_TOKEN` na Vercel só se o projeto Expo exigir push seguro.
 
 **Decisão do dono (2026-11-02):** alerta de aniversariantes mostra os próximos 7 dias (hoje em destaque), como o web já fazia — mantido.
 
