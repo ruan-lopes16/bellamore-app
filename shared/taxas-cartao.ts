@@ -257,3 +257,52 @@ export function descartarExcecoesRedundantes(taxas: TaxaLinha[]): TaxaLinha[] {
 export function bandeirasComExcecao(taxas: TaxaLinha[]): string[] {
   return Array.from(new Set(taxas.filter(t => t.bandeiraId !== null).map(t => t.bandeiraId as string)));
 }
+
+/** Taxas de uma bandeira (ou da tabela padrão) em texto: débito, crédito à vista e crédito parcelado. */
+export type ResumoTaxas = { debito: string; creditoAvista: string; creditoParcelado: string };
+
+/** Resumo de uma maquininha para a tela: tabela padrão, bandeiras com taxa própria e as que usam a padrão. */
+export type ResumoMaquininha = {
+  padrao: ResumoTaxas;
+  /** Rótulo da faixa parcelada, ex.: "2x a 18x" (null se a maquininha só faz 1x). */
+  faixaParcelado: string | null;
+  excecoes: { bandeira: BandeiraCartao; taxas: ResumoTaxas }[];
+  /** Bandeiras ativas sem exceção: cobram a tabela padrão. */
+  usamPadrao: BandeiraCartao[];
+};
+
+/**
+ * Resume a tabela da maquininha para exibição: o que a padrão cobra e o que cada bandeira com
+ * exceção cobra de fato (célula sem exceção cai na padrão, igual a `taxaDoCartao`). Parcelado com
+ * valores diferentes por parcela vira faixa ("5,59% a 6,10%"); sem taxa cadastrada → "—".
+ */
+export function resumoMaquininha(m: Maquininha, bandeiras: BandeiraCartao[]): ResumoMaquininha {
+  const taxaDe = (bid: string | null, modalidade: Modalidade, parcelas: number): number | null => {
+    const achar = (b: string | null) => m.taxas.find(t => t.bandeiraId === b && t.modalidade === modalidade && t.parcelas === parcelas);
+    const linha = (bid !== null ? achar(bid) : undefined) ?? achar(null);
+    return linha ? linha.taxa : null;
+  };
+  const texto = (v: number | null) => (v === null ? '—' : fmtTaxa(v));
+  const resumir = (bid: string | null): ResumoTaxas => {
+    const parcelado: number[] = [];
+    for (let n = 2; n <= m.maxParcelas; n++) {
+      const t = taxaDe(bid, 'credito', n);
+      if (t !== null) parcelado.push(t);
+    }
+    const min = parcelado.length ? Math.min(...parcelado) : null;
+    const max = parcelado.length ? Math.max(...parcelado) : null;
+    return {
+      debito: texto(taxaDe(bid, 'debito', 1)),
+      creditoAvista: texto(taxaDe(bid, 'credito', 1)),
+      creditoParcelado: min === null || max === null ? '—' : min === max ? fmtTaxa(min) : `${fmtTaxa(min)} a ${fmtTaxa(max)}`,
+    };
+  };
+  const comExcecao = new Set(bandeirasComExcecao(m.taxas));
+  const ordenadas = [...bandeiras].filter(b => b.ativa).sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome, 'pt-BR'));
+  return {
+    padrao: resumir(null),
+    faixaParcelado: m.maxParcelas >= 2 ? `2x a ${m.maxParcelas}x` : null,
+    excecoes: ordenadas.filter(b => comExcecao.has(b.id)).map(b => ({ bandeira: b, taxas: resumir(b.id) })),
+    usamPadrao: ordenadas.filter(b => !comExcecao.has(b.id)),
+  };
+}

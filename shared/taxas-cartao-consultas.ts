@@ -172,3 +172,13 @@ export async function salvarBandeira(
   });
   if (error) throw new Error(mensagemErroBanco(error, 'salvar a bandeira'));
 }
+
+/**
+ * Exclui a bandeira de vez, junto com as exceções de taxa dela (cascata no banco).
+ * Pagamentos antigos guardam o nome da bandeira em texto, então o histórico não muda.
+ */
+export async function excluirBandeira(db: ClienteDb, empresaId: string, id: string): Promise<void> {
+  const { data, error } = await db.from('cartao_bandeiras').delete().eq('id', id).eq('empresa_id', empresaId).select('id');
+  if (error) throw new Error(mensagemErroBanco(error, 'excluir a bandeira'));
+  if (!data || data.length !== 1) throw recusado('excluir a bandeira');
+}
