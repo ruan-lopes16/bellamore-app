@@ -1,6 +1,6 @@
 # Pendências — dinheiro e falhas silenciosas (web × app) — design
 
-**Data:** 2026-11-03 · **Branch:** `feat/pendencias-dinheiro-falhas` · **Migration:** 098.
+**Data:** 2026-11-03 · **Branch:** `feat/pendencias-dinheiro-falhas` · **Migration:** 100.
 
 **Fonte:** `docs/superpowers/notes/2026-11-03-backlog-pendencias.md`, grupos A e B1–B7, conferidos no código em 03/11.
 
@@ -13,9 +13,9 @@
 1. **A2:** um pacote de uma venda "Cobrar agora" com vários **não** sai sozinho. Só a venda inteira sai (pacotes + venda + pagamentos).
 2. **A7:** pacote vinculado a atendimento com vários serviços só se cobrir **todos** os serviços do atendimento. O modelo "o atendimento inteiro é da sessão" continua.
 
-## Banco — `098_pendencias_dinheiro_falhas.sql`
+## Banco — `100_pendencias_dinheiro_falhas.sql`
 
-Idempotente, com cabeçalho (por quê, conferências, rollback) e `notify pgrst, 'reload schema';`. Depende da 090–097.
+Idempotente, com cabeçalho (por quê, conferências, rollback) e `notify pgrst, 'reload schema';`. Depende da 090–099.
 
 ### A1 — taxa de reserva retida volta ao reabrir o atendimento
 
@@ -87,13 +87,13 @@ Sem mudança de tabela: `registrar_push_dispositivo` já renova `visto_em`.
 
 ### A2 — tela de Pacotes
 
-`excluirPacoteCliente` (shared/pacotes-consultas ou equivalente atual) ganha `excluirVendaPacotes(db, empresaId, vendaId)`, com fallback `PGRST202` → erro "Atualize o sistema: falta a migration 098.". Nas telas de Pacotes (web e app), ao excluir:
+`shared/pacotes-venda.ts` (ao lado de `excluirPacoteCliente`) ganha `excluirVendaPacotes(db, empresaId, vendaId)`, com fallback `PGRST202` → erro "Atualize o sistema: falta a migration 100.". Nas telas de Pacotes (web e app), ao excluir:
 - **venda com 1 pacote:** fluxo atual;
 - **venda com vários:** a confirmação mostra o texto da decisão 1 e o botão "Excluir a venda inteira", que chama a função nova. A contagem vem dos vendidos já carregados (mesmo `venda_id`).
 
 ### A8 — relatório de Pacotes
 
-`relatorioUtilizacao` (`shared/pacotes-consultas.ts`):
+`calcularRelatorioUtilizacao` (`shared/pacotes-consultas.ts`):
 - **`receitaTotal` e a receita por pacote:** passam a somar só os pacotes com venda registrada (`venda_id` ou `comanda_id`, com `cobranca = 'paga'`), o mesmo que entra no faturamento.
 - **Campo novo `foraDoFaturamento: { quantidade, valor }`:** os pacotes sem venda nem comanda, com `coalesce(valor_pago, preço)`.
 - **As duas telas** mostram, quando `quantidade > 0`: "N pacotes vendidos antes do registro de venda — R$ X fora do faturamento".
@@ -131,11 +131,11 @@ Toda gravação nova usa `.select('id')` ou RPC sem RETURNING. As mensagens fica
 **Unitários:**
 - `pacoteCobreAtendimento` (todos, parte, vazio, repetidos);
 - `somarArredondado`;
-- `relatorioUtilizacao` com `foraDoFaturamento`;
+- `calcularRelatorioUtilizacao` com `foraDoFaturamento`;
 - filtro de `visto_em` dos crons (fetch falso);
 - B6 por varredura (todo `ExportButton` recebe `disabled` ligado ao erro).
 
-**098 em PGlite, sobre 090→097:**
+**100 em PGlite, sobre 090→099:**
 - retida → pago/pendente ao reabrir, e cancelada ao concluir depois;
 - backfill;
 - sessão consumida no último dia às 22h em Brasília;
@@ -149,9 +149,9 @@ Toda gravação nova usa `.select('id')` ou RPC sem RETURNING. As mensagens fica
 ## Deploy
 
 1. Consulta só de leitura dos atendimentos concluídos com taxa retida (para o dono decidir devoluções).
-2. Rodar a 098.
+2. Rodar a 100.
 3. Conferências.
 4. Merge e deploy.
 5. Recarregar o PWA.
 
-Sem a 098, o botão "Excluir a venda inteira" mostra "falta a migration 098". O resto funciona.
+Sem a 100, o botão "Excluir a venda inteira" mostra "falta a migration 100". O resto funciona.
