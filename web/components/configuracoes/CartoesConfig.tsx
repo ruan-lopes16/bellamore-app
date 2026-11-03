@@ -12,15 +12,48 @@ import { usePermissoes } from '@/components/PermissoesProvider';
 import { mensagemErroBanco } from '@shared/erros';
 import {
   MAX_PARCELAS, bandeirasAtivas, bandeirasComExcecao, campoParaTaxa, chaveBandeira, descartarExcecoesRedundantes,
-  gradeParaTaxas, maquininhaPadrao, maquininhasAtivas, mascararPercentual, taxasParaGrade, validarTabela,
-  type ConfigCartoes, type GradeTaxas, type Maquininha, type TaxaLinha,
+  gradeParaTaxas, maquininhaPadrao, maquininhasAtivas, mascararPercentual, resumoMaquininha, taxasParaGrade, validarTabela,
+  type BandeiraCartao, type ConfigCartoes, type GradeTaxas, type Maquininha, type ResumoTaxas, type TaxaLinha,
 } from '@shared/taxas-cartao';
-import { carregarConfigCartoes, definirPadrao, salvarBandeira, salvarMaquininha } from '@shared/taxas-cartao-consultas';
+import { carregarConfigCartoes, definirPadrao, excluirBandeira, salvarBandeira, salvarMaquininha } from '@shared/taxas-cartao-consultas';
 
 const supabase = createClient();
 const inputCls = 'w-full h-10 px-3.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition disabled:opacity-60';
 const labelCls = 'block text-xs font-semibold text-text-2 uppercase tracking-wide mb-1.5';
 const btnSec = 'h-9 px-3 rounded-xl border border-border text-xs font-semibold text-text-2 hover:bg-bg transition disabled:opacity-50 inline-flex items-center gap-1.5';
+
+/** Linha do resumo: nome da bandeira (ou "Demais bandeiras") e suas três taxas. */
+function LinhaResumo({ nome, taxas, destaque }: { nome: string; taxas: ResumoTaxas; destaque?: boolean }) {
+  return (
+    <div className={`grid grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] gap-2 items-center px-3 py-2 text-xs ${destaque ? 'bg-primary-soft/40' : ''}`}>
+      <span className="font-semibold text-text truncate">{nome}</span>
+      <span className="text-text-2 tabular-nums">{taxas.debito}</span>
+      <span className="text-text-2 tabular-nums">{taxas.creditoAvista}</span>
+      <span className="text-text-2 tabular-nums">{taxas.creditoParcelado}</span>
+    </div>
+  );
+}
+
+/** Resumo das taxas da maquininha: a tabela padrão e o que cada bandeira com taxa própria cobra. */
+function ResumoTaxasMaquininha({ m, bandeiras }: { m: Maquininha; bandeiras: BandeiraCartao[] }) {
+  const r = resumoMaquininha(m, bandeiras);
+  return (
+    <div className="rounded-xl border border-border-soft overflow-hidden">
+      <div className="grid grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] gap-2 px-3 py-2 bg-bg text-[10px] font-bold uppercase tracking-wide text-text-3">
+        <span>Bandeira</span><span>Débito</span><span>Crédito 1x</span><span>{r.faixaParcelado ?? 'Parcelado'}</span>
+      </div>
+      <div className="divide-y divide-border-soft">
+        <LinhaResumo nome={r.excecoes.length ? 'Padrão (demais)' : 'Padrão (todas)'} taxas={r.padrao} destaque/>
+        {r.excecoes.map(e => <LinhaResumo key={e.bandeira.id} nome={e.bandeira.nome} taxas={e.taxas}/>)}
+      </div>
+      {r.usamPadrao.length > 0 && (
+        <p className="px-3 py-2 text-[11px] text-text-3 border-t border-border-soft">
+          Usam a tabela padrão: {r.usamPadrao.map(b => b.nome).join(', ')}
+        </p>
+      )}
+    </div>
+  );
+}
 
 type Editor = {
   id?: string; nome: string; max: string; ativa: boolean; padrao: boolean; ordem: number;
@@ -244,6 +277,13 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
     void executar('salvar a bandeira', () => salvarBandeira(supabase, empresaId, { id, nome, ativa: b.ativa }, chavesTodas));
   }
 
+  function excluirBandeiraAcao(id: string) {
+    const b = cfg.bandeiras.find(x => x.id === id);
+    if (!b) return;
+    if (!window.confirm(`Excluir a bandeira "${b.nome}"? As exceções de taxa dela também somem. Pagamentos já registrados continuam como estão.`)) return;
+    void executar('excluir a bandeira', () => excluirBandeira(supabase, empresaId, id));
+  }
+
   function alternarBandeira(id: string) {
     const b = cfg.bandeiras.find(x => x.id === id);
     if (!b) return;
@@ -272,15 +312,18 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
           )}
         </div>
         {ativas.map(m => (
-          <div key={m.id} className="rounded-2xl border border-border p-3.5 flex items-center gap-3 flex-wrap">
-            <CreditCard size={16} className="text-text-3 flex-shrink-0"/>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-text truncate">{m.nome}</p>
-              <p className="text-xs text-text-3">até {m.maxParcelas}x</p>
+          <div key={m.id} className="rounded-2xl border border-border p-3.5 flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <CreditCard size={16} className="text-text-3 flex-shrink-0"/>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-text break-words">{m.nome}</p>
+                <p className="text-xs text-text-3">até {m.maxParcelas}x</p>
+              </div>
+              {m.padrao && <span className="px-2 h-6 rounded-full bg-primary-soft text-primary text-[11px] font-bold inline-flex items-center gap-1 flex-shrink-0"><Star size={11}/> Padrão</span>}
             </div>
-            {m.padrao && <span className="px-2 h-6 rounded-full bg-primary-soft text-primary text-[11px] font-bold inline-flex items-center gap-1"><Star size={11}/> Padrão</span>}
+            <ResumoTaxasMaquininha m={m} bandeiras={cfg.bandeiras}/>
             {!somenteLeitura && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {!m.padrao && <button type="button" onClick={() => tornarPadrao(m)} disabled={ocupado} className={btnSec}>Tornar padrão</button>}
                 <button type="button" onClick={() => abrirEdicao(m)} disabled={ocupado} className={btnSec}><Pencil size={13}/> Editar</button>
                 <button type="button" onClick={() => remover(m)} disabled={ocupado} aria-label={`Remover ${m.nome}`}
@@ -325,10 +368,14 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
                 {b.ativa ? 'Desativar' : 'Ativar'}
               </button>
             )}
+            {!somenteLeitura && (
+              <button type="button" onClick={() => excluirBandeiraAcao(b.id)} disabled={ocupado} aria-label={`Excluir ${b.nome}`}
+                className="w-10 h-10 rounded-xl border border-border text-text-4 hover:text-red flex items-center justify-center flex-shrink-0 disabled:opacity-50"><Trash2 size={14}/></button>
+            )}
           </div>
         ))}
         {!somenteLeitura && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <input value={novaBandeira} onChange={e => setNovaBandeira(e.target.value)} placeholder="Nome da nova bandeira"
               disabled={ocupado} className={inputCls}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); adicionarBandeira(); } }}/>

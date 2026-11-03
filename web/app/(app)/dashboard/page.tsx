@@ -25,7 +25,7 @@ import {
 } from '@shared/dashboard-consultas';
 import {
   calcularKpisFinanceiros, variacaoPercentual, receitaAcumuladaPorDia, resumoComissoesPendentes,
-  retiradasDoPeriodo,
+  retiradasDoPeriodo, clientesAtendidosNoPeriodo, recortarDados,
 } from '@shared/kpis-financeiros';
 import {
   carregarDadosFinanceiros, carregarComissoesPendentes, carregarRetiradas,
@@ -105,8 +105,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         // "Agenda hoje" não conta cancelados (decisão do dono, 2026-10-01) — igual ao app.
         .neq('status', 'cancelado')
         .order('data_hora_inicio'),
-      supabase.from('clientes').select('id', { count: 'exact', head: true })
-        .eq('empresa_id', empresaId).eq('ativo', true),
       supabase.from('v_produtos_estoque_baixo').select('id,nome,estoque_atual,estoque_minimo')
         .eq('empresa_id', empresaId).eq('ativo', true),
       carregarDespesasVencendo(supabase, empresaId, hojeStr),
@@ -125,7 +123,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     ] as const);
 
     // Erro em qualquer consulta direta aborta a carga (sem isso viraria "sem dados").
-    for (const r of [resultado[0], resultado[1], resultado[2]]) {
+    for (const r of [resultado[0], resultado[1]]) {
       if (r.error) throw r.error;
     }
     carga = { resultado, isOwnerCarga };
@@ -150,7 +148,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const isOwner = carga.isOwnerCarga;
   const [
-    agendamentosHoje, totalClientes, estoqueBaixo, despVencendo,
+    agendamentosHoje, estoqueBaixo, despVencendo,
     ultimasVisitas, clientesComAniversario,
     dados, dadosDeHoje, comissoesPendentesRows, retiradasDados, comandasRows,
   ] = carga.resultado;
@@ -169,6 +167,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const agsHoje       = agendamentosHoje.data ?? [];
   const agsConcluidos = agsHoje.filter(a => a.status === 'concluido');
   const fatHoje       = kpisHoje.bruto;
+  // Clientes distintas com atendimento concluído no mês exibido (com ou sem pacote).
+  const clientesAtendidosMes = clientesAtendidosNoPeriodo(recortarDados(dados, limMes).agendamentos).length;
 
   const estoqueBaixoItems  = estoqueBaixo.data ?? [];
   const despPendentesItems = despVencendo;
@@ -305,7 +305,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         {[
           { label: 'Agenda hoje',    value: String(agsHoje.length), sub: `${agsConcluidos.length} concluído(s)`, icon: CalendarDays,  color: 'var(--color-accent)'   },
           { label: 'Fat. hoje',       value: fmt(fatHoje),         sub: 'Serv. + vendas + taxas',                     icon: ShoppingBag,   color: 'var(--color-primary)' },
-          { label: 'Clientes',         value: String(totalClientes.count ?? 0), sub: 'Total na base',          icon: Users,         color: 'var(--color-amber)'    },
+          { label: 'Clientes atendidas', value: String(clientesAtendidosMes), sub: 'No mês',                icon: Users,         color: 'var(--color-amber)'    },
         ].map(({ label, value, sub, icon: Icon, color }, i) => (
           <div key={label} className="rounded-2xl p-3 md:p-5 bm-stagger min-w-0"
             style={{ '--bm-i': i + 3, '--bm-step': '55ms', background: 'var(--color-surface)', border: '1px solid var(--color-border-soft)', boxShadow: '0 2px 6px rgba(44,23,80,0.06)' } as React.CSSProperties}>

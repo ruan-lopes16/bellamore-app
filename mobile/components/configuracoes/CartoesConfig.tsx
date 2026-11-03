@@ -14,10 +14,10 @@ import { usePermissoes } from '@/lib/permissions';
 import { mensagemErroBanco } from '@shared/erros';
 import {
   MAX_PARCELAS, bandeirasAtivas, bandeirasComExcecao, campoParaTaxa, chaveBandeira, descartarExcecoesRedundantes,
-  gradeParaTaxas, maquininhaPadrao, maquininhasAtivas, mascararPercentual, taxasParaGrade, validarTabela,
-  type ConfigCartoes, type GradeTaxas, type Maquininha, type TaxaLinha,
+  gradeParaTaxas, maquininhaPadrao, maquininhasAtivas, mascararPercentual, resumoMaquininha, taxasParaGrade, validarTabela,
+  type BandeiraCartao, type ConfigCartoes, type GradeTaxas, type Maquininha, type ResumoTaxas, type TaxaLinha,
 } from '@shared/taxas-cartao';
-import { carregarConfigCartoes, definirPadrao, salvarBandeira, salvarMaquininha } from '@shared/taxas-cartao-consultas';
+import { carregarConfigCartoes, definirPadrao, excluirBandeira, salvarBandeira, salvarMaquininha } from '@shared/taxas-cartao-consultas';
 
 const C = {
   bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
@@ -57,6 +57,36 @@ function BotaoSec({ children, onPress, disabled, flex }: { children: React.React
   );
 }
 const txtSec = { fontFamily: F.s, fontSize: 12, color: C.text2 } as const;
+
+/** Linha do resumo: nome da bandeira (ou "Padrão") e suas três taxas. */
+function LinhaResumo({ nome, taxas, cabecalho, destaque }: { nome: string; taxas: ResumoTaxas; cabecalho?: boolean; destaque?: boolean }) {
+  const fonte = cabecalho ? { fontFamily: F.b, fontSize: 10, color: C.text3 } : { fontFamily: F.m, fontSize: 12, color: C.text2 };
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8, gap: 6, backgroundColor: cabecalho ? C.bg : destaque ? C.primarySoft : undefined }}>
+      <Text numberOfLines={1} style={[fonte, { flex: 1.5 }, !cabecalho && { fontFamily: F.s, color: C.text }]}>{nome}</Text>
+      <Text style={[fonte, { flex: 1 }]}>{taxas.debito}</Text>
+      <Text style={[fonte, { flex: 1 }]}>{taxas.creditoAvista}</Text>
+      <Text style={[fonte, { flex: 1 }]}>{taxas.creditoParcelado}</Text>
+    </View>
+  );
+}
+
+/** Resumo das taxas da maquininha: a tabela padrão e o que cada bandeira com taxa própria cobra. */
+function ResumoTaxasMaquininha({ m, bandeiras }: { m: Maquininha; bandeiras: BandeiraCartao[] }) {
+  const r = resumoMaquininha(m, bandeiras);
+  return (
+    <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, overflow: 'hidden' }}>
+      <LinhaResumo cabecalho nome="BANDEIRA" taxas={{ debito: 'DÉBITO', creditoAvista: 'CRÉD. 1x', creditoParcelado: (r.faixaParcelado ?? 'PARCELADO').toUpperCase() }} />
+      <LinhaResumo destaque nome={r.excecoes.length ? 'Padrão (demais)' : 'Padrão (todas)'} taxas={r.padrao} />
+      {r.excecoes.map(e => <LinhaResumo key={e.bandeira.id} nome={e.bandeira.nome} taxas={e.taxas} />)}
+      {r.usamPadrao.length > 0 && (
+        <Text style={{ fontFamily: F.r, fontSize: 11, color: C.text3, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+          Usam a tabela padrão: {r.usamPadrao.map(b => b.nome).join(', ')}
+        </Text>
+      )}
+    </View>
+  );
+}
 
 /** Campo de percentual com sufixo "%". */
 function CampoTaxa({ rotulo, valor, onChange, desabilitado, placeholder }: {
@@ -280,6 +310,19 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
     void executar('salvar a bandeira', () => salvarBandeira(supabase, empresaId, { id, nome, ativa: b.ativa }, chavesTodas));
   }
 
+  function excluirBandeiraAcao(id: string) {
+    const b = cfg.bandeiras.find(x => x.id === id);
+    if (!b) return;
+    Alert.alert(
+      `Excluir a bandeira "${b.nome}"?`,
+      'As exceções de taxa dela também somem. Pagamentos já registrados continuam como estão.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Excluir', style: 'destructive', onPress: () => void executar('excluir a bandeira', () => excluirBandeira(supabase, empresaId, id)) },
+      ],
+    );
+  }
+
   function alternarBandeira(id: string) {
     const b = cfg.bandeiras.find(x => x.id === id);
     if (!b) return;
@@ -322,6 +365,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
                 </View>
               )}
             </View>
+            <ResumoTaxasMaquininha m={m} bandeiras={cfg.bandeiras} />
             {!somenteLeitura && (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {!m.padrao && <BotaoSec onPress={() => tornarPadrao(m)} disabled={ocupado}><Text style={txtSec}>Tornar padrão</Text></BotaoSec>}
@@ -366,6 +410,9 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
               <BotaoSec flex onPress={() => alternarBandeira(b.id)} disabled={ocupado}>
                 <Text style={txtSec}>{b.ativa ? 'Desativar' : 'Ativar'}</Text>
               </BotaoSec>
+            )}
+            {!somenteLeitura && (
+              <BotaoSec onPress={() => excluirBandeiraAcao(b.id)} disabled={ocupado}><Trash2 size={13} color={C.red} /></BotaoSec>
             )}
           </View>
         ))}
