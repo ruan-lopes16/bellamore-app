@@ -37,6 +37,34 @@ export type PacoteClienteOpt = {
   sessoes: PacoteSessaoFeita[];
 };
 
+/** Aviso quando existe pacote ativo que cobre só parte dos serviços do atendimento. */
+export const AVISO_PACOTE_PARCIAL =
+  'Este pacote não cobre todos os serviços deste atendimento. Para usar a sessão, separe o serviço do pacote num atendimento próprio.';
+
+/**
+ * O pacote cobre CADA serviço distinto do atendimento? Ids vazios são ignorados; lista vazia dá `false`
+ * (sem serviço não há o que cobrir).
+ */
+export function pacoteCobreAtendimento(p: PacoteClienteOpt, servicoIds: string[]): boolean {
+  const ids = [...new Set(servicoIds.filter(Boolean))];
+  if (ids.length === 0) return false;
+  return ids.every(id => p.servicos.some(s => s.servico_id === id));
+}
+
+/**
+ * Separa, entre os pacotes ativos, os que cobrem o atendimento inteiro (`elegiveis`) e sinaliza
+ * (`temParcial`) se existe algum que cobre só parte dos serviços (a tela mostra `AVISO_PACOTE_PARCIAL`).
+ */
+export function pacotesDoAtendimento(
+  ativos: PacoteClienteOpt[], servicoIds: string[],
+): { elegiveis: PacoteClienteOpt[]; temParcial: boolean } {
+  const ids = [...new Set(servicoIds.filter(Boolean))];
+  const elegiveis = ativos.filter(p => pacoteCobreAtendimento(p, ids));
+  const temParcial = ativos.some(p =>
+    !pacoteCobreAtendimento(p, ids) && ids.some(id => p.servicos.some(s => s.servico_id === id)));
+  return { elegiveis, temParcial };
+}
+
 /**
  * Filtra e calcula, a partir dos pacote_clientes ATIVOS de um cliente (o
  * caller ja filtrou status='ativo' na query), quais ainda tem sessao

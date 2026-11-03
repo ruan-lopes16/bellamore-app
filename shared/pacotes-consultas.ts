@@ -99,6 +99,8 @@ export type PacoteVendido = {
   /** 'pendente' = "A cobrar" (vendido com "Cobrar na comanda"). Sem a 096: sempre 'paga'. */
   cobranca: 'paga' | 'pendente';
   venda_id: string | null;
+  /** Comanda que cobrou o pacote (096). Sem venda nem comanda = vendido antes do registro de venda. */
+  comanda_id: string | null;
   usos: UsoPacoteVendido[];
 };
 
@@ -123,6 +125,7 @@ function mapearVendido(v: any): PacoteVendido {
     observacao: v.observacao ?? null,
     cobranca: v.cobranca === 'pendente' ? 'pendente' : 'paga',
     venda_id: v.venda_id ?? null,
+    comanda_id: v.comanda_id ?? null,
     usos: (v.usos ?? []).map((u: any) => ({
       id: u.id, servico_id: u.servico_id ?? null, agendamento_id: u.agendamento_id ?? null, created_at: u.created_at,
     })),
@@ -130,19 +133,35 @@ function mapearVendido(v: any): PacoteVendido {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-/** Pacotes vendidos da empresa (mais recentes primeiro), com usos e cobrança. Sem a 096: cobranca 'paga'. */
-export async function carregarPacotesVendidos(db: ClienteDb, empresaId: string): Promise<PacoteVendido[]> {
+/**
+ * Carga interna: os vendidos e se as colunas da 096 (`cobranca`, `venda_id`, `comanda_id`) existem no
+ * banco. O relatório precisa saber: sem a 096 nenhum pacote tem venda registrada.
+ */
+async function carregarVendidosComFlag(db: ClienteDb, empresaId: string): Promise<{ vendidos: PacoteVendido[]; colunas096: boolean }> {
   const buscar = (colunas096: boolean) => buscarTodasOuLancar<unknown>((de, ate) => db.from('pacote_clientes')
-    .select(colunas096 ? `${SELECT_VENDIDOS}, cobranca, venda_id` : SELECT_VENDIDOS)
+    .select(colunas096 ? `${SELECT_VENDIDOS}, cobranca, venda_id, comanda_id` : SELECT_VENDIDOS)
     .eq('empresa_id', empresaId).order('created_at', { ascending: false }).order('id').range(de, ate));
   let linhas: unknown[];
+  let colunas096 = true;
   try {
     linhas = await buscar(true);
   } catch (e) {
     if (!erroSemColuna096(e)) throw e;
+    colunas096 = false;
     linhas = await buscar(false);
   }
-  return linhas.map(mapearVendido);
+  return { vendidos: linhas.map(mapearVendido), colunas096 };
+}
+
+/** Pacotes vendidos da empresa (mais recentes primeiro), com usos e cobrança. Sem a 096: cobranca 'paga'. */
+export async function carregarPacotesVendidos(db: ClienteDb, empresaId: string): Promise<PacoteVendido[]> {
+  return (await carregarVendidosComFlag(db, empresaId)).vendidos;
+}
+
+/** Quantos pacotes foram vendidos na mesma venda de `v` (mesmo `venda_id` não nulo); sem venda, 1. */
+export function pacotesDaMesmaVenda(vendidos: PacoteVendido[], v: PacoteVendido): number {
+  if (!v.venda_id) return 1;
+  return vendidos.filter(x => x.venda_id === v.venda_id).length;
 }
 
 /** Pacote "a cobrar" de uma cliente (para os itens de `itensACobrar` na Comanda). */
@@ -190,23 +209,31 @@ export type RelatorioPorPacote = {
 export type RelatorioUtilizacao = {
   totalSessoes: number; sessoesUsadas: number; aproveitamento: number; receitaTotal: number;
   vendas: number; aCobrar: number; porPacote: RelatorioPorPacote[];
+  /** Pacotes pagos sem venda nem comanda (anteriores ao registro de venda): fora do faturamento. */
+  foraDoFaturamento: { quantidade: number; valor: number };
 };
 
 /**
  * Relatório de utilização a partir dos vendidos. Sessões: combo e pacote com sessão ilimitada não
  * somam ao total (`totalSessoes` de shared/pacotes); usadas = linhas de `pacote_uso`.
- * Receita = soma de `valor_pago` SÓ dos pacotes com cobranca 'paga' (o "a cobrar" ainda não entrou no
- * faturamento) — o mesmo que o Financeiro soma pelas vendas. Pacote antigo, anterior ao `valor_pago`
+ * Receita = soma de `valor_pago` SÓ dos pacotes com cobranca 'paga' E venda ou comanda registrada (o "a
+ * cobrar" ainda não entrou no faturamento, e o pago sem venda/comanda nunca entrou) — o mesmo que o
+ * Financeiro soma pelas vendas. Os pagos sem venda nem comanda vão para `foraDoFaturamento`. Sem a 096
+ * (`colunas096` false) ninguém tem venda: mantém a receita antiga e `foraDoFaturamento` zerado. Pacote antigo, anterior ao `valor_pago`
  * (coluna nula), conta o preço do catálogo, como a tela fazia antes: `coalesce(valor_pago, preço)`.
  * Um `valor_pago` 0 gravado (cortesia) continua 0.
  */
-export function calcularRelatorioUtilizacao(vendidos: PacoteVendido[]): RelatorioUtilizacao {
+export function calcularRelatorioUtilizacao(vendidos: PacoteVendido[], colunas096 = true): RelatorioUtilizacao {
   const porPacote = new Map<string, RelatorioPorPacote>();
   let totalSess = 0, usadas = 0, receita = 0, aCobrar = 0;
+  const fora = { quantidade: 0, valor: 0 };
   for (const v of vendidos) {
     const total = v.pacote.controla_sessoes ? (totalSessoes(v.pacote.servicos) ?? 0) : 0;
     const paga = v.cobranca === 'paga';
-    const valor = paga ? Math.round((v.valor_pago ?? v.pacote.preco ?? 0) * 100) : 0;
+    const centavos = Math.round((v.valor_pago ?? v.pacote.preco ?? 0) * 100);
+    const registrada = !colunas096 || !!(v.venda_id || v.comanda_id);
+    const valor = paga && registrada ? centavos : 0;
+    if (paga && !registrada) { fora.quantidade++; fora.valor += centavos; }
     totalSess += total;
     usadas += v.usos.length;
     receita += valor;
@@ -227,6 +254,7 @@ export function calcularRelatorioUtilizacao(vendidos: PacoteVendido[]): Relatori
     totalSessoes: totalSess, sessoesUsadas: usadas,
     aproveitamento: totalSess > 0 ? Math.round((usadas / totalSess) * 100) : 0,
     receitaTotal: receita / 100, vendas: vendidos.length, aCobrar,
+    foraDoFaturamento: { quantidade: fora.quantidade, valor: fora.valor / 100 },
     porPacote: [...porPacote.values()]
       .map(l => ({ ...l, receita: l.receita / 100 }))
       .sort((a, b) => b.receita - a.receita || a.nome.localeCompare(b.nome)),
@@ -235,7 +263,8 @@ export function calcularRelatorioUtilizacao(vendidos: PacoteVendido[]): Relatori
 
 /** Carrega os vendidos e calcula o relatório de utilização. */
 export async function carregarRelatorioUtilizacao(db: ClienteDb, empresaId: string): Promise<RelatorioUtilizacao> {
-  return calcularRelatorioUtilizacao(await carregarPacotesVendidos(db, empresaId));
+  const { vendidos, colunas096 } = await carregarVendidosComFlag(db, empresaId);
+  return calcularRelatorioUtilizacao(vendidos, colunas096);
 }
 
 // ── Detecção da 096 e escritas conferidas (web e app) ─────────────────────────────────────────
