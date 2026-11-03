@@ -264,6 +264,7 @@ function Clientes() {
               </View>
               <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
                 <BotaoExportar
+                  disabled={isLoading || isError || !base}
                   definicao={definicaoClientes()}
                   getLinhas={() => clientes.map((c) => ({ nome: c.nome, telefone: c.telefone ?? null, email: c.email ?? null, dataNascimento: c.data_nascimento ?? null, criadoEm: c.created_at }))}
                   cor={C.text2}

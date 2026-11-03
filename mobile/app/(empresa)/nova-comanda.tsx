@@ -39,7 +39,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import SuccessCheck from '@/components/SuccessCheck';
 import PagamentosEditor, { METODOS_PAGAMENTO } from '@/components/comanda/PagamentosEditor';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
-import { calcularPacotesAtivosCliente, dataValidade, type PacoteClienteOpt } from '@shared/pacotes';
+import { calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, type PacoteClienteOpt } from '@shared/pacotes';
 import {
   marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, linhasConferemComValor,
   descricaoLinhasAgrupadas, type ComandaSoExtras,
@@ -1949,9 +1949,19 @@ function NovaComandaScreen() {
                   // Vincular pacote fica fora da edição de comanda fechada (zeraria o item sem
                   // nunca gravar o vínculo — receita perdida), igual ao web.
                   if (emEdicao) return null;
-                  const servicoId = item.servico_id;
-                  const elegiveis = servicoId ? pacotesClienteAtivos.filter(p => p.servicos.some(s => s.servico_id === servicoId)) : [];
-                  if (elegiveis.length === 0) return null;
+                  // Pacote só vale se cobrir TODOS os serviços do atendimento (A7). Linha do atendimento
+                  // sem servico_id = não dá para saber se cobre: não oferece pacote.
+                  const linhasAtend = itens.filter(i => i.agendamento_id === agendamentoId);
+                  if (linhasAtend.some(i => !i.servico_id)) return null;
+                  const servicoIds = linhasAtend.map(i => i.servico_id as string);
+                  const { elegiveis, temParcial } = pacotesDoAtendimento(pacotesClienteAtivos, servicoIds);
+                  if (elegiveis.length === 0) {
+                    return temParcial ? (
+                      <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, marginTop: 8 }}>
+                        {AVISO_PACOTE_PARCIAL}
+                      </Text>
+                    ) : null;
+                  }
                   return (
                     <View style={{ marginTop: 8, gap: 4 }}>
                       {elegiveis.map((p: any) => (

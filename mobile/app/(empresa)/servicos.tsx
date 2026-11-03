@@ -232,6 +232,7 @@ export default function Servicos() {
             </View>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <BotaoExportar
+              disabled={isLoading || isError}
               definicao={definicaoServicos()}
               getLinhas={() => servicos.map((s) => ({ nome: s.nome, categoria: resolverCategoriaServico(s.categoria, s.categoria_id, categorias).label, duracao: formatarDuracao(s.duracao_minutos), preco: s.preco, custo: s.custo, ativo: s.ativo }))}
               cor="#fff"

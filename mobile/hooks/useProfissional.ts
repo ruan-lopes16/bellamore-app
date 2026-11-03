@@ -83,7 +83,7 @@ export function useKpisDiaProfissional(dia: Date) {
       const lim = limitesDias(chave, chave);
       const [agsRes, comDiaRes, pendRes] = await Promise.all([
         supabase.from('agendamentos')
-          .select('valor, status, pacote_cliente_id')
+          .select('valor, desconto_rateado, status, pacote_cliente_id')
           .eq('empresa_id', empresaId!)
           .eq('profissional_id', userId!)
           .gte('data_hora_inicio', lim.startIso)

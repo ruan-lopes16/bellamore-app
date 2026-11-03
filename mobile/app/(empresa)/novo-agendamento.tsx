@@ -56,7 +56,7 @@ import { nomeClienteValido, erroTelefoneCliente } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { novoUuid } from '@shared/uuid';
-import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { calcularPacotesAtivosCliente, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, type PacoteClienteOpt } from '@shared/pacotes';
 import { carregarCandidatosVinculo, carregarCatalogoPacotes, type PacoteCatalogo } from '@shared/pacotes-consultas';
 import { VenderPacoteSheet } from '@/components/pacotes/VenderPacoteSheet';
 import { avisoVendaPacoteAgenda, type ResultadoVendaPacote } from '@shared/pacotes-venda';
@@ -238,7 +238,7 @@ export default function NovoAgendamento() {
   const [clienteCriadoFlash, setClienteCriadoFlash] = useState(false);
 
   // Dados
-  const { data: baseClientes }      = useClientes();
+  const { data: baseClientes, isLoading: carregandoClientes, isError: erroClientes, error: erroClientesObj, refetch: recarregarClientes } = useClientes();
   const clientes = useMemo(
     () => filtrarClientes(baseClientes?.clientes ?? [], baseClientes?.agregados ?? new Map(), 'todas', buscaCliente, hojeBRT()),
     [baseClientes, buscaCliente],
@@ -392,6 +392,36 @@ export default function NovoAgendamento() {
       });
     return () => { vivo = false; };
   }, [clienteSelecionado?.id, empresaId, agEdit?.pacote_cliente_id, recargaPacotes]);
+
+  // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
+  // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido
+  // agora) nunca some nem é desvinculado em silêncio.
+  const servicoIdsForm = linhas.map((l) => l.servico_id).filter(Boolean) as string[];
+  const pacoteFixoId = (id: string) => id === (agEdit?.pacote_cliente_id ?? '') || id === pacoteVendido?.id;
+  const { elegiveis: pacotesCobrem, temParcial: pacoteTemParcial } =
+    servicoIdsForm.length === 0
+      ? { elegiveis: pacotesCliente, temParcial: false }
+      : pacotesDoAtendimento(pacotesCliente, servicoIdsForm);
+  const pacotesOpcoes = pacotesCliente.filter((p) => pacotesCobrem.some((c) => c.id === p.id) || pacoteFixoId(p.id));
+  // Um aviso só: o de ação (avisoPacote) tem prioridade; senão o de "nenhum pacote cobre tudo".
+  const avisoPacoteExibido = avisoPacote || (pacotesOpcoes.length === 0 && pacoteTemParcial ? AVISO_PACOTE_PARCIAL : '');
+
+  // Mudou os serviços e o pacote escolhido deixou de cobrir: desliga o pacote e avisa. Quando volta a
+  // cobrir (ou a pessoa escolhe outro pacote), o aviso de pacote parcial some.
+  useEffect(() => {
+    const limpaAviso = () => setAvisoPacote((a) => (a === AVISO_PACOTE_PARCIAL ? '' : a));
+    if (servicoIdsForm.length === 0) { limpaAviso(); return; }
+    if (pacoteClienteId && !pacoteFixoId(pacoteClienteId)) {
+      const p = pacotesCliente.find((x) => x.id === pacoteClienteId);
+      if (p && !pacotesDoAtendimento([p], servicoIdsForm).elegiveis.length) {
+        setPacoteClienteId('');
+        setAvisoPacote(AVISO_PACOTE_PARCIAL);
+        return;
+      }
+    }
+    if (pacoteClienteId || pacotesDoAtendimento(pacotesCliente, servicoIdsForm).elegiveis.length > 0) limpaAviso();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linhas, pacotesCliente, pacoteClienteId]);
 
   // Pré-seleciona cliente se veio de clienteId
   const clientePreSelecionado = params.clienteId;
@@ -870,15 +900,15 @@ export default function NovoAgendamento() {
         </Secao>
 
         {/* ── 2. Pacote (opcional) ── */}
-        {clienteSelecionado && (pacotesCliente.length > 0 || pacotesCatalogo.length > 0 || !!pacoteVendido || !!avisoPacote || !!erroPacotes) && (
+        {clienteSelecionado && (pacotesOpcoes.length > 0 || pacotesCatalogo.length > 0 || !!pacoteVendido || !!avisoPacoteExibido || !!erroPacotes) && (
           <Secao numero={2} titulo="Pacote (opcional)">
-            {pacotesCliente.length > 0 && (
+            {pacotesOpcoes.length > 0 && (
               <View style={{ marginBottom: pacotesCatalogo.length > 0 ? 12 : 0 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Pacote do cliente — consome 1 sessão
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {pacotesCliente.map(p => {
+                  {pacotesOpcoes.map(p => {
                     const ativo = pacoteClienteId === p.id;
                     return (
                       <TouchableOpacity
@@ -961,8 +991,8 @@ export default function NovoAgendamento() {
                 </TouchableOpacity>
               </View>
             )}
-            {!!avisoPacote && (
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: '#B45309', marginBottom: 8 }}>{avisoPacote}</Text>
+            {!!avisoPacoteExibido && (
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: '#B45309', marginBottom: 8 }}>{avisoPacoteExibido}</Text>
             )}
             {!!erroPacotes && (
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.rose, marginBottom: 8 }}>{erroPacotes}</Text>
@@ -1447,7 +1477,7 @@ export default function NovoAgendamento() {
             </View>
           ) : (
           <FlatList
-            data={clientes}
+            data={erroClientes ? [] : clientes}
             ListHeaderComponent={() => !podeCadastrarCliente ? null : (
               <TouchableOpacity
                 onPress={() => setCriandoCliente(true)}
@@ -1507,10 +1537,27 @@ export default function NovoAgendamento() {
               );
             }}
             ListEmptyComponent={() => (
-              <View style={{ padding: 32, alignItems: 'center' }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
-                  Nenhuma cliente encontrada
-                </Text>
+              <View style={{ padding: 32, alignItems: 'center', gap: 12 }}>
+                {erroClientes ? (
+                  <>
+                    <Text accessibilityRole="alert" style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.rose, textAlign: 'center' }}>
+                      {mensagemErroBanco(erroClientesObj as { code?: string; message?: string }, 'carregar as clientes')}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => { recarregarClientes(); }}
+                      activeOpacity={0.85}
+                      style={{ backgroundColor: C.primary, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 18 }}
+                    >
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: '#fff' }}>Tentar de novo</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : carregandoClientes ? (
+                  <ActivityIndicator color={C.primary} />
+                ) : (
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
+                    Nenhuma cliente encontrada
+                  </Text>
+                )}
               </View>
             )}
           />
