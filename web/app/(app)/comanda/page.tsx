@@ -72,7 +72,7 @@ import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
 import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
-import { calcularPacotesAtivosCliente, dataValidade, type PacoteClienteOpt } from '@shared/pacotes';
+import { calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, type PacoteClienteOpt } from '@shared/pacotes';
 import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -1976,11 +1976,16 @@ export default function ComandaPage() {
                           // silenciosa. O badge acima continua mostrando o vínculo já
                           // existente; só o seletor de criar um vínculo novo some.
                           if (comandaExistenteId) return null;
-                          const servicoId = item.servico_id;
-                          const elegiveis = servicoId
-                            ? pacotesClienteAtivos.filter(p => p.servicos.some(s => s.servico_id === servicoId))
-                            : [];
-                          if (elegiveis.length === 0) return null;
+                          // Pacote só vale se cobrir TODOS os serviços do atendimento (A7).
+                          const servicoIds = itens
+                            .filter(i => i.agendamento_id === agendamentoId && i.servico_id)
+                            .map(i => i.servico_id as string);
+                          const { elegiveis, temParcial } = pacotesDoAtendimento(pacotesClienteAtivos, servicoIds);
+                          if (elegiveis.length === 0) {
+                            return temParcial ? (
+                              <p className="text-[11px] text-text-3 mt-2">{AVISO_PACOTE_PARCIAL}</p>
+                            ) : null;
+                          }
                           return (
                             <div className="mt-2">
                               <SearchSelect

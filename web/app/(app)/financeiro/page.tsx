@@ -1343,6 +1343,7 @@ export default function FinanceiroPage() {
           <PrivacyToggle />
         </div>
         <ExportButton
+          disabled={loading || !!erroCarga}
           variant="mobileHeader"
           className="bm-mobile-header-export"
           definicao={definicaoDespesas(format(mesRef, 'yyyy-MM'))}

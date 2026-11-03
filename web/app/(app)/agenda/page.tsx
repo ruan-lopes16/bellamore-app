@@ -74,7 +74,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { chaveDiaBRT, chaveDiaExibido, hojeBRT, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
-import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import { calcularPacotesAtivosCliente, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, type PacoteClienteOpt } from '@shared/pacotes';
 import { carregarCandidatosVinculo } from '@shared/pacotes-consultas';
 import { VenderPacoteModal } from '@/components/pacotes/VenderPacoteModal';
 import { avisoVendaPacoteAgenda, type ResultadoVendaPacote } from '@shared/pacotes-venda';
@@ -575,6 +575,28 @@ function NovoAgModal({
     return () => { vivo = false; };
   }, [empresaId, clienteId, recargaPacotes]);
 
+  // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
+  // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido
+  // agora) nunca some nem é desvinculado em silêncio.
+  const servicoIdsForm = linhas.map(l => l.servico_id).filter(Boolean);
+  const pacoteFixoId = (id: string) => id === (agEditar?.pacote_cliente_id ?? '') || id === pacoteVendido?.id;
+  const { elegiveis: pacotesCobrem, temParcial: pacoteTemParcial } =
+    servicoIdsForm.length === 0
+      ? { elegiveis: pacotesCliente, temParcial: false }
+      : pacotesDoAtendimento(pacotesCliente, servicoIdsForm);
+  const pacotesOpcoes = pacotesCliente.filter(p => pacotesCobrem.some(c => c.id === p.id) || pacoteFixoId(p.id));
+
+  // Mudou os serviços e o pacote escolhido deixou de cobrir: limpa o pacote e avisa.
+  useEffect(() => {
+    if (!pacoteClienteId || servicoIdsForm.length === 0 || pacoteFixoId(pacoteClienteId)) return;
+    const p = pacotesCliente.find(x => x.id === pacoteClienteId);
+    if (p && !pacotesDoAtendimento([p], servicoIdsForm).elegiveis.length) {
+      setPacoteClienteId('');
+      setAvisoPacote(AVISO_PACOTE_PARCIAL);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linhas, pacotesCliente, pacoteClienteId]);
+
   function onServicoChange(uid: string, id: string) {
     const s = servicos.find(x => x.id === id);
     setLinhas(prev => prev.map(l =>
@@ -1062,7 +1084,7 @@ function NovoAgModal({
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
                   <SearchSelect
-                    options={pacotesCliente.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
+                    options={pacotesOpcoes.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
                     value={pacoteClienteId}
                     onChange={onPacoteClienteChange}
                     placeholder="Pagar avulso (sem pacote)"
@@ -1076,6 +1098,10 @@ function NovoAgModal({
                   </button>
                 )}
               </div>
+
+              {pacotesOpcoes.length === 0 && pacoteTemParcial && (
+                <p className="text-[11px] text-text-3 mt-1.5">{AVISO_PACOTE_PARCIAL}</p>
+              )}
 
               {/* Histórico de sessões do pacote selecionado — feitas + pendentes */}
               {(() => {
@@ -2596,6 +2622,7 @@ export default function AgendaPage() {
             </div>
           )}
           <ExportButton
+            disabled={loading || !!erroDia}
             variant="mobileHeader"
             className="bm-mobile-header-export"
             definicao={definicaoAgenda(format(dataSel, 'yyyy-MM-dd'))}

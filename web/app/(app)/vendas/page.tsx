@@ -889,6 +889,7 @@ export default function VendasPage() {
                   {vendas.length} {vendas.length === 1 ? 'venda' : 'vendas'} · <Secret>{fmtBRL(vendas.reduce((acc, v) => acc + Math.round(Number(v.valor_final) * 100), 0) / 100)}</Secret>
                 </p>
                 <ExportButton
+                  disabled={loadingVendas || !!erroVendas}
                   definicao={definicaoVendas()}
                   getLinhas={() => linhasVendas(vendas, m => METODOS_PAG.find(x => x.id === m)?.label ?? m)}
                 />

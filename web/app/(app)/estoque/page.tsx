@@ -774,6 +774,7 @@ export default function EstoquePage() {
         <div className="flex gap-2 pt-1 bm-mobile-page-actions bm-mobile-stock-actions">
           {aba === 'produtos' && (
             <ExportButton
+              disabled={loading || !!erroCarga}
               variant="mobileHeader"
               className="bm-mobile-header-export"
               definicao={definicaoEstoqueProdutos()}
@@ -782,6 +783,7 @@ export default function EstoquePage() {
           )}
           {aba === 'movimentacoes' && (
             <ExportButton
+              disabled={loadingMov || !!erroMov}
               variant="mobileHeader"
               className="bm-mobile-header-export"
               definicao={definicaoEstoqueMovimentacoes(mesMov)}

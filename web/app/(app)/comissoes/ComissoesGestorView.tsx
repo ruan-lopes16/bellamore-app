@@ -174,6 +174,7 @@ export default function ComissoesGestorView() {
         </div>
         <PrivacyToggle />
         <ExportButton
+          disabled={loading || !!erroCarga}
           variant="mobileHeader"
           className="bm-mobile-header-export"
           definicao={definicaoComissoes(periodoLabel)}

@@ -35,10 +35,10 @@ import { RelatorioPacotes } from '@/components/pacotes/RelatorioPacotes';
 import { definicaoPacotesCatalogo, definicaoPacotesVendidos, definicaoPacotesUtilizacao } from '@shared/exportacao/pacotes';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import {
-  carregarCatalogoPacotes, carregarPacotesVendidos, carregarRelatorioUtilizacao, marcarComboUtilizado,
+  carregarCatalogoPacotes, carregarPacotesVendidos, carregarRelatorioUtilizacao, marcarComboUtilizado, pacotesDaMesmaVenda,
   tem096 as detectar096, type PacoteCatalogo, type PacoteVendido, type RelatorioUtilizacao,
 } from '@shared/pacotes-consultas';
-import { excluirPacoteCliente, ErroPacote, SemMigration096, MSG_VENDIDO_A_COBRAR } from '@shared/pacotes-venda';
+import { excluirPacoteCliente, excluirVendaPacotes, MSG_VENDA_VARIOS_PACOTES, ErroPacote, SemMigration096, MSG_VENDIDO_A_COBRAR } from '@shared/pacotes-venda';
 import {
   rotuloValidade, saldoSessoes, statusPacoteCliente, totalSessoes, filtrarVendidos, rotuloStatusVendido, estaACobrar,
   textoExcluirVendido, MSG_SESSOES_USADAS, MSG_EXCLUSAO_SEM_096, TITULO_EXCLUIR_VENDIDO, type FiltroVendidos, type StatusPacoteCliente,
@@ -121,6 +121,8 @@ export default function PacotesPage() {
   const [modalSessao,  setModalSessao]  = useState<PacoteParaSessoes | null>(null);
   const [confirmExcluir, setConfirmExcluir] = useState<PacoteCatalogo | null>(null);
   const [confirmExcluirVenda, setConfirmExcluirVenda] = useState<Vendido | null>(null);
+  // Erro da exclusão da venda inteira: fica no modal (não fecha) para a pessoa ler.
+  const [erroExcluirVenda, setErroExcluirVenda] = useState('');
   const [excluindo,      setExcluindo]      = useState(false);
   const [marcando,       setMarcando]       = useState<string | null>(null);
 
@@ -231,10 +233,29 @@ export default function PacotesPage() {
   function pedirExclusaoVenda(v: Vendido) {
     if (v.usadas > 0) { showToast(MSG_SESSOES_USADAS, 'rose'); return; }
     if (tem096 === false) { showToast(MSG_EXCLUSAO_SEM_096, 'rose'); return; }
+    setErroExcluirVenda('');
     setConfirmExcluirVenda(v);
+  }
+  /** Quantos pacotes a venda do pacote em confirmação tem (mais de 1: só sai inteira). */
+  const pacotesNaVenda = confirmExcluirVenda ? pacotesDaMesmaVenda(vendidosRaw ?? [], confirmExcluirVenda) : 1;
+  async function excluirVendaInteira() {
+    if (!empresaId || !confirmExcluirVenda?.venda_id) return;
+    setExcluindo(true);
+    setErroExcluirVenda('');
+    try {
+      await excluirVendaPacotes(supabase, empresaId, confirmExcluirVenda.venda_id);
+      showToast('Venda excluída.');
+      setConfirmExcluirVenda(null);
+      recarregar();
+    } catch (e) {
+      setErroExcluirVenda(msgErro(e, 'excluir a venda de pacotes'));
+    } finally {
+      setExcluindo(false);
+    }
   }
   async function excluirVenda() {
     if (!empresaId || !confirmExcluirVenda) return;
+    if (pacotesNaVenda > 1) { await excluirVendaInteira(); return; }
     const id = confirmExcluirVenda.id;
     setExcluindo(true);
     try {
@@ -288,6 +309,7 @@ export default function PacotesPage() {
         <div className="flex items-center gap-2 bm-mobile-page-actions">
           {aba === 'catalogo' && pacotes && (
             <ExportButton
+              disabled={loading || !!erroCarga}
               variant="mobileHeader"
               className="bm-mobile-header-export"
               definicao={definicaoPacotesCatalogo()}
@@ -296,6 +318,7 @@ export default function PacotesPage() {
           )}
           {aba === 'vendidos' && vendidos && (
             <ExportButton
+              disabled={loading || !!erroCarga}
               variant="mobileHeader"
               className="bm-mobile-header-export"
               definicao={definicaoPacotesVendidos()}
@@ -304,6 +327,7 @@ export default function PacotesPage() {
           )}
           {aba === 'relatorio' && relatorio && (
             <ExportButton
+              disabled={relLoading || !!relErro || !!erroCarga}
               variant="mobileHeader"
               className="bm-mobile-header-export"
               definicao={definicaoPacotesUtilizacao()}
@@ -666,8 +690,13 @@ export default function PacotesPage() {
       <ConfirmDialog
         open={confirmExcluirVenda !== null}
         title={TITULO_EXCLUIR_VENDIDO}
-        message={confirmExcluirVenda ? textoExcluirVendido({ pacote: confirmExcluirVenda.pacote.nome, cliente: confirmExcluirVenda.cliente.nome, aCobrar: estaACobrar(confirmExcluirVenda) }) : ''}
-        confirmLabel="Excluir"
+        message={confirmExcluirVenda
+          ? (pacotesNaVenda > 1
+              ? MSG_VENDA_VARIOS_PACOTES(pacotesNaVenda)
+              : textoExcluirVendido({ pacote: confirmExcluirVenda.pacote.nome, cliente: confirmExcluirVenda.cliente.nome, aCobrar: estaACobrar(confirmExcluirVenda) }))
+            + (erroExcluirVenda ? ` ${erroExcluirVenda}` : '')
+          : ''}
+        confirmLabel={pacotesNaVenda > 1 ? 'Excluir a venda inteira' : 'Excluir'}
         variant="danger"
         loading={excluindo}
         onConfirm={excluirVenda}
