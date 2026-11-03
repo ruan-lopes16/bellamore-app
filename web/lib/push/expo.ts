@@ -12,7 +12,7 @@
  *
  * Nunca lança e nunca registra token (do aparelho ou de acesso) em log.
  */
-import { semMigration097 } from '@shared/push-dispositivos';
+import { semMigration097, limiteVistoEm } from '@shared/push-dispositivos';
 
 export const URL_EXPO_PUSH = 'https://exp.host/--/api/v2/push/send';
 export const LOTE_EXPO = 100;
@@ -99,9 +99,11 @@ export async function enviarExpo(
  * Aparelhos expo dos `userIds` NA empresa `empresaId`.
  * @param opcoes.legado sem a 097, usar `users.push_token` (só leitura). O cron de lembrete passa
  *   `false`: o app sem a 097 ainda agenda o lembrete local, e o push chegaria dobrado.
+ * @param opcoes.agora relógio (testes). Só aparelhos com `visto_em` dos últimos 30 dias recebem
+ *   (o app renova `visto_em` ao abrir); o fallback `users.push_token` não tem essa data e não muda.
  */
 export async function carregarDispositivosExpo(
-  db: ClienteDbCron, empresaId: string, userIds: string[], opcoes: { legado: boolean },
+  db: ClienteDbCron, empresaId: string, userIds: string[], opcoes: { legado: boolean; agora?: Date },
 ): Promise<DispositivosExpo> {
   const porUsuario = new Map<string, string[]>();
   const quero = new Set(userIds);
@@ -116,7 +118,8 @@ export async function carregarDispositivosExpo(
     const { data, error } = await db.from('push_dispositivos')
       .select('user_id, token')
       .eq('empresa_id', empresaId)
-      .eq('plataforma', 'expo');
+      .eq('plataforma', 'expo')
+      .gte('visto_em', limiteVistoEm(opcoes.agora ?? new Date()));
     if (!error) {
       for (const d of (data ?? []) as { user_id: string; token: string }[]) {
         if (quero.has(d.user_id) && ehTokenExpo(d.token)) add(d.user_id, d.token.trim());

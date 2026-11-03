@@ -3,6 +3,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
+import { carregarDispositivosExpo, enviarPushExpo } from '@/lib/push/expo';
+import { limiteVistoEm } from '@shared/push-dispositivos';
 
 /**
  * Migration 097 (spec docs/superpowers/specs/2026-10-28-paridade-configuracoes-notificacoes-design.md,
@@ -305,5 +307,50 @@ describe('097 em PGlite — notificacoes: marcar como lida', () => {
     expect(await admin(`select mensagem from notificacoes where id = $1`, [N2])).toEqual([{ mensagem: 'ajustada' }]);
     await admin(`update notificacoes set titulo = 'Lembrete 2' where id = $1`, [N2]);
     expect(await admin(`select titulo from notificacoes where id = $1`, [N2])).toEqual([{ titulo: 'Lembrete 2' }]);
+  });
+});
+
+describe('B4 — push só para aparelho visto nos últimos 30 dias', () => {
+  const AGORA = new Date('2026-11-03T12:00:00Z');
+  const linhas = [
+    { user_id: 'u1', token: 'ExponentPushToken[novo]', visto_em: '2026-11-01T00:00:00Z' },
+    { user_id: 'u1', token: 'ExponentPushToken[velho]', visto_em: '2026-09-01T00:00:00Z' },
+  ];
+  // db falso que aplica o filtro .gte('visto_em', x) de verdade
+  function dbComFiltro() {
+    const filtros: [string, string][] = [];
+    const b: Record<string, unknown> = {
+      select: () => b, eq: () => b,
+      gte: (col: string, v: string) => { filtros.push([col, v]); return b; },
+      then: (ok: (v: unknown) => unknown) =>
+        ok({ data: linhas.filter(l => filtros.every(([, v]) => l.visto_em >= v)), error: null }),
+    };
+    return { db: { from: () => b, rpc: () => Promise.resolve({}) }, filtros };
+  }
+
+  it('o cron lê com visto_em >= agora - 30 dias e o aparelho antigo não recebe push', async () => {
+    const { db, filtros } = dbComFiltro();
+    const disp = await carregarDispositivosExpo(db, 'emp-1', ['u1'], { legado: false, agora: AGORA });
+    expect(filtros).toEqual([['visto_em', limiteVistoEm(AGORA)]]);
+    expect(limiteVistoEm(AGORA)).toBe('2026-10-04T12:00:00.000Z');
+    const chamadas: string[] = [];
+    const fetchFn = (async (_u: string, init: RequestInit) => {
+      const corpo = JSON.parse(String(init.body)) as { to: string }[];
+      chamadas.push(...corpo.map(m => m.to));
+      return new Response(JSON.stringify({ data: corpo.map(() => ({ status: 'ok', id: 'r' })) }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const n = await enviarPushExpo(db, disp, [{ userId: 'u1', titulo: 'T', corpo: 'C' }], { fetchFn });
+    expect(n).toBe(1);
+    expect(chamadas).toEqual(['ExponentPushToken[novo]']);
+  });
+
+  it('o app renova o aparelho ao abrir sem nunca pedir permissão fora de ativarNotificacoes', () => {
+    const layout = readFileSync(join(raiz, 'mobile', 'app', '_layout.tsx'), 'utf8');
+    const notif = readFileSync(join(raiz, 'mobile', 'lib', 'notifications.ts'), 'utf8');
+    expect(layout).toMatch(/sincronizarPushDispositivo\(\{[^}]*pedirPermissao: false/);
+    expect(layout).not.toContain('requestPermissionsAsync');
+    // o único pedido de permissão fica atrás de opts.pedirPermissao
+    expect(notif.match(/requestPermissionsAsync/g)).toHaveLength(1);
+    expect(notif).toMatch(/statusAtual !== 'granted' && opts\.pedirPermissao/);
   });
 });
