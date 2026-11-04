@@ -74,7 +74,8 @@ import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComisso
 import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
 import {
   calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, servicoIdsDoAtendimento,
-  vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, type PacoteClienteOpt,
+  vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, bloqueioCargaPacotes,
+  type EstadoCargaPacotes, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
@@ -246,6 +247,9 @@ export default function ComandaPage() {
   const [cargaFalhou, setCargaFalhou] = useState(false);
   // Pacotes ativos do cliente selecionado, elegíveis pra vincular a um atendimento
   const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
+  // Carga desses pacotes ('carregando'/'erro' com vínculo bloqueia o fechamento) e o "Tentar de novo".
+  const [estadoPacotes, setEstadoPacotes] = useState<EstadoCargaPacotes>('ok');
+  const [recargaPacotes, setRecargaPacotes] = useState(0);
   // Vínculos feitos NESTA sessão de comanda (agendamento_id -> pacote_clientes.id), ainda não
   // persistidos. `null` = desvinculado explicitamente (precisa limpar a coluna no banco ao
   // fechar), distinto de "chave ausente" (agendamento nunca teve vínculo tocado nesta sessão).
@@ -328,18 +332,29 @@ export default function ComandaPage() {
 
   // Pacotes ativos do cliente selecionado — pra oferecer vínculo com sessão
   useEffect(() => {
-    if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) { setPacotesClienteAtivos([]); return; }
+    if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) {
+      setPacotesClienteAtivos([]); setEstadoPacotes('ok'); return;
+    }
     // Carga única (paginada, inclui os "a cobrar") e regra única de elegibilidade, no dia de Brasília.
+    // Enquanto carrega (ou se falhou), atendimento com vínculo bloqueia o fechamento
+    // (bloqueioCargaPacotes): não se sabe ainda se o pacote cobre o atendimento zerado.
     let vivo = true;
+    setPacotesClienteAtivos([]);
+    setEstadoPacotes('carregando');
     carregarCandidatosVinculo(supabase, empresaId, clienteSel.id)
-      .then(rows => { if (vivo) setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT())); })
+      .then(rows => {
+        if (!vivo) return;
+        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT()));
+        setEstadoPacotes('ok');
+      })
       .catch(e => {
         if (!vivo) return;
         setPacotesClienteAtivos([]);
+        setEstadoPacotes('erro');
         setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [clienteSel?.id, empresaId]);
+  }, [clienteSel?.id, empresaId, recargaPacotes]);
 
   // ── Carregar dados do dia selecionado
   useEffect(() => {
@@ -1116,7 +1131,11 @@ export default function ComandaPage() {
   const atendimentosPacoteParcial = comandaExistenteId
     ? []
     : vinculosPacoteSemCobertura(itens, pacoteLinks, pacotesClienteAtivos);
-  const bloqueioPacoteParcial = atendimentosPacoteParcial.length > 0 ? MOTIVO_FECHAR_PACOTE_PARCIAL : null;
+  // Lista de pacotes ainda carregando (ou com erro) e atendimento vinculado: não dá para saber a
+  // cobertura — bloqueia também, para nunca fechar um atendimento zerado às cegas.
+  const bloqueioCargaPacote = comandaExistenteId ? null : bloqueioCargaPacotes(estadoPacotes, itens, pacoteLinks);
+  const bloqueioPacoteParcial = bloqueioCargaPacote
+    ?? (atendimentosPacoteParcial.length > 0 ? MOTIVO_FECHAR_PACOTE_PARCIAL : null);
   useEffect(() => {
     if (comandaExistenteId) return;
     setItens(prev => {
@@ -2338,7 +2357,15 @@ export default function ComandaPage() {
                   )}
                 </button>
                 {bloqueioPacoteParcial && (
-                  <p className="mt-2 text-center text-xs font-semibold text-red">{bloqueioPacoteParcial}</p>
+                  <div className="mt-2 text-center">
+                    <p className={`text-xs font-semibold ${estadoPacotes === 'carregando' && bloqueioCargaPacote ? 'text-text-3' : 'text-red'}`}>{bloqueioPacoteParcial}</p>
+                    {bloqueioCargaPacote && estadoPacotes === 'erro' && (
+                      <button type="button" onClick={() => setRecargaPacotes(n => n + 1)}
+                        className="mt-1 text-xs font-bold text-primary underline">
+                        Tentar de novo
+                      </button>
+                    )}
+                  </div>
                 )}
                 {bloqueioTaxaReserva && (
                   <div className="mt-2 text-center">

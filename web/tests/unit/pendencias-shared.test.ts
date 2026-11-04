@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   AVISO_PACOTE_PARCIAL, pacoteCobreAtendimento, pacotesDoAtendimento, servicoIdsDoAtendimento,
-  vinculosPacoteSemCobertura, type PacoteClienteOpt,
+  vinculosPacoteSemCobertura, bloqueioCargaPacotes, MOTIVO_PACOTES_CARREGANDO, MOTIVO_PACOTES_ERRO,
+  type PacoteClienteOpt,
 } from '@shared/pacotes';
 import {
   ErroPacote, MSG_SEM_MIGRATION_100, MSG_VENDA_VARIOS_PACOTES, excluirVendaPacotes,
@@ -56,6 +57,17 @@ describe('pacoteCobreAtendimento / pacotesDoAtendimento (A7)', () => {
     const links = { ag1: 'p-ab', ag2: 'p-a', ag3: 'p-ab', ag4: 'fora-da-lista', ag5: null, ag9: 'p-a' };
     expect(vinculosPacoteSemCobertura(itens, links, ativos).sort()).toEqual(['ag2', 'ag3']);
     expect(vinculosPacoteSemCobertura(itens, {}, ativos)).toEqual([]);
+  });
+  it('bloqueioCargaPacotes: só com vínculo de atendimento na comanda e carga não concluída', () => {
+    const itens = [{ agendamento_id: 'ag1' }, { agendamento_id: 'ag2' }, {}];
+    expect(bloqueioCargaPacotes('carregando', itens, { ag1: 'p1' })).toBe(MOTIVO_PACOTES_CARREGANDO);
+    expect(bloqueioCargaPacotes('erro', itens, { ag1: 'p1' })).toBe(MOTIVO_PACOTES_ERRO);
+    expect(bloqueioCargaPacotes('ok', itens, { ag1: 'p1' })).toBeNull();
+    // Sem vínculo, vínculo desfeito (null) ou vínculo de atendimento que não está na comanda: nada a bloquear.
+    expect(bloqueioCargaPacotes('carregando', itens, {})).toBeNull();
+    expect(bloqueioCargaPacotes('erro', itens, { ag1: null })).toBeNull();
+    expect(bloqueioCargaPacotes('carregando', itens, { ag9: 'p1' })).toBeNull();
+    expect(MOTIVO_PACOTES_CARREGANDO).toBe('Carregando os pacotes da cliente…');
   });
   it('texto do aviso', () => {
     expect(AVISO_PACOTE_PARCIAL).toBe('Este pacote não cobre todos os serviços deste atendimento. Para usar a sessão, separe o serviço do pacote num atendimento próprio.');

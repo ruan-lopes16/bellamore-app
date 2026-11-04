@@ -55,6 +55,11 @@ describe('Comanda: mesma leitura dos serviços do atendimento e mesmo bloqueio d
       expect(t).toContain('servicoIdsDoAtendimento(');
       expect(t).toContain('vinculosPacoteSemCobertura(');
       expect(t).toContain('MOTIVO_FECHAR_PACOTE_PARCIAL');
+      // Janela da carga: com vínculo, fechar fica bloqueado até a lista de pacotes chegar.
+      expect(t).toContain('bloqueioCargaPacotes(estadoPacotes, itens, pacoteLinks)');
+      expect(t).toContain("setEstadoPacotes('carregando')");
+      expect(t).toContain("setEstadoPacotes('erro')");
+      expect(t).toContain('setRecargaPacotes(');
       // A oferta não pode mais filtrar fora as linhas sem servico_id (elas tornam o atendimento não coberto).
       expect(t).not.toMatch(/agendamento_id === agendamentoId && i\.servico_id\)/);
     });

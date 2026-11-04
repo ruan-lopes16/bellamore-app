@@ -69,6 +69,34 @@ export const MOTIVO_FECHAR_PACOTE_PARCIAL =
 export const MOTIVO_SALVAR_PACOTE_PARCIAL =
   'O pacote deste atendimento não cobre todos os serviços escolhidos. Remova o pacote ou ajuste os serviços para salvar.';
 
+/** Estado da carga dos pacotes ativos da cliente na Comanda. */
+export type EstadoCargaPacotes = 'ok' | 'carregando' | 'erro';
+
+/** Motivo de bloqueio da Comanda enquanto os pacotes da cliente carregam. */
+export const MOTIVO_PACOTES_CARREGANDO = 'Carregando os pacotes da cliente…';
+
+/** Motivo de bloqueio da Comanda quando a carga dos pacotes da cliente falhou. */
+export const MOTIVO_PACOTES_ERRO =
+  'Não foi possível carregar os pacotes da cliente — sem eles não dá para saber se o pacote cobre o atendimento. Tente de novo antes de fechar.';
+
+/**
+ * Bloqueio do fechamento enquanto não se sabe a cobertura do pacote: há atendimento NA COMANDA
+ * (alguma linha em `itens`) com vínculo (`pacoteLinks` com id) e a lista de pacotes ativos ainda
+ * carrega ou falhou. Sem vínculo, nada a bloquear (a carga só alimenta a oferta de pacote).
+ * Devolve o motivo ou `null`.
+ */
+export function bloqueioCargaPacotes(
+  estado: EstadoCargaPacotes,
+  itens: { agendamento_id?: string | null }[],
+  pacoteLinks: Record<string, string | null | undefined>,
+): string | null {
+  if (estado === 'ok') return null;
+  const vinculado = Object.entries(pacoteLinks)
+    .some(([agId, pacoteId]) => !!pacoteId && itens.some(i => i.agendamento_id === agId));
+  if (!vinculado) return null;
+  return estado === 'carregando' ? MOTIVO_PACOTES_CARREGANDO : MOTIVO_PACOTES_ERRO;
+}
+
 /**
  * Atendimentos da comanda vinculados (`pacoteLinks`) a um pacote ativo que NÃO cobre todos os
  * serviços do atendimento (ou com linha sem `servico_id`). Vínculo a um pacote fora de `ativos`

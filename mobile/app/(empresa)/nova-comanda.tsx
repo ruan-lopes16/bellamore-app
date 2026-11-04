@@ -41,7 +41,8 @@ import PagamentosEditor, { METODOS_PAGAMENTO } from '@/components/comanda/Pagame
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
 import {
   calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, servicoIdsDoAtendimento,
-  vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, type PacoteClienteOpt,
+  vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, bloqueioCargaPacotes,
+  type EstadoCargaPacotes, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import {
   marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, linhasConferemComValor,
@@ -236,6 +237,9 @@ function NovaComandaScreen() {
   const [membros, setMembros] = useState<{ id: string; nome: string }[]>([]);
   const [pacotesCat, setPacotesCat] = useState<{ id: string; nome: string; preco: number; validade_dias: number | null }[]>([]);
   const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
+  // Carga desses pacotes ('carregando'/'erro' com vínculo bloqueia o fechamento) e o "Tentar de novo".
+  const [estadoPacotes, setEstadoPacotes] = useState<EstadoCargaPacotes>('ok');
+  const [recargaPacotes, setRecargaPacotes] = useState(0);
   // string = vinculado (sessão existente ou venda nova); null = explicitamente
   // desvinculado nesta sessão (precisa gravar `pacote_cliente_id: null` no
   // fechamento, pra sobrescrever um vínculo que já existia no banco vindo da
@@ -488,19 +492,29 @@ function NovaComandaScreen() {
     })), [agDia, soExtrasDia]);
 
   useEffect(() => {
-    if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) { setPacotesClienteAtivos([]); return; }
+    if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) {
+      setPacotesClienteAtivos([]); setEstadoPacotes('ok'); return;
+    }
     // Carga única (paginada, inclui os "a cobrar") e regra única de elegibilidade, no dia de Brasília
-    // (igual ao web e à Agenda).
+    // (igual ao web e à Agenda). Enquanto carrega (ou se falhou), atendimento com vínculo bloqueia o
+    // fechamento (bloqueioCargaPacotes): não se sabe ainda se o pacote cobre o atendimento zerado.
     let vivo = true;
+    setPacotesClienteAtivos([]);
+    setEstadoPacotes('carregando');
     carregarCandidatosVinculo(supabase, empresaId, clienteSel.id)
-      .then(rows => { if (vivo) setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT())); })
+      .then(rows => {
+        if (!vivo) return;
+        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT()));
+        setEstadoPacotes('ok');
+      })
       .catch(e => {
         if (!vivo) return;
         setPacotesClienteAtivos([]);
+        setEstadoPacotes('erro');
         Alert.alert('Erro', mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [clienteSel?.id, empresaId]);
+  }, [clienteSel?.id, empresaId, recargaPacotes]);
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) hoje */
   const totalDia = useMemo(
@@ -841,7 +855,11 @@ function NovaComandaScreen() {
   const atendimentosPacoteParcial = emEdicao
     ? []
     : vinculosPacoteSemCobertura(itens, pacoteLinks, pacotesClienteAtivos);
-  const bloqueioPacoteParcial = atendimentosPacoteParcial.length > 0 ? MOTIVO_FECHAR_PACOTE_PARCIAL : null;
+  // Lista de pacotes ainda carregando (ou com erro) e atendimento vinculado: não dá para saber a
+  // cobertura — bloqueia também, para nunca fechar um atendimento zerado às cegas. Igual ao web.
+  const bloqueioCargaPacote = emEdicao ? null : bloqueioCargaPacotes(estadoPacotes, itens, pacoteLinks);
+  const bloqueioPacoteParcial = bloqueioCargaPacote
+    ?? (atendimentosPacoteParcial.length > 0 ? MOTIVO_FECHAR_PACOTE_PARCIAL : null);
   useEffect(() => {
     if (emEdicao) return;
     setItens(prev => {
@@ -2161,9 +2179,18 @@ function NovaComandaScreen() {
             </Text>
           )}
           {bloqueioPacoteParcial && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
-              {bloqueioPacoteParcial}
-            </Text>
+            <View style={{ alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: estadoPacotes === 'carregando' && bloqueioCargaPacote ? C.text3 : C.red, textAlign: 'center' }}>
+                {bloqueioPacoteParcial}
+              </Text>
+              {bloqueioCargaPacote && estadoPacotes === 'erro' && (
+                <TouchableOpacity onPress={() => setRecargaPacotes(n => n + 1)} activeOpacity={0.7} style={{ marginTop: 4 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                    Tentar de novo
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           )}
           {bloqueioTaxaReserva && (
             <View style={{ alignItems: 'center', marginBottom: 8 }}>
