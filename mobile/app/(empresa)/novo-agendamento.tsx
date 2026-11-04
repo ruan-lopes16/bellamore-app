@@ -56,7 +56,10 @@ import { nomeClienteValido, erroTelefoneCliente } from '@shared/clientes';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { novoUuid } from '@shared/uuid';
-import { calcularPacotesAtivosCliente, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, type PacoteClienteOpt } from '@shared/pacotes';
+import {
+  calcularPacotesAtivosCliente, pacotesDoAtendimento, pacoteCobreAtendimento, AVISO_PACOTE_PARCIAL,
+  MOTIVO_SALVAR_PACOTE_PARCIAL, type PacoteClienteOpt,
+} from '@shared/pacotes';
 import { carregarCandidatosVinculo, carregarCatalogoPacotes, type PacoteCatalogo } from '@shared/pacotes-consultas';
 import { VenderPacoteSheet } from '@/components/pacotes/VenderPacoteSheet';
 import { avisoVendaPacoteAgenda, type ResultadoVendaPacote } from '@shared/pacotes-venda';
@@ -403,8 +406,16 @@ export default function NovoAgendamento() {
       ? { elegiveis: pacotesCliente, temParcial: false }
       : pacotesDoAtendimento(pacotesCliente, servicoIdsForm);
   const pacotesOpcoes = pacotesCliente.filter((p) => pacotesCobrem.some((c) => c.id === p.id) || pacoteFixoId(p.id));
-  // Um aviso só: o de ação (avisoPacote) tem prioridade; senão o de "nenhum pacote cobre tudo".
-  const avisoPacoteExibido = avisoPacote || (pacotesOpcoes.length === 0 && pacoteTemParcial ? AVISO_PACOTE_PARCIAL : '');
+  // Pacote "fixo" (já vinculado na edição ou vendido agora) que deixou de cobrir os serviços: nunca é
+  // desvinculado em silêncio — mostra o aviso e bloqueia salvar até remover o pacote ou ajustar os
+  // serviços. Fora da lista carregada não dá para saber a cobertura (comportamento anterior). Igual ao web.
+  const pacoteSelecionado = pacotesCliente.find((x) => x.id === pacoteClienteId);
+  const pacoteFixoParcial = !!pacoteSelecionado && pacoteFixoId(pacoteSelecionado.id)
+    && servicoIdsForm.length > 0 && !pacoteCobreAtendimento(pacoteSelecionado, servicoIdsForm);
+  // Um aviso só: pacote fixo parcial > aviso de ação (avisoPacote) > "nenhum pacote cobre tudo".
+  const avisoPacoteExibido = pacoteFixoParcial
+    ? AVISO_PACOTE_PARCIAL
+    : avisoPacote || (pacotesOpcoes.length === 0 && pacoteTemParcial ? AVISO_PACOTE_PARCIAL : '');
 
   // Mudou os serviços e o pacote escolhido deixou de cobrir: desliga o pacote e avisa. Quando volta a
   // cobrir (ou a pessoa escolhe outro pacote), o aviso de pacote parcial some.
@@ -484,7 +495,8 @@ export default function NovoAgendamento() {
     clienteSelecionado && profSelecionado && inicioIso &&
     linhasPreenchidas.length > 0 && montado.duracaoMin > 0 &&
     valoresOk && duracoesOk && duracaoTotalOk && taxaOk &&
-    (!editId || preenchidoEdit) && !motivoEdicaoTravada
+    (!editId || preenchidoEdit) && !motivoEdicaoTravada &&
+    !(pacoteFixoParcial && !idCriado)
   );
   const motivoNaoSalva = podeSalvar ? null
     : motivoEdicaoTravada
@@ -495,6 +507,7 @@ export default function NovoAgendamento() {
       : !valoresOk ? 'Corrija o valor do serviço (use 0 para cortesia).'
       : !duracoesOk || !duracaoTotalOk || montado.duracaoMin <= 0 ? 'Informe a duração em minutos.'
       : !taxaOk ? 'Corrija o valor da taxa de reserva.'
+      : pacoteFixoParcial && !idCriado ? MOTIVO_SALVAR_PACOTE_PARCIAL
       : null);
 
   if (!fontsLoaded) return null;

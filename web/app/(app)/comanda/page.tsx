@@ -72,7 +72,10 @@ import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
 import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
-import { calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, type PacoteClienteOpt } from '@shared/pacotes';
+import {
+  calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, servicoIdsDoAtendimento,
+  vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, type PacoteClienteOpt,
+} from '@shared/pacotes';
 import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -1089,16 +1092,41 @@ export default function ComandaPage() {
    */
   function desvincularPacote(agendamentoId: string) {
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
-    const ag = agDia.find(a => a.id === agendamentoId);
-    setItens(prev => prev.map(i => {
-      if (i.agendamento_id !== agendamentoId || !ag) return i;
+    setItens(prev => restaurarValoresAtendimentos(prev, [agendamentoId]));
+  }
+
+  /** Volta as linhas dos atendimentos `ids` ao valor de tabela (por linha no multi-serviço, total no legado). */
+  function restaurarValoresAtendimentos(prev: ComandaItem[], ids: string[]): ComandaItem[] {
+    return prev.map(i => {
+      if (!i.agendamento_id || !ids.includes(i.agendamento_id)) return i;
+      const ag = agDia.find(a => a.id === i.agendamento_id);
+      if (!ag) return i;
       if (i.ag_servico_id) {
         const s = (ag.agendamento_servicos ?? []).find(x => x.id === i.ag_servico_id);
-        return s ? { ...i, valor: s.valor } : i;
+        return s && i.valor !== s.valor ? { ...i, valor: s.valor } : i;
       }
-      return { ...i, valor: ag.valor };
-    }));
+      return i.valor !== ag.valor ? { ...i, valor: ag.valor } : i;
+    });
   }
+
+  // A7: atendimento que chegou vinculado (banco/Agenda) a um pacote que NÃO cobre todos os serviços
+  // (ou com linha sem servico_id) não é zerado: as linhas ficam com o valor normal, o selo mostra o
+  // aviso e o fechamento fica bloqueado até "Desvincular". Só na comanda nova (edição: vínculo só
+  // leitura) e só com o pacote na lista carregada — fora dela não dá para saber a cobertura.
+  const atendimentosPacoteParcial = comandaExistenteId
+    ? []
+    : vinculosPacoteSemCobertura(itens, pacoteLinks, pacotesClienteAtivos);
+  const bloqueioPacoteParcial = atendimentosPacoteParcial.length > 0 ? MOTIVO_FECHAR_PACOTE_PARCIAL : null;
+  useEffect(() => {
+    if (comandaExistenteId) return;
+    setItens(prev => {
+      const ids = vinculosPacoteSemCobertura(prev, pacoteLinks, pacotesClienteAtivos);
+      if (ids.length === 0) return prev;
+      const novo = restaurarValoresAtendimentos(prev, ids);
+      return novo.every((x, k) => x === prev[k]) ? prev : novo;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pacotesClienteAtivos, pacoteLinks, comandaExistenteId, agDia]);
 
   // Mesma leitura de valor dos pagamentos (parseValorBR): '1.234,56' não vira 1,234.
   // Texto sem nenhum dígito mantém o valor anterior; '0' zera de propósito.
@@ -1200,6 +1228,8 @@ export default function ComandaPage() {
     if (bloqueioTaxaReserva) { setErro(bloqueioTaxaReserva); return; }
     if (!configPronta) { setErro('Aguarde: carregando as taxas dos cartões.'); return; }
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
+    // A7: pacote vinculado que não cobre o atendimento inteiro — desvincular antes de fechar.
+    if (bloqueioPacoteParcial) { setErro(bloqueioPacoteParcial); return; }
     // Comanda desta cliente criada e não terminada nesta tela: nada de um segundo INSERT.
     if (comandasParciais[clienteSel.id]) { setErro(AVISO_COMANDA_PARCIAL); return; }
     // Sem `pacotes.vender` o banco recusaria o INSERT em pacote_clientes depois de a
@@ -1948,9 +1978,11 @@ export default function ComandaPage() {
                           const agendamentoId = item.agendamento_id!;
                           const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === pacoteLinks[agendamentoId]);
                           if (pacoteVinculado) {
+                            const parcial = atendimentosPacoteParcial.includes(agendamentoId);
                             return (
-                              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-green-soft border border-green/20 px-3 py-2">
-                                <span className="text-xs font-semibold text-green truncate">
+                              <div className={`mt-2 rounded-lg border px-3 py-2 ${parcial ? 'bg-amber-soft border-amber/20' : 'bg-green-soft border-green/20'}`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`text-xs font-semibold truncate ${parcial ? 'text-amber' : 'text-green'}`}>
                                   Sessão de pacote — {pacoteVinculado.nome}
                                 </span>
                                 {/* Desvincular também fica fora de escopo em edição: restaura o
@@ -1967,6 +1999,10 @@ export default function ComandaPage() {
                                   </button>
                                 )}
                               </div>
+                              {parcial && (
+                                <p className="text-[11px] text-amber mt-1">{AVISO_PACOTE_PARCIAL}</p>
+                              )}
+                              </div>
                             );
                           }
                           // Vincular pacote existente fica fora de escopo ao editar uma
@@ -1976,10 +2012,10 @@ export default function ComandaPage() {
                           // silenciosa. O badge acima continua mostrando o vínculo já
                           // existente; só o seletor de criar um vínculo novo some.
                           if (comandaExistenteId) return null;
-                          // Pacote só vale se cobrir TODOS os serviços do atendimento (A7).
-                          const servicoIds = itens
-                            .filter(i => i.agendamento_id === agendamentoId && i.servico_id)
-                            .map(i => i.servico_id as string);
+                          // Pacote só vale se cobrir TODOS os serviços do atendimento (A7). Linha do
+                          // atendimento sem servico_id = não dá para saber se cobre: não oferece pacote.
+                          const servicoIds = servicoIdsDoAtendimento(itens.filter(i => i.agendamento_id === agendamentoId));
+                          if (!servicoIds) return null;
                           const { elegiveis, temParcial } = pacotesDoAtendimento(pacotesClienteAtivos, servicoIds);
                           if (elegiveis.length === 0) {
                             return temParcial ? (
@@ -2288,7 +2324,7 @@ export default function ComandaPage() {
               <div className="max-w-2xl mx-auto">
                 <button
                   onClick={fecharComanda}
-                  disabled={fechando || cargaFalhou || !!bloqueioTaxaReserva || !configPronta || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
+                  disabled={fechando || cargaFalhou || !!bloqueioTaxaReserva || !!bloqueioPacoteParcial || !configPronta || itens.length === 0 || !empresaId || !resumo.podeFechar || (!comandaExistenteId && !podeFechar) || (!comandaExistenteId && !!clienteSel && !!comandasParciais[clienteSel.id])}
                   title={!comandaExistenteId && !podeFechar ? 'Sem permissão para fechar comanda' : undefined}
                   className="w-full h-12 rounded-xl bg-green text-white font-bold text-base hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -2301,6 +2337,9 @@ export default function ComandaPage() {
                     </>
                   )}
                 </button>
+                {bloqueioPacoteParcial && (
+                  <p className="mt-2 text-center text-xs font-semibold text-red">{bloqueioPacoteParcial}</p>
+                )}
                 {bloqueioTaxaReserva && (
                   <div className="mt-2 text-center">
                     <p className="text-xs font-semibold text-red">{bloqueioTaxaReserva}</p>

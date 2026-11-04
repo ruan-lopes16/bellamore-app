@@ -48,6 +48,42 @@ describe('Pacote que cobre o atendimento: mesma regra e mesmo aviso nas duas pla
   }
 });
 
+describe('Comanda: mesma leitura dos serviços do atendimento e mesmo bloqueio de pacote parcial', () => {
+  for (const arq of [WEB_COMANDA, APP_COMANDA]) {
+    it(`${arq} usa servicoIdsDoAtendimento, vinculosPacoteSemCobertura e MOTIVO_FECHAR_PACOTE_PARCIAL`, () => {
+      const t = ler(arq);
+      expect(t).toContain('servicoIdsDoAtendimento(');
+      expect(t).toContain('vinculosPacoteSemCobertura(');
+      expect(t).toContain('MOTIVO_FECHAR_PACOTE_PARCIAL');
+      // A oferta não pode mais filtrar fora as linhas sem servico_id (elas tornam o atendimento não coberto).
+      expect(t).not.toMatch(/agendamento_id === agendamentoId && i\.servico_id\)/);
+    });
+  }
+});
+
+describe('Agenda: pacote já vinculado que deixou de cobrir bloqueia salvar nas duas plataformas', () => {
+  for (const arq of [WEB_AGENDA, APP_NOVO_AGENDAMENTO]) {
+    it(`${arq} usa pacoteCobreAtendimento e MOTIVO_SALVAR_PACOTE_PARCIAL, com um aviso só`, () => {
+      const t = ler(arq);
+      expect(t).toContain('pacoteCobreAtendimento(');
+      expect(t).toContain('MOTIVO_SALVAR_PACOTE_PARCIAL');
+      expect(t).toContain('avisoPacoteExibido');
+      expect(t.split('{AVISO_PACOTE_PARCIAL}').length - 1).toBe(0);
+    });
+  }
+});
+
+describe('Venda de pacotes inteira: nunca oferecida para pacote cobrado na comanda', () => {
+  for (const arq of [WEB_PACOTES, APP_PACOTES]) {
+    it(`${arq} só oferece "Excluir a venda inteira" sem comanda_id`, () => {
+      const linha = ler(arq).split('\n').find(l => /const vendaInteira =/.test(l)) ?? '';
+      expect(linha).toMatch(/> 1/);
+      expect(linha).toMatch(/venda_id/);
+      expect(linha).toMatch(/!\w+(\.\w+)?\.comanda_id|!confirmExcluirVenda\.comanda_id|!v\.comanda_id/);
+    });
+  }
+});
+
 describe('Venda de pacotes inteira: mesma função e mesma mensagem nas duas plataformas', () => {
   for (const arq of [WEB_PACOTES, APP_PACOTES]) {
     it(`${arq} usa excluirVendaPacotes e MSG_VENDA_VARIOS_PACOTES`, () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AVISO_PACOTE_PARCIAL, pacoteCobreAtendimento, pacotesDoAtendimento, type PacoteClienteOpt,
+  AVISO_PACOTE_PARCIAL, pacoteCobreAtendimento, pacotesDoAtendimento, servicoIdsDoAtendimento,
+  vinculosPacoteSemCobertura, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import {
   ErroPacote, MSG_SEM_MIGRATION_100, MSG_VENDA_VARIOS_PACOTES, excluirVendaPacotes,
@@ -34,6 +35,27 @@ describe('pacoteCobreAtendimento / pacotesDoAtendimento (A7)', () => {
     expect(r.temParcial).toBe(true);
     expect(pacotesDoAtendimento([cobre, outro], ['a', 'b']).temParcial).toBe(false);
     expect(pacotesDoAtendimento([cobre], []).elegiveis).toEqual([]);
+  });
+  it('servicoIdsDoAtendimento: null se alguma linha não tem servico_id', () => {
+    expect(servicoIdsDoAtendimento([{ servico_id: 'a' }, { servico_id: 'b' }])).toEqual(['a', 'b']);
+    expect(servicoIdsDoAtendimento([{ servico_id: 'a' }, { servico_id: null }])).toBeNull();
+    expect(servicoIdsDoAtendimento([{ servico_id: 'a' }, {}])).toBeNull();
+    expect(servicoIdsDoAtendimento([{ servico_id: '' }])).toBeNull();
+    expect(servicoIdsDoAtendimento([])).toEqual([]);
+  });
+  it('vinculosPacoteSemCobertura: só vínculo a pacote ativo que não cobre tudo', () => {
+    const ativos = [pac('p-ab', ['a', 'b']), pac('p-a', ['a'])];
+    const itens = [
+      { agendamento_id: 'ag1', servico_id: 'a' }, { agendamento_id: 'ag1', servico_id: 'b' },
+      { agendamento_id: 'ag2', servico_id: 'a' }, { agendamento_id: 'ag2', servico_id: 'b' },
+      { agendamento_id: 'ag3', servico_id: 'a' }, { agendamento_id: 'ag3', servico_id: null },
+      { agendamento_id: 'ag4', servico_id: 'z' },
+      { agendamento_id: 'ag5', servico_id: 'a' },
+      { servico_id: 'b' }, // extra sem atendimento
+    ];
+    const links = { ag1: 'p-ab', ag2: 'p-a', ag3: 'p-ab', ag4: 'fora-da-lista', ag5: null, ag9: 'p-a' };
+    expect(vinculosPacoteSemCobertura(itens, links, ativos).sort()).toEqual(['ag2', 'ag3']);
+    expect(vinculosPacoteSemCobertura(itens, {}, ativos)).toEqual([]);
   });
   it('texto do aviso', () => {
     expect(AVISO_PACOTE_PARCIAL).toBe('Este pacote não cobre todos os serviços deste atendimento. Para usar a sessão, separe o serviço do pacote num atendimento próprio.');
