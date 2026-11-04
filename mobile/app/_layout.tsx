@@ -8,6 +8,7 @@ import { registrarGeradorUuid } from '@shared/uuid';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
+import { decidirDestinoSessao } from '@shared/destino-sessao';
 import { sincronizarPushDispositivo, cancelarLembretesLocais, rotaParaNotificacao } from '@/lib/notifications';
 import { TapSpark } from '@/components/TapSpark';
 import { ErroPermissoes } from '@/components/ErroPermissoes';
@@ -27,7 +28,7 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
-  const { carregarSessao, roleAtivo, isOwner, user, semEmpresa, permissoesErro, empresaAtiva } = useAuthStore();
+  const { carregarSessao, roleAtivo, isOwner, user, semEmpresa, erroEmpresas, permissoesErro, empresaAtiva } = useAuthStore();
   const notifListener = useRef<Notifications.Subscription>();
   const responseListener = useRef<Notifications.Subscription>();
 
@@ -65,13 +66,16 @@ export default function RootLayout() {
   useEffect(() => {
     // Redireciona quando identidade/papel mudam (depende de user?.id, não do objeto
     // `user`: um SIGNED_IN repetido não deve mandar o usuário de volta à home).
-    if (user && semEmpresa) { router.replace('/criar-empresa' as any); return; }
+    // Erro ao ler as empresas NUNCA leva a Criar empresa nem ao login: o ErroPermissoes cobre a tela.
+    const destino = user ? decidirDestinoSessao({ temSessao: true, erroVinculos: erroEmpresas, temVinculo: !semEmpresa }) : 'login';
+    if (destino === 'erro-vinculos') return;
+    if (user && destino === 'criar-empresa' && semEmpresa) { router.replace('/criar-empresa' as any); return; }
     if (user && roleAtivo) {
       const rota = rotaInicial(isOwner ? 'owner' : roleAtivo);
       // Papel desconhecido logado: tela "Sem acesso" (abaixo), nunca o login.
       if (rota !== '/(auth)/login') router.replace(rota as any);
     }
-  }, [user?.id, roleAtivo, isOwner, semEmpresa]);
+  }, [user?.id, roleAtivo, isOwner, semEmpresa, erroEmpresas]);
 
   useEffect(() => {
     // Registra (idempotente) o aparelho na empresa ativa, na abertura e na troca de empresa.

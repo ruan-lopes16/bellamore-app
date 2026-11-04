@@ -138,7 +138,9 @@ describe('app: Pacotes (paridade com o web)', () => {
   it('aba Relatório com exportação pela definição única', () => {
     expect(tela).toContain("key: 'relatorio'");
     expect(tela).toContain('Relatório');
-    expect(tela).toContain('calcularRelatorioUtilizacao(');
+    // A carga do relatório sabe se a 096 existe (sem ela, tudo seria "fora do faturamento"): vem do hook.
+    expect(tela).toContain('usePacotesRelatorio(');
+    expect(ler(HOOK)).toContain('carregarRelatorioUtilizacao(');
     expect(tela).toContain('definicaoPacotesUtilizacao(');
     expect(tela).toContain('definicaoPacotesCatalogo(');
     expect(tela).toContain('definicaoPacotesVendidos(');

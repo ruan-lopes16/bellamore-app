@@ -150,7 +150,7 @@ describe('relatório de utilização', () => {
     id: 'x', pacote: { id: 'p1', nome: 'Limpeza', preco: 200, validade_dias: null, controla_sessoes: true,
       servicos: [{ servico_id: 's1', nome: 'L', quantidade: 3 }] },
     cliente: { id: 'c', nome: 'Ana' }, data_inicio: null, data_validade: null, valor_pago: 100.1, status: 'ativo',
-    observacao: null, cobranca: 'paga', venda_id: 'v', usos: [{ id: 'u', servico_id: 's1', agendamento_id: null, created_at: '' }],
+    observacao: null, cobranca: 'paga', venda_id: 'v', comanda_id: null, usos: [{ id: 'u', servico_id: 's1', agendamento_id: null, created_at: '' }],
     ...extra,
   });
 

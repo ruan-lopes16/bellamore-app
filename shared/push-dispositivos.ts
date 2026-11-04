@@ -69,3 +69,11 @@ export async function removerDispositivoPush(db: ClienteDbPush, token: string): 
   }
   return (data ?? []).length;
 }
+
+/** Dias sem sinal de vida (`visto_em`) a partir dos quais o aparelho deixa de receber push dos crons. */
+export const DIAS_DISPOSITIVO_ATIVO = 30;
+
+/** ISO do limite de `visto_em`: `agora` - 30 dias. Aparelhos vistos antes disso são ignorados. */
+export function limiteVistoEm(agora: Date): string {
+  return new Date(agora.getTime() - DIAS_DISPOSITIVO_ATIVO * 24 * 60 * 60 * 1000).toISOString();
+}

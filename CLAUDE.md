@@ -1431,6 +1431,41 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 **Registrados, não corrigidos:** contraste do `primary`/`green` no escuro (precisa separar tokens — decisão de design); telas secundárias do app sem modo escuro (Financeiro, Relatórios, Equipe, Estoque, Vendas, Serviços, Pacotes, formulários e modais); sessão expirada no app continua recebendo push até alguém entrar; convite troca a empresa ao carregar; erro de leitura dos vínculos leva a `/login`; gestora sem `agenda.ver_equipe` recebe a contagem da empresa no resumo; token compartilhado por 2 usuários recebe só o 1º resumo; recibos assíncronos da Expo não são lidos. Há duas migrations com o número 096 (pacotes e despesas puladas, ambas aplicadas).
 
+**Conferências em produção (2026-11-02/03):** 095 já aplicada; empresas de teste já apagadas; limpeza das comandas duplicadas (29/09) já aplicada.
+
+---
+
+### Sessão 2026-11-03/04 — Pendências de dinheiro e falhas silenciosas (100)
+
+*Escopo: itens A e B1–B7 de `docs/superpowers/notes/2026-11-03-backlog-pendencias.md` (lista única de todas as pendências*
+*registradas, conferida no código: A4, A6, B2 e B10 já estavam resolvidos; B3 fica por decisão do dono). Migration 100: taxa*
+*retida volta a paga/pendente ao reabrir o atendimento (A1), validade da sessão de pacote pelo dia do atendimento em Brasília (A5),*
+*venda de pacotes com vários só sai inteira (`excluir_venda_pacotes`, A2), vínculo atendimento↔comanda travado para a API (B1).*
+*Shared + telas (web e app): Fat. hoje com desconto (A3), pacote só se cobrir todos os serviços do atendimento — inclusive o já*
+*vinculado, que deixa de zerar o atendimento e bloqueia o fechamento até "Desvincular" (A7), relatório de Pacotes com "fora do*
+*faturamento" (A8), push só para aparelho visto em 30 dias (B4), erro ao carregar empresas com tela própria e convite que só troca*
+*a empresa após o aceite (B5), Exportar desligado com erro (B6), clientes do agendamento do app com erro visível (B7). 7 tasks +*
+*revisão final (opus) + 1 onda de correção + re-revisão. Spec e plano: `docs/superpowers/{specs,plans}/2026-11-03-pendencias-dinheiro-falhas*`.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 3127/3127; mobile só com o erro pré-existente de `useAgenda.ts` |
+| UX / Padrões    | 9.0  | Mesmos textos e bloqueios nas duas plataformas (constantes em shared); motivos de bloqueio explícitos, nunca valor zerado em silêncio |
+| Segurança       | 9.5  | Trava de `comanda_id` no banco; função nova `security definer` com conferência de empresa e permissão; guardas da 096 respeitadas |
+| Documentação    | 9.0  | Backlog consolidado, spec, plano, nota de deploy com conferências, cabeçalho da 100 com rollback |
+| Arquitetura     | 9.5  | Regras únicas em shared (`pacotesDoAtendimento`, `servicoIdsDoAtendimento`, `bloqueioCargaPacotes`, `decidirDestinoSessao`); 100 testada sobre a cadeia 090→099 |
+| Performance     | 9.0  | Sem query nova cara |
+| Visual (UI)     | —    | Não executado |
+| **Completude**  | 9.0  | 12 itens; A9 não se reproduziu (registrado) |
+| **Proatividade**| 9.5  | Revisão final achou: pacote já vinculado sem cobertura ainda zerava o atendimento; linha sem serviço no web; corrida da carga de pacotes que deixava fechar zerado; deadlock e textos da 100 |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
+
+**Pendências para produção:** seguir `docs/superpowers/notes/2026-11-03-deploy-pendencias.md` — consulta só de leitura dos concluídos com taxa retida, **100 antes do merge**, conferências, merge, recarregar o PWA.
+
+**Registrados, não corrigidos:** pacote vinculado vencido/esgotado (fora da lista de ativos) continua zerando o atendimento sem selo nem "Desvincular"; erro persistente na carga dos pacotes deixa a comanda vinculada sem saída além de "Tentar de novo"; A9 (1 centavo) não reproduzido; validade das listas de pacote ainda por "hoje" (o banco usa o dia do atendimento); ordem de travas invertida entre as duas exclusões de pacote (deadlock raro); app aberto >30 dias sem remontar não renova o aparelho; 3 commits com rodapé Sonnet.
+
 ---
 
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues

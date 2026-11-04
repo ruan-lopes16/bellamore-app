@@ -69,6 +69,11 @@ export function RelatorioPacotes({
           </div>
         ))}
       </div>
+      {relatorio.foraDoFaturamento.quantidade > 0 && (
+        <p className="text-xs text-text-3 -mt-3">
+          {`${relatorio.foraDoFaturamento.quantidade} pacotes vendidos antes do registro de venda — ${fmtBRL(relatorio.foraDoFaturamento.valor)} fora do faturamento`}
+        </p>
+      )}
 
       <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3">

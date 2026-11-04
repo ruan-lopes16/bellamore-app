@@ -89,9 +89,9 @@ describe('Pacotes: as duas telas pelas funções de shared', () => {
       'filtrarVendidos(', 'rotuloStatusVendido(', 'estaACobrar(', 'rotuloValidade(',
     ]);
   });
-  it('relatório de utilização pela regra única (web carrega e calcula em shared; app calcula dos vendidos)', () => {
+  it('relatório de utilização pela mesma carga e regra única de shared nas duas telas', () => {
     expect(LADOS.pacotes.web).toContain('carregarRelatorioUtilizacao(');
-    expect(LADOS.pacotes.app).toContain('calcularRelatorioUtilizacao(');
+    expect(LADOS.pacotes.app).toContain('carregarRelatorioUtilizacao(');
   });
   it('cadastro: validação e composição únicas', () => {
     nasDuas('pacotes', ['validarPacote(', 'sincronizarServicosPacote(']);

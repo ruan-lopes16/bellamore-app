@@ -776,6 +776,7 @@ export default function VendasScreen() {
                 </Text>
                 {/* Mesma exportação do web (shared/exportacao/vendas.ts), com as vendas do dia */}
                 <BotaoExportar
+                  disabled={loadingVendas || !!erroVendas}
                   definicao={definicaoVendas()}
                   getLinhas={() => linhasVendas(vendas, m => METODOS_PAGAMENTO.find(x => x.key === m)?.label ?? m)}
                   cor={C.text2}

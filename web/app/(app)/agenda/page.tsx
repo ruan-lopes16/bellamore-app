@@ -74,7 +74,10 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { chaveDiaBRT, chaveDiaExibido, hojeBRT, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
-import { calcularPacotesAtivosCliente, type PacoteClienteOpt } from '@shared/pacotes';
+import {
+  calcularPacotesAtivosCliente, pacotesDoAtendimento, pacoteCobreAtendimento, AVISO_PACOTE_PARCIAL,
+  MOTIVO_SALVAR_PACOTE_PARCIAL, type PacoteClienteOpt,
+} from '@shared/pacotes';
 import { carregarCandidatosVinculo } from '@shared/pacotes-consultas';
 import { VenderPacoteModal } from '@/components/pacotes/VenderPacoteModal';
 import { avisoVendaPacoteAgenda, type ResultadoVendaPacote } from '@shared/pacotes-venda';
@@ -575,6 +578,45 @@ function NovoAgModal({
     return () => { vivo = false; };
   }, [empresaId, clienteId, recargaPacotes]);
 
+  // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
+  // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido
+  // agora) nunca some nem é desvinculado em silêncio.
+  const servicoIdsForm = linhas.map(l => l.servico_id).filter(Boolean);
+  const pacoteFixoId = (id: string) => id === (agEditar?.pacote_cliente_id ?? '') || id === pacoteVendido?.id;
+  const { elegiveis: pacotesCobrem, temParcial: pacoteTemParcial } =
+    servicoIdsForm.length === 0
+      ? { elegiveis: pacotesCliente, temParcial: false }
+      : pacotesDoAtendimento(pacotesCliente, servicoIdsForm);
+  const pacotesOpcoes = pacotesCliente.filter(p => pacotesCobrem.some(c => c.id === p.id) || pacoteFixoId(p.id));
+
+  // Pacote "fixo" (já vinculado na edição ou vendido agora) que deixou de cobrir os serviços: nunca é
+  // desvinculado em silêncio — mostra o aviso e bloqueia salvar até remover o pacote ou ajustar os
+  // serviços. Fora da lista carregada não dá para saber a cobertura (comportamento anterior).
+  const pacoteSelecionado = pacotesCliente.find(x => x.id === pacoteClienteId);
+  const pacoteFixoParcial = !!pacoteSelecionado && pacoteFixoId(pacoteSelecionado.id)
+    && servicoIdsForm.length > 0 && !pacoteCobreAtendimento(pacoteSelecionado, servicoIdsForm);
+  // Um aviso só (igual ao app): pacote fixo parcial > aviso de ação (avisoPacote) > "nenhum cobre tudo".
+  const avisoPacoteExibido = pacoteFixoParcial
+    ? AVISO_PACOTE_PARCIAL
+    : avisoPacote || (pacotesOpcoes.length === 0 && pacoteTemParcial ? AVISO_PACOTE_PARCIAL : '');
+
+  // Mudou os serviços e o pacote escolhido (não fixo) deixou de cobrir: desliga o pacote e avisa.
+  // Quando volta a cobrir (ou a pessoa escolhe outro pacote), o aviso de pacote parcial some.
+  useEffect(() => {
+    const limpaAviso = () => setAvisoPacote(a => (a === AVISO_PACOTE_PARCIAL ? '' : a));
+    if (servicoIdsForm.length === 0) { limpaAviso(); return; }
+    if (pacoteClienteId && !pacoteFixoId(pacoteClienteId)) {
+      const p = pacotesCliente.find(x => x.id === pacoteClienteId);
+      if (p && !pacotesDoAtendimento([p], servicoIdsForm).elegiveis.length) {
+        setPacoteClienteId('');
+        setAvisoPacote(AVISO_PACOTE_PARCIAL);
+        return;
+      }
+    }
+    if (pacoteClienteId || pacotesDoAtendimento(pacotesCliente, servicoIdsForm).elegiveis.length > 0) limpaAviso();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linhas, pacotesCliente, pacoteClienteId]);
+
   function onServicoChange(uid: string, id: string) {
     const s = servicos.find(x => x.id === id);
     setLinhas(prev => prev.map(l =>
@@ -793,6 +835,7 @@ function NovoAgModal({
       return;
     }
     if (!valoresOk) { setErro('Corrija o valor do serviço (use 0 para cortesia).'); return; }
+    if (pacoteFixoParcial) { setErro(MOTIVO_SALVAR_PACOTE_PARCIAL); return; }
     if (aplicarTaxaReserva && taxaReservaCfg.ativa && !agEditar && !valorDigitadoValido(taxaReserva)) {
       setErro('Corrija o valor da taxa de reserva.'); return;
     }
@@ -1062,7 +1105,7 @@ function NovoAgModal({
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
                   <SearchSelect
-                    options={pacotesCliente.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
+                    options={pacotesOpcoes.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
                     value={pacoteClienteId}
                     onChange={onPacoteClienteChange}
                     placeholder="Pagar avulso (sem pacote)"
@@ -1142,7 +1185,7 @@ function NovoAgModal({
               </button>
             </div>
           )}
-          {avisoPacote && <p className="text-xs text-amber">{avisoPacote}</p>}
+          {avisoPacoteExibido && <p className="text-xs text-amber">{avisoPacoteExibido}</p>}
           {erroPacotes && <p className="text-xs text-red">{erroPacotes}</p>}
 
           {/* Portal próprio: o modal de agendamento recorta position:fixed (ver comentário do createPortal abaixo). */}
@@ -1305,6 +1348,9 @@ function NovoAgModal({
               className="w-full px-3 py-2.5 rounded-xl border border-border bg-bg text-text text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none" />
           </div>
 
+          {pacoteFixoParcial && !idCriado && erro !== MOTIVO_SALVAR_PACOTE_PARCIAL && (
+            <p className="text-red text-xs text-center">{MOTIVO_SALVAR_PACOTE_PARCIAL}</p>
+          )}
           {erro && <p className="text-red text-sm text-center">{erro}</p>}
 
           <div className="flex items-center gap-3 mt-1">
@@ -1318,7 +1364,7 @@ function NovoAgModal({
               <span className="text-xs text-text-4" title={motivoBloqueioExcluir}>Não pode excluir</span>
             )}
             <button type="button" onClick={onClose} className="flex-1 h-10 rounded-xl border border-border text-text-2 text-sm font-semibold hover:bg-bg transition">Cancelar</button>
-            <button type="submit" disabled={salvando || (!!bloqueioConflitante && !idCriado) || edicaoTravada || !valoresOk} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
+            <button type="submit" disabled={salvando || (!!bloqueioConflitante && !idCriado) || edicaoTravada || !valoresOk || (pacoteFixoParcial && !idCriado)} className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-dark transition disabled:opacity-60">
               {salvando ? 'Salvando...' : idCriado ? 'Salvar serviços' : agEditar ? 'Salvar alterações' : 'Agendar'}
             </button>
           </div>
@@ -2596,6 +2642,7 @@ export default function AgendaPage() {
             </div>
           )}
           <ExportButton
+            disabled={loading || !!erroDia}
             variant="mobileHeader"
             className="bm-mobile-header-export"
             definicao={definicaoAgenda(format(dataSel, 'yyyy-MM-dd'))}

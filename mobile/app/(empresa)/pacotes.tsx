@@ -41,7 +41,7 @@ import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
 import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import {
-  usePacotes, usePacotesVendidos,
+  usePacotes, usePacotesVendidos, usePacotesRelatorio,
   type PacoteCatalogo, type PacoteVendido,
 } from '@/hooks/usePacotes';
 import { SmoothTabs } from '@/components/SmoothTabs';
@@ -56,10 +56,10 @@ import {
   TITULO_EXCLUIR_SESSAO, textoExcluirSessao, textoVendidosVazio,
 } from '@shared/pacotes';
 import {
-  excluirPacoteCliente, ErroPacote, SemMigration096, MSG_VENDIDO_A_COBRAR, tituloSucessoVendaPacote,
+  excluirPacoteCliente, excluirVendaPacotes, MSG_VENDA_VARIOS_PACOTES, ErroPacote, SemMigration096, MSG_VENDIDO_A_COBRAR, tituloSucessoVendaPacote,
 } from '@shared/pacotes-venda';
 import {
-  desfazerVinculoPacote, erroEscritaPacoteUso, calcularRelatorioUtilizacao, marcarComboUtilizado,
+  desfazerVinculoPacote, erroEscritaPacoteUso, marcarComboUtilizado, pacotesDaMesmaVenda,
 } from '@shared/pacotes-consultas';
 import { acoesPacoteVendido, atendimentosVinculaveis } from '@shared/permissoes';
 
@@ -732,9 +732,11 @@ export default function Pacotes() {
 
   const catalogo = usePacotes();
   const vend = usePacotesVendidos();
+  // Relatório: carga própria (sabe se a 096 existe), só com a aba aberta.
+  const rel = usePacotesRelatorio(aba === 'relatorio');
   const pacotes = catalogo.data ?? [];
   const vendidos = vend.data ?? [];
-  const onRefresh = useCallback(() => { catalogo.refetch(); vend.refetch(); }, [catalogo, vend]);
+  const onRefresh = useCallback(() => { catalogo.refetch(); vend.refetch(); if (aba === 'relatorio') rel.refetch(); }, [catalogo, vend, rel, aba]);
 
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
@@ -750,7 +752,7 @@ export default function Pacotes() {
   const inativos = pacotes.filter((p) => !p.ativo);
   const conta = (f: FiltroVendidos) => filtrarVendidos(vendidos, f).length;
   const vendidosFiltrados = filtrarVendidos(vendidos, filtro);
-  const relatorio = calcularRelatorioUtilizacao(vendidos);
+  const relatorio = rel.data;
   // Número só com a carga certa: carregando ou com erro mostra '—', nunca zero.
   const num = (ok: boolean, n: number) => (ok ? String(n) : '—');
   const invalidarVendidos = () => qc.invalidateQueries({ queryKey: ['pacotes-vendidos'] });
@@ -772,16 +774,23 @@ export default function Pacotes() {
   function excluirVenda(v: PacoteVendido) {
     if (!empresaId) return;
     if (v.usadas > 0) { Alert.alert('Não foi possível excluir', MSG_SESSOES_USADAS); return; }
+    // Venda com vários pacotes (mesmo venda_id) só sai inteira: a confirmação explica e exclui a venda toda.
+    const naVenda = pacotesDaMesmaVenda(vendidos, v);
+    // Com comanda_id segue o fluxo de um pacote (o banco recusa com a mensagem de comanda).
+    const vendaInteira = naVenda > 1 && !!v.venda_id && !v.comanda_id;
     Alert.alert(
       TITULO_EXCLUIR_VENDIDO,
-      textoExcluirVendido({ pacote: v.pacote.nome, cliente: v.cliente.nome, aCobrar: estaACobrar(v) }),
+      vendaInteira
+        ? MSG_VENDA_VARIOS_PACOTES(naVenda)
+        : textoExcluirVendido({ pacote: v.pacote.nome, cliente: v.cliente.nome, aCobrar: estaACobrar(v) }),
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Excluir', style: 'destructive', onPress: async () => {
+          text: vendaInteira ? 'Excluir a venda inteira' : 'Excluir', style: 'destructive', onPress: async () => {
             let falha: string | null = null;
             try {
-              await excluirPacoteCliente(supabase, empresaId, v.id);
+              if (vendaInteira) await excluirVendaPacotes(supabase, empresaId, v.venda_id!);
+              else await excluirPacoteCliente(supabase, empresaId, v.id);
             } catch (e) {
               // Sem a 096 a exclusão fica indisponível: o caminho antigo deixava a venda no faturamento.
               if (e instanceof SemMigration096) falha = MSG_EXCLUSAO_SEM_096;
@@ -842,6 +851,7 @@ export default function Pacotes() {
   }
 
   const erroCatalogo = catalogo.isError ? mensagemErroBanco(catalogo.error as { code?: string; message?: string }, 'carregar o catálogo de pacotes') : null;
+  const erroRelatorio = rel.isError ? mensagemErroBanco(rel.error as { code?: string; message?: string }, 'carregar o relatório de pacotes') : null;
   const erroVendidos = vend.isError ? mensagemErroBanco(vend.error as { code?: string; message?: string }, 'carregar os pacotes vendidos') : null;
 
   return (
@@ -863,18 +873,21 @@ export default function Pacotes() {
             </View>
             {aba === 'catalogo' && catalogo.isSuccess ? (
               <BotaoExportar
+                disabled={catalogo.isFetching || catalogo.isError}
                 definicao={definicaoPacotesCatalogo()}
                 getLinhas={() => pacotes.map((p) => ({ nome: p.nome, preco: p.preco, validadeDias: p.validade_dias, servicos: p.servicos.map((s) => ({ nome: s.nome, quantidade: s.quantidade })), ativo: p.ativo }))}
                 cor="#fff"
               />
             ) : aba === 'vendidos' && vend.isSuccess ? (
               <BotaoExportar
+                disabled={vend.isFetching || vend.isError}
                 definicao={definicaoPacotesVendidos()}
                 getLinhas={() => vendidosFiltrados.map((v) => ({ cliente: v.cliente.nome, pacote: v.pacote.nome, usadas: v.usadas, totalSessoes: v.total_sessoes, valorPago: v.valor_pago, inicio: v.data_inicio, validade: v.data_validade, status: rotuloStatusVendido(v) }))}
                 cor="#fff"
               />
-            ) : aba === 'relatorio' && vend.isSuccess ? (
+            ) : aba === 'relatorio' && rel.isSuccess && relatorio ? (
               <BotaoExportar
+                disabled={rel.isFetching || rel.isError}
                 definicao={definicaoPacotesUtilizacao()}
                 getLinhas={() => relatorio.porPacote.map((l) => ({ nome: l.nome, vendas: l.vendas, totalSessoes: l.totalSessoes, sessoesUsadas: l.sessoesUsadas, receita: l.receita }))}
                 cor="#fff"
@@ -982,7 +995,7 @@ export default function Pacotes() {
 
         {/* ══ RELATÓRIO ══ */}
         {aba === 'relatorio' && (
-          erroVendidos ? <Aviso texto={erroVendidos} onTentar={() => vend.refetch()} /> : vend.isPending ? (
+          erroRelatorio ? <Aviso texto={erroRelatorio} onTentar={() => rel.refetch()} /> : (rel.isPending || !relatorio) ? (
             <ActivityIndicator color={C.primary} style={{ marginTop: 24 }} />
           ) : (
             <View style={{ marginHorizontal: 24, gap: 10 }}>
@@ -998,6 +1011,11 @@ export default function Pacotes() {
                   </View>
                 ))}
               </View>
+              {relatorio.foraDoFaturamento.quantidade > 0 && (
+                <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
+                  {`${relatorio.foraDoFaturamento.quantidade} pacotes vendidos antes do registro de venda — ${formatarMoeda(relatorio.foraDoFaturamento.valor)} fora do faturamento`}
+                </Text>
+              )}
               {relatorio.aCobrar > 0 && (
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amber }}>
                   {relatorio.aCobrar} {relatorio.aCobrar === 1 ? 'pacote a cobrar ainda não entrou' : 'pacotes a cobrar ainda não entraram'} na receita.

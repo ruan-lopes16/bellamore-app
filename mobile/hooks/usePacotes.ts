@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import {
-  carregarCatalogoPacotes, carregarPacotesVendidos,
+  carregarCatalogoPacotes, carregarPacotesVendidos, carregarRelatorioUtilizacao,
   type PacoteCatalogo, type PacoteVendido as PacoteVendidoBase,
 } from '@shared/pacotes-consultas';
 import { saldoSessoes, statusPacoteCliente, totalSessoes, type StatusPacoteCliente } from '@shared/pacotes';
@@ -50,6 +50,21 @@ export function resumirVendido(v: PacoteVendidoBase, hojeChave: string): PacoteV
     total_sessoes: combo ? null : totalSessoes(v.pacote.servicos),
     usadas: v.usos.length,
   };
+}
+
+/**
+ * Relatório de utilização (aba "Relatório"), pela mesma carga do web (carregarRelatorioUtilizacao): ela sabe se
+ * as colunas da 096 existem, o que decide quais pacotes entram na receita e quais ficam "fora do faturamento".
+ * Só carrega com a aba aberta (parâmetro ativo). A chave começa por 'pacotes-vendidos': invalidar os vendidos refaz o relatório.
+ */
+export function usePacotesRelatorio(ativo: boolean) {
+  const empresaId = useAuthStore(s => s.empresaAtiva?.id);
+  return useQuery({
+    queryKey: ['pacotes-vendidos', 'relatorio', empresaId],
+    enabled: !!empresaId && ativo,
+    staleTime: 1000 * 60 * 2,
+    queryFn: () => carregarRelatorioUtilizacao(supabase, empresaId!),
+  });
 }
 
 /**

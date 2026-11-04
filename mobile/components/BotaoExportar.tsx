@@ -8,10 +8,12 @@ import { exportarExcel, exportarPdf } from '@/lib/exportar';
  * Ícone de Download do cabeçalho: pergunta Excel ou PDF, gera com o que a tela
  * mostra (getLinhas) e abre o compartilhar. `definicao` nula esconde o botão.
  */
-export function BotaoExportar<T>({ definicao, getLinhas, cor = '#6B7280' }: {
+export function BotaoExportar<T>({ definicao, getLinhas, cor = '#6B7280', disabled = false }: {
   definicao: DefinicaoExportacao<T> | null;
   getLinhas: () => T[];
   cor?: string;
+  /** Desliga o botão enquanto a carga dos dados exportados está com erro ou carregando. */
+  disabled?: boolean;
 }) {
   const [gerando, setGerando] = useState(false);
   const [escolhendo, setEscolhendo] = useState(false);
@@ -30,7 +32,7 @@ export function BotaoExportar<T>({ definicao, getLinhas, cor = '#6B7280' }: {
   }
 
   function escolher() {
-    if (gerando || escolhendo) return;
+    if (gerando || escolhendo || disabled) return;
     setEscolhendo(true);
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -47,8 +49,8 @@ export function BotaoExportar<T>({ definicao, getLinhas, cor = '#6B7280' }: {
   }
 
   return (
-    <TouchableOpacity onPress={escolher} disabled={gerando} accessibilityLabel="Exportar"
-      style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+    <TouchableOpacity onPress={escolher} disabled={gerando || disabled} accessibilityLabel="Exportar"
+      style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}>
       {gerando ? <ActivityIndicator size="small" color={cor} /> : <Download size={16} color={cor} strokeWidth={1.8} />}
     </TouchableOpacity>
   );

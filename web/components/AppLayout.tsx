@@ -1,9 +1,10 @@
-import { getAppContext } from '@/lib/auth/server-context';
+import { getAppContext, ErroVinculosError, type AppContext } from '@/lib/auth/server-context';
 import Sidebar from '@/components/Sidebar';
 import { PermissoesProvider } from '@/components/PermissoesProvider';
 import ConvitesRecebidosBanner from '@/components/ConvitesRecebidosBanner';
 import { PrivacyProvider, PRIVACY_NOFLASH_SCRIPT } from '@/components/privacy';
 import ErroPermissoes from '@/components/ErroPermissoes';
+import ErroVinculos from '@/components/ErroVinculos';
 import { EmpresaAtivaProvider } from '@/components/EmpresaAtivaProvider';
 import type { PermissoesUsuario } from '@shared/permissoes';
 
@@ -11,7 +12,21 @@ import type { PermissoesUsuario } from '@shared/permissoes';
 const NADA_LIBERADO: PermissoesUsuario = { isOwner: false, papel: null, chaves: [] };
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const { empresa, empresaId, permissoes, role, isOwner, vinculos } = await getAppContext();
+  let ctx: AppContext;
+  try {
+    ctx = await getAppContext();
+  } catch (err) {
+    // Leitura dos vínculos falhou: tela própria com "Tentar de novo" e "Sair" (nunca login/criar-empresa).
+    if (err instanceof ErroVinculosError) {
+      return (
+        <main className="min-h-screen px-4" style={{ background: 'var(--color-bg)' }}>
+          <ErroVinculos />
+        </main>
+      );
+    }
+    throw err;
+  }
+  const { empresa, empresaId, permissoes, role, isOwner, vinculos } = ctx;
 
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--color-bg)' }}>

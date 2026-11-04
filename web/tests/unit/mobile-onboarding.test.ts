@@ -27,7 +27,7 @@ describe('onboarding do app nativo igual ao web', () => {
   });
   it('redirect do root layout depende de user?.id, não do objeto user', () => {
     const src = ler('mobile/app/_layout.tsx');
-    expect(src).toMatch(/\[user\?\.id,\s*roleAtivo,\s*isOwner,\s*semEmpresa\]/);
+    expect(src).toMatch(/\[user\?\.id,\s*roleAtivo,\s*isOwner,\s*semEmpresa,\s*erroEmpresas\]/);
   });
   it('login mostra mensagem genérica (não o erro cru do Supabase)', () => {
     expect(ler('mobile/app/(auth)/login.tsx')).toContain('E-mail ou senha incorretos.');

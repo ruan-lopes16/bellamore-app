@@ -987,6 +987,7 @@ export default function EquipePage() {
         </div>
         <div className="flex gap-2 pt-1 bm-mobile-page-actions">
           <ExportButton
+            disabled={loading || !!erroCarga}
             variant="mobileHeader"
             className="bm-mobile-header-export"
             definicao={definicaoEquipe(mesChave)}

@@ -415,6 +415,7 @@ function Agenda() {
             </View>
             <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
               <BotaoExportar
+                disabled={isLoading || erroAgendamentos}
                 definicao={definicaoAgenda(dia)}
                 getLinhas={() => agendamentos.map((a) => ({ inicio: a.data_hora_inicio, cliente: a.cliente?.nome ?? null, servico: a.servico?.nome ?? null, profissional: a.profissional?.nome ?? null, valor: a.valor, status: statusConfig(C)[a.status]?.label ?? a.status }))}
                 cor={C.text2}

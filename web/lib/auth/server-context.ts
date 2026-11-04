@@ -2,7 +2,8 @@ import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { COOKIE_EMPRESA_ATIVA } from '@shared/empresa-ativa';
-import { resolverEmpresaAtiva } from '@/lib/auth/empresa-ativa';
+import { resolverEmpresaAtiva, type VinculoAtivo } from '@/lib/auth/empresa-ativa';
+import { decidirDestinoSessao } from '@shared/destino-sessao';
 import { createClient } from '@/lib/supabase/server';
 import { carregarMinhasPermissoes, papelDeRole } from '@shared/permissoes-consultas';
 import type { PermissoesUsuario } from '@shared/permissoes';
@@ -34,6 +35,17 @@ export type AppContext = {
 };
 
 /**
+ * A leitura dos vínculos com empresas falhou. Não é "sem sessão" (login) nem "sem empresa"
+ * (criar-empresa): o AppLayout captura este erro e mostra "Não foi possível carregar suas empresas".
+ */
+export class ErroVinculosError extends Error {
+  constructor() {
+    super('Não foi possível carregar suas empresas.');
+    this.name = 'ErroVinculosError';
+  }
+}
+
+/**
  * `redirect()` do Next.js funciona lançando um erro interno com
  * `digest` começando em "NEXT_REDIRECT" — precisa atravessar o catch abaixo
  * sem ser tratado como falha de sessão, senão o redirect nunca acontece.
@@ -55,11 +67,16 @@ export const getAppContext = cache(async (): Promise<AppContext> => {
     // Empresa ativa: cookie `bm_empresa` se for vínculo ativo da pessoa, senão a mais antiga
     // (regra única de shared). Nunca "a primeira que o banco devolveu".
     const cookieStore = await cookies();
-    const { ativo: membro, vinculos } = await resolverEmpresaAtiva(
-      supabase, user.id, cookieStore.get(COOKIE_EMPRESA_ATIVA)?.value,
-    );
-
-    if (!membro) redirect('/criar-empresa');
+    let resolvido: { ativo: VinculoAtivo | null; vinculos: VinculoAtivo[] } | null = null;
+    try {
+      resolvido = await resolverEmpresaAtiva(supabase, user.id, cookieStore.get(COOKIE_EMPRESA_ATIVA)?.value);
+    } catch {
+      resolvido = null;
+    }
+    const destino = decidirDestinoSessao({ temSessao: true, erroVinculos: resolvido === null, temVinculo: !!resolvido?.ativo });
+    if (destino === 'erro-vinculos') throw new ErroVinculosError();
+    if (destino === 'criar-empresa' || !resolvido?.ativo) redirect('/criar-empresa');
+    const { ativo: membro, vinculos } = resolvido;
 
     const empresa: AppEmpresaContext = membro.empresa;
 
@@ -78,6 +95,7 @@ export const getAppContext = cache(async (): Promise<AppContext> => {
     };
   } catch (err) {
     if (isNextRedirectError(err)) throw err;
+    if (err instanceof ErroVinculosError) throw err;
     // Sessão presente porém inválida (cookie corrompido/expirado — ex.: um
     // app instalado na tela de início do iOS mantém sua própria partição de
     // storage, separada da aba do Safari, e pode carregar uma sessão velha)

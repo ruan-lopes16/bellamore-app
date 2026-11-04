@@ -322,6 +322,7 @@ export default function ClientesPage() {
             </button>
           </div>
           <ExportButton
+            disabled={loading || !!erroCarga}
             variant="mobileHeader"
             className="bm-mobile-header-export"
             definicao={definicaoClientes()}

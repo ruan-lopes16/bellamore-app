@@ -597,6 +597,7 @@ export default function RelatoriosPage() {
         <div className="flex items-center gap-2 bm-mobile-export-only">
           {!loading && !erroCarga && aba !== 'avaliacoes' && (
             <ExportButton
+              disabled={loading || loadingAba || !!erroCarga}
               variant="mobileHeader"
               className="bm-mobile-header-export"
               definicao={definicaoRelatorio(aba, ABA_OPTS.find(a => a.key === aba)?.label ?? '', labelPeriodo)}

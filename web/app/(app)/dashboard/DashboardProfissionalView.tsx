@@ -36,7 +36,7 @@ export default async function DashboardProfissionalView({
 
   const [{ data: agendaHoje, error: erroAgenda }, { data: comissoesMes, error: erroComissoes }, { data: membro, error: erroMembro }, { data: historico, error: erroHistorico }] = await Promise.all([
     supabase.from('agendamentos')
-      .select('id, data_hora_inicio, status, valor, pacote_cliente_id, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
+      .select('id, data_hora_inicio, status, valor, desconto_rateado, pacote_cliente_id, cliente:clientes!agendamentos_cliente_id_fkey(nome), servico:servicos(nome)')
       .eq('empresa_id', empresaId).eq('profissional_id', userId)
       .gte('data_hora_inicio', limHoje.startIso).lte('data_hora_inicio', limHoje.endIso)
       .neq('status', 'cancelado')

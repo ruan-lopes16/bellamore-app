@@ -39,7 +39,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import SuccessCheck from '@/components/SuccessCheck';
 import PagamentosEditor, { METODOS_PAGAMENTO } from '@/components/comanda/PagamentosEditor';
 import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-reserva';
-import { calcularPacotesAtivosCliente, dataValidade, type PacoteClienteOpt } from '@shared/pacotes';
+import {
+  calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, servicoIdsDoAtendimento,
+  vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, bloqueioCargaPacotes,
+  type EstadoCargaPacotes, type PacoteClienteOpt,
+} from '@shared/pacotes';
 import {
   marcarAgendamentosFechados, agruparValoresPorAgendamento, cartoesComandaDoDia, linhasConferemComValor,
   descricaoLinhasAgrupadas, type ComandaSoExtras,
@@ -233,6 +237,9 @@ function NovaComandaScreen() {
   const [membros, setMembros] = useState<{ id: string; nome: string }[]>([]);
   const [pacotesCat, setPacotesCat] = useState<{ id: string; nome: string; preco: number; validade_dias: number | null }[]>([]);
   const [pacotesClienteAtivos, setPacotesClienteAtivos] = useState<PacoteClienteOpt[]>([]);
+  // Carga desses pacotes ('carregando'/'erro' com vínculo bloqueia o fechamento) e o "Tentar de novo".
+  const [estadoPacotes, setEstadoPacotes] = useState<EstadoCargaPacotes>('ok');
+  const [recargaPacotes, setRecargaPacotes] = useState(0);
   // string = vinculado (sessão existente ou venda nova); null = explicitamente
   // desvinculado nesta sessão (precisa gravar `pacote_cliente_id: null` no
   // fechamento, pra sobrescrever um vínculo que já existia no banco vindo da
@@ -485,19 +492,29 @@ function NovaComandaScreen() {
     })), [agDia, soExtrasDia]);
 
   useEffect(() => {
-    if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) { setPacotesClienteAtivos([]); return; }
+    if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) {
+      setPacotesClienteAtivos([]); setEstadoPacotes('ok'); return;
+    }
     // Carga única (paginada, inclui os "a cobrar") e regra única de elegibilidade, no dia de Brasília
-    // (igual ao web e à Agenda).
+    // (igual ao web e à Agenda). Enquanto carrega (ou se falhou), atendimento com vínculo bloqueia o
+    // fechamento (bloqueioCargaPacotes): não se sabe ainda se o pacote cobre o atendimento zerado.
     let vivo = true;
+    setPacotesClienteAtivos([]);
+    setEstadoPacotes('carregando');
     carregarCandidatosVinculo(supabase, empresaId, clienteSel.id)
-      .then(rows => { if (vivo) setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT())); })
+      .then(rows => {
+        if (!vivo) return;
+        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT()));
+        setEstadoPacotes('ok');
+      })
       .catch(e => {
         if (!vivo) return;
         setPacotesClienteAtivos([]);
+        setEstadoPacotes('erro');
         Alert.alert('Erro', mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [clienteSel?.id, empresaId]);
+  }, [clienteSel?.id, empresaId, recargaPacotes]);
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) hoje */
   const totalDia = useMemo(
@@ -814,18 +831,45 @@ function NovaComandaScreen() {
     // pacote de qualquer forma via trigger. `null` força o update individual
     // que sobrescreve a coluna.
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
-    const ag = agDia.find(a => a.id === agendamentoId);
-    if (!ag) return;
-    // Restaura o valor de tabela: por linha no multi-serviço, total no legado.
-    setItens(prev => prev.map(i => {
-      if (i.agendamento_id !== agendamentoId) return i;
+    setItens(prev => restaurarValoresAtendimentos(prev, [agendamentoId]));
+  }
+
+  /** Restaura o valor de tabela dos atendimentos `ids`: por linha no multi-serviço, total no legado. */
+  function restaurarValoresAtendimentos(prev: ComandaItem[], ids: string[]): ComandaItem[] {
+    return prev.map(i => {
+      if (!i.agendamento_id || !ids.includes(i.agendamento_id)) return i;
+      const ag = agDia.find(a => a.id === i.agendamento_id);
+      if (!ag) return i;
       if (i.ag_servico_id) {
         const s = (ag.agendamento_servicos ?? []).find(x => x.id === i.ag_servico_id);
-        return s ? { ...i, valor: Number(s.valor) } : i;
+        return s && i.valor !== Number(s.valor) ? { ...i, valor: Number(s.valor) } : i;
       }
-      return { ...i, valor: Number(ag.valor) };
-    }));
+      return i.valor !== Number(ag.valor) ? { ...i, valor: Number(ag.valor) } : i;
+    });
   }
+
+  // A7: atendimento que chegou vinculado (banco/Agenda) a um pacote que NÃO cobre todos os serviços
+  // (ou com linha sem servico_id) não é zerado: as linhas ficam com o valor normal, o selo mostra o
+  // aviso e o fechamento fica bloqueado até "Desvincular". Só na comanda nova (edição: vínculo só
+  // leitura) e só com o pacote na lista carregada — fora dela não dá para saber a cobertura. Igual ao web.
+  const atendimentosPacoteParcial = emEdicao
+    ? []
+    : vinculosPacoteSemCobertura(itens, pacoteLinks, pacotesClienteAtivos);
+  // Lista de pacotes ainda carregando (ou com erro) e atendimento vinculado: não dá para saber a
+  // cobertura — bloqueia também, para nunca fechar um atendimento zerado às cegas. Igual ao web.
+  const bloqueioCargaPacote = emEdicao ? null : bloqueioCargaPacotes(estadoPacotes, itens, pacoteLinks);
+  const bloqueioPacoteParcial = bloqueioCargaPacote
+    ?? (atendimentosPacoteParcial.length > 0 ? MOTIVO_FECHAR_PACOTE_PARCIAL : null);
+  useEffect(() => {
+    if (emEdicao) return;
+    setItens(prev => {
+      const ids = vinculosPacoteSemCobertura(prev, pacoteLinks, pacotesClienteAtivos);
+      if (ids.length === 0) return prev;
+      const novo = restaurarValoresAtendimentos(prev, ids);
+      return novo.every((x, k) => x === prev[k]) ? prev : novo;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pacotesClienteAtivos, pacoteLinks, emEdicao, agDia]);
 
   // ── Totais pela regra única (shared/comanda-fechamento.ts), igual ao web
   const subtotal  = itens.reduce((s, i) => s + i.valor * i.quantidade, 0);
@@ -850,7 +894,7 @@ function NovaComandaScreen() {
     ? `Não foi possível ler as taxas de reserva pagas — sem elas o desconto da reserva sairia R$ 0. Tente de novo antes de fechar. (${erroTaxasReserva})`
     : null;
   const botaoDesabilitado = fechando || itens.length === 0 || !podeAcaoPrincipal || !resumo.podeFechar
-    || !!bloqueioTaxaReserva
+    || !!bloqueioTaxaReserva || !!bloqueioPacoteParcial
     || (emEdicao ? (cargaFalhou || carregandoComanda) : comandaParcialAberta);
 
 
@@ -1169,6 +1213,8 @@ function NovaComandaScreen() {
     if (bloqueioTaxaReserva) { Alert.alert('Não é possível fechar', bloqueioTaxaReserva); return; }
     // Comanda já fechada reaberta: UPDATE (editarComanda), não um novo INSERT.
     if (comandaExistenteId) { await editarComanda(comandaExistenteId); return; }
+    // A7: pacote vinculado que não cobre o atendimento inteiro — desvincular antes de fechar.
+    if (bloqueioPacoteParcial) { Alert.alert('Não é possível fechar', bloqueioPacoteParcial); return; }
     if (!podeFechar) return;
     // Comanda desta cliente criada e não terminada nesta tela: nada de um segundo INSERT.
     if (comandasParciais[clienteSel.id]) { Alert.alert('Comanda não terminou de gravar', AVISO_COMANDA_PARCIAL); return; }
@@ -1933,15 +1979,25 @@ function NovaComandaScreen() {
                     // Em edição o badge é só informativo: editarComanda nunca grava
                     // pacote_cliente_id (desvincular restauraria o valor e a receita
                     // sumiria de Dashboard/Financeiro/Relatórios) — igual ao web.
+                    // Pacote que não cobre o atendimento inteiro (A7): selo em âmbar com o aviso,
+                    // valor normal e fechamento bloqueado até "Desvincular" — igual ao web.
+                    const parcial = atendimentosPacoteParcial.includes(agendamentoId);
                     return (
                       <TouchableOpacity onPress={() => { if (!emEdicao) desvincularPacote(agendamentoId); }}
                         disabled={emEdicao}
-                        style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.green, flex: 1 }} numberOfLines={1}>
-                          Sessão de pacote — {pacoteVinculado.nome}
-                        </Text>
-                        {!emEdicao && (
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text4 }}>Desvincular</Text>
+                        style={{ marginTop: 8, backgroundColor: parcial ? C.amberSoft : C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: parcial ? C.amber : C.green, flex: 1 }} numberOfLines={1}>
+                            Sessão de pacote — {pacoteVinculado.nome}
+                          </Text>
+                          {!emEdicao && (
+                            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text4 }}>Desvincular</Text>
+                          )}
+                        </View>
+                        {parcial && (
+                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber, marginTop: 4 }}>
+                            {AVISO_PACOTE_PARCIAL}
+                          </Text>
                         )}
                       </TouchableOpacity>
                     );
@@ -1949,9 +2005,18 @@ function NovaComandaScreen() {
                   // Vincular pacote fica fora da edição de comanda fechada (zeraria o item sem
                   // nunca gravar o vínculo — receita perdida), igual ao web.
                   if (emEdicao) return null;
-                  const servicoId = item.servico_id;
-                  const elegiveis = servicoId ? pacotesClienteAtivos.filter(p => p.servicos.some(s => s.servico_id === servicoId)) : [];
-                  if (elegiveis.length === 0) return null;
+                  // Pacote só vale se cobrir TODOS os serviços do atendimento (A7). Linha do atendimento
+                  // sem servico_id = não dá para saber se cobre: não oferece pacote.
+                  const servicoIds = servicoIdsDoAtendimento(itens.filter(i => i.agendamento_id === agendamentoId));
+                  if (!servicoIds) return null;
+                  const { elegiveis, temParcial } = pacotesDoAtendimento(pacotesClienteAtivos, servicoIds);
+                  if (elegiveis.length === 0) {
+                    return temParcial ? (
+                      <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, marginTop: 8 }}>
+                        {AVISO_PACOTE_PARCIAL}
+                      </Text>
+                    ) : null;
+                  }
                   return (
                     <View style={{ marginTop: 8, gap: 4 }}>
                       {elegiveis.map((p: any) => (
@@ -2112,6 +2177,20 @@ function NovaComandaScreen() {
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
               Volte e abra a comanda de novo antes de salvar.
             </Text>
+          )}
+          {bloqueioPacoteParcial && (
+            <View style={{ alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: estadoPacotes === 'carregando' && bloqueioCargaPacote ? C.text3 : C.red, textAlign: 'center' }}>
+                {bloqueioPacoteParcial}
+              </Text>
+              {bloqueioCargaPacote && estadoPacotes === 'erro' && (
+                <TouchableOpacity onPress={() => setRecargaPacotes(n => n + 1)} activeOpacity={0.7} style={{ marginTop: 4 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                    Tentar de novo
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           )}
           {bloqueioTaxaReserva && (
             <View style={{ alignItems: 'center', marginBottom: 8 }}>

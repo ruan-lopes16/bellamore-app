@@ -18,6 +18,8 @@ export default function AceitarConvitePage() {
   const [erro, setErro] = useState('');
   const [nome, setNome] = useState('');
   const [empresaNome, setEmpresaNome] = useState('');
+  // Empresa do convite quando a pessoa já tem outra: só vira a ativa DEPOIS do aceite (senha definida).
+  const [empresaConviteId, setEmpresaConviteId] = useState<string | null>(null);
   const [role, setRole] = useState<PerfilRole | 'owner'>('profissional');
 
   const [senha, setSenha] = useState('');
@@ -37,7 +39,7 @@ export default function AceitarConvitePage() {
       setNome((user.user_metadata?.nome as string) || '');
 
       // Empresa do convite = o vínculo ativo mais recente (a API devolve em ordem de criação).
-      // Com outra empresa já existente, ela passa a ser a ativa (cookie validado pelo servidor).
+      // Abrir a página não troca a empresa ativa: a troca é feita só depois do aceite com sucesso.
       try {
         const res = await fetch('/api/empresa-ativa');
         if (res.ok) {
@@ -46,7 +48,7 @@ export default function AceitarConvitePage() {
           if (convite) {
             setRole((convite.role ?? 'profissional') as PerfilRole | 'owner');
             setEmpresaNome(convite.nome);
-            if (vinculos.length >= 2) await trocarEmpresaAtiva(convite.empresa_id).catch(() => {});
+            if (vinculos.length >= 2) setEmpresaConviteId(convite.empresa_id);
           }
         }
       } catch { /* só o nome da empresa no topo: segue sem ele */ }
@@ -74,6 +76,8 @@ export default function AceitarConvitePage() {
       return;
     }
 
+    // Aceite concluído: agora sim a empresa do convite passa a ser a ativa (cookie validado pelo servidor).
+    if (empresaConviteId) await trocarEmpresaAtiva(empresaConviteId).catch(() => {});
     setEstado('sucesso');
   }
 

@@ -523,6 +523,7 @@ export default function Equipe() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <PrivacyToggle />
             <BotaoExportar
+              disabled={carregando || isError}
               definicao={definicaoEquipe(mesChave)}
               getLinhas={() => membros.map((m) => {
                 const v = numerosVisiveis(user?.id, m.user_id, pode);

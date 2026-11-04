@@ -25,6 +25,8 @@ interface ExportButtonProps<T> {
   variant?: 'default' | 'mobileHeader';
   /** Classes aplicadas ao contêiner, úteis para o posicionamento responsivo. */
   className?: string;
+  /** Desliga o botão enquanto a carga dos dados exportados está com erro ou carregando. */
+  disabled?: boolean;
 }
 
 export function ExportButton<T>({
@@ -32,6 +34,7 @@ export function ExportButton<T>({
   getLinhas,
   variant = 'default',
   className,
+  disabled = false,
 }: ExportButtonProps<T>) {
   const [open,      setOpen]      = useState(false);
   const [loading,   setLoading]   = useState<'xlsx' | 'pdf' | null>(null);
@@ -66,7 +69,7 @@ export function ExportButton<T>({
     }
   }
 
-  const btnCls = `flex items-center gap-2 h-10 px-4 rounded-xl border border-border bg-surface text-text-2 text-sm font-semibold hover:border-accent hover:text-accent transition ${
+  const btnCls = `flex items-center gap-2 h-10 px-4 rounded-xl border border-border bg-surface text-text-2 text-sm font-semibold hover:border-accent hover:text-accent transition disabled:opacity-50 disabled:cursor-not-allowed ${
     variant === 'mobileHeader' ? 'bm-mobile-header-export-button' : ''
   }`;
 
@@ -76,7 +79,7 @@ export function ExportButton<T>({
     <div ref={containerRef} className={`relative ${className ?? ''}`}>
       <button
         onClick={() => setOpen(v => !v)}
-        disabled={!!loading}
+        disabled={!!loading || disabled}
         className={btnCls}
       >
         {loading ? (

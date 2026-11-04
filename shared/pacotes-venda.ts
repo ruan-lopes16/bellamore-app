@@ -122,6 +122,27 @@ export async function excluirPacoteCliente(db: ClienteDbRpc, empresaId: string, 
   await chamar(db, 'excluir_pacote_cliente', { p_empresa: empresaId, p_id: id }, 'excluir o pacote vendido');
 }
 
+/** Texto quando a venda tem vários pacotes e a tela só ofereceria excluir um. */
+export const MSG_VENDA_VARIOS_PACOTES = (n: number): string =>
+  `Esta venda tem ${n} pacotes. Para tirar só um, exclua a venda inteira e venda de novo os que ficam.`;
+
+/** A migration 100 não foi aplicada (função `excluir_venda_pacotes` inexistente). */
+export const MSG_SEM_MIGRATION_100 = 'Atualize o sistema: falta a migration 100.';
+
+/**
+ * Exclui a venda inteira de pacotes (todos os pacotes com o mesmo `venda_id`) e a própria venda, numa
+ * transação (`excluir_venda_pacotes`, 100). Recusa se algum pacote já teve sessão usada. Lança
+ * `ErroPacote` (sem a 100: `MSG_SEM_MIGRATION_100`).
+ */
+export async function excluirVendaPacotes(db: ClienteDbRpc, empresaId: string, vendaId: string): Promise<void> {
+  try {
+    await chamar(db, 'excluir_venda_pacotes', { p_empresa: empresaId, p_venda: vendaId }, 'excluir a venda de pacotes');
+  } catch (e) {
+    if (e instanceof SemMigration096) throw new ErroPacote(MSG_SEM_MIGRATION_100);
+    throw e;
+  }
+}
+
 /**
  * Exclui um serviço que nunca foi usado (`excluir_servico`, 096). Usado → `ErroPacote` com
  * "Este serviço já foi usado. Desative em vez de excluir.". Lança `SemMigration096` sem a 096.

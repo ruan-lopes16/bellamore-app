@@ -118,7 +118,7 @@ export type DadosFinanceiros = {
   agendamentos: AgendamentoFinRow[];
   vendas: VendaFinRow[];
   taxasCancelamento: TaxaPagaFinRow[];
-  /** Só as 'retida' contam (a consulta já filtra; recortarDados confere de novo). */
+  /** A receita conta toda taxa com `paga_em`, qualquer status (pago ou retida); só a 'cancelada' fica fora (`ehTaxaReservaReceita`). */
   taxasReserva: TaxaReservaFinRow[];
   pagamentos: PagamentoFinRow[];
   comissoes: ComissaoFinRow[];
