@@ -1462,7 +1462,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 **Score parcial (sem visual/humana):** `9.3 / 10` → **A+**
 
-**Pendências para produção:** seguir `docs/superpowers/notes/2026-11-03-deploy-pendencias.md` — consulta só de leitura dos concluídos com taxa retida, **100 antes do merge**, conferências, merge, recarregar o PWA.
+**Pendências para produção:** ~~100~~ — **aplicada em produção em 2026-11-04** (nenhum concluído com taxa retida, logo nenhuma devolução; conferências: 0 retidas em agendado/confirmado, 5 funções com `search_path=public` e só `fn_trava_vinculo_comanda` invoker, 3 triggers). Falta: merge e recarregar o PWA.
 
 **Registrados, não corrigidos:** pacote vinculado vencido/esgotado (fora da lista de ativos) continua zerando o atendimento sem selo nem "Desvincular"; erro persistente na carga dos pacotes deixa a comanda vinculada sem saída além de "Tentar de novo"; A9 (1 centavo) não reproduzido; validade das listas de pacote ainda por "hoje" (o banco usa o dia do atendimento); ordem de travas invertida entre as duas exclusões de pacote (deadlock raro); app aberto >30 dias sem remontar não renova o aparelho; 3 commits com rodapé Sonnet.
 
