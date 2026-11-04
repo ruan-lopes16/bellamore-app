@@ -776,7 +776,8 @@ export default function Pacotes() {
     if (v.usadas > 0) { Alert.alert('Não foi possível excluir', MSG_SESSOES_USADAS); return; }
     // Venda com vários pacotes (mesmo venda_id) só sai inteira: a confirmação explica e exclui a venda toda.
     const naVenda = pacotesDaMesmaVenda(vendidos, v);
-    const vendaInteira = naVenda > 1 && !!v.venda_id;
+    // Com comanda_id segue o fluxo de um pacote (o banco recusa com a mensagem de comanda).
+    const vendaInteira = naVenda > 1 && !!v.venda_id && !v.comanda_id;
     Alert.alert(
       TITULO_EXCLUIR_VENDIDO,
       vendaInteira

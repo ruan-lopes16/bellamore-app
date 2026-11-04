@@ -2,7 +2,7 @@
 
 Branch `feat/pendencias-dinheiro-falhas`. Migration única: `supabase/migrations/100_pendencias_dinheiro_falhas.sql`.
 Rodar à mão no SQL Editor (https://supabase.com/dashboard/project/qpiepxolyqmoankeyeva/sql/new). Nunca `supabase db push`.
-Ela é idempotente e se recusa a rodar sem a 096 ("Rode as migrations 090 a 099 antes da 100.").
+Ela é idempotente e se recusa a rodar sem a 096 ("Rode a 096 antes da 100.").
 
 ## Ordem: 100 ANTES do merge e do deploy
 

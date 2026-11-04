@@ -20,10 +20,15 @@ export default function ErroVinculos() {
   async function sair() {
     if (saindo) return;
     setSaindo(true);
-    // Antes do signOut: a inscrição de push deste navegador sai junto com a conta.
-    await desinscreverPushDoNavegador();
-    await supabase.auth.signOut();
-    router.push('/login');
+    try {
+      // Antes do signOut: a inscrição de push deste navegador sai junto com a conta.
+      await desinscreverPushDoNavegador();
+      await supabase.auth.signOut();
+    } finally {
+      // Erro no meio do caminho não trava o botão; o login confere a sessão de novo.
+      setSaindo(false);
+      router.push('/login');
+    }
   }
 
   return (

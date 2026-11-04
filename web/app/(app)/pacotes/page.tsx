@@ -238,6 +238,9 @@ export default function PacotesPage() {
   }
   /** Quantos pacotes a venda do pacote em confirmação tem (mais de 1: só sai inteira). */
   const pacotesNaVenda = confirmExcluirVenda ? pacotesDaMesmaVenda(vendidosRaw ?? [], confirmExcluirVenda) : 1;
+  // Só oferece "Excluir a venda inteira" para venda com vários pacotes fora da comanda; com comanda_id
+  // segue o fluxo de um pacote (o banco recusa com a mensagem de comanda).
+  const vendaInteira = !!confirmExcluirVenda && pacotesNaVenda > 1 && !!confirmExcluirVenda.venda_id && !confirmExcluirVenda.comanda_id;
   async function excluirVendaInteira() {
     if (!empresaId || !confirmExcluirVenda?.venda_id) return;
     setExcluindo(true);
@@ -255,7 +258,7 @@ export default function PacotesPage() {
   }
   async function excluirVenda() {
     if (!empresaId || !confirmExcluirVenda) return;
-    if (pacotesNaVenda > 1) { await excluirVendaInteira(); return; }
+    if (vendaInteira) { await excluirVendaInteira(); return; }
     const id = confirmExcluirVenda.id;
     setExcluindo(true);
     try {
@@ -691,12 +694,12 @@ export default function PacotesPage() {
         open={confirmExcluirVenda !== null}
         title={TITULO_EXCLUIR_VENDIDO}
         message={confirmExcluirVenda
-          ? (pacotesNaVenda > 1
+          ? (vendaInteira
               ? MSG_VENDA_VARIOS_PACOTES(pacotesNaVenda)
               : textoExcluirVendido({ pacote: confirmExcluirVenda.pacote.nome, cliente: confirmExcluirVenda.cliente.nome, aCobrar: estaACobrar(confirmExcluirVenda) }))
             + (erroExcluirVenda ? ` ${erroExcluirVenda}` : '')
           : ''}
-        confirmLabel={pacotesNaVenda > 1 ? 'Excluir a venda inteira' : 'Excluir'}
+        confirmLabel={vendaInteira ? 'Excluir a venda inteira' : 'Excluir'}
         variant="danger"
         loading={excluindo}
         onConfirm={excluirVenda}

@@ -321,3 +321,31 @@ describe('100 — B1: vínculo com a comanda não sai pela API', () => {
       .toContain('create trigger trg_trava_vinculo_comanda before update of comanda_id on public.agendamentos');
   });
 });
+
+// Padrão do papel Profissional (mesmo do cadeia-090-094): a profissional do atendimento fecha a comanda.
+const PADRAO_PROFISSIONAL = 'agenda.ver_equipe,agenda.gerenciar_outras,vendas.acessar,estoque.acessar,financeiro.ver,equipe.gerenciar';
+
+describe('100 — B1 encadeado: fechar_comanda e editar_comanda como authenticated passam pela trava', () => {
+  it('fecha a comanda e depois edita, sem erro da trg_trava_vinculo_comanda', async () => {
+    await novoAg(40, 'agendado');
+    const C = cmd(40);
+    await como(P1, PADRAO_PROFISSIONAL);
+    await db.query('select public.fechar_comanda($1::jsonb)', [JSON.stringify({
+      comanda_id: C, empresa_id: E, cliente_id: CL, desconto: 0,
+      atendimentos: [{ agendamento_id: ag(40), valor: 100 }], itens: [], pagamentos: [{ valor: 100, metodo: 'pix' }],
+    })]);
+    expect(await admin(`select comanda_id, status::text s from agendamentos where id = $1`, [ag(40)]))
+      .toEqual([{ comanda_id: C, s: 'concluido' }]);
+
+    await como(P1, PADRAO_PROFISSIONAL);
+    await db.query('select public.editar_comanda($1::jsonb)', [JSON.stringify({
+      comanda_id: C, empresa_id: E, desconto: 10, atendimentos: [{ agendamento_id: ag(40), valor: 100 }], itens: [],
+      pagamentos: [{ valor: 90, metodo: 'pix' }],
+    })]);
+    expect(await admin(`select comanda_id, desconto_rateado d from agendamentos where id = $1`, [ag(40)]))
+      .toEqual([{ comanda_id: C, d: '10.00' }]);
+    // A trava continua valendo para a API depois do fechamento.
+    await como(P1, PADRAO_PROFISSIONAL);
+    expect(await erro(() => db.query(`update agendamentos set comanda_id = null where id = $1`, [ag(40)]))).toBe(MSG_TRAVA);
+  });
+});

@@ -6,8 +6,8 @@
 -- EXECUTE NO SUPABASE SQL EDITOR (migrations manuais; NÃO usar `supabase db push`).
 -- Idempotente: `create or replace function`, `drop trigger if exists` + `create trigger`; o backfill
 -- só pega linhas 'retida' de atendimentos reabertos (rodar de novo não acha nada novo).
--- Requer 090–099 (a seção 0 recusa rodar sem a 096, que traz pacote_clientes.venda_id/comanda_id e a
--- chave app.pacote_rpc das guardas). Ordem em relação ao deploy: rodar ANTES do deploy desta branch.
+-- Requer a 096 (a seção 0 recusa rodar sem ela: traz pacote_clientes.venda_id/comanda_id, a função
+-- excluir_pacote_cliente e a chave app.pacote_rpc das guardas). Ordem em relação ao deploy: rodar ANTES do deploy desta branch.
 -- Sem a 100, o botão "Excluir a venda inteira" mostra "Atualize o sistema: falta a migration 100."
 --
 -- POR QUE CADA PARTE
@@ -81,7 +81,7 @@ begin
      or not exists (select 1 from information_schema.columns
                   where table_schema = 'public' and table_name = 'pacote_clientes' and column_name = 'comanda_id')
      or to_regprocedure('public.excluir_pacote_cliente(uuid, uuid)') is null then
-    raise exception 'Rode as migrations 090 a 099 antes da 100.';
+    raise exception 'Rode a 096 antes da 100.';
   end if;
 end $$;
 
