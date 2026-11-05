@@ -1468,6 +1468,38 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-04 — Residuais de agenda e pacotes (sem migration)
+
+*Escopo, web e app (spec e plano em `docs/superpowers/{specs,plans}/2026-11-04-agenda-pacotes-residuais*`):*
+*- erro persistente na carga dos pacotes da Comanda ganha "Desvincular e cobrar normal";*
+*- validade dos pacotes oferecidos (Comanda e Agenda) pelo dia do atendimento, igual ao banco desde a 100;*
+*- atendimento longo aparece nas horas seguintes da grade do app (`continuacoesPorHora`), sem "horário livre" por cima (C2);*
+*- avaliação editável no detalhe da agenda web, só para quem pode alterar o atendimento (C3);*
+*- agenda e comanda (web e app) com "Hoje" e dia inicial em Brasília (C5);*
+*- invalidação única da agenda no app (`invalidarAgenda`), inclusive na área da profissional (C6).*
+*Feito em 3 tasks (shared, web, app) mais revisão final (opus) e 1 onda de correção.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 3154/3154 antes da onda de correção; mobile só com o erro pré-existente de `useAgenda.ts`; `next build` OK |
+| UX / Padrões    | 9.0  | Mesmos textos nas duas plataformas (`ROTULO_DESVINCULAR_TODOS`, `AVISO_PACOTE_FORA_DA_DATA`); bloco de continuação com a cor do status |
+| Segurança       | —    | Sem migration nem RLS nova; avaliação no web passa a respeitar `podeAlterar` (RLS da 094) |
+| Documentação    | 9.0  | Spec, plano, backlog atualizado, JSDoc pt-BR nos helpers novos |
+| Arquitetura     | 9.5  | Regras novas em shared (`atendimentosVinculados`, `continuacoesPorHora`, `carregarAvaliacao`, `CHAVES_AGENDA`); teste cruzado de paridade |
+| Performance     | 8.5  | Trocar o dia refaz a carga paginada dos pacotes (poderia recalcular em memória) |
+| Visual (UI)     | —    | Não executado |
+| **Completude**  | 9.0  | Residuais da 100 e C2/C3/C5/C6; C4 e pacote vencido viraram decisões do dono |
+| **Proatividade**| 9.0  | A revisão achou: pacote escolhido sumindo em silêncio ao trocar a data; avaliação editável sem permissão; contagem da profissional sem invalidação; atendimento da véspera fora da grade |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.1 / 10` → **A+**
+
+**Decisões do dono (04/11):** pacote vinculado vencido, esgotado ou cancelado continua valendo (sem trava no banco); cancelados continuam fora das agendas.
+
+**Registrados, não corrigidos:** carga extra de pacotes ao trocar o dia na Comanda (estado final correto); listas do dia buscam só por `data_hora_inicio`, então atendimento que cruza a meia-noite não aparece no dia seguinte (a função já trata o caso).
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

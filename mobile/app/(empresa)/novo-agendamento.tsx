@@ -394,8 +394,9 @@ export default function NovoAgendamento() {
         const vendido = pacoteVendidoIdRef.current;
         const atual = pacoteClienteIdRef.current;
         const mantido = !!atual && (atual === pacoteOriginal || (vendido?.clienteId === clienteId && atual === vendido.id));
-        // Pacote fixo que não vale na data escolhida: continua selecionado, mas avisa (nunca em silêncio).
-        if (mantido && !opts.some((o) => o.id === atual)) setAvisoPacote(AVISO_PACOTE_FORA_DA_DATA);
+        // Pacote escolhido agora que não vale na data escolhida: sai da seleção, mas avisa (nunca em
+        // silêncio). O original da edição e o vendido agora ficam selecionados (decisão do dono, 04/11).
+        if (atual && !mantido && !opts.some((o) => o.id === atual)) setAvisoPacote(AVISO_PACOTE_FORA_DA_DATA);
         setPacoteClienteId(prev => opts.some(o => o.id === prev)
           || (!!prev && (prev === pacoteOriginal || (vendido?.clienteId === clienteId && prev === vendido.id))) ? prev : '');
       })
@@ -406,6 +407,11 @@ export default function NovoAgendamento() {
       });
     return () => { vivo = false; };
   }, [clienteSelecionado?.id, empresaId, agEdit?.pacote_cliente_id, recargaPacotes, dataChave]);
+
+  // Escolheu outro pacote: o aviso de "não vale nesta data" já foi atendido.
+  useEffect(() => {
+    if (pacoteClienteId) setAvisoPacote((a) => (a === AVISO_PACOTE_FORA_DA_DATA ? '' : a));
+  }, [pacoteClienteId]);
 
   // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
   // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido

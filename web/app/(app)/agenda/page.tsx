@@ -579,8 +579,9 @@ function NovoAgModal({
         // (igual ao app). O pacote vendido agora também fica (combo não entra na lista de elegíveis).
         const atual = pacoteClienteIdRef.current;
         const mantido = !!atual && (atual === agEditar?.pacote_cliente_id || (pacoteVendidoIdRef.current?.clienteId === clienteId && atual === pacoteVendidoIdRef.current.id));
-        // Pacote fixo que não vale na data escolhida: continua selecionado, mas avisa (nunca em silêncio).
-        if (mantido && !opts.some(o => o.id === atual)) setAvisoPacote(AVISO_PACOTE_FORA_DA_DATA);
+        // Pacote escolhido agora que não vale na data escolhida: sai da seleção, mas avisa (nunca em
+        // silêncio). O original da edição e o vendido agora ficam selecionados (decisão do dono, 04/11).
+        if (atual && !mantido && !opts.some(o => o.id === atual)) setAvisoPacote(AVISO_PACOTE_FORA_DA_DATA);
         setPacoteClienteId(prev => opts.some(o => o.id === prev) || (!!prev && (prev === agEditar?.pacote_cliente_id || (pacoteVendidoIdRef.current?.clienteId === clienteId && prev === pacoteVendidoIdRef.current.id))) ? prev : '');
       })
       .catch(e => {
@@ -590,6 +591,11 @@ function NovoAgModal({
       });
     return () => { vivo = false; };
   }, [empresaId, clienteId, recargaPacotes, diaForm]);
+
+  // Escolheu outro pacote: o aviso de "não vale nesta data" já foi atendido.
+  useEffect(() => {
+    if (pacoteClienteId) setAvisoPacote(a => (a === AVISO_PACOTE_FORA_DA_DATA ? '' : a));
+  }, [pacoteClienteId]);
 
   // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
   // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido
