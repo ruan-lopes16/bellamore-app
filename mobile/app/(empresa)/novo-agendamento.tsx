@@ -44,6 +44,7 @@ import {
 } from '@shared/agenda';
 import { bloqueioEmConflito, type BlocoParaChecagem } from '@shared/bloqueios';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
+import { invalidarAgenda as invalidarChavesAgenda } from '@shared/agenda-consultas';
 import {
   chaveDiaBRT, horaBRT, hojeBRT, instanteMs, limitesDias, diaDaSemana,
   DIAS_SEMANA_ABREV, rotuloMesAno, rotuloDiaCurto,
@@ -57,7 +58,7 @@ import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { novoUuid } from '@shared/uuid';
 import {
-  calcularPacotesAtivosCliente, pacotesDoAtendimento, pacoteCobreAtendimento, AVISO_PACOTE_PARCIAL,
+  calcularPacotesAtivosCliente, pacotesDoAtendimento, pacoteCobreAtendimento, AVISO_PACOTE_PARCIAL, AVISO_PACOTE_FORA_DA_DATA,
   MOTIVO_SALVAR_PACOTE_PARCIAL, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import { carregarCandidatosVinculo, carregarCatalogoPacotes, type PacoteCatalogo } from '@shared/pacotes-consultas';
@@ -225,6 +226,7 @@ export default function NovoAgendamento() {
   // Pacote vendido agora: fica vinculado mesmo fora da lista de elegíveis (ex.: combo).
   const [pacoteVendido, setPacoteVendido] = useState<{ id: string; nome: string; clienteId: string } | null>(null);
   const pacoteVendidoIdRef = useRef<{ id: string; clienteId: string } | null>(null);
+  const pacoteClienteIdRef = useRef('');
   const [avisoPacote, setAvisoPacote] = useState('');
   const [erroPacotes, setErroPacotes] = useState('');
   const [recargaPacotes, setRecargaPacotes] = useState(0);
@@ -368,23 +370,33 @@ export default function NovoAgendamento() {
     return () => { vivo = false; };
   }, [empresaId]);
 
+  pacoteClienteIdRef.current = pacoteClienteId;
+
   // Pacotes ativos do cliente selecionado. Carga única (paginada, inclui os "a cobrar") e regra única
   // de elegibilidade (validade pelo último dia em Brasília, combo fora, saldo de sessões) — a mesma
   // da Comanda e do web.
   useEffect(() => {
+    setAvisoPacote((a) => (a === AVISO_PACOTE_FORA_DA_DATA ? '' : a));
     if (!clienteSelecionado || !empresaId) { setPacotesCliente([]); setErroPacotes(''); return; }
     const pacoteOriginal = agEdit?.pacote_cliente_id ?? null;
     const clienteId = clienteSelecionado.id;
+    // Nunca mostra a lista do dia anterior enquanto a nova carrega.
+    setPacotesCliente([]);
     let vivo = true;
     carregarCandidatosVinculo(supabase, empresaId, clienteId)
       .then(rows => {
         if (!vivo) return;
-        const opts = calcularPacotesAtivosCliente(rows, hojeBRT());
+        const opts = calcularPacotesAtivosCliente(rows, dataChave);
         setPacotesCliente(opts);
         setErroPacotes('');
         // Na edição, o pacote já vinculado ao atendimento nunca é desvinculado em silêncio. O pacote
         // vendido agora também fica (combo não entra na lista de elegíveis).
         const vendido = pacoteVendidoIdRef.current;
+        const atual = pacoteClienteIdRef.current;
+        const mantido = !!atual && (atual === pacoteOriginal || (vendido?.clienteId === clienteId && atual === vendido.id));
+        // Pacote escolhido agora que não vale na data escolhida: sai da seleção, mas avisa (nunca em
+        // silêncio). O original da edição e o vendido agora ficam selecionados (decisão do dono, 04/11).
+        if (atual && !mantido && !opts.some((o) => o.id === atual)) setAvisoPacote(AVISO_PACOTE_FORA_DA_DATA);
         setPacoteClienteId(prev => opts.some(o => o.id === prev)
           || (!!prev && (prev === pacoteOriginal || (vendido?.clienteId === clienteId && prev === vendido.id))) ? prev : '');
       })
@@ -394,7 +406,12 @@ export default function NovoAgendamento() {
         setErroPacotes(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [clienteSelecionado?.id, empresaId, agEdit?.pacote_cliente_id, recargaPacotes]);
+  }, [clienteSelecionado?.id, empresaId, agEdit?.pacote_cliente_id, recargaPacotes, dataChave]);
+
+  // Escolheu outro pacote: o aviso de "não vale nesta data" já foi atendido.
+  useEffect(() => {
+    if (pacoteClienteId) setAvisoPacote((a) => (a === AVISO_PACOTE_FORA_DA_DATA ? '' : a));
+  }, [pacoteClienteId]);
 
   // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
   // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido
@@ -766,8 +783,7 @@ export default function NovoAgendamento() {
   }
 
   function invalidarAgenda(agId: string) {
-    queryClient.invalidateQueries({ queryKey: ['agenda-dia'] });
-    queryClient.invalidateQueries({ queryKey: ['dias-agendados'] });
+    invalidarChavesAgenda(queryClient);
     queryClient.invalidateQueries({ queryKey: ['agendar-janela'] });
     queryClient.invalidateQueries({ queryKey: ['agendamento', agId] });
     queryClient.invalidateQueries({ queryKey: ['agendamento-editar'] });

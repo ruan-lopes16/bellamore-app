@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { MessageCircle, Phone, UserRound } from 'lucide-react';
+import { MessageCircle, Phone, Star, UserRound } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
 import { Secret } from '@/components/privacy';
@@ -20,6 +20,7 @@ import { contatosCliente, type resumoDoDia } from '@shared/agenda';
 import { carregarDetalheAtendimento } from '@shared/atendimento-detalhe-consultas';
 import type { DetalheAtendimento as DetalheComanda } from '@shared/atendimento-detalhe';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
+import { carregarAvaliacao, salvarAvaliacao } from '@shared/agenda-consultas';
 
 const supabase = createClient();
 
@@ -27,6 +28,7 @@ const supabase = createClient();
 export type AgDoDetalhe = {
   id: string;
   comanda_id?: string | null;
+  status?: string | null;
   cliente: { id: string; nome: string; telefone?: string | null } | null;
 };
 
@@ -60,12 +62,16 @@ const botao = 'press flex-1 flex items-center justify-center gap-1.5 h-9 rounded
  * Contatos e comanda abaixo do card do atendimento. Os botões de telefone somem sem telefone e
  * "Perfil" some sem cliente; a seção da comanda só aparece quando o atendimento foi fechado.
  */
-export function DetalheAtendimento({ ag, comanda }: { ag: AgDoDetalhe; comanda: EstadoComanda }) {
+export function DetalheAtendimento({ ag, comanda, empresaId, podeAlterar }: { ag: AgDoDetalhe; comanda: EstadoComanda; empresaId?: string | null; podeAlterar?: boolean }) {
   const contatos = contatosCliente(ag.cliente?.telefone);
   const temComanda = !!ag.comanda_id;
 
   return (
     <div className="flex flex-col gap-4 mt-3">
+      {podeAlterar && ag.status === 'concluido' && ag.cliente && empresaId && (
+        <AvaliacaoDetalhe key={ag.id} agendamentoId={ag.id} empresaId={empresaId} clienteId={ag.cliente.id}/>
+      )}
+
       {(contatos || ag.cliente) && (
         <div className="flex gap-2">
           {contatos && (
@@ -91,6 +97,99 @@ export function DetalheAtendimento({ ag, comanda }: { ag: AgDoDetalhe; comanda: 
           <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Comanda</p>
           <ConteudoComanda detalhe={comanda.detalhe} carregando={comanda.carregando} erro={comanda.erro}/>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Seção "Avaliação" do atendimento concluído: lê a nota já dada (`carregarAvaliacao`) e permite
+ * dar ou corrigir (`salvarAvaliacao` faz upsert). Erro de leitura mostra "Tentar de novo" e nunca
+ * deixa salvar às cegas por cima de uma nota que não foi lida.
+ */
+function AvaliacaoDetalhe({ agendamentoId, empresaId, clienteId }: {
+  agendamentoId: string; empresaId: string; clienteId: string;
+}) {
+  const [nota, setNota] = useState(0);
+  const [comentario, setComentario] = useState('');
+  const [carregando, setCarregando] = useState(true);
+  const [erroCarga, setErroCarga] = useState('');
+  const [recarga, setRecarga] = useState(0);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+  const [salvo, setSalvo] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    setCarregando(true); setErroCarga('');
+    carregarAvaliacao(supabase as unknown as Parameters<typeof carregarAvaliacao>[0], agendamentoId)
+      .then(a => {
+        if (!vivo) return;
+        setNota(a?.nota ?? 0); setComentario(a?.comentario ?? ''); setCarregando(false);
+      })
+      .catch(e => {
+        if (!vivo) return;
+        setErroCarga((e as Error).message || 'Não foi possível carregar a avaliação.'); setCarregando(false);
+      });
+    return () => { vivo = false; };
+  }, [agendamentoId, recarga]);
+
+  async function salvar() {
+    if (nota === 0 || salvando) return;
+    setSalvando(true); setErro(''); setSalvo(false);
+    try {
+      await salvarAvaliacao(supabase as unknown as Parameters<typeof salvarAvaliacao>[0], {
+        empresaId, agendamentoId, clienteId, nota, comentario,
+      });
+      setSalvo(true);
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="bg-surface border border-border rounded-2xl p-4 flex flex-col gap-3">
+      <p className="text-xs font-semibold text-text-3 uppercase tracking-widest">Avaliação</p>
+      {carregando ? (
+        <p className="text-xs text-text-3">Carregando…</p>
+      ) : erroCarga ? (
+        <div>
+          <p className="text-xs font-semibold text-red">{erroCarga}</p>
+          <button type="button" onClick={() => setRecarga(n => n + 1)} className="mt-1 text-xs font-bold text-primary underline">
+            Tentar de novo
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-1.5">
+            {[1, 2, 3, 4, 5].map(i => (
+              <button key={i} type="button" aria-label={`${i} estrela${i > 1 ? 's' : ''}`}
+                onClick={() => { setNota(i); setSalvo(false); }}
+                className="transition-transform hover:scale-110 active:scale-95">
+                <Star size={26} strokeWidth={1.5}
+                  fill={i <= nota ? 'var(--color-amber)' : 'none'}
+                  style={{ color: i <= nota ? 'var(--color-amber)' : 'var(--color-border)' }}/>
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={comentario}
+            onChange={e => { setComentario(e.target.value); setSalvo(false); }}
+            placeholder="Comentário"
+            aria-label="Comentário"
+            rows={2}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-bg text-text text-sm placeholder:text-text-4 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none"
+          />
+          {erro && <p className="text-xs font-semibold text-red">{erro}</p>}
+          {salvo && <p className="text-xs font-semibold text-green">Avaliação salva</p>}
+          <button type="button" onClick={salvar} disabled={nota === 0 || salvando}
+            className="h-9 rounded-xl text-white text-xs font-bold transition disabled:opacity-40"
+            style={{ background: 'var(--color-amber)' }}>
+            {salvando ? 'Salvando...' : 'Salvar avaliação'}
+          </button>
+        </>
       )}
     </div>
   );

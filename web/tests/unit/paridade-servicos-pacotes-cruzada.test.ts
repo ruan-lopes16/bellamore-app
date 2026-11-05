@@ -132,7 +132,7 @@ describe('Serviços: as duas telas pelas funções de shared', () => {
 describe('Agenda e Comanda: venda única e pacote "a cobrar" pelas mesmas funções', () => {
   it('Agenda: modal/sheet único com "Cobrar na comanda", elegibilidade pela regra única em Brasília, aviso único', () => {
     nasDuas('agenda', [
-      'padraoCobranca="comanda"', 'carregarCandidatosVinculo(', 'calcularPacotesAtivosCliente(rows, hojeBRT())',
+      'padraoCobranca="comanda"', 'carregarCandidatosVinculo(', 'calcularPacotesAtivosCliente(rows, ',
       'avisoVendaPacoteAgenda(r)', 'if (formTravado) return;',
     ]);
     expect(LADOS.agenda.web).toContain('<VenderPacoteModal');
@@ -141,7 +141,7 @@ describe('Agenda e Comanda: venda única e pacote "a cobrar" pelas mesmas funç�
   it('Comanda: pendentes, itens "a cobrar", permissão e textos de shared', () => {
     nasDuas('comanda', [
       'carregarPendentesCliente(', 'itensTelaACobrar(', 'mesclarItensACobrar(', 'exigeVenderPacote(itens)',
-      'carregarCandidatosVinculo(', 'hojeBRT()', 'TEXTO_ITEM_A_COBRAR', 'TITULO_TIRAR_A_COBRAR',
+      'carregarCandidatosVinculo(', 'calcularPacotesAtivosCliente(rows, diaComanda)', 'TEXTO_ITEM_A_COBRAR', 'TITULO_TIRAR_A_COBRAR',
       'MSG_A_COBRAR_SEM_090', 'AVISO_PENDENTES_NAO_CARREGADOS',
     ]);
   });

@@ -66,9 +66,7 @@ describe('app: detalhe do atendimento', () => {
   describe('avaliação', () => {
     it('carrega por agendamento_id e salva com salvarAvaliacao', () => {
       const a = ler(AVAL);
-      expect(a).toContain("from('avaliacoes')");
-      expect(a).toContain(".eq('agendamento_id', agendamentoId)");
-      expect(a).toContain('.maybeSingle()');
+      expect(a).toContain('carregarAvaliacao(');
       expect(a).toContain('salvarAvaliacao(');
       expect(a).not.toContain('profissional_id');
       expect(a).toContain('[1, 2, 3, 4, 5]');

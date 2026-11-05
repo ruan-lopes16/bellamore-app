@@ -95,6 +95,33 @@ export function bloqueiosPorHora<B extends Intervalo>(bloqueios: B[], dia: strin
   return out;
 }
 
+/**
+ * Continuações por hora da grade: atendimento que atravessa a hora sem começar nela
+ * (9:00–11:00 → 10; 9:30–10:15 → 10; 9:00–10:00 → nenhuma). Mesma conta de `bloqueiosPorHora`,
+ * sem a hora de início. Cancelado e faltou ficam fora. Só horas de `horas`.
+ */
+export function continuacoesPorHora<T extends { data_hora_inicio: string; data_hora_fim: string; status?: string | null }>(
+  ags: T[],
+  dia: string,
+  horas: number[],
+): Record<number, T[]> {
+  const out: Record<number, T[]> = {};
+  for (const a of ags) {
+    if (a.status === 'cancelado' || a.status === 'faltou') continue;
+    const r = recortarAoDia({ data_inicio: a.data_hora_inicio, data_fim: a.data_hora_fim }, dia);
+    if (!r) continue;
+    const hIni = Math.floor((r.ini - r.inicioDia) / HORA_MS);
+    const hFim = Math.ceil((r.fim - r.inicioDia) / HORA_MS);
+    // Começou na véspera: a hora 0 do dia exibido já é continuação.
+    const comecouAntes = instanteMs(a.data_hora_inicio) < r.inicioDia;
+    for (let h = comecouAntes ? hIni : hIni + 1; h < hFim; h++) {
+      if (!horas.includes(h)) continue;
+      (out[h] ??= []).push(a);
+    }
+  }
+  return out;
+}
+
 /** Itens para `janelaDoDia`: atendimentos do dia e bloqueios recortados ao dia exibido. */
 export function itensDaJanela(
   dia: string,

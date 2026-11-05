@@ -152,7 +152,8 @@ describe('Comanda web: pacote "a cobrar"', () => {
   });
   it('elegibilidade do vínculo pela carga única e data de Brasília', () => {
     expect(web).toContain('carregarCandidatosVinculo(');
-    expect(web).toMatch(/calcularPacotesAtivosCliente\([^)]*hojeBRT\(\)\)/);
+    expect(web).toMatch(/calcularPacotesAtivosCliente\(rows, diaComanda\)/);
+    expect(web).not.toMatch(/calcularPacotesAtivosCliente\([^)]*hojeBRT\(\)\)/);
   });
   it('caminho antigo (sem a 090) nunca recebe item "a cobrar" (venderia o pacote de novo)', () => {
     expect(web).toMatch(/itens\.some\(i => i\.pacote_cliente_id\)/);

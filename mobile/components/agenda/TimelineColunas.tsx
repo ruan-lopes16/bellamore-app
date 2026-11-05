@@ -5,23 +5,29 @@
  */
 import type { ReactNode } from 'react';
 import { View, Text, ScrollView } from 'react-native';
-import { agruparPorHora } from '@shared/agenda-grade';
+import { agruparPorHora, continuacoesPorHora } from '@shared/agenda-grade';
 import { useTema } from '@/lib/tema';
 
 
 const LARGURA_HORA = 48;
 
-export function TimelineColunas<T extends { data_hora_inicio: string }>({
-  colunas, horas, renderCelula, larguraColuna = 210,
+export function TimelineColunas<T extends { data_hora_inicio: string; data_hora_fim: string; status?: string | null }>({
+  colunas, horas, dia, renderCelula, larguraColuna = 210,
 }: {
   colunas: { profissional: { id: string; nome: string }; itens: T[] }[];
   horas: number[];
-  /** Conteúdo da célula (profissional × hora), com os atendimentos que começam nessa hora. */
-  renderCelula: (profissionalId: string, itensDaHora: T[], hora: number) => ReactNode;
+  /** Dia exibido (aaaa-mm-dd, Brasília): base para achar os atendimentos que continuam em cada hora. */
+  dia: string;
+  /**
+   * Conteúdo da célula (profissional × hora): os atendimentos que começam nessa hora e, em
+   * `continuacoes`, os que começaram antes e ainda estão em andamento nela.
+   */
+  renderCelula: (profissionalId: string, itensDaHora: T[], hora: number, continuacoes: T[]) => ReactNode;
   larguraColuna?: number;
 }) {
   const { C } = useTema();
   const porHora = colunas.map((c) => agruparPorHora(c.itens));
+  const contsPorColuna = colunas.map((c) => continuacoesPorHora(c.itens, dia, horas));
 
   if (colunas.length === 0) {
     return (
@@ -59,7 +65,7 @@ export function TimelineColunas<T extends { data_hora_inicio: string }>({
             {colunas.map((c, i) => (
               <View key={c.profissional.id} style={{ width: larguraColuna, marginLeft: 8 }}>
                 <View style={{ height: 1, backgroundColor: C.linha, marginBottom: 6 }} />
-                {renderCelula(c.profissional.id, porHora[i][hora] ?? [], hora)}
+                {renderCelula(c.profissional.id, porHora[i][hora] ?? [], hora, contsPorColuna[i][hora] ?? [])}
               </View>
             ))}
           </View>

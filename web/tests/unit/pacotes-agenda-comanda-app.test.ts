@@ -31,7 +31,7 @@ describe('Agenda app: venda pelo VenderPacoteSheet, padrão "Cobrar na comanda"'
   });
   it('elegibilidade pela regra única no dia de Brasília (sem a cópia inline)', () => {
     expect(app).toContain('carregarCandidatosVinculo(');
-    expect(app).toMatch(/calcularPacotesAtivosCliente\([^)]*hojeBRT\(\)\)/);
+    expect(app).toMatch(/calcularPacotesAtivosCliente\(rows, dataChave\)/);
     expect(app).not.toMatch(/new Date\(pc\.data_validade\)/);
     expect(app).not.toMatch(/type PacoteClienteOpt\s*=\s*\{/);
   });
@@ -72,7 +72,7 @@ describe('Comanda app: pacote "a cobrar"', () => {
   });
   it('elegibilidade do vínculo pela carga única e data de Brasília', () => {
     expect(app).toContain('carregarCandidatosVinculo(');
-    expect(app).toMatch(/calcularPacotesAtivosCliente\([^)]*hojeBRT\(\)\)/);
+    expect(app).toMatch(/calcularPacotesAtivosCliente\(rows, diaComanda\)/);
     expect(app).not.toMatch(/calcularPacotesAtivosCliente\([^)]*format\(new Date\(\)/);
   });
   it('caminho antigo (sem a 090) recusa item "a cobrar" (venderia o pacote de novo)', () => {

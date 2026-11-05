@@ -14,7 +14,7 @@ import {
 } from 'lucide-react-native';
 import {
   format, startOfDay, endOfDay, parseISO, addDays, startOfWeek, startOfMonth, endOfMonth,
-  addMonths, subMonths, isSameDay, isSameMonth, isToday, eachDayOfInterval,
+  addMonths, subMonths, isSameDay, isSameMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -42,6 +42,7 @@ import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-res
 import {
   calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, servicoIdsDoAtendimento,
   vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, bloqueioCargaPacotes,
+  atendimentosVinculados, ROTULO_DESVINCULAR_TODOS,
   type EstadoCargaPacotes, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import {
@@ -63,6 +64,8 @@ import {
   carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens,
 } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
+import { invalidarAgenda } from '@shared/agenda-consultas';
+import { dataDoDia } from '@shared/agenda-grade';
 import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
@@ -206,10 +209,10 @@ function NovaComandaScreen() {
 
   const [loading, setLoading] = useState(true);
   // Dia da comanda (como no web): semana de 7 dias a partir do domingo, ou visão do mês.
-  const [dataComanda, setDataComanda] = useState<Date>(() => new Date());
+  const [dataComanda, setDataComanda] = useState<Date>(() => dataDoDia(hojeBRT()));
   const [view, setView] = useState<'semana' | 'mes'>('semana');
   const [semana, setSemana] = useState<Date[]>(() =>
-    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i)));
+    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(dataDoDia(hojeBRT()), { weekStartsOn: 0 }), i)));
   const [agsMes, setAgsMes] = useState<Map<string, number>>(new Map());
   const [backlog, setBacklog] = useState<{ id: string; data: Date }[]>([]);
   const reqDiaRef = useRef(0);
@@ -491,6 +494,8 @@ function NovaComandaScreen() {
       agendamentos: c.agendamentos, comandaId: c.comandaId,
     })), [agDia, soExtrasDia]);
 
+  // Dia da comanda (Brasília): a validade do pacote vale no dia do atendimento, não "hoje".
+  const diaComanda = chaveDiaExibido(dataComanda);
   useEffect(() => {
     if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) {
       setPacotesClienteAtivos([]); setEstadoPacotes('ok'); return;
@@ -504,7 +509,7 @@ function NovaComandaScreen() {
     carregarCandidatosVinculo(supabase, empresaId, clienteSel.id)
       .then(rows => {
         if (!vivo) return;
-        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT()));
+        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, diaComanda));
         setEstadoPacotes('ok');
       })
       .catch(e => {
@@ -514,7 +519,7 @@ function NovaComandaScreen() {
         Alert.alert('Erro', mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [clienteSel?.id, empresaId, recargaPacotes]);
+  }, [clienteSel?.id, empresaId, recargaPacotes, diaComanda]);
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) hoje */
   const totalDia = useMemo(
@@ -1085,7 +1090,7 @@ function NovaComandaScreen() {
     // Receita, comissão, taxas de cartão e alerta de comandas abertas mudaram: atualiza tudo.
     invalidarFinanceiro(qc);
     invalidarEstoque();
-    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    invalidarAgenda(qc);
     carregarBacklog();
     carregarDia();
     setComandaExistenteId(null);
@@ -1174,7 +1179,7 @@ function NovaComandaScreen() {
     // Receita, comissão e alerta de comandas abertas mudaram: atualiza todas as telas.
     invalidarFinanceiro(qc);
     invalidarEstoque();
-    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    invalidarAgenda(qc);
     carregarBacklog();
     // Valor cobrado, vínculo de pacote, status E comanda_id — senão o atendimento
     // continua listado como aberto (e o "Total do dia" usa o valor antigo).
@@ -1598,7 +1603,7 @@ function NovaComandaScreen() {
           <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2 }}>Comanda</Text>
             <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text }}>
-              {isToday(dataComanda) ? 'Hoje' : format(dataComanda, "EEEE, d 'de' MMM", { locale: ptBR })}
+              {chaveDiaExibido(dataComanda) === hojeBRT() ? 'Hoje' : format(dataComanda, "EEEE, d 'de' MMM", { locale: ptBR })}
             </Text>
           </View>
           {totalDia > 0 && (
@@ -1629,8 +1634,8 @@ function NovaComandaScreen() {
               style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}>
               <ChevronRight size={16} color={C.text3} />
             </TouchableOpacity>
-            {!isToday(dataComanda) && (
-              <TouchableOpacity onPress={() => selecionarDia(new Date())}
+            {chaveDiaExibido(dataComanda) !== hojeBRT() && (
+              <TouchableOpacity onPress={() => selecionarDia(dataDoDia(hojeBRT()))}
                 style={{ borderRadius: 10, backgroundColor: C.primarySoft, paddingHorizontal: 10, height: 32, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>Hoje</Text>
               </TouchableOpacity>
@@ -1657,7 +1662,7 @@ function NovaComandaScreen() {
                     <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, textTransform: 'uppercase', marginBottom: 2, color: sel ? 'rgba(255,255,255,0.7)' : C.text4 }}>
                       {DIAS[d.getDay()]}
                     </Text>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: sel ? '#fff' : isToday(d) ? C.rose : C.text2 }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: sel ? '#fff' : chaveDiaExibido(d) === hojeBRT() ? C.rose : C.text2 }}>
                       {format(d, 'd')}
                     </Text>
                   </TouchableOpacity>
@@ -1698,9 +1703,9 @@ function NovaComandaScreen() {
                   <View key={key} style={{ width: `${100 / 7}%`, padding: 1 }}>
                     <TouchableOpacity onPress={() => selecionarDia(d)}
                       style={{ aspectRatio: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: sel ? C.primary : isToday(d) ? C.primarySoft : 'transparent' }}>
+                        backgroundColor: sel ? C.primary : chaveDiaExibido(d) === hojeBRT() ? C.primarySoft : 'transparent' }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13,
-                        color: sel ? '#fff' : isToday(d) ? C.primary : dMes ? C.text2 : C.text4 }}>
+                        color: sel ? '#fff' : chaveDiaExibido(d) === hojeBRT() ? C.primary : dMes ? C.text2 : C.text4 }}>
                         {format(d, 'd')}
                       </Text>
                       {count > 0 && (
@@ -1731,7 +1736,7 @@ function NovaComandaScreen() {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
             <Receipt size={28} color={C.text4} />
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text3, marginTop: 8 }}>
-              {isToday(dataComanda) ? 'Nenhum atendimento hoje' : 'Nenhum atendimento neste dia'}
+              {chaveDiaExibido(dataComanda) === hojeBRT() ? 'Nenhum atendimento hoje' : 'Nenhum atendimento neste dia'}
             </Text>
           </View>
         ) : (
@@ -2187,6 +2192,15 @@ function NovaComandaScreen() {
                 <TouchableOpacity onPress={() => setRecargaPacotes(n => n + 1)} activeOpacity={0.7} style={{ marginTop: 4 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
                     Tentar de novo
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {bloqueioCargaPacote && estadoPacotes === 'erro' && (
+                <TouchableOpacity
+                  onPress={() => { atendimentosVinculados(itens, pacoteLinks).forEach(id => desvincularPacote(id)); }}
+                  activeOpacity={0.7} style={{ marginTop: 6 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red, textDecorationLine: 'underline' }}>
+                    {ROTULO_DESVINCULAR_TODOS}
                   </Text>
                 </TouchableOpacity>
               )}

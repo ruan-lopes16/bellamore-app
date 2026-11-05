@@ -37,6 +37,10 @@ export type PacoteClienteOpt = {
   sessoes: PacoteSessaoFeita[];
 };
 
+/** Aviso quando o pacote escolhido (da edição ou vendido agora) não vale na data do agendamento. */
+export const AVISO_PACOTE_FORA_DA_DATA =
+  'O pacote escolhido não vale nesta data. Escolha outro pacote ou mude a data.';
+
 /** Aviso quando existe pacote ativo que cobre só parte dos serviços do atendimento. */
 export const AVISO_PACOTE_PARCIAL =
   'Este pacote não cobre todos os serviços deste atendimento. Para usar a sessão, separe o serviço do pacote num atendimento próprio.';
@@ -79,6 +83,22 @@ export const MOTIVO_PACOTES_CARREGANDO = 'Carregando os pacotes da cliente…';
 export const MOTIVO_PACOTES_ERRO =
   'Não foi possível carregar os pacotes da cliente — sem eles não dá para saber se o pacote cobre o atendimento. Tente de novo antes de fechar.';
 
+/** Rótulo do botão que desvincula de uma vez todos os pacotes da comanda (saída quando a carga falha). */
+export const ROTULO_DESVINCULAR_TODOS = 'Desvincular e cobrar normal';
+
+/**
+ * Atendimentos NA COMANDA (com pelo menos uma linha em `itens`) que têm pacote vinculado em
+ * `pacoteLinks` (id preenchido). Devolve os `agendamento_id`.
+ */
+export function atendimentosVinculados(
+  itens: { agendamento_id?: string | null }[],
+  pacoteLinks: Record<string, string | null | undefined>,
+): string[] {
+  return Object.entries(pacoteLinks)
+    .filter(([agId, pacoteId]) => !!pacoteId && itens.some(i => i.agendamento_id === agId))
+    .map(([agId]) => agId);
+}
+
 /**
  * Bloqueio do fechamento enquanto não se sabe a cobertura do pacote: há atendimento NA COMANDA
  * (alguma linha em `itens`) com vínculo (`pacoteLinks` com id) e a lista de pacotes ativos ainda
@@ -91,9 +111,7 @@ export function bloqueioCargaPacotes(
   pacoteLinks: Record<string, string | null | undefined>,
 ): string | null {
   if (estado === 'ok') return null;
-  const vinculado = Object.entries(pacoteLinks)
-    .some(([agId, pacoteId]) => !!pacoteId && itens.some(i => i.agendamento_id === agId));
-  if (!vinculado) return null;
+  if (atendimentosVinculados(itens, pacoteLinks).length === 0) return null;
   return estado === 'carregando' ? MOTIVO_PACOTES_CARREGANDO : MOTIVO_PACOTES_ERRO;
 }
 

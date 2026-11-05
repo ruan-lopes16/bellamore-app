@@ -42,6 +42,7 @@ import { formatarMoeda } from '@shared/moeda';
 import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
 import { avisoTaxaPagaAoExcluir, confirmarAlerta } from '@/lib/statusAtendimento';
 import { contatosCliente, precisaConfirmarStatus, type StatusAg } from '@shared/agenda';
+import { invalidarAgenda } from '@shared/agenda-consultas';
 import { BotoesStatus } from '@/components/atendimento/BotoesStatus';
 import { AvaliacaoAtendimento } from '@/components/atendimento/AvaliacaoAtendimento';
 
@@ -454,7 +455,7 @@ export default function AgendamentoDetalhe() {
 
     // Invalida caches relevantes
     qc.invalidateQueries({ queryKey: ['agendamento', id] });
-    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    invalidarAgenda(qc);
     qc.invalidateQueries({ queryKey: ['cliente-detalhe'] });
     invalidarFinanceiro(qc);   // concluir/cancelar/faltou muda receita, comissão e alertas
   }
@@ -483,7 +484,7 @@ export default function AgendamentoDetalhe() {
       Alert.alert('Sem permissão', 'Você não tem permissão para excluir agendamentos.');
       return;
     }
-    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    invalidarAgenda(qc);
     qc.invalidateQueries({ queryKey: ['cliente-detalhe'] });
     invalidarFinanceiro(qc);
     router.back();

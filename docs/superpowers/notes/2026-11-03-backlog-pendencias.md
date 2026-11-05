@@ -40,11 +40,11 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 | # | Item |
 |---|---|
 | C1 | Modo escuro nas telas secundárias do app + contraste de `primary`/`green` no escuro |
-| C2 | Atendimento longo aparece só na 1ª hora da grade do app |
-| C3 | Avaliação não editável no web |
-| C4 | Cancelado não aparece nas agendas (reabrir fica difícil) |
-| C5 | Seletor de dia do web usa o calendário local (não Brasília) |
-| C6 | Contagem do mês da agenda do app não atualiza depois de mexer no detalhe/comanda |
+| ~~C2~~ | ~~Atendimento longo aparece só na 1ª hora da grade do app~~ — resolvido em 04/11 |
+| ~~C3~~ | ~~Avaliação não editável no web~~ — resolvido em 04/11 |
+| ~~C4~~ | ~~Cancelado não aparece nas agendas~~ — decisão do dono (04/11): fica como está |
+| ~~C5~~ | ~~Seletor de dia do web usa o calendário local (não Brasília)~~ — resolvido em 04/11 |
+| ~~C6~~ | ~~Contagem do mês da agenda do app não atualiza depois de mexer no detalhe/comanda~~ — resolvido em 04/11 |
 | C7 | Filtro "Retornos" aceita data futura |
 | C8 | Vincular pacote ao editar uma comanda já fechada |
 | C9 | Pacote misto exibido como ilimitado |
@@ -60,3 +60,5 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 - Comanda não bloqueia sem estoque (29/09).
 - Área da profissional no app sem "Toda a agenda" nem aprovação de bloqueio (02/10).
 - `financeiro.fechamentos` sem tela (importação por suporte).
+- Pacote vinculado vencido, esgotado ou cancelado continua valendo: o atendimento sai pelo pacote e consome a sessão, sem trava no banco (04/11).
+- Atendimentos cancelados continuam fora das agendas (04/11).

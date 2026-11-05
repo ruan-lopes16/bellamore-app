@@ -29,7 +29,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   format, addDays, addMonths, subMonths,
-  isSameDay, isToday, addMinutes, parseISO,
+  isSameDay, addMinutes, parseISO,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -55,7 +55,7 @@ import {
   statusPermitidos, precisaConfirmarStatus, resumoDoDia, MSG_REABRIR, type StatusAg,
 } from '@shared/agenda';
 import {
-  TODAS, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
+  TODAS, dataDoDia, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
 } from '@shared/agenda-grade';
 import { parseValorBR } from '@shared/comanda-fechamento';
 import { avisoTaxaPagaAoExcluir, carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas';
@@ -75,7 +75,7 @@ import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { chaveDiaBRT, chaveDiaExibido, hojeBRT, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
 import {
-  calcularPacotesAtivosCliente, pacotesDoAtendimento, pacoteCobreAtendimento, AVISO_PACOTE_PARCIAL,
+  calcularPacotesAtivosCliente, pacotesDoAtendimento, pacoteCobreAtendimento, AVISO_PACOTE_PARCIAL, AVISO_PACOTE_FORA_DA_DATA,
   MOTIVO_SALVAR_PACOTE_PARCIAL, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import { carregarCandidatosVinculo } from '@shared/pacotes-consultas';
@@ -432,6 +432,7 @@ function NovoAgModal({
   // Pacote vendido agora: fica vinculado mesmo fora da lista de elegíveis (ex.: combo).
   const [pacoteVendido, setPacoteVendido] = useState<{ id: string; nome: string; clienteId: string } | null>(null);
   const pacoteVendidoIdRef = useRef<{ id: string; clienteId: string } | null>(null);
+  const pacoteClienteIdRef = useRef('');
   const [avisoPacote, setAvisoPacote] = useState('');
   const [erroPacotes, setErroPacotes] = useState('');
   const [recargaPacotes, setRecargaPacotes] = useState(0);
@@ -553,21 +554,34 @@ function NovoAgModal({
       });
   }, [empresaId]);
 
+  // Dia do agendamento (AAAA-MM-DD): a validade do pacote vale nesse dia, não "hoje"
+  const diaForm = chaveDiaExibido(dataSel);
+
+  pacoteClienteIdRef.current = pacoteClienteId;
+
   // Pacotes ativos do cliente selecionado (para vincular ao agendamento)
   useEffect(() => {
+    setAvisoPacote(a => (a === AVISO_PACOTE_FORA_DA_DATA ? '' : a));
     if (!clienteId) { setPacotesCliente([]); setErroPacotes(''); return; }
+    // Nunca mostra a lista do dia anterior enquanto a nova carrega.
+    setPacotesCliente([]);
     // Carga única (paginada, inclui os "a cobrar") e regra única de elegibilidade (validade pelo
     // último dia em Brasília, combo fora, saldo de sessões) — a mesma da Comanda e do app.
     let vivo = true;
     carregarCandidatosVinculo(supabase, empresaId, clienteId)
       .then(rows => {
         if (!vivo) return;
-        const opts = calcularPacotesAtivosCliente(rows, hojeBRT());
+        const opts = calcularPacotesAtivosCliente(rows, diaForm);
         setPacotesCliente(opts);
         setErroPacotes('');
         // Na edição, o pacote já vinculado ao atendimento (vencido, sem saldo ou de outra lista) nunca
         // é desvinculado em silêncio — gravaria pacote_cliente_id nulo e o atendimento viraria cobrado
         // (igual ao app). O pacote vendido agora também fica (combo não entra na lista de elegíveis).
+        const atual = pacoteClienteIdRef.current;
+        const mantido = !!atual && (atual === agEditar?.pacote_cliente_id || (pacoteVendidoIdRef.current?.clienteId === clienteId && atual === pacoteVendidoIdRef.current.id));
+        // Pacote escolhido agora que não vale na data escolhida: sai da seleção, mas avisa (nunca em
+        // silêncio). O original da edição e o vendido agora ficam selecionados (decisão do dono, 04/11).
+        if (atual && !mantido && !opts.some(o => o.id === atual)) setAvisoPacote(AVISO_PACOTE_FORA_DA_DATA);
         setPacoteClienteId(prev => opts.some(o => o.id === prev) || (!!prev && (prev === agEditar?.pacote_cliente_id || (pacoteVendidoIdRef.current?.clienteId === clienteId && prev === pacoteVendidoIdRef.current.id))) ? prev : '');
       })
       .catch(e => {
@@ -576,7 +590,12 @@ function NovoAgModal({
         setErroPacotes(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [empresaId, clienteId, recargaPacotes]);
+  }, [empresaId, clienteId, recargaPacotes, diaForm]);
+
+  // Escolheu outro pacote: o aviso de "não vale nesta data" já foi atendido.
+  useEffect(() => {
+    if (pacoteClienteId) setAvisoPacote(a => (a === AVISO_PACOTE_FORA_DA_DATA ? '' : a));
+  }, [pacoteClienteId]);
 
   // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
   // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido
@@ -2042,7 +2061,7 @@ function TimelineView({
             <AgCard ag={agSel} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agSel)}
               onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
               onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
-            <DetalheAtendimento ag={agSel} comanda={comandaSel}/>
+            <DetalheAtendimento ag={agSel} comanda={comandaSel} empresaId={empresaId} podeAlterar={podeAlterar(agSel)}/>
           </ModalDetalhe>
 
           {/* Desktop: painel lateral */}
@@ -2058,7 +2077,7 @@ function TimelineView({
               <AgCard ag={agSel} empresaId={empresaId} somenteLeitura={!podeAlterar(agSel)}
                 onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                 onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
-              <DetalheAtendimento ag={agSel} comanda={comandaSel}/>
+              <DetalheAtendimento ag={agSel} comanda={comandaSel} empresaId={empresaId} podeAlterar={podeAlterar(agSel)}/>
             </div>
           </div>
         </>
@@ -2097,11 +2116,11 @@ function ListaDia({ ags, bloqueios, loading, dataSel, empresaId, onNovo, onStatu
           <AgCard ag={agDet} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agDet)}
             onStatus={(id, st) => { setAgDetId(null); onStatus(id, st); }}
             onEditar={onEditar ? ag => { setAgDetId(null); onEditar(ag); } : undefined}/>
-          <DetalheAtendimento ag={agDet} comanda={comandaDet}/>
+          <DetalheAtendimento ag={agDet} comanda={comandaDet} empresaId={empresaId} podeAlterar={podeAlterar(agDet)}/>
         </ModalDetalhe>
       )}
       <p className="text-sm font-semibold text-text-2 mb-3">
-        {isToday(dataSel) ? 'Hoje' : format(dataSel, "EEEE, dd 'de' MMMM", { locale: ptBR })}
+        {chaveDiaExibido(dataSel) === hojeBRT() ? 'Hoje' : format(dataSel, "EEEE, dd 'de' MMMM", { locale: ptBR })}
         {!loading && (
           <span className="ml-2 text-text-4 font-normal">
             {ags.length} {ags.length === 1 ? 'agendamento' : 'agendamentos'}
@@ -2175,8 +2194,8 @@ export default function AgendaPage() {
 
 
   const [view,      setView]      = useState<'semana' | 'mes' | 'timeline'>('timeline');
-  const [dataSel,   setDataSel]   = useState(new Date());
-  const [semana,    setSemana]    = useState(() => semanaDoDia(new Date()));
+  const [dataSel,   setDataSel]   = useState(() => dataDoDia(hojeBRT()));
+  const [semana,    setSemana]    = useState(() => semanaDoDia(dataDoDia(hojeBRT())));
   const [ags,        setAgs]       = useState<Ag[]>([]);
   const [bloqueios,  setBloqueios] = useState<Bloqueio[]>([]);
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
@@ -2680,7 +2699,7 @@ export default function AgendaPage() {
               <div className="flex gap-0.5 sm:gap-1">
                 {semana.map((d, i) => {
                   const sel = isSameDay(d, dataSel);
-                  const hj  = isToday(d);
+                  const hj  = chaveDiaExibido(d) === hojeBRT();
                   return (
                     <button key={d.toISOString()} onClick={() => selecionarDia(d)} className="bm-stagger press flex flex-col items-center rounded-[14px] py-2.5 w-9 sm:w-11 flex-shrink-0"
                       style={{
