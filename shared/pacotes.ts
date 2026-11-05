@@ -37,6 +37,10 @@ export type PacoteClienteOpt = {
   sessoes: PacoteSessaoFeita[];
 };
 
+/** Aviso quando o pacote escolhido (da edição ou vendido agora) não vale na data do agendamento. */
+export const AVISO_PACOTE_FORA_DA_DATA =
+  'O pacote escolhido não vale nesta data. Escolha outro pacote ou mude a data.';
+
 /** Aviso quando existe pacote ativo que cobre só parte dos serviços do atendimento. */
 export const AVISO_PACOTE_PARCIAL =
   'Este pacote não cobre todos os serviços deste atendimento. Para usar a sessão, separe o serviço do pacote num atendimento próprio.';

@@ -71,3 +71,15 @@ describe('app: invalidação única da agenda', () => {
     expect(ler(f)).toMatch(/invalidar(Chaves)?Agenda\((qc|queryClient)\)/);
   });
 });
+
+describe('pacote que não vale na data escolhida', () => {
+  it.each([AGENDA_WEB, NOVO_AG_APP])('%s avisa com a constante única', (f) => {
+    expect(ler(f)).toContain('AVISO_PACOTE_FORA_DA_DATA');
+  });
+});
+
+describe('calendário em Brasília: sem isToday', () => {
+  it.each(['web/app/(app)/agenda/MesView.tsx', COMANDA_APP])('%s', (f) => {
+    expect(ler(f)).not.toContain('isToday(');
+  });
+});

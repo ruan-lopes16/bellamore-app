@@ -1,7 +1,7 @@
 'use client';
 
-import { format, isSameDay, isSameMonth, isToday } from 'date-fns';
-import { DIAS_SEMANA_ABREV, chaveDiaExibido } from '@shared/periodos';
+import { format, isSameDay, isSameMonth } from 'date-fns';
+import { DIAS_SEMANA_ABREV, chaveDiaExibido, hojeBRT } from '@shared/periodos';
 import { gradeDoMes } from './visoes';
 
 /**
@@ -35,7 +35,7 @@ export function MesView({
           const count     = agsPorDia.get(key) ?? 0;
           const bloqueado = diasBloqueados.has(key);
           const selDia    = isSameDay(d, diaSel);
-          const hojeDia   = isToday(d);
+          const hojeDia   = chaveDiaExibido(d) === hojeBRT();
           const dMes      = isSameMonth(d, mes);
           const dica = [
             count > 0 ? `${count} ${count === 1 ? 'agendamento' : 'agendamentos'}` : '',

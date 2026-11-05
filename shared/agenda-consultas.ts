@@ -105,7 +105,6 @@ export async function carregarAvaliacao(
 export const CHAVES_AGENDA = [
   'agenda-dia',
   'dias-agendados',
-  'profissionais',
   'bloqueios-dia',
   'bloqueios-pendentes',
   'bloqueios-prof-dia',

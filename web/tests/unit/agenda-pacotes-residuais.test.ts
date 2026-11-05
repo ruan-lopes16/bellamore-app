@@ -46,6 +46,14 @@ describe('continuacoesPorHora', () => {
   it('cancelado e faltou ficam fora', () => {
     expect(continuacoesPorHora([ag('09:00', '12:00', 'cancelado'), ag('09:00', '12:00', 'faltou')], DIA, HORAS)).toEqual({});
   });
+  it('começou na véspera às 23:00 e vai até 01:30: continua nas horas 0 e 1 do dia seguinte', () => {
+    const a = {
+      data_hora_inicio: '2026-11-03T23:00:00-03:00',
+      data_hora_fim: '2026-11-04T01:30:00-03:00',
+      status: 'agendado',
+    };
+    expect(Object.keys(continuacoesPorHora([a], DIA, [0, 1, 2, 3])).map(Number)).toEqual([0, 1]);
+  });
   it('hora fora da janela não aparece', () => {
     const a = ag('09:00', '13:00');
     expect(Object.keys(continuacoesPorHora([a], DIA, [9, 10])).map(Number)).toEqual([10]);
@@ -58,6 +66,8 @@ describe('CHAVES_AGENDA', () => {
     const src = readFileSync(join(raiz, 'mobile', 'hooks', 'useAgenda.ts'), 'utf8');
     const usadas = new Set([...src.matchAll(/queryKey:\s*\[\s*'([^']+)'/g)].map((m) => m[1]));
     expect(usadas.size).toBeGreaterThan(0);
+    // 'profissionais' fica de fora de propósito: a equipe não muda quando um atendimento muda.
+    usadas.delete('profissionais');
     for (const k of usadas) expect(CHAVES_AGENDA).toContain(k);
   });
   it('invalidarAgenda invalida cada chave', () => {

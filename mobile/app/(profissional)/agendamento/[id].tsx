@@ -35,6 +35,7 @@ import { escolherCobrancaCancelamento } from '@/lib/taxaCancelamento';
 import { confirmarAlerta } from '@/lib/statusAtendimento';
 import { contatosCliente, precisaConfirmarStatus, type StatusAg } from '@shared/agenda';
 import { mensagemErroBanco } from '@shared/erros';
+import { invalidarAgenda } from '@shared/agenda-consultas';
 import { BotoesStatus } from '@/components/atendimento/BotoesStatus';
 import { AvaliacaoAtendimento } from '@/components/atendimento/AvaliacaoAtendimento';
 
@@ -173,8 +174,7 @@ export default function AgendamentoProfissional() {
       return;
     }
     qc.invalidateQueries({ queryKey: ['prof-agendamento', id] });
-    qc.invalidateQueries({ queryKey: ['prof-agenda'] });
-    qc.invalidateQueries({ queryKey: ['prof-kpis-dia'] });
+    invalidarAgenda(qc);
   }
 
   // Ligar / WhatsApp pela regra de shared (não duplica o DDI 55); null sem telefone.

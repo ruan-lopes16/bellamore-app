@@ -112,7 +112,9 @@ export function continuacoesPorHora<T extends { data_hora_inicio: string; data_h
     if (!r) continue;
     const hIni = Math.floor((r.ini - r.inicioDia) / HORA_MS);
     const hFim = Math.ceil((r.fim - r.inicioDia) / HORA_MS);
-    for (let h = hIni + 1; h < hFim; h++) {
+    // Começou na véspera: a hora 0 do dia exibido já é continuação.
+    const comecouAntes = instanteMs(a.data_hora_inicio) < r.inicioDia;
+    for (let h = comecouAntes ? hIni : hIni + 1; h < hFim; h++) {
       if (!horas.includes(h)) continue;
       (out[h] ??= []).push(a);
     }

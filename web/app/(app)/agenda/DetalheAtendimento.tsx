@@ -21,7 +21,6 @@ import { carregarDetalheAtendimento } from '@shared/atendimento-detalhe-consulta
 import type { DetalheAtendimento as DetalheComanda } from '@shared/atendimento-detalhe';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { carregarAvaliacao, salvarAvaliacao } from '@shared/agenda-consultas';
-import { mensagemErroBanco } from '@shared/erros';
 
 const supabase = createClient();
 
@@ -63,13 +62,13 @@ const botao = 'press flex-1 flex items-center justify-center gap-1.5 h-9 rounded
  * Contatos e comanda abaixo do card do atendimento. Os botões de telefone somem sem telefone e
  * "Perfil" some sem cliente; a seção da comanda só aparece quando o atendimento foi fechado.
  */
-export function DetalheAtendimento({ ag, comanda, empresaId }: { ag: AgDoDetalhe; comanda: EstadoComanda; empresaId?: string | null }) {
+export function DetalheAtendimento({ ag, comanda, empresaId, podeAlterar }: { ag: AgDoDetalhe; comanda: EstadoComanda; empresaId?: string | null; podeAlterar?: boolean }) {
   const contatos = contatosCliente(ag.cliente?.telefone);
   const temComanda = !!ag.comanda_id;
 
   return (
     <div className="flex flex-col gap-4 mt-3">
-      {ag.status === 'concluido' && ag.cliente && empresaId && (
+      {podeAlterar && ag.status === 'concluido' && ag.cliente && empresaId && (
         <AvaliacaoDetalhe key={ag.id} agendamentoId={ag.id} empresaId={empresaId} clienteId={ag.cliente.id}/>
       )}
 
@@ -144,7 +143,7 @@ function AvaliacaoDetalhe({ agendamentoId, empresaId, clienteId }: {
       });
       setSalvo(true);
     } catch (e) {
-      setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'salvar a avaliação'));
+      setErro((e as Error).message);
     } finally {
       setSalvando(false);
     }

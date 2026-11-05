@@ -233,7 +233,7 @@ export default function ComandaPage() {
   // Contador das cargas do dia: resposta de um dia que já não está selecionado é ignorada
   const reqDiaRef = useRef(0);
   const [dataComanda,       setDataComanda]       = useState<Date>(() => dataDoDia(hojeBRT()));
-  const [view,             setView]              = useState<'semana' | 'mes'>('semana');
+  const [view,            setView]              = useState<'semana' | 'mes'>('semana');
   const [semana,            setSemana]            = useState<Date[]>(() =>
     Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(dataDoDia(hojeBRT()), { weekStartsOn: 0 }), i))
   );

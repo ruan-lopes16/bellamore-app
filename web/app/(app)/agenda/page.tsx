@@ -75,7 +75,7 @@ import { usePermissoes } from '@/components/PermissoesProvider';
 import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { chaveDiaBRT, chaveDiaExibido, hojeBRT, horaBRT, limitesDias, rotuloDataHoraBRT } from '@shared/periodos';
 import {
-  calcularPacotesAtivosCliente, pacotesDoAtendimento, pacoteCobreAtendimento, AVISO_PACOTE_PARCIAL,
+  calcularPacotesAtivosCliente, pacotesDoAtendimento, pacoteCobreAtendimento, AVISO_PACOTE_PARCIAL, AVISO_PACOTE_FORA_DA_DATA,
   MOTIVO_SALVAR_PACOTE_PARCIAL, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import { carregarCandidatosVinculo } from '@shared/pacotes-consultas';
@@ -432,6 +432,7 @@ function NovoAgModal({
   // Pacote vendido agora: fica vinculado mesmo fora da lista de elegíveis (ex.: combo).
   const [pacoteVendido, setPacoteVendido] = useState<{ id: string; nome: string; clienteId: string } | null>(null);
   const pacoteVendidoIdRef = useRef<{ id: string; clienteId: string } | null>(null);
+  const pacoteClienteIdRef = useRef('');
   const [avisoPacote, setAvisoPacote] = useState('');
   const [erroPacotes, setErroPacotes] = useState('');
   const [recargaPacotes, setRecargaPacotes] = useState(0);
@@ -556,9 +557,14 @@ function NovoAgModal({
   // Dia do agendamento (AAAA-MM-DD): a validade do pacote vale nesse dia, não "hoje"
   const diaForm = chaveDiaExibido(dataSel);
 
+  pacoteClienteIdRef.current = pacoteClienteId;
+
   // Pacotes ativos do cliente selecionado (para vincular ao agendamento)
   useEffect(() => {
+    setAvisoPacote(a => (a === AVISO_PACOTE_FORA_DA_DATA ? '' : a));
     if (!clienteId) { setPacotesCliente([]); setErroPacotes(''); return; }
+    // Nunca mostra a lista do dia anterior enquanto a nova carrega.
+    setPacotesCliente([]);
     // Carga única (paginada, inclui os "a cobrar") e regra única de elegibilidade (validade pelo
     // último dia em Brasília, combo fora, saldo de sessões) — a mesma da Comanda e do app.
     let vivo = true;
@@ -571,6 +577,10 @@ function NovoAgModal({
         // Na edição, o pacote já vinculado ao atendimento (vencido, sem saldo ou de outra lista) nunca
         // é desvinculado em silêncio — gravaria pacote_cliente_id nulo e o atendimento viraria cobrado
         // (igual ao app). O pacote vendido agora também fica (combo não entra na lista de elegíveis).
+        const atual = pacoteClienteIdRef.current;
+        const mantido = !!atual && (atual === agEditar?.pacote_cliente_id || (pacoteVendidoIdRef.current?.clienteId === clienteId && atual === pacoteVendidoIdRef.current.id));
+        // Pacote fixo que não vale na data escolhida: continua selecionado, mas avisa (nunca em silêncio).
+        if (mantido && !opts.some(o => o.id === atual)) setAvisoPacote(AVISO_PACOTE_FORA_DA_DATA);
         setPacoteClienteId(prev => opts.some(o => o.id === prev) || (!!prev && (prev === agEditar?.pacote_cliente_id || (pacoteVendidoIdRef.current?.clienteId === clienteId && prev === pacoteVendidoIdRef.current.id))) ? prev : '');
       })
       .catch(e => {
@@ -2045,7 +2055,7 @@ function TimelineView({
             <AgCard ag={agSel} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agSel)}
               onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
               onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
-            <DetalheAtendimento ag={agSel} comanda={comandaSel} empresaId={empresaId}/>
+            <DetalheAtendimento ag={agSel} comanda={comandaSel} empresaId={empresaId} podeAlterar={podeAlterar(agSel)}/>
           </ModalDetalhe>
 
           {/* Desktop: painel lateral */}
@@ -2061,7 +2071,7 @@ function TimelineView({
               <AgCard ag={agSel} empresaId={empresaId} somenteLeitura={!podeAlterar(agSel)}
                 onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                 onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
-              <DetalheAtendimento ag={agSel} comanda={comandaSel} empresaId={empresaId}/>
+              <DetalheAtendimento ag={agSel} comanda={comandaSel} empresaId={empresaId} podeAlterar={podeAlterar(agSel)}/>
             </div>
           </div>
         </>
@@ -2100,7 +2110,7 @@ function ListaDia({ ags, bloqueios, loading, dataSel, empresaId, onNovo, onStatu
           <AgCard ag={agDet} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agDet)}
             onStatus={(id, st) => { setAgDetId(null); onStatus(id, st); }}
             onEditar={onEditar ? ag => { setAgDetId(null); onEditar(ag); } : undefined}/>
-          <DetalheAtendimento ag={agDet} comanda={comandaDet} empresaId={empresaId}/>
+          <DetalheAtendimento ag={agDet} comanda={comandaDet} empresaId={empresaId} podeAlterar={podeAlterar(agDet)}/>
         </ModalDetalhe>
       )}
       <p className="text-sm font-semibold text-text-2 mb-3">

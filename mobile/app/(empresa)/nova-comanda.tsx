@@ -14,7 +14,7 @@ import {
 } from 'lucide-react-native';
 import {
   format, startOfDay, endOfDay, parseISO, addDays, startOfWeek, startOfMonth, endOfMonth,
-  addMonths, subMonths, isSameDay, isSameMonth, isToday, eachDayOfInterval,
+  addMonths, subMonths, isSameDay, isSameMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -65,6 +65,7 @@ import {
 } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
 import { invalidarAgenda } from '@shared/agenda-consultas';
+import { dataDoDia } from '@shared/agenda-grade';
 import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
@@ -208,10 +209,10 @@ function NovaComandaScreen() {
 
   const [loading, setLoading] = useState(true);
   // Dia da comanda (como no web): semana de 7 dias a partir do domingo, ou visão do mês.
-  const [dataComanda, setDataComanda] = useState<Date>(() => new Date());
+  const [dataComanda, setDataComanda] = useState<Date>(() => dataDoDia(hojeBRT()));
   const [view, setView] = useState<'semana' | 'mes'>('semana');
   const [semana, setSemana] = useState<Date[]>(() =>
-    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i)));
+    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(dataDoDia(hojeBRT()), { weekStartsOn: 0 }), i)));
   const [agsMes, setAgsMes] = useState<Map<string, number>>(new Map());
   const [backlog, setBacklog] = useState<{ id: string; data: Date }[]>([]);
   const reqDiaRef = useRef(0);
@@ -1602,7 +1603,7 @@ function NovaComandaScreen() {
           <View style={{ flex: 1 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2 }}>Comanda</Text>
             <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 20, color: C.text }}>
-              {isToday(dataComanda) ? 'Hoje' : format(dataComanda, "EEEE, d 'de' MMM", { locale: ptBR })}
+              {chaveDiaExibido(dataComanda) === hojeBRT() ? 'Hoje' : format(dataComanda, "EEEE, d 'de' MMM", { locale: ptBR })}
             </Text>
           </View>
           {totalDia > 0 && (
@@ -1633,8 +1634,8 @@ function NovaComandaScreen() {
               style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}>
               <ChevronRight size={16} color={C.text3} />
             </TouchableOpacity>
-            {!isToday(dataComanda) && (
-              <TouchableOpacity onPress={() => selecionarDia(new Date())}
+            {chaveDiaExibido(dataComanda) !== hojeBRT() && (
+              <TouchableOpacity onPress={() => selecionarDia(dataDoDia(hojeBRT()))}
                 style={{ borderRadius: 10, backgroundColor: C.primarySoft, paddingHorizontal: 10, height: 32, alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>Hoje</Text>
               </TouchableOpacity>
@@ -1661,7 +1662,7 @@ function NovaComandaScreen() {
                     <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, textTransform: 'uppercase', marginBottom: 2, color: sel ? 'rgba(255,255,255,0.7)' : C.text4 }}>
                       {DIAS[d.getDay()]}
                     </Text>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: sel ? '#fff' : isToday(d) ? C.rose : C.text2 }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: sel ? '#fff' : chaveDiaExibido(d) === hojeBRT() ? C.rose : C.text2 }}>
                       {format(d, 'd')}
                     </Text>
                   </TouchableOpacity>
@@ -1702,9 +1703,9 @@ function NovaComandaScreen() {
                   <View key={key} style={{ width: `${100 / 7}%`, padding: 1 }}>
                     <TouchableOpacity onPress={() => selecionarDia(d)}
                       style={{ aspectRatio: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: sel ? C.primary : isToday(d) ? C.primarySoft : 'transparent' }}>
+                        backgroundColor: sel ? C.primary : chaveDiaExibido(d) === hojeBRT() ? C.primarySoft : 'transparent' }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13,
-                        color: sel ? '#fff' : isToday(d) ? C.primary : dMes ? C.text2 : C.text4 }}>
+                        color: sel ? '#fff' : chaveDiaExibido(d) === hojeBRT() ? C.primary : dMes ? C.text2 : C.text4 }}>
                         {format(d, 'd')}
                       </Text>
                       {count > 0 && (
@@ -1735,7 +1736,7 @@ function NovaComandaScreen() {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
             <Receipt size={28} color={C.text4} />
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text3, marginTop: 8 }}>
-              {isToday(dataComanda) ? 'Nenhum atendimento hoje' : 'Nenhum atendimento neste dia'}
+              {chaveDiaExibido(dataComanda) === hojeBRT() ? 'Nenhum atendimento hoje' : 'Nenhum atendimento neste dia'}
             </Text>
           </View>
         ) : (
