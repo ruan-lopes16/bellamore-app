@@ -82,6 +82,43 @@ export async function salvarAvaliacao(
   if (!data || (data as unknown[]).length === 0) throw new Error(mensagemErroBanco({ code: '42501' }, 'salvar a avaliação'));
 }
 
+/**
+ * Avaliação já gravada do atendimento (uma por atendimento), ou `null` se ainda não há.
+ * LANÇA `Error` em português se a consulta falhar.
+ */
+export async function carregarAvaliacao(
+  db: ClienteDb,
+  agendamentoId: string,
+): Promise<{ nota: number; comentario: string | null } | null> {
+  const { data, error } = await db.from('avaliacoes')
+    .select('nota, comentario')
+    .eq('agendamento_id', agendamentoId)
+    .maybeSingle();
+  if (error) throw new Error(mensagemErroBanco(error, 'carregar a avaliação'));
+  return (data as { nota: number; comentario: string | null } | null) ?? null;
+}
+
+/**
+ * Chaves de topo do React Query do app ligadas à agenda (lista do dia, dias do mês, bloqueios,
+ * agenda e dias da profissional, KPIs do dia). Mudou um atendimento? `invalidarAgenda` renova todas.
+ */
+export const CHAVES_AGENDA = [
+  'agenda-dia',
+  'dias-agendados',
+  'profissionais',
+  'bloqueios-dia',
+  'bloqueios-pendentes',
+  'bloqueios-prof-dia',
+  'prof-agenda',
+  'prof-dias',
+  'prof-kpis-dia',
+];
+
+/** Invalida todas as consultas de `CHAVES_AGENDA` (casa por prefixo, qualquer empresa/dia). */
+export function invalidarAgenda(qc: { invalidateQueries: (f: { queryKey: unknown[] }) => unknown }): void {
+  for (const k of CHAVES_AGENDA) qc.invalidateQueries({ queryKey: [k] });
+}
+
 /** Mensagem quando não dá para conferir as taxas antes de excluir (web e app não excluem). */
 export const MSG_ERRO_TAXAS_EXCLUIR = 'Não foi possível conferir as taxas deste atendimento. Tente novamente.';
 
