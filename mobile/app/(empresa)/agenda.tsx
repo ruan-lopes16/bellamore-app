@@ -38,9 +38,10 @@ import { FaixaSemana } from '@/components/agenda/FaixaSemana';
 import { VisaoMes } from '@/components/agenda/VisaoMes';
 import { AlternarVisao, type VisaoAgenda } from '@/components/agenda/AlternarVisao';
 import { TimelineColunas } from '@/components/agenda/TimelineColunas';
+import { ContinuacaoAtendimento } from '@/components/agenda/ContinuacaoAtendimento';
 import {
   TODAS, filtroInicialAgenda, type FiltroProfissional, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora, colunasComExtras,
-  dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana,
+  dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana, continuacoesPorHora,
 } from '@shared/agenda-grade';
 import { BloqueioModal } from '@/components/BloqueioModal';
 import { PendentesBloqueioSheet } from '@/components/PendentesBloqueioSheet';
@@ -317,6 +318,8 @@ function Agenda() {
   // Janela do dia: 7–21, esticada para cobrir atendimentos e bloqueios (nada fica cortado).
   const horas = horasDaJanela(janelaDoDia(itensDaJanela(dia, agendamentos, bloqueiosVisiveis)));
   const agPorHora = agruparPorHora(agendamentos);
+  // Atendimentos que começaram antes e ainda estão em andamento em cada hora (visão em lista).
+  const contPorHora = continuacoesPorHora(agendamentos, dia, horas);
   // Um bloqueio ocupa todas as horas que cruza no dia (em Brasília); o horário vazio só some
   // com bloqueio da profissional escolhida ou geral.
   const bloqPorHora = bloqueiosPorHora(bloqueiosVisiveis, dia, horas);
@@ -371,11 +374,21 @@ function Agenda() {
   /** Conteúdo de uma hora para uma profissional: atendimentos, bloqueios ou o horário vazio. */
   const renderCelula = (
     profissionalId: string, ags: AgendamentoCompleto[], bloqs: BloqueioAgenda[], hora: number,
+    conts: AgendamentoCompleto[],
   ) => (
     <>
       {ags.length > 0
         ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
-        : bloqs.length > 0 ? null : <SlotVazio hora={hora} dia={dia} profissionalId={profissionalId} />}
+        : bloqs.length > 0 || conts.length > 0 ? null : <SlotVazio hora={hora} dia={dia} profissionalId={profissionalId} />}
+      {conts.map((ag) => (
+        <ContinuacaoAtendimento
+          key={`cont-${ag.id}`}
+          nome={ag.cliente?.nome}
+          fim={ag.data_hora_fim}
+          cor={(statusConfig(C)[ag.status] ?? statusConfig(C).agendado).color}
+          onPress={() => router.push(`/(empresa)/agendamento/${ag.id}` as any)}
+        />
+      ))}
       {bloqs.map(renderBloqueio)}
     </>
   );
@@ -611,8 +624,9 @@ function Agenda() {
           <TimelineColunas
             colunas={colunas}
             horas={horas}
-            renderCelula={(profissionalId, ags, hora) =>
-              renderCelula(profissionalId, ags, bloqPorColuna.get(profissionalId)?.[hora] ?? [], hora)}
+            dia={dia}
+            renderCelula={(profissionalId, ags, hora, conts) =>
+              renderCelula(profissionalId, ags, bloqPorColuna.get(profissionalId)?.[hora] ?? [], hora, conts)}
           />
         ) : (
           <View style={{ paddingHorizontal: 24 }}>
@@ -632,7 +646,7 @@ function Agenda() {
                 {/* Conteúdo */}
                 <View style={{ flex: 1 }}>
                   <View style={{ height: 1, backgroundColor: C.linha, marginBottom: 6 }} />
-                  {renderCelula(filtro, agPorHora[hora] ?? [], bloqPorHora[hora] ?? [], hora)}
+                  {renderCelula(filtro, agPorHora[hora] ?? [], bloqPorHora[hora] ?? [], hora, contPorHora[hora] ?? [])}
                 </View>
               </View>
             ))}

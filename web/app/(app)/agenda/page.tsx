@@ -29,7 +29,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   format, addDays, addMonths, subMonths,
-  isSameDay, isToday, addMinutes, parseISO,
+  isSameDay, addMinutes, parseISO,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -55,7 +55,7 @@ import {
   statusPermitidos, precisaConfirmarStatus, resumoDoDia, MSG_REABRIR, type StatusAg,
 } from '@shared/agenda';
 import {
-  TODAS, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
+  TODAS, dataDoDia, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
 } from '@shared/agenda-grade';
 import { parseValorBR } from '@shared/comanda-fechamento';
 import { avisoTaxaPagaAoExcluir, carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas';
@@ -553,6 +553,9 @@ function NovoAgModal({
       });
   }, [empresaId]);
 
+  // Dia do agendamento (AAAA-MM-DD): a validade do pacote vale nesse dia, não "hoje"
+  const diaForm = chaveDiaExibido(dataSel);
+
   // Pacotes ativos do cliente selecionado (para vincular ao agendamento)
   useEffect(() => {
     if (!clienteId) { setPacotesCliente([]); setErroPacotes(''); return; }
@@ -562,7 +565,7 @@ function NovoAgModal({
     carregarCandidatosVinculo(supabase, empresaId, clienteId)
       .then(rows => {
         if (!vivo) return;
-        const opts = calcularPacotesAtivosCliente(rows, hojeBRT());
+        const opts = calcularPacotesAtivosCliente(rows, diaForm);
         setPacotesCliente(opts);
         setErroPacotes('');
         // Na edição, o pacote já vinculado ao atendimento (vencido, sem saldo ou de outra lista) nunca
@@ -576,7 +579,7 @@ function NovoAgModal({
         setErroPacotes(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [empresaId, clienteId, recargaPacotes]);
+  }, [empresaId, clienteId, recargaPacotes, diaForm]);
 
   // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
   // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido
@@ -2042,7 +2045,7 @@ function TimelineView({
             <AgCard ag={agSel} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agSel)}
               onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
               onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
-            <DetalheAtendimento ag={agSel} comanda={comandaSel}/>
+            <DetalheAtendimento ag={agSel} comanda={comandaSel} empresaId={empresaId}/>
           </ModalDetalhe>
 
           {/* Desktop: painel lateral */}
@@ -2058,7 +2061,7 @@ function TimelineView({
               <AgCard ag={agSel} empresaId={empresaId} somenteLeitura={!podeAlterar(agSel)}
                 onStatus={(id, s) => { setAgSel(null); onStatus(id, s); }}
                 onEditar={onEditar ? ag => { setAgSel(null); onEditar(ag); } : undefined}/>
-              <DetalheAtendimento ag={agSel} comanda={comandaSel}/>
+              <DetalheAtendimento ag={agSel} comanda={comandaSel} empresaId={empresaId}/>
             </div>
           </div>
         </>
@@ -2097,11 +2100,11 @@ function ListaDia({ ags, bloqueios, loading, dataSel, empresaId, onNovo, onStatu
           <AgCard ag={agDet} empresaId={empresaId} statusInline somenteLeitura={!podeAlterar(agDet)}
             onStatus={(id, st) => { setAgDetId(null); onStatus(id, st); }}
             onEditar={onEditar ? ag => { setAgDetId(null); onEditar(ag); } : undefined}/>
-          <DetalheAtendimento ag={agDet} comanda={comandaDet}/>
+          <DetalheAtendimento ag={agDet} comanda={comandaDet} empresaId={empresaId}/>
         </ModalDetalhe>
       )}
       <p className="text-sm font-semibold text-text-2 mb-3">
-        {isToday(dataSel) ? 'Hoje' : format(dataSel, "EEEE, dd 'de' MMMM", { locale: ptBR })}
+        {chaveDiaExibido(dataSel) === hojeBRT() ? 'Hoje' : format(dataSel, "EEEE, dd 'de' MMMM", { locale: ptBR })}
         {!loading && (
           <span className="ml-2 text-text-4 font-normal">
             {ags.length} {ags.length === 1 ? 'agendamento' : 'agendamentos'}
@@ -2175,8 +2178,8 @@ export default function AgendaPage() {
 
 
   const [view,      setView]      = useState<'semana' | 'mes' | 'timeline'>('timeline');
-  const [dataSel,   setDataSel]   = useState(new Date());
-  const [semana,    setSemana]    = useState(() => semanaDoDia(new Date()));
+  const [dataSel,   setDataSel]   = useState(() => dataDoDia(hojeBRT()));
+  const [semana,    setSemana]    = useState(() => semanaDoDia(dataDoDia(hojeBRT())));
   const [ags,        setAgs]       = useState<Ag[]>([]);
   const [bloqueios,  setBloqueios] = useState<Bloqueio[]>([]);
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
@@ -2680,7 +2683,7 @@ export default function AgendaPage() {
               <div className="flex gap-0.5 sm:gap-1">
                 {semana.map((d, i) => {
                   const sel = isSameDay(d, dataSel);
-                  const hj  = isToday(d);
+                  const hj  = chaveDiaExibido(d) === hojeBRT();
                   return (
                     <button key={d.toISOString()} onClick={() => selecionarDia(d)} className="bm-stagger press flex flex-col items-center rounded-[14px] py-2.5 w-9 sm:w-11 flex-shrink-0"
                       style={{

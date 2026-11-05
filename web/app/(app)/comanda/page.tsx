@@ -52,7 +52,7 @@ import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import {
   format, startOfDay, endOfDay, parseISO,
-  addDays, addMonths, subMonths, isToday, isSameDay, isSameMonth,
+  addDays, addMonths, subMonths, isSameDay, isSameMonth,
   startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -72,9 +72,11 @@ import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
 import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
+import { dataDoDia } from '@shared/agenda-grade';
 import {
   calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, servicoIdsDoAtendimento,
   vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, bloqueioCargaPacotes,
+  atendimentosVinculados, ROTULO_DESVINCULAR_TODOS,
   type EstadoCargaPacotes, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
@@ -230,10 +232,10 @@ export default function ComandaPage() {
   const [recarregandoTaxas, setRecarregandoTaxas] = useState(false);
   // Contador das cargas do dia: resposta de um dia que já não está selecionado é ignorada
   const reqDiaRef = useRef(0);
-  const [dataComanda,       setDataComanda]       = useState<Date>(new Date());
-  const [view,              setView]              = useState<'semana' | 'mes'>('semana');
+  const [dataComanda,       setDataComanda]       = useState<Date>(() => dataDoDia(hojeBRT()));
+  const [view,             setView]              = useState<'semana' | 'mes'>('semana');
   const [semana,            setSemana]            = useState<Date[]>(() =>
-    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(new Date(), { weekStartsOn: 0 }), i))
+    Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(dataDoDia(hojeBRT()), { weekStartsOn: 0 }), i))
   );
   const [agsMes,            setAgsMes]            = useState<Map<string, number>>(new Map());
   const [comandaExistenteId, setComandaExistenteId] = useState<string | null>(null);
@@ -330,6 +332,9 @@ export default function ComandaPage() {
     })();
   }, []);
 
+  // Dia da comanda (AAAA-MM-DD): a validade do pacote vale no dia do atendimento, não "hoje"
+  const diaComanda = chaveDiaExibido(dataComanda);
+
   // Pacotes ativos do cliente selecionado — pra oferecer vínculo com sessão
   useEffect(() => {
     if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) {
@@ -344,7 +349,7 @@ export default function ComandaPage() {
     carregarCandidatosVinculo(supabase, empresaId, clienteSel.id)
       .then(rows => {
         if (!vivo) return;
-        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT()));
+        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, diaComanda));
         setEstadoPacotes('ok');
       })
       .catch(e => {
@@ -354,7 +359,7 @@ export default function ComandaPage() {
         setErro(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [clienteSel?.id, empresaId, recargaPacotes]);
+  }, [clienteSel?.id, empresaId, recargaPacotes, diaComanda]);
 
   // ── Carregar dados do dia selecionado
   useEffect(() => {
@@ -1561,7 +1566,7 @@ export default function ComandaPage() {
               <div className="flex gap-0.5 flex-1 justify-between">
                 {semana.map((d, i) => {
                   const sel = isSameDay(d, dataComanda);
-                  const hj  = isToday(d);
+                  const hj  = chaveDiaExibido(d) === hojeBRT();
                   return (
                     <button key={d.toISOString()} onClick={() => selecionarDia(d)}
                       className="flex flex-col items-center rounded-[12px] py-1.5 flex-1 transition"
@@ -1615,7 +1620,7 @@ export default function ComandaPage() {
                   const key    = format(d, 'yyyy-MM-dd');
                   const count  = agsMes.get(key) ?? 0;
                   const sel    = isSameDay(d, dataComanda);
-                  const hj     = isToday(d);
+                  const hj     = chaveDiaExibido(d) === hojeBRT();
                   const dMes   = isSameMonth(d, dataComanda);
                   return (
                     <div key={key} className="relative">
@@ -1640,7 +1645,7 @@ export default function ComandaPage() {
             <div className="flex flex-col items-center justify-center h-full text-center px-6 py-8">
               <Receipt size={28} className="text-text-4 mb-2" />
               <p className="text-sm text-text-3">
-                {isToday(dataComanda) ? 'Nenhum atendimento hoje' : 'Nenhum atendimento neste dia'}
+                {diaComanda === hojeBRT() ? 'Nenhum atendimento hoje' : 'Nenhum atendimento neste dia'}
               </p>
             </div>
           ) : (
@@ -2363,6 +2368,13 @@ export default function ComandaPage() {
                       <button type="button" onClick={() => setRecargaPacotes(n => n + 1)}
                         className="mt-1 text-xs font-bold text-primary underline">
                         Tentar de novo
+                      </button>
+                    )}
+                    {bloqueioCargaPacote && estadoPacotes === 'erro' && (
+                      <button type="button"
+                        onClick={() => atendimentosVinculados(itens, pacoteLinks).forEach(id => desvincularPacote(id))}
+                        className="mt-1 ml-3 text-xs font-bold text-primary underline">
+                        {ROTULO_DESVINCULAR_TODOS}
                       </button>
                     )}
                   </div>

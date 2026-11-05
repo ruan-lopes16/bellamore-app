@@ -42,6 +42,7 @@ import { aplicarDescontoReserva, somarTaxasReservaPagas } from '@shared/taxa-res
 import {
   calcularPacotesAtivosCliente, dataValidade, pacotesDoAtendimento, AVISO_PACOTE_PARCIAL, servicoIdsDoAtendimento,
   vinculosPacoteSemCobertura, MOTIVO_FECHAR_PACOTE_PARCIAL, bloqueioCargaPacotes,
+  atendimentosVinculados, ROTULO_DESVINCULAR_TODOS,
   type EstadoCargaPacotes, type PacoteClienteOpt,
 } from '@shared/pacotes';
 import {
@@ -63,6 +64,7 @@ import {
   carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens,
 } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
+import { invalidarAgenda } from '@shared/agenda-consultas';
 import { carregarCandidatosVinculo, carregarPendentesCliente } from '@shared/pacotes-consultas';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
@@ -491,6 +493,8 @@ function NovaComandaScreen() {
       agendamentos: c.agendamentos, comandaId: c.comandaId,
     })), [agDia, soExtrasDia]);
 
+  // Dia da comanda (Brasília): a validade do pacote vale no dia do atendimento, não "hoje".
+  const diaComanda = chaveDiaExibido(dataComanda);
   useEffect(() => {
     if (!clienteSel || clienteSel.id === '__sem__' || !empresaId) {
       setPacotesClienteAtivos([]); setEstadoPacotes('ok'); return;
@@ -504,7 +508,7 @@ function NovaComandaScreen() {
     carregarCandidatosVinculo(supabase, empresaId, clienteSel.id)
       .then(rows => {
         if (!vivo) return;
-        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, hojeBRT()));
+        setPacotesClienteAtivos(calcularPacotesAtivosCliente(rows, diaComanda));
         setEstadoPacotes('ok');
       })
       .catch(e => {
@@ -514,7 +518,7 @@ function NovaComandaScreen() {
         Alert.alert('Erro', mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [clienteSel?.id, empresaId, recargaPacotes]);
+  }, [clienteSel?.id, empresaId, recargaPacotes, diaComanda]);
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) hoje */
   const totalDia = useMemo(
@@ -1085,7 +1089,7 @@ function NovaComandaScreen() {
     // Receita, comissão, taxas de cartão e alerta de comandas abertas mudaram: atualiza tudo.
     invalidarFinanceiro(qc);
     invalidarEstoque();
-    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    invalidarAgenda(qc);
     carregarBacklog();
     carregarDia();
     setComandaExistenteId(null);
@@ -1174,7 +1178,7 @@ function NovaComandaScreen() {
     // Receita, comissão e alerta de comandas abertas mudaram: atualiza todas as telas.
     invalidarFinanceiro(qc);
     invalidarEstoque();
-    qc.invalidateQueries({ queryKey: ['agenda-dia'] });
+    invalidarAgenda(qc);
     carregarBacklog();
     // Valor cobrado, vínculo de pacote, status E comanda_id — senão o atendimento
     // continua listado como aberto (e o "Total do dia" usa o valor antigo).
@@ -2187,6 +2191,15 @@ function NovaComandaScreen() {
                 <TouchableOpacity onPress={() => setRecargaPacotes(n => n + 1)} activeOpacity={0.7} style={{ marginTop: 4 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
                     Tentar de novo
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {bloqueioCargaPacote && estadoPacotes === 'erro' && (
+                <TouchableOpacity
+                  onPress={() => { atendimentosVinculados(itens, pacoteLinks).forEach(id => desvincularPacote(id)); }}
+                  activeOpacity={0.7} style={{ marginTop: 6 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red, textDecorationLine: 'underline' }}>
+                    {ROTULO_DESVINCULAR_TODOS}
                   </Text>
                 </TouchableOpacity>
               )}

@@ -37,8 +37,9 @@ import { FaixaSemana } from '@/components/agenda/FaixaSemana';
 import { VisaoMes } from '@/components/agenda/VisaoMes';
 import { AlternarVisao, type VisaoAgenda } from '@/components/agenda/AlternarVisao';
 import {
-  agruparPorHora, bloqueiosPorHora, dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana,
+  agruparPorHora, bloqueiosPorHora, dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana, continuacoesPorHora,
 } from '@shared/agenda-grade';
+import { ContinuacaoAtendimento } from '@/components/agenda/ContinuacaoAtendimento';
 import { formatarMoeda } from '@shared/moeda';
 import { comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
 import { fundoCategoriaNoTema } from '@shared/tema';
@@ -218,6 +219,8 @@ function AgendaProfissional() {
   // O hook já traz só os bloqueios dela e os gerais.
   const horas = horasDaJanela(janelaDoDia(itensDaJanela(dia, agendamentos, bloqueios)));
   const agPorHora: Record<number, AgendamentoCompleto[]> = agruparPorHora(agendamentos);
+  // Atendimentos que começaram antes e ainda estão em andamento em cada hora.
+  const contPorHora = continuacoesPorHora(agendamentos, dia, horas);
   // Um bloqueio ocupa todas as horas que cruza no dia (em Brasília).
   const bloqPorHora = bloqueiosPorHora(bloqueios, dia, horas);
 
@@ -367,6 +370,7 @@ function AgendaProfissional() {
 
           {horas.map((hora) => {
             const ags = agPorHora[hora] ?? [];
+            const conts = contPorHora[hora] ?? [];
             return (
               <View key={hora} style={{ flexDirection: 'row', gap: 12, minHeight: 64 }}>
                 <View style={{ minWidth: 44, alignItems: 'flex-end' }}>
@@ -378,10 +382,19 @@ function AgendaProfissional() {
                   <View style={{ height: 1, backgroundColor: C.linha, marginBottom: 6 }} />
                   {ags.length > 0
                     ? ags.map((ag, i) => <AgendamentoCard key={ag.id} ag={ag} index={i} />)
-                    : (bloqPorHora[hora]?.length ? null : (
+                    : (bloqPorHora[hora]?.length || conts.length > 0 ? null : (
                         <SlotVazio hora={hora} dia={dia} profissionalId={user?.id ?? ''} />
                       ))
                   }
+                  {conts.map((ag) => (
+                    <ContinuacaoAtendimento
+                      key={`cont-${ag.id}`}
+                      nome={ag.cliente?.nome}
+                      fim={ag.data_hora_fim}
+                      cor={(statusConfig(C)[ag.status] ?? statusConfig(C).agendado).color}
+                      onPress={() => router.push(`/(profissional)/agendamento/${ag.id}` as any)}
+                    />
+                  ))}
                   {(bloqPorHora[hora] ?? []).map((b) => {
                     // Nesta tela o papel é sempre profissional: só o próprio pedido pendente ganha o X.
                     const podeRemover = b.situacao === 'pendente' && b.criado_por === user?.id;

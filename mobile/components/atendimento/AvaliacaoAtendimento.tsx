@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, ActivityIndicator } from 'reac
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Star } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
-import { salvarAvaliacao } from '@shared/agenda-consultas';
+import { salvarAvaliacao, carregarAvaliacao } from '@shared/agenda-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 
 const C = {
@@ -29,15 +29,8 @@ export function AvaliacaoAtendimento({ empresaId, agendamentoId, clienteId }: {
   const { data: existente, isLoading, error: erroCarga } = useQuery({
     queryKey: ['avaliacao-atendimento', agendamentoId],
     staleTime: 1000 * 30,
-    queryFn: async (): Promise<AvaliacaoExistente> => {
-      const { data, error } = await supabase
-        .from('avaliacoes')
-        .select('nota, comentario')
-        .eq('agendamento_id', agendamentoId)
-        .maybeSingle();
-      if (error) throw new Error(mensagemErroBanco(error, 'carregar a avaliação'));
-      return (data as AvaliacaoExistente) ?? null;
-    },
+    queryFn: (): Promise<AvaliacaoExistente> =>
+      carregarAvaliacao(supabase as unknown as Parameters<typeof carregarAvaliacao>[0], agendamentoId),
   });
 
   const [nota, setNota] = useState(0);

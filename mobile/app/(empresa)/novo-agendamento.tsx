@@ -44,6 +44,7 @@ import {
 } from '@shared/agenda';
 import { bloqueioEmConflito, type BlocoParaChecagem } from '@shared/bloqueios';
 import { podeMexerNoAgendamento } from '@shared/agendamentos';
+import { invalidarAgenda as invalidarChavesAgenda } from '@shared/agenda-consultas';
 import {
   chaveDiaBRT, horaBRT, hojeBRT, instanteMs, limitesDias, diaDaSemana,
   DIAS_SEMANA_ABREV, rotuloMesAno, rotuloDiaCurto,
@@ -379,7 +380,7 @@ export default function NovoAgendamento() {
     carregarCandidatosVinculo(supabase, empresaId, clienteId)
       .then(rows => {
         if (!vivo) return;
-        const opts = calcularPacotesAtivosCliente(rows, hojeBRT());
+        const opts = calcularPacotesAtivosCliente(rows, dataChave);
         setPacotesCliente(opts);
         setErroPacotes('');
         // Na edição, o pacote já vinculado ao atendimento nunca é desvinculado em silêncio. O pacote
@@ -394,7 +395,7 @@ export default function NovoAgendamento() {
         setErroPacotes(mensagemErroBanco(e as { code?: string; message?: string }, 'carregar os pacotes da cliente'));
       });
     return () => { vivo = false; };
-  }, [clienteSelecionado?.id, empresaId, agEdit?.pacote_cliente_id, recargaPacotes]);
+  }, [clienteSelecionado?.id, empresaId, agEdit?.pacote_cliente_id, recargaPacotes, dataChave]);
 
   // A7: o pacote só vale se cobrir TODOS os serviços escolhidos. Sem serviço escolhido ainda, todos
   // aparecem (escolher o pacote preenche os serviços). O pacote já vinculado na edição (e o vendido
@@ -766,8 +767,7 @@ export default function NovoAgendamento() {
   }
 
   function invalidarAgenda(agId: string) {
-    queryClient.invalidateQueries({ queryKey: ['agenda-dia'] });
-    queryClient.invalidateQueries({ queryKey: ['dias-agendados'] });
+    invalidarChavesAgenda(queryClient);
     queryClient.invalidateQueries({ queryKey: ['agendar-janela'] });
     queryClient.invalidateQueries({ queryKey: ['agendamento', agId] });
     queryClient.invalidateQueries({ queryKey: ['agendamento-editar'] });
