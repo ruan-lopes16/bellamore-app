@@ -10,6 +10,7 @@ import {
 } from '@/components/CategoriaIcon';
 import { createClient } from '@/lib/supabase/client';
 import { mensagemErroBanco } from '@shared/erros';
+import { buscarTodasPaginas } from '@shared/paginacao';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -120,10 +121,16 @@ function ServicoModal({ empresaId, state, customs, onClose, onSalvo, onCustomCri
   useEffect(() => {
     (async () => {
       // Busca produtos da empresa para o select
-      const { data: prods, error: errProds } = await supabase.from('produtos').select('id, nome, unidade')
-        .eq('empresa_id', empresaId).eq('ativo', true).order('nome');
+      // Paginado (o PostgREST corta em 1000 linhas); erro de qualquer página avisa e não deixa lista parcial calada.
+      let errProds: { message?: string } | null = null;
+      const prods = await buscarTodasPaginas<{ id: string; nome: string; unidade: string }>(async (de, ate) => {
+        const r = await supabase.from('produtos').select('id, nome, unidade')
+          .eq('empresa_id', empresaId).eq('ativo', true).order('nome').order('id').range(de, ate);
+        if (r.error) errProds = r.error;
+        return r;
+      });
       if (errProds) setErro(mensagemErroBanco(errProds, 'carregar os produtos'));
-      setProdutos((prods ?? []) as { id: string; nome: string; unidade: string }[]);
+      setProdutos(prods);
 
       // Busca insumos já vinculados (só no modo editar)
       if (editando) {

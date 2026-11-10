@@ -83,6 +83,15 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
     });
   }
 
+  /** Com rascunho não salvo, trocar de aba ou de pessoa pede confirmação; "Descartar" zera o rascunho. */
+  function comConfirmacaoDeDescarte(acao: () => void) {
+    if (mudancas.length === 0) { acao(); return; }
+    Alert.alert('Descartar as alterações não salvas?', undefined, [
+      { text: 'Continuar editando', style: 'cancel' },
+      { text: 'Descartar', style: 'destructive', onPress: () => { setRascunho({}); acao(); } },
+    ]);
+  }
+
   async function salvar() {
     setSalvando(true);
     const { error } = await salvarPermissoes(supabase, empresaId, mudancas);
@@ -104,7 +113,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
       <SmoothTabs
         tabs={[{ key: 'papel', label: 'Por papel' }, { key: 'pessoa', label: 'Por pessoa' }, { key: 'historico', label: 'Histórico' }]}
         active={sub}
-        onChange={(k: string) => setSub(k as SubAba)}
+        onChange={(k: string) => { if (k !== sub) comConfirmacaoDeDescarte(() => setSub(k as SubAba)); }}
       />
 
       {sub === 'papel' && (
@@ -147,7 +156,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
             const n = contarExcecoes(visivel, m.user_id);
             const ativo = m.user_id === membroSel;
             return (
-              <Pressable key={m.user_id} onPress={() => setMembroSel(m.user_id)}
+              <Pressable key={m.user_id} onPress={() => { if (m.user_id !== membroSel) comConfirmacaoDeDescarte(() => setMembroSel(m.user_id)); }}
                 style={{ paddingVertical: 10, paddingHorizontal: 12, marginTop: 6, borderRadius: 12, borderWidth: 1, borderColor: ativo ? C.primary : C.border }}>
                 <Text style={{ fontFamily: F.s, fontSize: 14, color: C.text }}>{m.nome}</Text>
                 <Text style={{ fontFamily: F.r, fontSize: 11, color: C.text4 }}>
@@ -156,6 +165,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
               </Pressable>
             );
           })}
+          {!membroAtual && editaveis.length > 0 && <Text style={{ fontFamily: F.r, fontSize: 13, color: C.text3, marginTop: 8 }}>Escolha uma pessoa para ver e ajustar as permissões dela.</Text>}
           {editaveis.length === 0 && <Text style={{ fontFamily: F.r, fontSize: 13, color: C.text3, marginTop: 8 }}>Ninguém da equipe que você possa ajustar individualmente.</Text>}
           {membroAtual && membroAtual.role !== 'owner' && GRUPOS_PERMISSAO.map(g => (
             <View key={g}>

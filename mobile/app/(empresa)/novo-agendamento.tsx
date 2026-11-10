@@ -954,7 +954,7 @@ export default function NovoAgendamento() {
                           {p.nome}
                         </Text>
                         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: ativo ? C.primary : C.text4 }}>
-                          {p.restantes == null ? 'ilimitado' : `${p.restantes} rest.`}
+                          {p.saldoTexto}
                         </Text>
                         {ativo && <Check size={12} color={C.primary} strokeWidth={2.5} />}
                       </TouchableOpacity>

@@ -5,7 +5,7 @@ import { MailQuestion, X } from 'lucide-react-native';
 
 import { supabase } from '@/lib/supabase';
 import {
-  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe, podeCancelarConvite,
+  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe, cursorHistoricoEquipe, podeCancelarConvite,
   type ConvitePendente,
 } from '@shared/convites-consultas';
 import {
@@ -141,7 +141,7 @@ export function HistoricoEquipeSecao({ empresaId, nomes }: { empresaId: string; 
     queryKey: ['equipe-historico', empresaId],
     staleTime: 1000 * 30,
     queryFn: async () => {
-      const primeira = await carregarHistoricoEquipe(supabase, empresaId, 0);
+      const primeira = await carregarHistoricoEquipe(supabase, empresaId);
       setExtras({ linhas: [], temMais: false, paginas: 0 });
       setErroMais('');
       return primeira;
@@ -154,7 +154,7 @@ export function HistoricoEquipeSecao({ empresaId, nomes }: { empresaId: string; 
     setErroMais('');
     try {
       const prox = extras.paginas + 1;
-      const r = await carregarHistoricoEquipe(supabase, empresaId, prox);
+      const r = await carregarHistoricoEquipe(supabase, empresaId, cursorHistoricoEquipe([...(data?.linhas ?? []), ...extras.linhas]));
       setExtras((a) => ({ linhas: [...a.linhas, ...r.linhas], temMais: r.temMais, paginas: prox }));
     } catch (e) {
       setErroMais(e instanceof Error ? e.message : 'Não foi possível carregar mais.');

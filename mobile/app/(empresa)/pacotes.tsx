@@ -51,7 +51,7 @@ import { definicaoPacotesCatalogo, definicaoPacotesVendidos, definicaoPacotesUti
 import { formatarMoeda } from '@shared/moeda';
 import { mensagemErroBanco } from '@shared/erros';
 import {
-  rotuloValidade, totalSessoes, filtrarVendidos, rotuloStatusVendido, estaACobrar, textoExcluirVendido,
+  rotuloValidade, totalSessoes, podeExcluirPacoteVendido, resumoSaldoPacote, filtrarVendidos, rotuloStatusVendido, estaACobrar, textoExcluirVendido,
   MSG_SESSOES_USADAS, MSG_EXCLUSAO_SEM_096, TITULO_EXCLUIR_VENDIDO, type FiltroVendidos,
   TITULO_EXCLUIR_SESSAO, textoExcluirSessao, textoVendidosVazio,
 } from '@shared/pacotes';
@@ -271,7 +271,7 @@ function VendidoCard({ v, podeExcluir, podeMarcarCombo, onGerenciar, onExcluir, 
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3 }}>  sessões</Text>
             </Text>
             {ilimitado && v.statusExibido === 'ativo' ? (
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.primary }}>Ilimitado</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.primary }}>{resumoSaldoPacote(v.pacote.servicos, v.usadas).texto}</Text>
             ) : restantes !== null && restantes > 0 && v.statusExibido === 'ativo' ? (
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 }}>
                 {restantes} restante{restantes !== 1 ? 's' : ''}
@@ -717,12 +717,13 @@ function SessoesModal({ pc, empresaId, podeLancarAvulsa, vincularDeOutras, onClo
 export default function Pacotes() {
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
-  const { pode } = usePermissoes();
+  const { pode, isOwner, papel } = usePermissoes();
   const empresaId = empresaAtiva?.id;
   const podeGerenciarCatalogo = pode('pacotes.gerenciar');
   const podeVender = pode('pacotes.vender');
   // Pacote vendido (excluir, combo, sessões): regra única de shared, igual à RLS (093/096).
-  const acoesVendido = acoesPacoteVendido(pode);
+  // B11: "Excluir" também para gestora/dona (o banco aceita `pacotes.vender` OU gestora/dona, 100).
+  const acoesVendido = { ...acoesPacoteVendido(pode), excluir: podeExcluirPacoteVendido(podeVender, isOwner ? 'owner' : papel) };
   const qc = useQueryClient();
 
   const [aba, setAba] = useState<'catalogo' | 'vendidos' | 'relatorio'>('catalogo');

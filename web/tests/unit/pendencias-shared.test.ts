@@ -15,7 +15,7 @@ import { calcularKpisFinanceiros, DADOS_VAZIOS } from '@shared/kpis-financeiros'
 import { limitesMes } from '@shared/periodos';
 
 const pac = (id: string, servicos: string[]): PacoteClienteOpt => ({
-  id, nome: id, total: 5, usadas: 0, restantes: 5, servicos: servicos.map(s => ({ servico_id: s })), sessoes: [],
+  id, nome: id, total: 5, usadas: 0, restantes: 5, servicos: servicos.map(s => ({ servico_id: s })), saldoTexto: '5 de 5 restantes', sessoes: [],
 });
 
 describe('pacoteCobreAtendimento / pacotesDoAtendimento (A7)', () => {

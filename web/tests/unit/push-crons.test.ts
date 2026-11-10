@@ -442,9 +442,22 @@ describe('executarCronResumo', () => {
     const { db } = cenarioResumo({ permMembro: { data: null, error: { code: '57014', message: 'timeout' } } });
     const { fn, chamadas } = fetchExpo();
     await executarCronResumo({ db, hoje: '2026-10-28', enviarWeb: vi.fn(async () => ({})), fetchFn: fn });
-    expect(corpoPara(chamadas, 'gest')).toBe('📅 2 atendimentos hoje');
+    // Sem ler as permissões a gestora cai na visão pessoal (0 atendimentos dela): nada a reportar.
+    expect(corpoPara(chamadas, 'gest')).toBeUndefined();
     expect(corpoPara(chamadas, 'dona')).toContain('despesa');
     erro.mockRestore();
+  });
+
+  it('B9: gestora sem agenda.ver_equipe recebe só os próprios números; profissional com a exceção recebe os da empresa', async () => {
+    const { db } = cenarioResumo({
+      permPapel: { data: [{ papel: 'gestor', chave: 'agenda.ver_equipe', permitido: false }], error: null },
+      permMembro: { data: [{ user_id: 'prof', chave: 'agenda.ver_equipe', permitido: true }], error: null },
+    });
+    const { fn, chamadas } = fetchExpo();
+    await executarCronResumo({ db, hoje: '2026-10-28', enviarWeb: vi.fn(async () => ({})), fetchFn: fn });
+    expect(corpoPara(chamadas, 'gest')).toBe('💰 1 despesa vencendo hoje\n📦 2 produtos com estoque baixo'); // sem atendimentos da empresa
+    expect(corpoPara(chamadas, 'prof')).toBe('📅 2 atendimentos hoje');
+    expect(corpoPara(chamadas, 'dona')).toContain('2 atendimentos');
   });
 
   it('grava a notificação com o mesmo texto do push e só da empresa', async () => {

@@ -39,7 +39,7 @@ import { Secret, PrivacyToggle } from '@/components/privacy';
 import { SearchSelect } from '@/components/SearchSelect';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import {
-  fmtTaxa, valorLiquido, configIndisponivel, AVISO_CARTOES_SEM_TAXA, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas,
+  fmtTaxa, valorLiquido, configIndisponivel, AVISO_CARTOES_SEM_TAXA, maquininhaPadrao, opcoesMaquininha, bandeirasAtivas,
   nomeBandeira, parcelasDisponiveis, type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
@@ -680,14 +680,17 @@ export default function VendasPage() {
                             <X size={12}/>
                           </button>
                         </div>
-                        {isCard && maquininhasAtivas(config).length >= 2 && (
+                        {isCard && opcoesMaquininha(config, maquininhaDoSplit(sp)?.id).textoUnica && (
+                          <span className="text-xs text-text-3">{opcoesMaquininha(config, maquininhaDoSplit(sp)?.id).textoUnica}</span>
+                        )}
+                        {isCard && opcoesMaquininha(config, maquininhaDoSplit(sp)?.id).mostrarSeletor && (
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-text-3 flex-shrink-0">Maquininha:</span>
                             <select
                               value={maquininhaDoSplit(sp)?.id ?? ''}
                               onChange={e => atualizarSplitMaquininha(i, e.target.value)}
                               className="h-7 px-2 rounded-lg border border-border/60 bg-surface text-xs font-semibold text-text-2 focus:outline-none focus:border-accent transition">
-                              {maquininhasAtivas(config).map(mq => <option key={mq.id} value={mq.id}>{mq.nome}</option>)}
+                              {opcoesMaquininha(config, maquininhaDoSplit(sp)?.id).opcoes.map(mq => <option key={mq.id} value={mq.id}>{mq.rotulo}</option>)}
                             </select>
                           </div>
                         )}

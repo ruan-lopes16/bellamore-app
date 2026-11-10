@@ -25,7 +25,7 @@ import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { mensagemCadastroEquipe } from '@/lib/convites-web';
 import {
-  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe, podeCancelarConvite,
+  carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe, cursorHistoricoEquipe, podeCancelarConvite,
   type ConvitePendente,
 } from '@shared/convites-consultas';
 import {
@@ -773,11 +773,11 @@ export default function EquipePage() {
   const veHistorico = (podeEquipe || isOwner) && histDisponivel;
 
   /** Uma página do histórico (0 = recarrega do início); só a última requisição aplica o resultado. */
-  async function carregarHistorico(empId: string, pagina: number) {
+  async function carregarHistorico(empId: string, pagina: number, cursor: ReturnType<typeof cursorHistoricoEquipe> = null) {
     const minha = ++histReq.current;
     setHistCarregando(true); setHistErro('');
     try {
-      const r = await carregarHistoricoEquipe(supabase, empId, pagina);
+      const r = await carregarHistoricoEquipe(supabase, empId, cursor);
       if (minha !== histReq.current) return;
       setHistDisponivel(r.disponivel);
       setHistPagina(pagina);
@@ -1012,7 +1012,7 @@ export default function EquipePage() {
       {aba === 'historico' && veHistorico ? (
         <HistoricoEquipePainel
           linhas={historico} profs={profs} carregando={histCarregando} erro={histErro} temMais={histTemMais}
-          onMais={() => empresaId && carregarHistorico(empresaId, histPagina + 1)}
+          onMais={() => empresaId && carregarHistorico(empresaId, histPagina + 1, cursorHistoricoEquipe(historico))}
           onTentar={() => empresaId && carregarHistorico(empresaId, 0)}/>
       ) : (<>
       {veConvites && convites.length > 0 && (

@@ -34,6 +34,8 @@ export type PacoteClienteOpt = {
   usadas: number;
   restantes: number | null;  // null = ilimitado
   servicos: { servico_id: string }[];
+  /** Texto do saldo (C9): "Ilimitado", "N de T restantes" ou misto. Seletores da Comanda e da Agenda mostram este texto. */
+  saldoTexto: string;
   sessoes: PacoteSessaoFeita[];
 };
 
@@ -191,6 +193,7 @@ export function calcularPacotesAtivosCliente(
         usadas,
         restantes,
         servicos: servicosPac.map(s => ({ servico_id: s.servico_id })),
+        saldoTexto: resumoSaldoPacote(servicosPac, usadas).texto,
         sessoes,
       };
     })
@@ -239,6 +242,38 @@ export function saldoSessoes(
     const usadas = usos.filter(u => u.servico_id === i.servico_id).length;
     return { servico_id: i.servico_id, total, usadas, restantes: total == null ? null : Math.max(0, total - usadas) };
   });
+}
+
+/**
+ * Quem vê "Excluir" num pacote vendido (B11). Igual ao banco (100): `pacotes.vender` OU gestora/dona.
+ * Vender continua só com `pacotes.vender`.
+ */
+export function podeExcluirPacoteVendido(podeVender: boolean, papel: 'owner' | 'gestor' | 'profissional' | null): boolean {
+  return podeVender || papel === 'owner' || papel === 'gestor';
+}
+
+/**
+ * Resumo do saldo de um pacote vendido (C9). `servicos` = itens do pacote (`quantidade` null = ilimitado);
+ * `usadas` = sessões já usadas (linhas de pacote_uso, qualquer serviço — mesma conta do trigger).
+ * - tudo ilimitado: "Ilimitado";
+ * - tudo limitado: "N de T restantes";
+ * - misto: "N de T restantes + ilimitado em K serviço(s)" (T = só os limitados; o ilimitado nunca esgota).
+ * `restantes` = null quando tudo é ilimitado.
+ */
+export function resumoSaldoPacote(
+  servicos: { servico_id: string; quantidade: number | null }[], usadas: number,
+): { texto: string; ilimitado: boolean; restantes: number | null } {
+  const limitados = servicos.filter(s => s.quantidade != null);
+  const nIlimitados = servicos.length - limitados.length;
+  if (nIlimitados > 0 && limitados.length === 0) return { texto: 'Ilimitado', ilimitado: true, restantes: null };
+  const total = limitados.reduce((a, s) => a + (s.quantidade as number), 0);
+  const restantes = Math.max(0, total - usadas);
+  const base = `${restantes} de ${total} restantes`;
+  if (nIlimitados === 0) return { texto: base, ilimitado: false, restantes };
+  return {
+    texto: `${base} + ilimitado em ${nIlimitados} ${nIlimitados === 1 ? 'serviço' : 'serviços'}`,
+    ilimitado: false, restantes,
+  };
 }
 
 /** Status exibido de um pacote vendido. */

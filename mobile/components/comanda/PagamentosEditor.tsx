@@ -15,7 +15,7 @@ import { View, Text, ScrollView, TouchableOpacity, TextInput } from 'react-nativ
 import { Check, X } from 'lucide-react-native';
 import { parseValorBR, taxaDoSplit, type SplitPagamento } from '@shared/comanda-fechamento';
 import {
-  fmtTaxa, valorLiquido, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
+  fmtTaxa, valorLiquido, maquininhaPadrao, opcoesMaquininha, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
   type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { formatarMoeda } from '@shared/moeda';
@@ -131,15 +131,18 @@ export default function PagamentosEditor<S extends SplitEditavel>({
                     <X size={14} color={CL.text4} />
                   </TouchableOpacity>
                 </View>
-                {isCard && maquininhasAtivas(config).length >= 2 && (
+                {isCard && opcoesMaquininha(config, maq?.id).textoUnica && (
+                  <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: CL.text3 }}>
+                    {opcoesMaquininha(config, maq?.id).textoUnica}
+                  </Text>
+                )}
+                {isCard && opcoesMaquininha(config, maq?.id).mostrarSeletor && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: CL.text3 }}>Maquininha:</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                       {(() => {
-                        // Maquininha gravada que foi desativada continua visível no pagamento reaberto
-                        const ativas = maquininhasAtivas(config);
-                        const lista = maq && !ativas.some(x => x.id === maq.id) ? [...ativas, maq] : ativas;
-                        return lista.map(mq => {
+                        // Maquininha gravada que foi desativada continua visível, marcada "(desativada)", no pagamento reaberto
+                        return opcoesMaquininha(config, maq?.id).opcoes.map(mq => {
                           const ativa = maq?.id === mq.id;
                           return (
                             <TouchableOpacity key={mq.id} onPress={() => atualizarSplitMaquininha(i, mq.id)}
@@ -148,7 +151,7 @@ export default function PagamentosEditor<S extends SplitEditavel>({
                                 paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1,
                                 borderColor: ativa ? m.cor : CL.border, backgroundColor: ativa ? CL.surface : 'transparent',
                               }}>
-                              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{mq.nome}</Text>
+                              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: m.cor }}>{mq.rotulo}</Text>
                             </TouchableOpacity>
                           );
                         });

@@ -16,7 +16,7 @@ describe('calcularPacotesAtivosCliente', () => {
     const r = calcularPacotesAtivosCliente([raw({})], '2026-09-22');
     expect(r).toEqual([{
       id: 'pc1', nome: 'Pacote X', total: 10, usadas: 0, restantes: 10,
-      servicos: [{ servico_id: 's1' }], sessoes: [],
+      servicos: [{ servico_id: 's1' }], saldoTexto: '10 de 10 restantes', sessoes: [],
     }]);
   });
 

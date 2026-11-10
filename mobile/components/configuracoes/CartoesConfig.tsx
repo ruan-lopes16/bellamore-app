@@ -13,7 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { usePermissoes } from '@/lib/permissions';
 import { mensagemErroBanco } from '@shared/erros';
 import {
-  MAX_PARCELAS, bandeirasAtivas, bandeirasComExcecao, campoParaTaxa, chaveBandeira, descartarExcecoesRedundantes,
+  MAX_PARCELAS, bandeirasAtivas, bandeirasComExcecao, campoParaTaxa, chaveBandeira, descartarExcecoesRedundantes, propagarPadraoParaExcecoes, avisoExcecoesAcompanharam,
   gradeParaTaxas, maquininhaPadrao, maquininhasAtivas, mascararPercentual, resumoMaquininha, taxasParaGrade, validarTabela,
   type BandeiraCartao, type ConfigCartoes, type GradeTaxas, type Maquininha, type ResumoTaxas, type TaxaLinha,
 } from '@shared/taxas-cartao';
@@ -131,6 +131,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
   const [config, setConfig] = useState<ConfigCartoes | null>(null);
   const [erroCarga, setErroCarga] = useState('');
   const [erro, setErro] = useState('');
+  const [aviso, setAviso] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [erroEditor, setErroEditor] = useState('');
@@ -228,22 +229,25 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
     }
     const linhasPadrao = gradeParaTaxas(editor.padraoGrade, null, max, true);
     if (!linhasPadrao) { setErroEditor('Preencha todas as taxas da tabela padrão (entre 0% e 20%)'); return; }
-    const linhas: TaxaLinha[] = [...linhasPadrao];
+    const excecoesLinhas: TaxaLinha[] = [];
     for (const [bid, g] of Object.entries(editor.excecoes)) {
       const campos = [g.debito, ...g.credito.slice(0, max)].filter(c => c.trim() !== '');
       if (campos.some(c => campoParaTaxa(c) === null)) { setErroEditor('As taxas das exceções precisam ficar entre 0% e 20%'); return; }
-      linhas.push(...(gradeParaTaxas(g, bid, max, false) ?? []));
+      excecoesLinhas.push(...(gradeParaTaxas(g, bid, max, false) ?? []));
     }
-    const taxas = descartarExcecoesRedundantes(linhas);
+    // Exceção que tinha o mesmo valor da padrão antiga acompanha a nova (C10).
+    const prop = propagarPadraoParaExcecoes(editor.originais, linhasPadrao, excecoesLinhas);
+    const taxas = descartarExcecoesRedundantes([...linhasPadrao, ...prop.excecoes]);
     const invalida = validarTabela({ maxParcelas: max, taxas });
     if (invalida) { setErroEditor(invalida); return; }
-    setOcupado(true); setErroEditor('');
+    setOcupado(true); setErroEditor(''); setAviso('');
     try {
       await salvarMaquininha(supabase, empresaId, {
         id: editor.id, nome, maxParcelas: max, ativa: editor.ativa, padrao: editor.padrao, ordem: editor.ordem, taxas,
       }, editor.originais);
       setEditor(null);
       await recarregar();
+      setAviso(prop.acompanharam > 0 ? avisoExcecoesAcompanharam(prop.acompanharam) : '');
     } catch (e) {
       setErroEditor(msgErro(e, 'salvar a maquininha'));
       // Maquininha nova criada antes de uma falha parcial: adota o id para o retry atualizar em vez de duplicar.
@@ -341,6 +345,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
       {cfg.legado && <Text style={{ fontFamily: F.s, fontSize: 12, color: C.text3 }}>Disponível após a atualização do sistema</Text>}
       {!cfg.legado && !podeEditar && <Text style={{ fontFamily: F.s, fontSize: 12, color: C.text3 }}>Você pode consultar, mas não editar as taxas.</Text>}
       {!!erro && <Text style={{ fontFamily: F.m, fontSize: 13, color: C.red }}>{erro}</Text>}
+      {!!aviso && <Text style={{ fontFamily: F.m, fontSize: 13, color: C.text2 }}>{aviso}</Text>}
 
       {/* Maquininhas */}
       <View style={{ gap: 10 }}>

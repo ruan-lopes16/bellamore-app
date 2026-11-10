@@ -57,7 +57,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
-  fmtTaxa, valorLiquido, configIndisponivel, AVISO_CARTOES_SEM_TAXA, maquininhasAtivas, maquininhaPadrao, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
+  fmtTaxa, valorLiquido, configIndisponivel, AVISO_CARTOES_SEM_TAXA, maquininhaPadrao, opcoesMaquininha, bandeirasAtivas, nomeBandeira, parcelasDisponiveis,
   type ConfigCartoes,
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes } from '@shared/taxas-cartao-consultas';
@@ -2049,7 +2049,7 @@ export default function ComandaPage() {
                           return (
                             <div className="mt-2">
                               <SearchSelect
-                                options={elegiveis.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
+                                options={elegiveis.map(p => ({ value: p.id, label: p.nome, sub: p.saldoTexto }))}
                                 value=""
                                 onChange={id => vincularPacote(agendamentoId, id)}
                                 placeholder="Vincular a sessão de pacote..."
@@ -2193,7 +2193,10 @@ export default function ComandaPage() {
                                 <X size={13}/>
                               </button>
                             </div>
-                            {isCard && maquininhasAtivas(config).length >= 2 && (
+                            {isCard && opcoesMaquininha(config, maquininhaDoSplit(s)?.id).textoUnica && (
+                              <span className="text-xs text-text-3">{opcoesMaquininha(config, maquininhaDoSplit(s)?.id).textoUnica}</span>
+                            )}
+                            {isCard && opcoesMaquininha(config, maquininhaDoSplit(s)?.id).mostrarSeletor && (
                               <div className="flex items-center gap-2">
                                 <span className="text-xs text-text-3 flex-shrink-0">Maquininha:</span>
                                 <select
@@ -2201,13 +2204,8 @@ export default function ComandaPage() {
                                   onChange={e => atualizarSplitMaquininha(i, e.target.value)}
                                   className="h-7 px-2 rounded-lg border border-border/50 bg-surface text-xs font-semibold focus:outline-none focus:border-accent transition"
                                   style={{ color: m.cor }}>
-                                  {(() => {
-                                    // Maquininha gravada que foi desativada continua visível no pagamento reaberto
-                                    const ativas = maquininhasAtivas(config);
-                                    const atual = maquininhaDoSplit(s);
-                                    const lista = atual && !ativas.some(x => x.id === atual.id) ? [...ativas, atual] : ativas;
-                                    return lista.map(mq => <option key={mq.id} value={mq.id}>{mq.nome}</option>);
-                                  })()}
+                                  {/* Maquininha gravada que foi desativada continua visível, marcada "(desativada)", no pagamento reaberto */}
+                                  {opcoesMaquininha(config, maquininhaDoSplit(s)?.id).opcoes.map(mq => <option key={mq.id} value={mq.id}>{mq.rotulo}</option>)}
                                 </select>
                               </div>
                             )}

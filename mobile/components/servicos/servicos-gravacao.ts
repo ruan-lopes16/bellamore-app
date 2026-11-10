@@ -5,6 +5,7 @@
  */
 import { supabase } from '@/lib/supabase';
 import { mensagemErroBanco } from '@shared/erros';
+import { buscarTodasPaginas } from '@shared/paginacao';
 import { mapearInsumosCarregados, SELECT_INSUMOS_SERVICO, type InsumoItem } from '@shared/servicos-consultas';
 import type { CategoriaCustom } from '@shared/categorias';
 
@@ -30,10 +31,16 @@ export async function carregarCategorias(empresaId: string): Promise<Resultado<C
 
 /** Produtos ativos da empresa, para o seletor de insumos. */
 export async function carregarProdutosInsumo(empresaId: string): Promise<Resultado<ProdutoInsumo[]>> {
-  const { data, error: errProd } = await supabase.from('produtos').select('id, nome, unidade')
-    .eq('empresa_id', empresaId).eq('ativo', true).order('nome');
+  // Paginado (o PostgREST corta em 1000 linhas); erro em qualquer página vira erro, nunca lista parcial.
+  let errProd: { message?: string } | null = null;
+  const data = await buscarTodasPaginas<ProdutoInsumo>(async (de, ate) => {
+    const r = await supabase.from('produtos').select('id, nome, unidade')
+      .eq('empresa_id', empresaId).eq('ativo', true).order('nome').order('id').range(de, ate);
+    if (r.error) errProd = r.error;
+    return r;
+  });
   if (errProd) return { dados: null, erro: mensagemErroBanco(errProd, 'carregar os produtos') };
-  return { dados: (data ?? []) as ProdutoInsumo[], erro: null };
+  return { dados: data, erro: null };
 }
 
 /** Serviço a editar, já com os insumos vinculados. */

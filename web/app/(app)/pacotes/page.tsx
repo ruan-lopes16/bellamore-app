@@ -40,7 +40,7 @@ import {
 } from '@shared/pacotes-consultas';
 import { excluirPacoteCliente, excluirVendaPacotes, MSG_VENDA_VARIOS_PACOTES, ErroPacote, SemMigration096, MSG_VENDIDO_A_COBRAR } from '@shared/pacotes-venda';
 import {
-  rotuloValidade, saldoSessoes, statusPacoteCliente, totalSessoes, filtrarVendidos, rotuloStatusVendido, estaACobrar,
+  rotuloValidade, saldoSessoes, podeExcluirPacoteVendido, resumoSaldoPacote, statusPacoteCliente, totalSessoes, filtrarVendidos, rotuloStatusVendido, estaACobrar,
   textoExcluirVendido, MSG_SESSOES_USADAS, MSG_EXCLUSAO_SEM_096, TITULO_EXCLUIR_VENDIDO, type FiltroVendidos, type StatusPacoteCliente,
   textoVendidosVazio,
 } from '@shared/pacotes';
@@ -93,11 +93,12 @@ export default function PacotesPage() {
   const [loading,   setLoading]   = useState(true);
   const [aba,       setAba]       = useState<'catalogo' | 'vendidos' | 'relatorio'>('catalogo');
 
-  const { pode } = usePermissoes();
+  const { pode, isOwner, papel } = usePermissoes();
   const podeGerenciarCatalogo = pode('pacotes.gerenciar');
   const podeVender = pode('pacotes.vender');
   // Pacote vendido (excluir, combo, sessões): regra única de shared, igual à RLS (093/096).
-  const acoesVendido = acoesPacoteVendido(pode);
+  // B11: "Excluir" também para gestora/dona (o banco aceita `pacotes.vender` OU gestora/dona, 100).
+  const acoesVendido = { ...acoesPacoteVendido(pode), excluir: podeExcluirPacoteVendido(podeVender, isOwner ? 'owner' : papel) };
 
   // Dados (null = não carregou: erro mostra "—", nunca zero)
   const [pacotes,   setPacotes]   = useState<PacoteCatalogo[] | null>(null);
@@ -519,6 +520,7 @@ export default function PacotesPage() {
                 const pct       = v.total != null && v.total > 0 ? (v.usadas / v.total) * 100 : 0;
                 const statusCfg = STATUS_CFG[v.statusExibido];
                 const restantes = v.total != null ? Math.max(0, v.total - v.usadas) : null;
+                const resumo    = resumoSaldoPacote(v.pacote.servicos, v.usadas);
                 const corBarra  = pct >= 100 ? '#16A34A' : pct >= 70 ? '#D97706' : '#7C3AED';
                 const aCobrar   = estaACobrar(v);
 
@@ -566,7 +568,7 @@ export default function PacotesPage() {
                             <span className="text-xs text-text-3 ml-1.5">sessões</span>
                           </div>
                           {ilimitado && v.statusExibido === 'ativo' && (
-                            <span className="text-xs font-semibold text-primary">Ilimitado</span>
+                            <span className="text-xs font-semibold text-primary">{resumo.texto}</span>
                           )}
                           {restantes !== null && restantes > 0 && v.statusExibido === 'ativo' && (
                             <span className="text-xs font-semibold text-text-3">{restantes} restante{restantes !== 1 ? 's' : ''}</span>
