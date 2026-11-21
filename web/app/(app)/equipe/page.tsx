@@ -511,7 +511,14 @@ function ProfCard({ prof, excecoes, visiveis, podeAlterarRole, podeGerenciar, on
     <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', opacity: prof.ativo ? 1 : 0.6, transition: 'opacity 0.2s' }}>
 
       {/* ── Cabeçalho (sempre visível, clicável para expandir) */}
-      <button onClick={() => setExpandido(v => !v)}
+      {/* div com papel de botão (não <button>): dentro há o lápis, o telefone e o link de exceções, e
+          botão/link dentro de <button> é HTML inválido (erro de hidratação). Enter/Espaço também expandem. */}
+      <div role="button" tabIndex={0} aria-expanded={expandido}
+        onClick={() => setExpandido(v => !v)}
+        onKeyDown={e => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandido(v => !v); }
+        }}
         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: 20, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
         {/* Avatar */}
         <div style={{ width: 48, height: 48, borderRadius: 16, background: prof.ativo ? `linear-gradient(140deg, oklch(0.55 0.16 ${hue}), oklch(0.42 0.17 ${hue}))` : 'linear-gradient(140deg, #9CA3AF, #6B7280)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }}>
@@ -545,7 +552,7 @@ function ProfCard({ prof, excecoes, visiveis, podeAlterarRole, podeGerenciar, on
               {roleBadge(prof.role).label}
             </span>
             {prof.role !== 'owner' && excecoes > 0 && (
-              <Link href={`/configuracoes?aba=permissoes&membro=${prof.user_id}`}
+              <Link href={`/configuracoes?aba=permissoes&membro=${prof.user_id}`} onClick={e => e.stopPropagation()}
                 className="press inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
                 style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
                 <Shield size={11}/> {excecoes} {excecoes === 1 ? 'exceção' : 'exceções'}
@@ -562,7 +569,7 @@ function ProfCard({ prof, excecoes, visiveis, podeAlterarRole, podeGerenciar, on
         {/* Chevron */}
         <ChevronDown size={16} strokeWidth={2}
           style={{ color: 'var(--color-ink4)', flexShrink: 0, transition: 'transform 0.2s', transform: expandido ? 'rotate(180deg)' : 'rotate(0deg)' }}/>
-      </button>
+      </div>
 
       {/* ── Conteúdo expandido */}
       {expandido && (
