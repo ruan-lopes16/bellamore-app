@@ -314,8 +314,7 @@ export default function RelatoriosPage() {
       setComissoes([]);
       setSumidas(null);
       setHistoricoClientes(new Set());
-      setErroCarga(msg);
-      showErro(msg);
+      setErroCarga(msg); // o banner do topo já mostra o erro geral (sem toast repetido)
     }
     if (req === reqRef.current) setLoading(false);
   }, []);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import { executarCronLembretes } from '@/lib/push/cron-lembretes';
+import { executarCronNotificacoes } from '@/lib/push/cron-notificacoes';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,12 +35,15 @@ export async function GET(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  const { enviados } = await executarCronLembretes({
-    db,
-    agora: new Date(),
-    enviarWeb: (sub, payload) => webpush.sendNotification(sub, payload),
-    expoAccessToken: process.env.EXPO_ACCESS_TOKEN || undefined,
-  });
+  const enviarWeb = (sub: Parameters<typeof webpush.sendNotification>[0], payload: string) =>
+    webpush.sendNotification(sub, payload);
+  const expoAccessToken = process.env.EXPO_ACCESS_TOKEN || undefined;
 
-  return NextResponse.json({ ok: true, enviados });
+  const { enviados } = await executarCronLembretes({ db, agora: new Date(), enviarWeb, expoAccessToken });
+
+  // Push dos avisos de bloqueio de agenda + leitura dos recibos da Expo (migration 102).
+  // Nunca lança; sem a 102 é pulado em silêncio.
+  const bloqueios = await executarCronNotificacoes({ db, agora: new Date(), enviarWeb, expoAccessToken });
+
+  return NextResponse.json({ ok: true, enviados, bloqueios: bloqueios.enviados, recibos: bloqueios.recibos });
 }

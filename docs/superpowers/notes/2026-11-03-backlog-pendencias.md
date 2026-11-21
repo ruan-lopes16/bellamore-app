@@ -34,7 +34,7 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 | ~~B11~~ | ~~Gestora sem `pacotes.vender` não vê "Excluir" pacote~~ — resolvido em 10/11 |
 | B12 | Troca de login sem aviso ao e-mail antigo |
 | ~~B13~~ | ~~Conferências incompletas no banco: `pacote_uso` UPDATE; `pagamentos` com `comanda_id` + `venda_id`; FKs entre empresas nas tabelas de cartão~~ — resolvido em 10/11 (101) |
-| B14 | Push: token compartilhado por 2 contas recebe só o 1º resumo; recibos assíncronos da Expo não são lidos |
+| ~~B14~~ | ~~Push: token compartilhado por 2 contas recebe só o 1º resumo; recibos assíncronos da Expo não são lidos~~ — resolvido em 20/11 (recibos na 102; aparelho compartilhado já resolvido pela 097) |
 
 ## C — Funcionalidade e aparência
 | # | Item |
@@ -51,8 +51,8 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 | ~~C10~~ | ~~Exceção de bandeira copiada da padrão não acompanha mudanças; seletor de maquininha oculto com 1 ativa / pagamento reaberto em maquininha inativa~~ — resolvido em 10/11 |
 | ~~C11~~ | ~~Painel de permissões: rascunho perdido ao trocar de aba sem aviso; dica "Escolha uma pessoa" no app~~ — resolvido em 10/11 |
 | ~~C12~~ | ~~Paginação: clientes na agenda web, produtos nos insumos, histórico da equipe por offset~~ — resolvido em 10/11 |
-| C13 | Gráficos do app: sparkline e rótulos que se sobrepõem em tela estreita; mensagens de erro duplicadas; alerta "0 lançadas"; spinner do histórico de Vendas pisca |
-| C14 | Aviso de bloqueio pendente só no sino (sem push) |
+| ~~C13~~ | ~~Gráficos do app: sparkline e rótulos que se sobrepõem em tela estreita; mensagens de erro duplicadas; alerta "0 lançadas"; spinner do histórico de Vendas pisca~~ — resolvido em 20/11 ("0 lançadas" e spinner de Vendas já estavam resolvidos) |
+| ~~C14~~ | ~~Aviso de bloqueio pendente só no sino (sem push)~~ — resolvido em 20/11 (102) |
 
 ## D — Decisões do dono (não mexer sem pedido)
 - Valor do item da comanda editável sem `comanda.desconto` (27/10).

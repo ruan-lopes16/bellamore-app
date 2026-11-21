@@ -21,7 +21,24 @@ export const ABAS_RELATORIO: { key: AbaRelatorio; label: string }[] = [
   { key: 'avaliacoes', label: 'Avaliações' },
 ];
 
-export type ItemRankingSimples = { nome: string; valor: number; qtd: number; pct: number };
+/**
+ * Índices (0-based) dos pontos do gráfico que mostram rótulo no eixo.
+ * Até `max` pontos: todos. Acima disso: o 1º, o último e o de cada 5º dia
+ * (índices 4, 9, 14...), exceto os que ficariam colados no último (evita
+ * "30" e "31" sobrepostos). Sempre em ordem crescente e sem repetição.
+ */
+export function rotulosEixoVisiveis(n: number, max = 10): number[] {
+  if (!Number.isFinite(n) || n <= 0) return [];
+  const total = Math.floor(n);
+  if (total <= max) return Array.from({ length: total }, (_, i) => i);
+  const ultimo = total - 1;
+  const idx: number[] = [0];
+  for (let i = 4; i < ultimo - 1; i += 5) idx.push(i);
+  idx.push(ultimo);
+  return idx;
+}
+
+export type ItemRankingSimples ={ nome: string; valor: number; qtd: number; pct: number };
 
 /** Despesas PAGAS do período por categoria (sem categoria = 'Outros'); pct relativo à maior. */
 export function rankingDespesasPorCategoria(despesas: { valor: Valor; categoria: string | null }[]): ItemRankingSimples[] {
