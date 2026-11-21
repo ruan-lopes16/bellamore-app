@@ -39,7 +39,7 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 ## C — Funcionalidade e aparência
 | # | Item |
 |---|---|
-| C1 | Modo escuro nas telas secundárias do app + contraste de `primary`/`green` no escuro |
+| ~~C1~~ | ~~Modo escuro nas telas secundárias do app + contraste de `primary`/`green` no escuro~~ — resolvido em 21/11 |
 | ~~C2~~ | ~~Atendimento longo aparece só na 1ª hora da grade do app~~ — resolvido em 04/11 |
 | ~~C3~~ | ~~Avaliação não editável no web~~ — resolvido em 04/11 |
 | ~~C4~~ | ~~Cancelado não aparece nas agendas~~ — decisão do dono (04/11): fica como está |

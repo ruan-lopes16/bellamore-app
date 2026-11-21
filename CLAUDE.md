@@ -1567,6 +1567,40 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-21 — Modo escuro em todo o app (C1)
+
+*Escopo (spec e plano em `docs/superpowers/{specs,plans}/2026-11-21-modo-escuro-app*`):*
+- *Paleta única em `shared/paleta-tema.ts`. Cada cor de destaque tem um tom de fundo (`primary`, `green`, `amber`, `red`, com texto branco) e um tom de texto (`primaryTexto`, `greenTexto`, `amberTexto`, `redTexto`). Os pares são travados por teste de contraste WCAG (`shared/contraste.ts`).*
+- *As 25 telas restantes e os componentes passam a usar `useTema().C`, inclusive login, cadastro e criar empresa.*
+- *As 12 telas que já tinham o tema passam a usar os tons de texto.*
+- *`useTemaGlobal` serve aos componentes que ficam fora das telas: sem acesso, erro de permissões, banner de convites e tela de carregamento.*
+- *Executado em 5 tasks: 1 de base e 4 em paralelo.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; mobile só com o erro pré-existente; vitest 3271/3271 |
+| UX / Padrões    | 9.0  | Mesmo padrão de tela migrada em todo o app; tema claro sem mudança de cor (exceto o rosa `#C9527F` → `C.rose` em algumas telas) |
+| Segurança       | —    | Sem banco e sem permissão nova |
+| Documentação    | 9.0  | Spec, plano, JSDoc na paleta e no contraste |
+| Arquitetura     | 9.5  | Paleta única em shared e teste de varredura que impede paleta local nova |
+| Performance     | 9.0  | Estilos que dependem da cor calculados no render |
+| Visual (UI)     | —    | Não executado: o app nativo não roda aqui |
+| **Completude**  | 9.0  | Todas as telas do app |
+| **Proatividade**| 8.5  | A revisão curta achou o flash claro da tela de carregamento e o banner de convites fora do tema |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Decisões do dono (21/11):** separar o tom de fundo do tom de texto; modo escuro em todas as telas, inclusive login.
+
+**Pendências para produção:** build nativo novo do app (já pendente desde a Fase 2C). Sem mudança no web nem no banco.
+
+**Registrados, não corrigidos:**
+- No tema claro, texto verde e âmbar sobre o fundo bege ficam em 4,48:1 e 4,46:1 (cores de sempre, logo abaixo de 4,5).
+- Cabeçalhos roxos com texto branco, degradês de avatar, botão verde do WhatsApp e fundo escurecido dos modais ficam iguais nos dois temas.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
