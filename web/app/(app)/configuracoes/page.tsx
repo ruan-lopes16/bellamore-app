@@ -93,7 +93,7 @@ type PermissaoPush = 'default' | 'granted' | 'denied' | 'sem-suporte';
  * fora de um gesto direto do usuário é negado silenciosamente, sem popup
  * nenhum (é por isso que não roda automático em lugar nenhum do app).
  */
-function CardPushDispositivo() {
+function StatusPushDispositivo() {
   const [permissao, setPermissao] = useState<PermissaoPush>('sem-suporte');
   const [ativando,  setAtivando]  = useState(false);
 
@@ -117,8 +117,9 @@ function CardPushDispositivo() {
 
   if (permissao === 'sem-suporte') return null;
 
+  // Linha de status deste aparelho, dentro do card único de Notificações (igual ao app).
   return (
-    <SectionCard title="Notificações" icon={Bell} color="accent">
+    <div className="pb-4 mb-1" style={{ borderBottom: '1px solid var(--color-border-soft)' }}>
       <div className="flex items-center gap-4">
         <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: permissao === 'granted' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)' }}>
           <Bell size={18} style={{ color: permissao === 'granted' ? 'var(--color-green)' : 'var(--color-primary)' }}/>
@@ -143,7 +144,7 @@ function CardPushDispositivo() {
           </button>
         )}
       </div>
-    </SectionCard>
+    </div>
   );
 }
 
@@ -225,13 +226,17 @@ function CardAgendaAbreEm({ empresaId, userId }: { empresaId: string; userId: st
   );
 }
 
-/** Preferência por tipo de notificação — independente de dono/gestora/profissional. */
+/**
+ * Card único de Notificações: status/ativação neste aparelho + preferência por tipo (independente de
+ * dono/gestora/profissional). Antes eram 2 cards com o mesmo assunto; o app já usava um só.
+ */
 function CardPreferenciasNotificacao({ notifResumo, notifLembrete, onChange }: {
   notifResumo: boolean; notifLembrete: boolean;
   onChange: (campo: 'notif_resumo_diario' | 'notif_lembrete_atendimento', valor: boolean) => void;
 }) {
   return (
-    <SectionCard title="Preferências de notificação" icon={Bell} color="accent">
+    <SectionCard title="Notificações" icon={Bell} color="accent">
+      <StatusPushDispositivo />
       <div className="flex flex-col gap-4">
         <ToggleLinha label="Resumo do dia" desc="1x por dia, às 07:00"
           checked={notifResumo} onToggle={v => onChange('notif_resumo_diario', v)}/>
@@ -1180,8 +1185,6 @@ function ConfiguracoesConteudo() {
               </button>
             </div>
           </SectionCard>
-
-          <CardPushDispositivo />
 
           <CardPreferenciasNotificacao notifResumo={notifResumo} notifLembrete={notifLembrete} onChange={alterarPrefNotif}/>
 
