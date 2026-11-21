@@ -10,7 +10,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
 import { carregarMeusConvites, aceitarConvite, recusarConvite } from '@shared/convites-consultas';
 import { rotuloPapelEquipe } from '@shared/equipe';
-import { useTema } from '@/lib/tema';
+import { useTemaGlobal } from '@/lib/tema';
 
 /**
  * Banner "Você foi convidada para entrar na equipe de {empresa} como {papel}" com Aceitar e Recusar
@@ -19,7 +19,8 @@ import { useTema } from '@/lib/tema';
  * vazia e o banner não aparece. Nunca grava em `empresa_membros`: tudo passa pelas funções do banco.
  */
 export function BannerConvites() {
-  const { C } = useTema();
+  // Fica no layout, fora de qualquer tela com tema: segue a escolha da pessoa direto.
+  const { C } = useTemaGlobal();
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
