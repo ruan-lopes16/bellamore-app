@@ -1559,7 +1559,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 **Score parcial (sem visual/humana):** `9.0 / 10` → **A+**
 
-**Pendências para produção:** rodar `102_push_bloqueio_e_recibos.sql` (ordem livre; sem ela o push de bloqueio e os recibos são pulados em silêncio).
+**Pendências para produção:** ~~rodar `102_push_bloqueio_e_recibos.sql`~~ — **aplicada em produção em 2026-11-20** (conferência: coluna 1, pendentes 0, índice 1, RLS true, policies 0, trigger da 097 intacto).
 
 **Registrados, não corrigidos:**
 - Os títulos dos avisos de bloqueio vêm sem acento do trigger da 069 ("aprovacao") e saem assim no push.
