@@ -7,7 +7,7 @@
  * - Despesas vencendo: pendentes de hoje a hoje+7.
  * - Mês navegável, nunca no futuro.
  */
-import { chaveDiaBRT, diasEntre, somarDias, somarMeses, ultimoDiaDoMes } from './periodos';
+import { chaveDiaBRT, diasEntre, somarDias, somarMeses, ultimoDiaDoMes, rotuloMesAno } from './periodos';
 import { arredondar, variacaoPercentual, type KpisFinanceiros } from './kpis-financeiros';
 import { DIAS_EM_RISCO } from './clientes-constantes';
 
@@ -106,6 +106,35 @@ export function navegacaoMesDashboard(
   const atual = hoje.slice(0, 7);
   const chave = solicitado && RE_MES.test(solicitado) && solicitado <= atual ? solicitado : atual;
   return { chave, isMesAtual: chave === atual, anterior: somarMeses(chave, -1), seguinte: chave === atual ? null : somarMeses(chave, 1) };
+}
+
+export type EstadoTrocaMes = {
+  /** Os números na tela não são do mês pedido (ou ainda estão chegando): esmaecer e marcar. */
+  atualizando: boolean;
+  /** Mês dos números que continuam na tela enquanto o novo carrega (`null` = já são do mês pedido). */
+  mesDosNumeros: string | null;
+  /** Aviso curto para o indicador ("Atualizando… · mostrando Outubro 2026"); `null` sem troca em curso. */
+  aviso: string | null;
+};
+
+/**
+ * Troca de mês do Dashboard (web e app): o rótulo do mês muda na hora e os números antigos
+ * ficam na tela, esmaecidos e marcados, até os novos chegarem. O mês é a identidade da
+ * requisição: só valem como "do mês pedido" os números cujo mês é IGUAL ao último pedido;
+ * resposta de um clique antigo nunca é apresentada como a do mês novo.
+ * `mesDosDados` = mês dos números em tela (`null` = nenhum ainda); `carregando` = há busca em curso.
+ */
+export function estadoTrocaMesDashboard(p: {
+  mesPedido: string; mesDosDados: string | null; carregando: boolean;
+}): EstadoTrocaMes {
+  const outroMes = p.mesDosDados !== null && p.mesDosDados !== p.mesPedido ? p.mesDosDados : null;
+  const atualizando = p.carregando || outroMes !== null;
+  if (!atualizando) return { atualizando: false, mesDosNumeros: null, aviso: null };
+  return {
+    atualizando: true,
+    mesDosNumeros: outroMes,
+    aviso: outroMes ? `Atualizando… · mostrando ${rotuloMesAno(outroMes)}` : 'Atualizando…',
+  };
 }
 
 export type GeometriaSparkline = { linha: string; area: string; ultimo: { x: number; y: number }; vazio: boolean };

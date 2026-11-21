@@ -179,7 +179,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
         <div className="flex flex-col gap-4">
           <SearchSelect
             options={membrosEditaveis.map(m => {
-              const n = contarExcecoes(visivel, m.user_id);
+              const n = contarExcecoes(visivel, m.user_id, m.role);
               return { value: m.user_id, label: m.nome, sub: `${m.role === 'gestor' ? 'Gestora' : 'Profissional'}${n ? ` · ${n} ${n === 1 ? 'exceção' : 'exceções'}` : ''}` };
             })}
             value={membroSel}

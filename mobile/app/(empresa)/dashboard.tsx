@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  RefreshControl, Platform,
+  RefreshControl, Platform, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,6 +38,7 @@ import { SparkLinha } from '@/components/SparkLinha';
 import { rotuloMesAno, horaBRT, rotuloDataHoraBRT } from '@shared/periodos';
 import { cartoesKpiDashboard, rotuloProgressoMeta } from '@shared/dashboard';
 import { formatarMoeda } from '@shared/moeda';
+import { saudacao, primeiroNome } from '@shared/saudacao';
 import { BarraDeStatus, comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -113,11 +114,15 @@ function Dashboard() {
     comandasNaoFechadas,
     financeiroPronto,
     comissoesPendentesPronto,
+    mesDosNumeros,
+    trocaMes,
     isLoading,
     isError,
     erro,
     refetch,
   } = useDashboard(mesSolicitado, { podeVerFinanceiro, podeFecharComanda });
+  // Troca de mês em curso: números do mês anterior esmaecidos até os novos chegarem.
+  const opacidadeMes = trocaMes.atualizando ? 0.45 : 1;
 
   // Sino = avisos não lidos + alertas que pedem ação (contagemSino, igual ao web). null = sem número.
   const countNotifNaoLidas = useSino() ?? 0;
@@ -170,22 +175,12 @@ function Dashboard() {
         >
           <View>
             <Text style={{
-              fontFamily: 'PlusJakartaSans_500Medium',
-              fontSize: 11,
-              color: C.text3,
-              letterSpacing: 1.5,
-              textTransform: 'uppercase',
-              marginBottom: 4,
-            }}>
-              Bom dia
-            </Text>
-            <Text style={{
               fontFamily: 'Fraunces_600SemiBold',
               fontSize: 28,
               color: C.text,
               lineHeight: 32,
             }}>
-              {user?.nome?.split(' ')[0] ?? 'Olá'}
+              {saudacao(primeiroNome(user?.nome), new Date())}
             </Text>
             <View style={{
               flexDirection: 'row',
@@ -358,6 +353,14 @@ function Dashboard() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.accent }}>Hoje</Text>
               </TouchableOpacity>
             )}
+            {trocaMes.aviso && (
+              <View accessibilityRole="progressbar" style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 4, flexShrink: 1 }}>
+                <ActivityIndicator size="small" color={C.text4} />
+                <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text4, flexShrink: 1 }}>
+                  {trocaMes.aviso}
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -365,7 +368,7 @@ function Dashboard() {
         {podeVerFinanceiro && (
           <MotiView
             from={{ opacity: 0, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
+            animate={{ opacity: opacidadeMes, scale: 1 }}
             transition={{ type: 'timing', duration: 450, delay: 100 }}
             style={{ marginHorizontal: 24, marginBottom: 12 }}
           >
@@ -398,7 +401,7 @@ function Dashboard() {
                   textTransform: 'uppercase',
                   marginBottom: 8,
                 }}>
-                  Receita do Mês · {rotuloMesAno(nav.chave)}
+                  Receita do Mês · {rotuloMesAno(mesDosNumeros)}
                 </Text>
 
                 <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
@@ -483,7 +486,7 @@ function Dashboard() {
 
         {/* ── KPIs do mês (mesma lista do web) ── */}
         {podeVerFinanceiro && financeiroPronto && (
-          <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8, opacity: opacidadeMes }}>
             {cartoesMes.map(c => {
               const cor = c.tom === 'negativo' ? C.rose : c.tom === 'alerta' ? C.amberTexto : C.primaryTexto;
               return (
@@ -659,7 +662,7 @@ function Dashboard() {
 
         {/* ── Meta do mês ── */}
         {podeVerFinanceiro && metaPronta && meta.temMeta && (
-          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
+          <View style={{ opacity: opacidadeMes, marginHorizontal: 24, marginBottom: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1 }}>Meta do mês</Text>
               <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text2 }}>{formatarMoeda(kpisMes.bruto)} / {formatarMoeda(metaValor)}</SecretText>

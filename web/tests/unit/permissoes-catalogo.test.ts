@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CATALOGO_PERMISSOES, CHAVES_PERMISSAO, ehChavePermissao, pode, permissoesPadrao,
-  resolverPermissao, configVazia, valorDoPapel, estadoDoMembro, contarExcecoes,
+  resolverPermissao, configVazia, valorDoPapel, estadoDoMembro, contarExcecoes, rotulosExcecoes,
   aplicarMudancas, chaveMudanca, podeEditarAlvo, descreverHistorico,
   type PermissoesUsuario,
 } from '@shared/permissoes';
@@ -88,8 +88,24 @@ describe('estado do painel', () => {
     expect(estadoDoMembro(cfg, 'u1', 'clientes.editar')).toBe('bloquear');
     expect(estadoDoMembro(cfg, 'u1', 'pacotes.vender')).toBe('padrao');
     expect(estadoDoMembro(cfg, 'u2', 'pacotes.vender')).toBe('padrao');
-    expect(contarExcecoes(cfg, 'u1')).toBe(2);
-    expect(contarExcecoes(cfg, 'u2')).toBe(0);
+    expect(contarExcecoes(cfg, 'u1', 'profissional')).toBe(2);
+    expect(contarExcecoes(cfg, 'u2', 'profissional')).toBe(0);
+  });
+
+  it('contarExcecoes ignora exceção redundante (igual ao papel) e conta a efetiva', () => {
+    const cfg = configVazia();
+    // Profissional: agenda.excluir é false por padrão; clientes.editar é true por padrão.
+    cfg.membros['u1'] = { 'agenda.excluir': false, 'clientes.editar': true };
+    expect(contarExcecoes(cfg, 'u1', 'profissional')).toBe(0);
+    expect(rotulosExcecoes(cfg, 'u1', 'profissional')).toEqual([]);
+    cfg.membros['u1']['agenda.excluir'] = true;
+    expect(contarExcecoes(cfg, 'u1', 'profissional')).toBe(1);
+    expect(rotulosExcecoes(cfg, 'u1', 'profissional')).toEqual(['Excluir agendamento']);
+    // Se o papel muda o valor, a mesma linha deixa de ser exceção.
+    cfg.papel.profissional['agenda.excluir'] = true;
+    expect(contarExcecoes(cfg, 'u1', 'profissional')).toBe(0);
+    // Dona nunca tem exceção.
+    expect(contarExcecoes(cfg, 'u1', 'owner')).toBe(0);
   });
 
   it('aplicarMudancas não altera o original; permitido null remove a exceção', () => {

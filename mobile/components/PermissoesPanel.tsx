@@ -148,7 +148,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
             placeholderTextColor={C.text4}
             style={{ fontFamily: F.r, fontSize: 14, color: C.text, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 12 }}/>
           {filtrados.map(m => {
-            const n = contarExcecoes(visivel, m.user_id);
+            const n = contarExcecoes(visivel, m.user_id, m.role);
             const ativo = m.user_id === membroSel;
             return (
               <Pressable key={m.user_id} onPress={() => { if (m.user_id !== membroSel) comConfirmacaoDeDescarte(() => setMembroSel(m.user_id)); }}

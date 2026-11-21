@@ -22,6 +22,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { useAuthStore } from '@/stores/authStore';
+import { saudacao, primeiroNome } from '@shared/saudacao';
 import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { useSino } from '@/hooks/useNotificacoes';
 import {
@@ -105,7 +106,7 @@ function Inicio() {
   // Nesta tela o alerta ("rose") sempre foi o vermelho.
   const C = { ...T, rose: T.redTexto, roseSoft: T.redSoft };
   const insets = useSafeAreaInsets();
-  const { empresaAtiva } = useAuthStore();
+  const { empresaAtiva, user } = useAuthStore();
   const hoje = new Date();
   const mesAtual = limitesMes(hojeBRT().slice(0, 7));
 
@@ -147,6 +148,9 @@ function Inicio() {
         refreshControl={<RefreshControl refreshing={loadingAgenda} onRefresh={onRefresh} tintColor="#fff" />}
       >
         <LinearGradient colors={['#2C1654', '#3D1F72']} style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 20 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: '#fff', marginBottom: 4 }}>
+            {saudacao(primeiroNome(user?.nome), new Date())}
+          </Text>
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 }}>
             {empresaAtiva?.nome}
           </Text>

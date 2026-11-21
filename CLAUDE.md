@@ -1650,6 +1650,32 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-21 — Ajustes pedidos pelo dono depois da verificação visual
+
+*Escopo: 10 pedidos com print, feitos em 3 frentes paralelas mais uma revisão no navegador (só leitura).*
+- *Filtros em pílula (`SmoothTabs`): fundo branco, texto mais escuro e sem a barra de rolagem (`.no-scrollbar`).*
+- *Ponto vermelho do PWA sempre em "Clientes": era o aviso de Agenda/Comanda posicionado pela barra inteira (faltava `relative` no link).*
+- *`SearchSelect`: nome escolhido mais forte e telefone mais legível.*
+- *Olho de ocultar valores sempre ao lado do título (Equipe, Estoque, Vendas, Comissões, Dashboards).*
+- *Saudação "Bom dia/Boa tarde/Boa noite, Nome" pela hora de Brasília (`shared/saudacao.ts`) na tela principal da dona e da profissional, web e app.*
+- *Comandas: filtro por profissional para quem vê a equipe, web e app (`shared/comanda-filtro-profissional.ts`).*
+- *Selo de exceções conta só o que difere do papel e lista as permissões no tooltip.*
+- *CEP: o Salvar grava só as colunas alteradas (`colunasAlteradas`). Formulário aberto antes não regrava mais o endereço velho; a tela relê ao voltar.*
+- *Troca de mês do Dashboard: o rótulo troca na hora, os números antigos ficam esmaecidos com "Atualizando…" (`estadoTrocaMesDashboard`, `TrocaMes.tsx`), web e app.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; mobile só com o erro pré-existente |
+| UX / Padrões    | 9.0  | Componentes comuns corrigidos uma vez, valendo para todas as telas |
+| Visual (UI)     | 9.0  | Conferido no navegador: filtros, ponto do PWA, saudação, olho, troca de mês (rótulo em 120 ms) e nome no agendamento |
+| Arquitetura     | 9.0  | Regras novas em shared com teste; CEP corrigido na causa (formulário velho) e não no sintoma |
+| **Completude**  | 9.0  | Os 10 pedidos, web e app |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Registrados, não corrigidos:** o Dashboard web refaz a cada troca de mês as consultas que não dependem do mês (agenda de hoje, estoque, alertas); o selo de exceções do app não tem tooltip.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

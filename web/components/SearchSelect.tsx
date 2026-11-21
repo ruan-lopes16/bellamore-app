@@ -142,15 +142,15 @@ export function SearchSelect({
           // não truncar nem o nome nem o telefone.
           <>
             <span data-testid="select-valor-empilhado" className="flex-1 min-w-0 flex flex-col justify-center py-1.5 leading-tight">
-              <span className="truncate text-text text-sm">{selecionado.label}</span>
-              <span className="truncate text-text-4 text-xs">{selecionado.sub}</span>
+              <span className="truncate text-text text-sm font-medium">{selecionado.label}</span>
+              <span className="truncate text-text-3 text-xs">{selecionado.sub}</span>
             </span>
             <ChevronDown size={14} className="text-text-4 flex-shrink-0" strokeWidth={2}/>
           </>
         ) : (
           // Exibição simples (1 linha): opção sem sub, ou placeholder.
           <>
-            <span className={`flex-1 truncate ${selecionado ? 'text-text' : 'text-text-4'}`}>
+            <span className={`flex-1 truncate ${selecionado ? 'text-text font-medium' : 'text-text-4'}`}>
               {selecionado ? selecionado.label : placeholder}
             </span>
             <ChevronDown size={14} className="text-text-4 flex-shrink-0" strokeWidth={2}/>
@@ -199,7 +199,7 @@ export function SearchSelect({
               >
                 <span className="flex-1 truncate">{opt.label}</span>
                 {opt.sub && (
-                  <span className="text-xs text-text-4 flex-shrink-0">{opt.sub}</span>
+                  <span className="text-xs text-text-3 flex-shrink-0">{opt.sub}</span>
                 )}
                 {/* Check mark na opção atualmente selecionada */}
                 {sel && <Check size={12} className="text-primary flex-shrink-0" strokeWidth={2.5}/>}

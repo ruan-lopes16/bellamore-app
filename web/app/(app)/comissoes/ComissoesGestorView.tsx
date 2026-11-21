@@ -168,11 +168,13 @@ export default function ComissoesGestorView() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Equipe</p>
+          <div className="flex items-center gap-3">
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
             Comissões
           </h1>
+          <PrivacyToggle />
+          </div>
         </div>
-        <PrivacyToggle />
         <ExportButton
           disabled={loading || !!erroCarga}
           variant="mobileHeader"

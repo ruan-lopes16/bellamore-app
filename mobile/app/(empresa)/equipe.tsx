@@ -623,7 +623,7 @@ function Equipe() {
                   podeGerenciar={podeGerenciarMembro({ isOwner, userId: user?.id ?? '' }, podeGerenciarEquipe, { role: m.role, userId: m.user_id })}
                   podePagar={podePagar}
                   pagando={pagandoId === m.id}
-                  excecoes={veSeloExcecoes && cfgPermissoes ? contarExcecoes(cfgPermissoes, m.user_id) : 0}
+                  excecoes={veSeloExcecoes && cfgPermissoes ? contarExcecoes(cfgPermissoes, m.user_id, m.role) : 0}
                   onVerExcecoes={() => router.push(`/(empresa)/configuracoes?aba=permissoes&membro=${m.user_id}` as any)}
                   onEditar={() => router.push(`/(empresa)/editar-profissional/${m.id}` as any)}
                   onToggle={() => toggleAtivo(m)}

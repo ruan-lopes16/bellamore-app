@@ -70,6 +70,7 @@ import {
 } from '@shared/comanda';
 import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
+import { podeFiltrarPorProfissional, filtrarCartoesPorProfissional, filtrarBacklogPorProfissional, carregarProfissionaisDoBacklog } from '@shared/comanda-filtro-profissional';
 import { carregarBacklogComandas, carregarComandasSoExtrasDoDia, carregarComissoesPagasDosItens } from '@shared/comanda-consultas';
 import { limitesDias, chaveDiaExibido, hojeBRT } from '@shared/periodos';
 import { dataDoDia } from '@shared/agenda-grade';
@@ -259,7 +260,18 @@ export default function ComandaPage() {
   // Backlog de atendimentos já ocorridos (qualquer dia) sem comanda_id — não
   // depende do dia selecionado, para avisar mesmo de dias que o usuário não
   // está vendo agora.
-  const [backlog, setBacklog] = useState<{ id: string; data: Date }[]>([]);
+  const [backlog, setBacklog] = useState<{ id: string; data: Date; profissional_id?: string | null }[]>([]);
+  // Filtro "Profissional" (só para quem vê todas): só filtra o que aparece, nada de cálculo/gravação
+  const verTodas = podeFiltrarPorProfissional(pode('agenda.ver_equipe'), pode('agenda.gerenciar_outras'));
+  const [profFiltro, setProfFiltro] = useState('');
+  useEffect(() => {
+    try { setProfFiltro(localStorage.getItem('comanda.filtroProfissional') ?? ''); } catch { /* sem storage */ }
+  }, []);
+  function escolherProfFiltro(v: string) {
+    setProfFiltro(v);
+    try { localStorage.setItem('comanda.filtroProfissional', v); } catch { /* sem storage */ }
+  }
+  const filtroAtivo = verTodas ? profFiltro : '';
 
   // Catálogos para pesquisa
   const [servicos,  setServicos]    = useState<{ id: string; nome: string; preco: number }[]>([]);
@@ -518,8 +530,11 @@ export default function ComandaPage() {
   // mobile, que muda o status sem nunca gerar a comanda.
   const fetchBacklog = useCallback(async (empId: string) => {
     try {
-      const rows = await carregarBacklogComandas(supabase, empId, new Date().toISOString());
-      setBacklog(rows.map(r => ({ id: r.id, data: parseISO(r.data_hora_inicio) })));
+      const agora = new Date().toISOString();
+      const rows = await carregarBacklogComandas(supabase, empId, agora);
+      // Profissional de cada atendimento do backlog (só para o filtro; falha não derruba o aviso)
+      const profs = await carregarProfissionaisDoBacklog(supabase, empId, agora).catch(() => new Map<string, string | null>());
+      setBacklog(rows.map(r => ({ id: r.id, data: parseISO(r.data_hora_inicio), profissional_id: profs.get(r.id) ?? null })));
     } catch {
       setBacklog([]);
     }
@@ -576,6 +591,11 @@ export default function ComandaPage() {
       id: c.clienteId, chave: c.chave, nome: c.nome, telefone: c.telefone,
       agendamentos: c.agendamentos, comandaId: c.comandaId,
     })), [agDia, soExtrasDia]);
+
+  const clientesVisiveis = useMemo(
+    () => filtrarCartoesPorProfissional(clientesDia, filtroAtivo), [clientesDia, filtroAtivo]);
+  const backlogVisivel = useMemo(
+    () => filtrarBacklogPorProfissional(backlog, filtroAtivo), [backlog, filtroAtivo]);
 
   /** Soma o valor de todos os agendamentos já concluídos (comandas fechadas) no dia selecionado */
   const totalDia = useMemo(
@@ -1585,15 +1605,25 @@ export default function ComandaPage() {
           </div>}
 
           {/* Alerta — comandas não fechadas (qualquer dia, não só o selecionado) */}
-          {backlog.length > 0 && (
+          {verTodas && membros.length > 0 && (
+            <div className="mt-2">
+              <SearchSelect
+                options={[{ value: '', label: 'Todas as profissionais' }, ...membros.map(m => ({ value: m.id, label: m.nome }))]}
+                value={profFiltro}
+                onChange={escolherProfFiltro}
+                placeholder="Profissional: Todas"
+              />
+            </div>
+          )}
+          {backlogVisivel.length > 0 && (
             <button
-              onClick={() => selecionarDia(backlog[0].data)}
+              onClick={() => selecionarDia(backlogVisivel[0].data)}
               className="press w-full flex items-center gap-2 mt-2 px-3 py-2 rounded-xl text-left"
               style={{ background: 'var(--color-rose-soft)', border: '1px solid rgba(212,96,138,0.25)' }}>
               <AlertCircle size={14} style={{ color: 'var(--color-rose)', flexShrink: 0 }} strokeWidth={2.5}/>
               <span style={{ fontFamily: 'var(--font-sans)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-rose)', lineHeight: 1.3 }}>
-                {backlog.length === 1 ? '1 comanda não fechada' : `${backlog.length} comandas não fechadas`}
-                {' · mais antiga '}{format(backlog[0].data, 'dd/MM')}
+                {backlogVisivel.length === 1 ? '1 comanda não fechada' : `${backlogVisivel.length} comandas não fechadas`}
+                {' · mais antiga '}{format(backlogVisivel[0].data, 'dd/MM')}
               </span>
             </button>
           )}
@@ -1641,7 +1671,7 @@ export default function ComandaPage() {
             <div className="p-3 flex flex-col gap-2">
               {[1, 2, 3, 4].map(i => <Sk key={i} className="h-16 rounded-xl" />)}
             </div>
-          ) : clientesDia.length === 0 ? (
+          ) : clientesVisiveis.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-6 py-8">
               <Receipt size={28} className="text-text-4 mb-2" />
               <p className="text-sm text-text-3">
@@ -1650,7 +1680,7 @@ export default function ComandaPage() {
             </div>
           ) : (
             <div className="p-2 flex flex-col gap-1">
-              {clientesDia.map(cliente => {
+              {clientesVisiveis.map(cliente => {
                 const ativo  = clienteSel?.chave === cliente.chave;
                 const jaFeita = cliente.comandaId !== null;
                 // Comanda já fechada só reabre para quem pode editá-la; senão o card fica sem ação.

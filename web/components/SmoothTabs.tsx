@@ -45,9 +45,9 @@ export function SmoothTabs({
   const indicatorColor = activeItem?.activeColor ?? (isPill ? 'var(--color-primary)' : 'var(--color-accent)');
 
   return (
-    <div className={`overflow-x-auto w-full ${className}`} style={{ touchAction: 'pan-x', overscrollBehaviorX: 'contain' }}>
+    <div className={`overflow-x-auto no-scrollbar w-full ${className}`} style={{ touchAction: 'pan-x', overscrollBehaviorX: 'contain' }}>
       <div ref={containerRef}
-        className={`relative flex gap-1 whitespace-nowrap w-fit ${isPill ? 'p-1 rounded-full border border-border bg-bg' : 'border-b border-border'}`}>
+        className={`relative flex gap-1 whitespace-nowrap w-fit ${isPill ? 'p-1 rounded-full border border-border bg-surface' : 'border-b border-border'}`}>
         {indicator && (
           <div
             className={isPill ? 'absolute rounded-full shadow-sm' : 'absolute rounded-full'}
@@ -71,8 +71,8 @@ export function SmoothTabs({
             style={active === t.key && !isPill ? { color: t.activeColor ?? 'var(--color-accent)' } : undefined}
             className={
               isPill
-                ? `relative z-10 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors duration-200 ${active === t.key ? 'text-white' : 'text-text-3 hover:text-text'}`
-                : `relative z-10 flex-shrink-0 flex items-center gap-1.5 px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${active === t.key ? '' : 'text-text-3 hover:text-text'}`
+                ? `relative z-10 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors duration-200 ${active === t.key ? 'text-white' : 'text-text-2 hover:text-text'}`
+                :`relative z-10 flex-shrink-0 flex items-center gap-1.5 px-5 py-2.5 text-sm font-semibold transition-colors duration-200 ${active === t.key ? '' : 'text-text-3 hover:text-text'}`
             }
           >
             {t.icon && <t.icon size={14} />}

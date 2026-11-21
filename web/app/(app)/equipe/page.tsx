@@ -20,7 +20,7 @@ import { rotuloContrato, normalizarComissao, numerosVisiveis, type TipoContrato 
 import { pagarComissoes } from '@shared/comissoes-consultas';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { usePermissoes } from '@/components/PermissoesProvider';
-import { configVazia, contarExcecoes, podeGerenciarMembro, type ConfigPermissoes } from '@shared/permissoes';
+import { configVazia, contarExcecoes, rotulosExcecoes, podeGerenciarMembro, type ConfigPermissoes } from '@shared/permissoes';
 import { Sk } from '@/components/Skeleton';
 import { SmoothTabs } from '@/components/SmoothTabs';
 import { mensagemCadastroEquipe } from '@/lib/convites-web';
@@ -474,12 +474,14 @@ function EditInfoModal({ prof, empresaId, onClose, onSalvo, onParcial }: {
 
 // ── Card profissional ─────────────────────────────────────────
 
-function ProfCard({ prof, excecoes, visiveis, podeAlterarRole, podeGerenciar, onEditInfo, onToggle, onPagar, onAlterarRole }: {
+function ProfCard({ prof, excecoes, excecoesTitulo, visiveis, podeAlterarRole, podeGerenciar, onEditInfo, onToggle, onPagar, onAlterarRole }: {
   prof: Profissional;
   /** Números que a pessoa logada pode ver (`numerosVisiveis`): sem a chave, "—" em vez de zeros falsos. */
   visiveis: { producao: boolean; comissao: boolean };
   /** Quantidade de exceções individuais de permissão desta pessoa. */
   excecoes: number;
+  /** Rótulos das permissões em exceção, para o tooltip do selo. */
+  excecoesTitulo?: string;
   podeAlterarRole: boolean;
   /** Editar dados/comissão e ativar/desativar — mesma regra da policy de UPDATE de empresa_membros. */
   podeGerenciar: boolean;
@@ -552,7 +554,7 @@ function ProfCard({ prof, excecoes, visiveis, podeAlterarRole, podeGerenciar, on
               {roleBadge(prof.role).label}
             </span>
             {prof.role !== 'owner' && excecoes > 0 && (
-              <Link href={`/configuracoes?aba=permissoes&membro=${prof.user_id}`} onClick={e => e.stopPropagation()}
+              <Link href={`/configuracoes?aba=permissoes&membro=${prof.user_id}`} onClick={e => e.stopPropagation()} title={excecoesTitulo || undefined}
                 className="press inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
                 style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}>
                 <Shield size={11}/> {excecoes} {excecoes === 1 ? 'exceção' : 'exceções'}
@@ -989,8 +991,10 @@ export default function EquipePage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6 bm-mobile-page-header">
         <div>
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>Gestão</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Equipe</h1>
-          <PrivacyToggle />
+          <div className="flex items-center gap-3">
+            <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>Equipe</h1>
+            <PrivacyToggle />
+          </div>
         </div>
         <div className="flex gap-2 pt-1 bm-mobile-page-actions">
           <ExportButton
@@ -1087,7 +1091,8 @@ export default function EquipePage() {
                 style={{ '--bm-i': i, '--bm-step': '60ms' } as React.CSSProperties}>
                 <ProfCard
                   prof={p}
-                  excecoes={veSeloExcecoes ? contarExcecoes(cfgPerms, p.user_id) : 0}
+                  excecoes={veSeloExcecoes ? contarExcecoes(cfgPerms, p.user_id, p.role) : 0}
+                  excecoesTitulo={veSeloExcecoes ? rotulosExcecoes(cfgPerms, p.user_id, p.role).join(', ') : ''}
                   visiveis={numerosVisiveis(meuUserId, p.user_id, pode)}
                   podeAlterarRole={meuRole === 'owner' && p.user_id !== meuUserId}
                   podeGerenciar={podeGerenciarMembro({ isOwner, userId: meuUserId ?? '' }, podeEquipe, { role: p.role, userId: p.user_id })}

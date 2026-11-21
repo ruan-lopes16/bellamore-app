@@ -487,7 +487,7 @@ export default function PacotesPage() {
       {/* ══════════ TAB: VENDIDOS ══════════ */}
       {aba === 'vendidos' && (
         <div>
-          <div className="overflow-x-auto mb-4 -mx-1 px-1">
+          <div className="overflow-x-auto no-scrollbar mb-4 -mx-1 px-1">
             <SmoothTabs
               variant="pill"
               tabs={[

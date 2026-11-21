@@ -256,7 +256,7 @@ export default function Sidebar({
           return (
             <Link key={href} href={isMais ? '#' : href}
               onClick={handleClick}
-              className="flex-1 flex flex-col items-center justify-center py-2 gap-1 transition-all duration-150 press"
+              className="relative flex-1 flex flex-col items-center justify-center py-2 gap-1 transition-all duration-150 press"
             >
               <div className={`flex items-center justify-center${active ? ' bm-pop' : ''}`}
                 style={{
