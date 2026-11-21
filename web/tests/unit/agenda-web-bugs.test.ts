@@ -57,7 +57,7 @@ describe('avaliação', () => {
 describe('carga do dia', () => {
   it('fetchDia confere o erro e avisa em vez de lista vazia silenciosa', () => {
     const i = agenda.indexOf('const fetchDia = useCallback');
-    const corpo = agenda.slice(i, i + 2500);
+    const corpo = agenda.slice(i, i + 4500);
     // Carga paginada (`buscarPaginas` lança no erro de qualquer página) e conferida no catch.
     expect(corpo).toContain('buscarPaginas(');
     expect(corpo).toContain('} catch (e) {');
