@@ -87,6 +87,7 @@ function Dashboard() {
   const podeVerFinanceiro = pode('financeiro.ver');
   const podeFecharComanda = pode('comanda.fechar');
   const [mesSolicitado, setMesSolicitado] = useState<string | null>(null);
+  const [larguraHero, setLarguraHero] = useState(0);
 
   const {
     nav,
@@ -377,6 +378,7 @@ function Dashboard() {
                 colors={['#2C1654', '#3D1F72']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
+                onLayout={e => setLarguraHero(e.nativeEvent.layout.width)}
                 style={{
                   borderRadius: 20,
                   padding: 22,
@@ -454,7 +456,8 @@ function Dashboard() {
                   </Text>
                 )}
                 <View pointerEvents="none" style={{ position: 'absolute', right: 16, bottom: 10 }}>
-                  <SparkLinha dados={sparkline} />
+                  {/* Largura segue o cartão (40%, máx. 200) para não passar por cima do texto em tela estreita */}
+                  <SparkLinha dados={sparkline} largura={larguraHero > 0 ? Math.min(200, Math.round(larguraHero * 0.4)) : 120} />
                 </View>
               </LinearGradient>
             </TouchableOpacity>

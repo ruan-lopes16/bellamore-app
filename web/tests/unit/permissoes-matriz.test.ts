@@ -116,6 +116,8 @@ describe('matriz de permissões — UPDATE/DELETE sempre com .select (sem sucess
     'web/app/api/convites/route.ts users.update': 'service role',
     'web/lib/push/expo.ts web_push_subscriptions.delete': 'service role (crons): inscrição web que não existe mais (404/410)',
     'web/lib/push/expo.ts push_dispositivos.delete': 'service role (crons): aparelho DeviceNotRegistered; 0 linhas é legítimo',
+    'web/lib/push/expo.ts push_recibos.upsert': 'service role (crons): recibo de push; duplicado ignorado de propósito',
+    'web/lib/push/expo.ts push_recibos.delete': 'service role (crons): limpeza dos recibos lidos/antigos; 0 linhas é legítimo',
     'web/app/api/profissionais/route.ts users.upsert': 'service role',
     'web/app/api/profissionais/route.ts users.update': 'service role',
     'web/app/api/profissionais/route.ts empresa_membros.update': 'service role',

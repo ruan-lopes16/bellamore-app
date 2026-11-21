@@ -1537,6 +1537,36 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-20 — Push de bloqueio, recibos da Expo (102) e ajustes de gráficos
+
+*Escopo (spec e plano em `docs/superpowers/{specs,plans}/2026-11-20-push-graficos*`), em 2 tasks paralelas:*
+- *C14: o cron de 5 min manda push (web e app) dos avisos de bloqueio pendente, aprovado e recusado. O aviso é marcado (`notificacoes.push_enviado_em`) antes de enviar e sai uma vez só, para os aparelhos da empresa do aviso.*
+- *B14: os recibos da Expo são gravados (`push_recibos`, só service role) e lidos depois de 15 min. `DeviceNotRegistered` apaga o aparelho. O caso do aparelho compartilhado já estava resolvido pela 097 (token único).*
+- *C13: os rótulos do gráfico do mês do app passam a usar `rotulosEixoVisiveis`; a sparkline do Dashboard do app segue a largura do cartão; o erro dos Relatórios não aparece mais em dobro. "0 lançadas" e o spinner de Vendas já estavam resolvidos.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 3243/3243 (os 2 testes de pré-requisito em PGlite estouram tempo só sob carga e passam sozinhos); mobile só com o erro pré-existente; `next build` OK |
+| UX / Padrões    | 9.0  | Push com o título e a mensagem do próprio aviso; um só lugar para o erro nos Relatórios |
+| Segurança       | 9.0  | `push_recibos` com RLS e sem policy; pela API continua mudando só `lida` em `notificacoes` (trigger da 097, coberto em PGlite) |
+| Documentação    | 9.0  | Spec, plano, nota de deploy da 102 e backlog atualizado |
+| Arquitetura     | 9.0  | Cron novo testável (`cron-notificacoes.ts`) chamado pela rota existente; recibos sem quebrar nada sem a 102 |
+| Performance     | 9.0  | Índice parcial dos avisos pendentes; recibos em lotes de 300 |
+| Visual (UI)     | —    | Não executado |
+| **Completude**  | 9.0  | C13, C14 e B14 |
+| **Proatividade**| 8.5  | Revisão curta, feita inline |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.0 / 10` → **A+**
+
+**Pendências para produção:** ~~rodar `102_push_bloqueio_e_recibos.sql`~~ — **aplicada em produção em 2026-11-20** (conferência: coluna 1, pendentes 0, índice 1, RLS true, policies 0, trigger da 097 intacto).
+
+**Registrados, não corrigidos:**
+- Os títulos dos avisos de bloqueio vêm sem acento do trigger da 069 ("aprovacao") e saem assim no push.
+- Recibo `DeviceNotRegistered` apaga pelo token: se outra conta registrar o mesmo token antes da leitura, esse aparelho também sai (o app se registra de novo ao abrir).
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

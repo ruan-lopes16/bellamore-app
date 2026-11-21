@@ -16,6 +16,13 @@ import { semMigration097, limiteVistoEm } from '@shared/push-dispositivos';
 
 export const URL_EXPO_PUSH = 'https://exp.host/--/api/v2/push/send';
 export const LOTE_EXPO = 100;
+export const URL_EXPO_RECIBOS = 'https://exp.host/--/api/v2/push/getReceipts';
+/** A Expo aceita até 1000 ids por consulta de recibos; usamos 300 (limite combinado na spec). */
+export const LOTE_RECIBOS = 300;
+/** Recibos só ficam prontos depois de um tempo: antes disso nem consultamos. */
+export const MIN_RECIBO_MIN = 15;
+/** Recibo sem resposta da Expo depois disso é descartado (a Expo só guarda 24 h). */
+export const HORAS_RECIBO = 24;
 
 /** O mínimo do client supabase-js (service role) usado pelos crons. */
 export interface ClienteDbCron {
@@ -32,7 +39,15 @@ export type MensagemExpo = {
   channelId?: string;
 };
 
-export type OpcoesExpo = { fetchFn?: typeof fetch; accessToken?: string };
+/** Par (ticket, token) de um envio aceito pela Expo, para ler o recibo depois. */
+export type ParRecibo = { ticketId: string; token: string };
+
+export type OpcoesExpo = {
+  fetchFn?: typeof fetch;
+  accessToken?: string;
+  /** Chamado a cada lote com os tickets `ok`. Se lançar, só é registrado no log: o envio segue. */
+  aoReceberTickets?: (pares: ParRecibo[]) => Promise<void>;
+};
 
 /** Aparelhos expo por usuário. `legado` = vieram de `users.push_token` (nunca escrever neles). */
 export type DispositivosExpo = {
@@ -75,18 +90,28 @@ export async function enviarExpo(
         continue;
       }
       const json = (await res.json()) as { data?: unknown };
-      const tickets = Array.isArray(json?.data) ? (json.data as { status?: string; details?: { error?: string } }[]) : null;
+      const tickets = Array.isArray(json?.data) ? (json.data as { status?: string; id?: string; details?: { error?: string } }[]) : null;
       if (!tickets) {
         falhas += lote.length;
         console.error('[push] Resposta da Expo sem a lista de recibos.');
         continue;
       }
+      const pares: ParRecibo[] = [];
       lote.forEach((m, j) => {
         const t = tickets[j];
-        if (t?.status === 'ok') { enviados++; return; }
+        if (t?.status === 'ok') {
+          enviados++;
+          if (typeof t.id === 'string' && t.id) pares.push({ ticketId: t.id, token: m.to });
+          return;
+        }
         falhas++;
         if (t?.details?.error === 'DeviceNotRegistered') invalidos.push(m.to);
       });
+      if (pares.length && opcoes.aoReceberTickets) {
+        try { await opcoes.aoReceberTickets(pares); } catch (e) {
+          console.error('[push] Falha ao guardar os recibos:', msgErro(e));
+        }
+      }
     } catch (e) {
       falhas += lote.length;
       console.error('[push] Falha ao enviar para a Expo:', msgErro(e));
@@ -184,7 +209,8 @@ export async function enviarPushExpo(
     }
     if (!mensagens.length) return 0;
 
-    const r = await enviarExpo(mensagens, opcoes);
+    // Sem a 097 (legado) os recibos não são guardados: o cron só apaga aparelhos de push_dispositivos.
+    const r = await enviarExpo(mensagens, disp.legado ? opcoes : { ...opcoes, aoReceberTickets: pares => gravarRecibos(db, pares) });
     if (r.invalidos.length && !disp.legado) {
       const invalidos = new Set(r.invalidos);
       for (const [uid, toks] of disp.porUsuario) disp.porUsuario.set(uid, toks.filter(t => !invalidos.has(t)));
@@ -200,6 +226,82 @@ export async function enviarPushExpo(
     console.error('[push] Falha no envio para o app:', msgErro(e));
     return 0;
   }
+}
+
+/** Erro de tabela/coluna que ainda não existe (102 não aplicada). */
+export function semMigration102(e: { code?: string; message?: string } | null | undefined): boolean {
+  if (!e) return false;
+  return semMigration097(e) || e.code === '42703' || e.code === 'PGRST204'
+    || /push_enviado_em|push_recibos/i.test(e.message ?? '');
+}
+
+/** Guarda os pares (ticket, token) em push_recibos. Sem a 102 a tabela não existe: pula em silêncio. */
+async function gravarRecibos(db: ClienteDbCron, pares: ParRecibo[]): Promise<void> {
+  const { error } = await db.from('push_recibos').upsert(
+    pares.map(p => ({ ticket_id: p.ticketId, token: p.token })),
+    { onConflict: 'ticket_id', ignoreDuplicates: true },
+  );
+  if (error && !semMigration102(error)) console.error('[push] Erro ao guardar recibos:', error.message);
+}
+
+/**
+ * Lê na Expo os recibos dos envios com mais de 15 min (push_recibos), apaga de push_dispositivos o
+ * aparelho com `DeviceNotRegistered` e limpa a tabela: recibos lidos e os com mais de 24 h.
+ * Recibo que a Expo ainda não devolveu (e tem menos de 24 h) fica para a próxima passada. Falha de
+ * rede/HTTP num lote deixa os recibos dele intactos. Sem a 102 não faz nada. Nunca lança nem
+ * registra token em log.
+ * @returns quantos recibos foram lidos e quantos aparelhos foram apagados.
+ */
+export async function lerRecibosExpo(
+  db: ClienteDbCron, opcoes: OpcoesExpo & { agora: Date },
+): Promise<{ lidos: number; apagados: number }> {
+  const resultado = { lidos: 0, apagados: 0 };
+  try {
+    const fetchFn = opcoes.fetchFn ?? fetch;
+    const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
+    if (opcoes.accessToken) headers.Authorization = `Bearer ${opcoes.accessToken}`;
+    const limiteMin = new Date(opcoes.agora.getTime() - MIN_RECIBO_MIN * 60_000).toISOString();
+    const limiteDia = new Date(opcoes.agora.getTime() - HORAS_RECIBO * 3_600_000).toISOString();
+
+    const { data, error } = await db.from('push_recibos')
+      .select('ticket_id, token').lte('criado_em', limiteMin).order('criado_em', { ascending: true }).limit(3000);
+    if (error) {
+      if (!semMigration102(error)) console.error('[push] Erro ao ler push_recibos:', error.message);
+      return resultado;
+    }
+    const recibos = (data ?? []) as { ticket_id: string; token: string }[];
+
+    for (let i = 0; i < recibos.length; i += LOTE_RECIBOS) {
+      const lote = recibos.slice(i, i + LOTE_RECIBOS);
+      try {
+        const res = await fetchFn(URL_EXPO_RECIBOS, { method: 'POST', headers, body: JSON.stringify({ ids: lote.map(r => r.ticket_id) }) });
+        if (!res.ok) { console.error(`[push] Expo respondeu HTTP ${res.status} na leitura de recibos.`); continue; }
+        const json = (await res.json()) as { data?: Record<string, { status?: string; details?: { error?: string } }> };
+        const mapa = json?.data;
+        if (!mapa || typeof mapa !== 'object') { console.error('[push] Resposta da Expo sem recibos.'); continue; }
+        const lidos = lote.filter(r => mapa[r.ticket_id]);
+        const invalidos = [...new Set(lidos.filter(r => mapa[r.ticket_id].details?.error === 'DeviceNotRegistered').map(r => r.token))];
+        if (invalidos.length) {
+          const { error: eDel } = await db.from('push_dispositivos').delete().in('token', invalidos);
+          if (eDel) { console.error('[push] Erro ao apagar aparelhos dos recibos:', eDel.message); continue; }
+          resultado.apagados += invalidos.length;
+        }
+        if (lidos.length) {
+          const { error: eRec } = await db.from('push_recibos').delete().in('ticket_id', lidos.map(r => r.ticket_id));
+          if (eRec) console.error('[push] Erro ao limpar recibos lidos:', eRec.message);
+          resultado.lidos += lidos.length;
+        }
+      } catch (e) {
+        console.error('[push] Falha ao ler recibos da Expo:', msgErro(e));
+      }
+    }
+
+    const { error: eVelhos } = await db.from('push_recibos').delete().lt('criado_em', limiteDia);
+    if (eVelhos) console.error('[push] Erro ao limpar recibos antigos:', eVelhos.message);
+  } catch (e) {
+    console.error('[push] Falha na leitura de recibos:', msgErro(e));
+  }
+  return resultado;
 }
 
 // ── Web push (web_push_subscriptions) ───────────────────────────────────────

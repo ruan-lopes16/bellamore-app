@@ -29,7 +29,7 @@ import {
   PERIODOS_RELATORIO, ROTULO_COMPARACAO, rotuloDoPeriodo, hojeBRT, rotuloDataBR, chaveDiaBRT, type PeriodoRelatorio,
 } from '@shared/periodos';
 import {
-  ABAS_RELATORIO, cartoesKpiRelatorio, linhasResumoFinanceiro, type AbaRelatorio, type CartaoKpiRelatorio,
+  ABAS_RELATORIO, cartoesKpiRelatorio, linhasResumoFinanceiro, rotulosEixoVisiveis, type AbaRelatorio, type CartaoKpiRelatorio,
 } from '@shared/relatorios';
 import { textoConfirmarPagamento, type ComissoesDaProfissional } from '@shared/comissoes';
 import { notaAvulsasNoFechamento, variacaoPercentual } from '@shared/kpis-financeiros';
@@ -181,6 +181,8 @@ function GraficoBarras({ pontos }: { pontos: { rotulo: string; valor: number }[]
   const max = Math.max(...pontos.map(p => p.valor), 1);
   const passo = W / Math.max(pontos.length, 1);
   const barra = Math.max(passo * 0.6, 2);
+  // Com muitos pontos (gráfico do mês), só uma parte dos rótulos aparece para não se sobrepor.
+  const visiveis = new Set(rotulosEixoVisiveis(pontos.length, 10));
   return (
     <Svg width={W} height={H}>
       {pontos.map((p, i) => {
@@ -189,7 +191,9 @@ function GraficoBarras({ pontos }: { pontos: { rotulo: string; valor: number }[]
         return (
           <G key={`${p.rotulo}-${i}`}>
             <Rect x={x} y={H - BASE - h} width={barra} height={p.valor > 0 ? Math.max(h, 2) : 0} rx={3} fill={C.accent} />
-            <SvgText x={x + barra / 2} y={H - 4} fontSize={9} fill={C.text3} textAnchor="middle">{p.rotulo}</SvgText>
+            {visiveis.has(i) && (
+              <SvgText x={x + barra / 2} y={H - 4} fontSize={9} fill={C.text3} textAnchor="middle">{p.rotulo}</SvgText>
+            )}
           </G>
         );
       })}
@@ -507,8 +511,9 @@ export default function Relatorios() {
         />
 
         {/* Abas calculadas da carga principal: nada é desenhado com erro ou sem dados. */}
-        {(aba === 'financeiro' || aba === 'servicos' || aba === 'equipe' || aba === 'clientes') && (!r.kpis || isError) && (
-          <Vazio texto={isError ? 'Não foi possível carregar os dados desta aba.' : 'Carregando…'} />
+        {/* Erro geral: só o banner do topo avisa (sem repetir a mensagem dentro da aba). */}
+        {(aba === 'financeiro' || aba === 'servicos' || aba === 'equipe' || aba === 'clientes') && !r.kpis && !isError && (
+          <Vazio texto="Carregando…" />
         )}
 
         {/* ── Financeiro ── */}
@@ -640,7 +645,9 @@ export default function Relatorios() {
 
         {/* ── Estoque ── */}
         {aba === 'estoque' && (
-          r.insumosErro || isError
+          isError
+            ? null
+            : r.insumosErro
             ? <Vazio texto="Não foi possível carregar o estoque." />
             : !r.insumosPronto || !r.kpis
               ? <Vazio texto="Carregando…" />
@@ -666,7 +673,9 @@ export default function Relatorios() {
 
         {/* ── Comissões ── */}
         {aba === 'comissoes' && (
-          r.comissoes.isError || isError
+          isError
+            ? null
+            : r.comissoes.isError
             ? <Vazio texto="Não foi possível carregar as comissões." />
             : !r.comissoes.pronto
               ? <Vazio texto="Carregando…" />
@@ -689,7 +698,9 @@ export default function Relatorios() {
 
         {/* ── Avaliações ── */}
         {aba === 'avaliacoes' && (
-          r.avaliacoesErro || isError
+          isError
+            ? null
+            : r.avaliacoesErro
             ? <Vazio texto="Não foi possível carregar as avaliações." />
             : !r.avaliacoesPronto
               ? <Vazio texto="Carregando…" />
