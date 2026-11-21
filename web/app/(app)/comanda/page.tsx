@@ -1570,6 +1570,7 @@ export default function ComandaPage() {
               <SmoothTabs
                 variant="pill"
                 tabs={[{ key: 'semana', label: 'Semana' }, { key: 'mes', label: 'Mês' }]}
+                fundo="neutro"
                 active={view}
                 onChange={key => setView(key as 'semana' | 'mes')}
               />
@@ -1612,6 +1613,7 @@ export default function ComandaPage() {
                 value={profFiltro}
                 onChange={escolherProfFiltro}
                 placeholder="Profissional: Todas"
+                variante="filtro"
               />
             </div>
           )}

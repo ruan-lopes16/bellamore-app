@@ -50,6 +50,11 @@ interface Props {
   className?: string;
   /** Notifica o pai quando o dropdown abre/fecha (ex: para expandir um modal ao redor) */
   onOpenChange?: (aberto: boolean) => void;
+  /**
+   * 'filtro' = seletor no topo de uma tela (ex.: profissional da Agenda/Comanda): fundo branco, igual
+   * às pílulas de filtro. Padrão 'campo' = campo de formulário (fundo neutro, como os outros inputs).
+   */
+  variante?: 'campo' | 'filtro';
 }
 
 export function SearchSelect({
@@ -60,6 +65,7 @@ export function SearchSelect({
   required,
   className = '',
   onOpenChange,
+  variante = 'campo',
 }: Props) {
   const [busca,  setBusca]  = useState('');
   const [aberto, setAberto] = useState(false);
@@ -109,7 +115,8 @@ export function SearchSelect({
 
   // Classes base do campo visível — min-h (não h fixo) para crescer quando o
   // valor selecionado é empilhado em 2 linhas (label + sub).
-  const base = "w-full min-h-10 rounded-xl border border-border bg-bg text-sm transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20";
+  const fundo = variante === 'filtro' ? 'bg-surface shadow-sm' : 'bg-bg';
+  const base = `w-full min-h-10 rounded-xl border border-border ${fundo} text-sm transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20`;
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
