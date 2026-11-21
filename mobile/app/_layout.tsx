@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
 import { decidirDestinoSessao } from '@shared/destino-sessao';
+import { deveRenovarDispositivo } from '@shared/push-dispositivos';
 import { sincronizarPushDispositivo, cancelarLembretesLocais, rotaParaNotificacao } from '@/lib/notifications';
 import { TapSpark } from '@/components/TapSpark';
 import { ErroPermissoes } from '@/components/ErroPermissoes';
@@ -29,6 +30,8 @@ const queryClient = new QueryClient({
 
 export default function RootLayout() {
   const { carregarSessao, roleAtivo, isOwner, user, semEmpresa, erroEmpresas, permissoesErro, empresaAtiva } = useAuthStore();
+  /** Quando o aparelho foi registrado pela última vez (renovação ao voltar ao primeiro plano). */
+  const ultimoRegistroPushRef = useRef<number | null>(null);
   const notifListener = useRef<Notifications.Subscription>();
   const responseListener = useRef<Notifications.Subscription>();
 
@@ -82,10 +85,22 @@ export default function RootLayout() {
     // Nunca pede permissão aqui: o pedido só sai de "Ativar notificações" (Configurações).
     // Sem permissão concedida: nem push nem lembrete local.
     if (!user || !empresaAtiva) return;
-    sincronizarPushDispositivo({ userId: user.id, empresaId: empresaAtiva.id, pedirPermissao: false })
-      // Push é acessório: a falha não trava o app. Fica guardada (`erroRegistroPush`, mostrada em
-      // Configurações) e no log, só a mensagem — nunca o token.
-      .catch((e: unknown) => { console.warn('[push] registro do aparelho falhou:', e instanceof Error ? e.message : String(e)); });
+    const userId = user.id;
+    const empresaId = empresaAtiva.id;
+    const registrar = () => {
+      ultimoRegistroPushRef.current = Date.now();
+      sincronizarPushDispositivo({ userId, empresaId, pedirPermissao: false })
+        // Push é acessório: a falha não trava o app. Fica guardada (`erroRegistroPush`, mostrada em
+        // Configurações) e no log, só a mensagem — nunca o token.
+        .catch((e: unknown) => { console.warn('[push] registro do aparelho falhou:', e instanceof Error ? e.message : String(e)); });
+    };
+    registrar();
+    // App que fica aberto em segundo plano por semanas não remonta: ao voltar ao primeiro plano,
+    // renova o registro (visto_em) no máximo 1x por dia, para nunca passar dos 30 dias sem sinal.
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active' && deveRenovarDispositivo(ultimoRegistroPushRef.current, Date.now())) registrar();
+    });
+    return () => sub.remove();
   }, [user?.id, empresaAtiva?.id]);
 
   useEffect(() => {

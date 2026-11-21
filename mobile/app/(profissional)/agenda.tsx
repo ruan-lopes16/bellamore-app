@@ -24,7 +24,7 @@ import { ptBR } from 'date-fns/locale';
 import { useAuthStore } from '@/stores/authStore';
 import { SecretText } from '@/components/Secret';
 import {
-  useAgendaProfissional, useKpisDiaProfissional, useDiasProfissional,
+  useAgendaProfissional, useContinuacoesVesperaProfissional, useKpisDiaProfissional, useDiasProfissional,
   useBloqueiosProfissionalDia, useCriarBloqueioProfissional,
 } from '@/hooks/useProfissional';
 import { CATEGORIA_CONFIG, useRemoverBloqueio, type AgendamentoCompleto } from '@/hooks/useAgenda';
@@ -37,7 +37,7 @@ import { FaixaSemana } from '@/components/agenda/FaixaSemana';
 import { VisaoMes } from '@/components/agenda/VisaoMes';
 import { AlternarVisao, type VisaoAgenda } from '@/components/agenda/AlternarVisao';
 import {
-  agruparPorHora, bloqueiosPorHora, dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana, continuacoesPorHora,
+  agruparPorHora, bloqueiosPorHora, dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana, continuacoesPorHora, intervalosDaVespera,
 } from '@shared/agenda-grade';
 import { ContinuacaoAtendimento } from '@/components/agenda/ContinuacaoAtendimento';
 import { formatarMoeda } from '@shared/moeda';
@@ -181,6 +181,8 @@ function AgendaProfissional() {
   const {
     data: agendamentos = [], isLoading, isError: erroAgendamentos, refetch,
   } = useAgendaProfissional(dataDia);
+  // Véspera que passa da meia-noite: só continuação na grade (fora de KPIs e contagens); erro não derruba a agenda.
+  const { data: vespera = [] } = useContinuacoesVesperaProfissional(dataDia);
   const { data: kpis, isError: erroKpis, error: errKpis, refetch: refetchKpis } = useKpisDiaProfissional(dataDia);
   // Contagem por mês: na visão Mês, o mês visto; na faixa da semana, os meses que a semana toca
   // (dois na virada do mês, senão os pontinhos dos dias do mês vizinho sumiriam).
@@ -217,10 +219,10 @@ function AgendaProfissional() {
 
   // Janela do dia: 7–21, esticada para cobrir atendimentos e bloqueios (nada fica cortado).
   // O hook já traz só os bloqueios dela e os gerais.
-  const horas = horasDaJanela(janelaDoDia(itensDaJanela(dia, agendamentos, bloqueios)));
+  const horas = horasDaJanela(janelaDoDia(itensDaJanela(dia, agendamentos, [...bloqueios, ...intervalosDaVespera(vespera)])));
   const agPorHora: Record<number, AgendamentoCompleto[]> = agruparPorHora(agendamentos);
   // Atendimentos que começaram antes e ainda estão em andamento em cada hora.
-  const contPorHora = continuacoesPorHora(agendamentos, dia, horas);
+  const contPorHora = continuacoesPorHora([...agendamentos, ...vespera], dia, horas);
   // Um bloqueio ocupa todas as horas que cruza no dia (em Brasília).
   const bloqPorHora = bloqueiosPorHora(bloqueios, dia, horas);
 

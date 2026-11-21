@@ -1601,6 +1601,35 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-21 — Residuais finais (103, 104)
+
+*Escopo, pedido do dono depois de zerar o backlog:*
+- *103: o aviso de bloqueio pendente passa a ter acento.*
+- *Atendimento que cruza a meia-noite continua no dia seguinte (`carregarContinuacoesDaVespera`). No app aparece nas continuações da grade; no web, na Timeline, como bloco "desde ontem HH:mm". Nunca entra no resumo do dia nem nas contagens.*
+- *104: o histórico da Equipe passa a ser paginado por cursor no banco (`listar_historico_equipe_cursor`). Sem a 104, usa a função da 092.*
+- *O app renova o registro do aparelho ao voltar ao primeiro plano, no máximo 1x por dia (`deveRenovarDispositivo`).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; mobile só com o erro pré-existente |
+| UX / Padrões    | 9.0  | Mesmo bloco de continuação já usado na grade do app; selo "desde ontem" no web |
+| Segurança       | 9.0  | 104 com o mesmo corpo da 092 (sessão, permissão, e-mail mascarado), travado por teste; execução só para `authenticated` |
+| Documentação    | 9.0  | Cabeçalhos das migrations com o porquê, conferências e rollback |
+| Arquitetura     | 9.0  | Consulta da véspera em shared, usada pelas três agendas; fallback sem a 104 |
+| Performance     | 9.0  | 1 consulta extra por dia aberto, em paralelo, sem derrubar a agenda em erro |
+| Visual (UI)     | —    | Não executado |
+| **Completude**  | 9.0  | Os 3 residuais escolhidos e o acento |
+| **Proatividade**| 8.5  | — |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.0 / 10` → **A+**
+
+**Pendências para produção:** rodar `103_acento_aviso_bloqueio.sql` (se ainda não rodou) e `104_historico_equipe_cursor.sql`. A ordem é livre.
+
+**Registrados, não corrigidos:** na Timeline do web, um atendimento da véspera e outro do dia logo depois da meia-noite se sobrepõem na mesma coluna.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

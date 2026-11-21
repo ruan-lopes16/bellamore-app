@@ -21,7 +21,7 @@ import {
   PlusJakartaSans_700Bold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import {
-  useAgendamentoDia, useProfissionais, useDiasComAgendamento,
+  useAgendamentoDia, useContinuacoesVespera, useProfissionais, useDiasComAgendamento,
   CATEGORIA_CONFIG,
   useBloqueiosDia, useBloqueiosPendentes, useCriarBloqueio,
   useAprovarBloqueio, useRecusarBloqueio, useRemoverBloqueio,
@@ -41,7 +41,7 @@ import { TimelineColunas } from '@/components/agenda/TimelineColunas';
 import { ContinuacaoAtendimento } from '@/components/agenda/ContinuacaoAtendimento';
 import {
   TODAS, filtroInicialAgenda, type FiltroProfissional, agruparPorHora, bloqueiosDaProfissional, bloqueiosPorHora, colunasComExtras,
-  dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana, continuacoesPorHora,
+  dataDoDia, horasDaJanela, itensDaJanela, juntarContagens, mesesDaSemana, continuacoesPorHora, intervalosDaVespera,
 } from '@shared/agenda-grade';
 import { BloqueioModal } from '@/components/BloqueioModal';
 import { PendentesBloqueioSheet } from '@/components/PendentesBloqueioSheet';
@@ -243,6 +243,9 @@ function Agenda() {
   const {
     data: agendamentos = [], isLoading, isError: erroAgendamentos, refetch,
   } = useAgendamentoDia(dia, filtro);
+  // Atendimentos da véspera que passam da meia-noite: só continuação na grade (fora de resumo e
+  // contagens). Erro nessa carga extra não derruba a agenda: a grade só fica sem as continuações.
+  const { data: vespera = [] } = useContinuacoesVespera(dia, filtro);
   const {
     data: profissionais = [], isError: erroProfissionais, refetch: refetchProfissionais,
   } = useProfissionais();
@@ -316,10 +319,10 @@ function Agenda() {
   // Bloqueios que valem para a profissional escolhida (os dela e os gerais; em "Todas", todos).
   const bloqueiosVisiveis = bloqueiosDaProfissional(bloqueios, filtro);
   // Janela do dia: 7–21, esticada para cobrir atendimentos e bloqueios (nada fica cortado).
-  const horas = horasDaJanela(janelaDoDia(itensDaJanela(dia, agendamentos, bloqueiosVisiveis)));
+  const horas = horasDaJanela(janelaDoDia(itensDaJanela(dia, agendamentos, [...bloqueiosVisiveis, ...intervalosDaVespera(vespera)])));
   const agPorHora = agruparPorHora(agendamentos);
   // Atendimentos que começaram antes e ainda estão em andamento em cada hora (visão em lista).
-  const contPorHora = continuacoesPorHora(agendamentos, dia, horas);
+  const contPorHora = continuacoesPorHora([...agendamentos, ...vespera], dia, horas);
   // Um bloqueio ocupa todas as horas que cruza no dia (em Brasília); o horário vazio só some
   // com bloqueio da profissional escolhida ou geral.
   const bloqPorHora = bloqueiosPorHora(bloqueiosVisiveis, dia, horas);
@@ -625,6 +628,7 @@ function Agenda() {
             colunas={colunas}
             horas={horas}
             dia={dia}
+            vespera={vespera}
             renderCelula={(profissionalId, ags, hora, conts) =>
               renderCelula(profissionalId, ags, bloqPorColuna.get(profissionalId)?.[hora] ?? [], hora, conts)}
           />

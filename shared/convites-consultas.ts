@@ -173,8 +173,16 @@ export function linhasAposCursorHistorico<T extends { criado_em: string; id: str
 export async function carregarHistoricoEquipe(db: ClienteDbConvites, empresaId: string, cursor: CursorHistoricoEquipe | null = null):
   Promise<{ linhas: LinhaHistoricoEquipe[]; temMais: boolean; disponivel: boolean }> {
   const n = TAMANHO_PAGINA_HISTORICO_EQUIPE;
-  const offset = cursor && Number.isInteger(cursor.vistos) && cursor.vistos > 0 ? cursor.vistos : 0;
-  const { data, error } = await db.rpc('listar_historico_equipe', { p_empresa: empresaId, p_limite: n + 1, p_offset: offset });
+  // 104: cursor de verdade no banco (nunca repete nem pula). Sem a 104 (PGRST202), cai na função da
+  // 092 por offset, com o descarte no cliente (`linhasAposCursorHistorico`).
+  let { data, error } = await db.rpc('listar_historico_equipe_cursor', {
+    p_empresa: empresaId, p_limite: n + 1,
+    p_antes_em: cursor?.criado_em ?? null, p_antes_id: cursor?.id ?? null,
+  });
+  if (error && error.code === 'PGRST202') {
+    const offset = cursor && Number.isInteger(cursor.vistos) && cursor.vistos > 0 ? cursor.vistos : 0;
+    ({ data, error } = await db.rpc('listar_historico_equipe', { p_empresa: empresaId, p_limite: n + 1, p_offset: offset }));
+  }
   if (error) {
     if (semMigration092(error)) return { linhas: [], temMais: false, disponivel: false };
     throw new Error(mensagemErroBanco(error, 'carregar o histórico da equipe'));

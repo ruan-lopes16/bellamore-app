@@ -122,6 +122,19 @@ export function continuacoesPorHora<T extends { data_hora_inicio: string; data_h
   return out;
 }
 
+/**
+ * Atendimentos da véspera que passam da meia-noite, como intervalos para `itensDaJanela`: ele já
+ * recorta ao dia exibido, então só a parte depois de 00:00 estica a janela. Faltou fica de fora,
+ * igual a `continuacoesPorHora`.
+ */
+export function intervalosDaVespera(
+  vespera: { data_hora_inicio: string; data_hora_fim: string; status?: string | null }[],
+): Intervalo[] {
+  return vespera
+    .filter((a) => a.status !== 'cancelado' && a.status !== 'faltou')
+    .map((a) => ({ data_inicio: a.data_hora_inicio, data_fim: a.data_hora_fim }));
+}
+
 /** Itens para `janelaDoDia`: atendimentos do dia e bloqueios recortados ao dia exibido. */
 export function itensDaJanela(
   dia: string,

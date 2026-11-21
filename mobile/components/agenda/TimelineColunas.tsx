@@ -12,12 +12,14 @@ import { useTema } from '@/lib/tema';
 const LARGURA_HORA = 48;
 
 export function TimelineColunas<T extends { data_hora_inicio: string; data_hora_fim: string; status?: string | null }>({
-  colunas, horas, dia, renderCelula, larguraColuna = 210,
+  colunas, horas, dia, vespera = [], renderCelula, larguraColuna = 210,
 }: {
   colunas: { profissional: { id: string; nome: string }; itens: T[] }[];
   horas: number[];
   /** Dia exibido (aaaa-mm-dd, Brasília): base para achar os atendimentos que continuam em cada hora. */
   dia: string;
+  /** Atendimentos da véspera que passam da meia-noite: só viram continuação (nunca começam uma hora). */
+  vespera?: (T & { profissional_id?: string | null })[];
   /**
    * Conteúdo da célula (profissional × hora): os atendimentos que começam nessa hora e, em
    * `continuacoes`, os que começaram antes e ainda estão em andamento nela.
@@ -27,7 +29,9 @@ export function TimelineColunas<T extends { data_hora_inicio: string; data_hora_
 }) {
   const { C } = useTema();
   const porHora = colunas.map((c) => agruparPorHora(c.itens));
-  const contsPorColuna = colunas.map((c) => continuacoesPorHora(c.itens, dia, horas));
+  const contsPorColuna = colunas.map((c) => continuacoesPorHora(
+    [...c.itens, ...vespera.filter((v) => v.profissional_id === c.profissional.id)], dia, horas,
+  ));
 
   if (colunas.length === 0) {
     return (
