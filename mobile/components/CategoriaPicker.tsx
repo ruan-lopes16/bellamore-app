@@ -8,13 +8,8 @@ import {
   CATEGORIA_PALETA, CATEGORIA_ICONES, bgDaCor,
   type CategoriaCustom, type CategoriaServico,
 } from '@shared/categorias';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', accent: '#9B6FE8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-  red: '#DC2626',
-};
 
 type Props = {
   empresaId: string;
@@ -26,6 +21,7 @@ type Props = {
 };
 
 export function CategoriaPicker({ empresaId, customs, categoria, categoriaId, onSelect, onCustomCriada }: Props) {
+  const { C } = useTema();
   const [criando, setCriando] = useState(false);
   const [nome, setNome]   = useState('');
   const [cor, setCor]     = useState(CATEGORIA_PALETA[0].cor);
@@ -133,7 +129,7 @@ export function CategoriaPicker({ empresaId, customs, categoria, categoriaId, on
               </TouchableOpacity>
             ))}
           </View>
-          {erro ? <Text style={{ color: C.red, fontSize: 12, fontFamily: 'PlusJakartaSans_500Medium' }}>{erro}</Text> : null}
+          {erro ? <Text style={{ color: C.redTexto, fontSize: 12, fontFamily: 'PlusJakartaSans_500Medium' }}>{erro}</Text> : null}
           <TouchableOpacity onPress={criar} disabled={salvando}
             style={{ height: 42, borderRadius: 10, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', opacity: salvando ? 0.5 : 1 }}>
             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: '#fff' }}>{salvando ? 'Salvando...' : 'Salvar categoria'}</Text>

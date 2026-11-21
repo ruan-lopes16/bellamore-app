@@ -6,12 +6,8 @@ import { CategoriaIconCustom } from '@/components/CategoriaIcon';
 import {
   CATEGORIA_PALETA, CATEGORIA_ICONES, bgDaCor, type CategoriaCustom,
 } from '@shared/categorias';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-  red: '#DC2626',
-};
 
 type Props = {
   visible: boolean;
@@ -23,6 +19,7 @@ type Props = {
 };
 
 export function CategoriasManagerModal({ visible, customs, contarUso, onClose, onAtualizada, onExcluida }: Props) {
+  const { C } = useTema();
   const [editId, setEditId]   = useState<string | null>(null);
   const [nome, setNome]       = useState('');
   const [cor, setCor]         = useState('');
@@ -87,7 +84,7 @@ export function CategoriasManagerModal({ visible, customs, contarUso, onClose, o
                       <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>{c.nome}</Text>
                       {confirmDel === c.id ? (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Text style={{ fontSize: 11, color: C.red, fontFamily: 'PlusJakartaSans_500Medium' }}>
+                          <Text style={{ fontSize: 11, color: C.redTexto, fontFamily: 'PlusJakartaSans_500Medium' }}>
                             {usos > 0 ? `${usos} serviço(s) usam` : 'Confirmar?'}
                           </Text>
                           <TouchableOpacity onPress={() => excluir(c.id)} disabled={busy}

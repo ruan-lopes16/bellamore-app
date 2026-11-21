@@ -38,20 +38,9 @@ import { SmoothTabs } from '@/components/SmoothTabs';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoRelatorio } from '@shared/exportacao/relatorios';
 import { formatarMoeda } from '@shared/moeda';
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  indigo: '#4F46E5', indigoSoft: '#EEF2FF',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 /** Máscara DD/MM/AAAA aplicada ao digitar — mesmo padrão usado em nova-despesa.tsx */
 function mascaraData(v: string) {
@@ -108,6 +97,7 @@ function Avatar({ nome, index }: { nome: string; index: number }) {
 // ── Blocos reutilizáveis ─────────────────────────────────────
 
 function Secao({ titulo, extra, children }: { titulo: string; extra?: React.ReactNode; children: React.ReactNode }) {
+  const { C } = useTema();
   return (
     <View style={{ marginHorizontal: 24, marginBottom: 20 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -122,6 +112,7 @@ function Secao({ titulo, extra, children }: { titulo: string; extra?: React.Reac
 }
 
 function Vazio({ texto }: { texto: string }) {
+  const { C } = useTema();
   return (
     <View style={{ padding: 20, alignItems: 'center' }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3, textAlign: 'center' }}>{texto}</Text>
@@ -130,13 +121,14 @@ function Vazio({ texto }: { texto: string }) {
 }
 
 function CartaoKpi({ c }: { c: CartaoKpiRelatorio }) {
+  const { C } = useTema();
   return (
     <View style={{ width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginBottom: 6 }}>{c.rotulo}</Text>
-      <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: c.negativo ? C.red : C.text, letterSpacing: -0.5 }}>{c.valor}</SecretText>
+      <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: c.negativo ? C.redTexto : C.text, letterSpacing: -0.5 }}>{c.valor}</SecretText>
       {c.sub && <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3, marginTop: 2 }}>{c.sub}</SecretText>}
       {c.delta !== null && (
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: c.delta >= 0 ? C.green : C.red, marginTop: 4 }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: c.delta >= 0 ? C.greenTexto : C.redTexto, marginTop: 4 }}>
           {c.delta >= 0 ? '+' : ''}{c.delta}% {c.rotuloDelta}
         </Text>
       )}
@@ -145,7 +137,9 @@ function CartaoKpi({ c }: { c: CartaoKpiRelatorio }) {
 }
 
 /** Cartão simples (rótulo + valor) usado nas abas Clientes, Comissões e Avaliações. */
-function CartaoSimples({ rotulo, valor, cor = C.text, secreto = true }: { rotulo: string; valor: string; cor?: string; secreto?: boolean }) {
+function CartaoSimples({ rotulo, valor, cor: corProp, secreto = true }: { rotulo: string; valor: string; cor?: string; secreto?: boolean }) {
+  const { C } = useTema();
+  const cor = corProp ?? C.text;
   const estilo = { fontFamily: 'PlusJakartaSans_700Bold', fontSize: 18, color: cor, letterSpacing: -0.5 } as const;
   return (
     <View style={{ width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14 }}>
@@ -155,13 +149,15 @@ function CartaoSimples({ rotulo, valor, cor = C.text, secreto = true }: { rotulo
   );
 }
 
-function LinhaRanking({ pos, nome, valor, detalhe, pct, extra, cor = C.accent, ultimo }: {
+function LinhaRanking({ pos, nome, valor, detalhe, pct, extra, cor: corProp, ultimo }: {
   pos: number; nome: string; valor: string; detalhe: string; pct: number; extra?: string; cor?: string; ultimo: boolean;
 }) {
+  const { C } = useTema();
+  const cor = corProp ?? C.accent;
   return (
     <View style={{ paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: ultimo ? 0 : 1, borderBottomColor: C.border }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: pos <= 3 ? C.primary : C.text4, minWidth: 18 }}>{pos}</Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: pos <= 3 ? C.primaryTexto : C.text4, minWidth: 18 }}>{pos}</Text>
         <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>{nome}</Text>
         <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>{detalhe}</Text>
         <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>{valor}</SecretText>
@@ -175,6 +171,7 @@ function LinhaRanking({ pos, nome, valor, detalhe, pct, extra, cor = C.accent, u
 }
 
 function GraficoBarras({ pontos }: { pontos: { rotulo: string; valor: number }[] }) {
+  const { C } = useTema();
   const { width } = useWindowDimensions();
   const W = width - 48 - 32;
   const H = 140, BASE = 18, TOPO = 8;
@@ -204,6 +201,7 @@ function GraficoBarras({ pontos }: { pontos: { rotulo: string; valor: number }[]
 function CartaoComissoes({ p, rotuloPeriodo, onPagar, pagando, podePagar }: {
   p: ComissoesDaProfissional; rotuloPeriodo: string; onPagar: (p: ComissoesDaProfissional) => Promise<unknown>; pagando: boolean; podePagar: boolean;
 }) {
+  const { C } = useTema();
   const [aberto, setAberto] = useState(false);
   function confirmar() {
     Alert.alert('Confirmar pagamento', textoConfirmarPagamento(p.nome, formatarMoeda(p.pendente), rotuloPeriodo), [
@@ -243,7 +241,7 @@ function CartaoComissoes({ p, rotuloPeriodo, onPagar, pagando, podePagar }: {
             </Text>
           </View>
           <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>{formatarMoeda(c.valorComissao)}</SecretText>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 8, textTransform: 'uppercase', color: c.status === 'pago' ? C.green : C.amber }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 8, textTransform: 'uppercase', color: c.status === 'pago' ? C.greenTexto : C.amberTexto }}>
             {c.status === 'pago' ? 'Pago' : 'Pendente'}
           </Text>
         </View>
@@ -254,7 +252,8 @@ function CartaoComissoes({ p, rotuloPeriodo, onPagar, pagando, podePagar }: {
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Relatorios() {
+function Relatorios() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const [periodo, setPeriodo] = useState<PeriodoRelatorio>('mes');
   const [semanaOffset, setSemanaOffset] = useState(0);   // só em 'semana'
@@ -488,12 +487,12 @@ export default function Relatorios() {
         </LinearGradient>
 
         {isError && (
-          <View style={{ marginHorizontal: 24, marginTop: 16, backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.red, borderRadius: 14, padding: 14 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, marginBottom: 6 }}>
+          <View style={{ marginHorizontal: 24, marginTop: 16, backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.redTexto, borderRadius: 14, padding: 14 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto, marginBottom: 6 }}>
               Não foi possível carregar os relatórios.
             </Text>
             <TouchableOpacity onPress={onRefresh}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red, textDecorationLine: 'underline' }}>Tentar de novo</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.redTexto, textDecorationLine: 'underline' }}>Tentar de novo</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -552,7 +551,7 @@ export default function Relatorios() {
                       <SecretText style={{
                         fontFamily: l.tipo === 'resultado' ? 'PlusJakartaSans_700Bold' : 'PlusJakartaSans_600SemiBold',
                         fontSize: l.tipo === 'resultado' ? 15 : 12,
-                        color: l.tipo === 'resultado' ? (l.valor >= 0 ? C.green : C.red) : l.tipo === 'saida' ? C.red : C.accent,
+                        color: l.tipo === 'resultado' ? (l.valor >= 0 ? C.greenTexto : C.redTexto) : l.tipo === 'saida' ? C.redTexto : C.accent,
                       }}>{l.tipo === 'saida' && l.valor > 0 ? '− ' : ''}{formatarMoeda(l.valor)}</SecretText>
                     </View>
                     {l.id === 'bruto' && mesesComFechamento.length > 0 && (
@@ -570,7 +569,7 @@ export default function Relatorios() {
                 ? <Vazio texto="Sem despesas no período" />
                 : r.despesasPorCategoria.slice(0, 6).map((d, i, arr) => (
                   <LinhaRanking key={`${d.nome}-${i}`} pos={i + 1} nome={d.nome} valor={formatarMoeda(d.valor)} detalhe=""
-                    pct={d.pct} cor={C.red} ultimo={i === arr.length - 1} />
+                    pct={d.pct} cor={C.redTexto} ultimo={i === arr.length - 1} />
                 ))}
             </Secao>
           </>
@@ -658,7 +657,7 @@ export default function Relatorios() {
                     extra={<SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 }}>Custo total: {formatarMoeda(r.insumos.custoTotal)}</SecretText>}>
                     {r.insumos.ranking.map((e, i) => (
                       <LinhaRanking key={e.produtoId} pos={i + 1} nome={e.nome} valor={formatarMoeda(e.custo)}
-                        detalhe={`${e.qtd % 1 === 0 ? e.qtd : e.qtd.toFixed(2)} un.`} pct={e.pct} cor={C.green}
+                        detalhe={`${e.qtd % 1 === 0 ? e.qtd : e.qtd.toFixed(2)} un.`} pct={e.pct} cor={C.greenTexto}
                         ultimo={i === r.insumos.ranking.length - 1} />
                     ))}
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 14, borderTopWidth: 1, borderTopColor: C.border }}>
@@ -682,8 +681,8 @@ export default function Relatorios() {
               : (
                 <>
                   <View style={{ marginHorizontal: 24, marginBottom: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    <CartaoSimples rotulo="A pagar" valor={formatarMoeda(r.comissoes.resumo.pendente)} cor={C.amber} />
-                    <CartaoSimples rotulo="Já pago" valor={formatarMoeda(r.comissoes.resumo.pago)} cor={C.green} />
+                    <CartaoSimples rotulo="A pagar" valor={formatarMoeda(r.comissoes.resumo.pendente)} cor={C.amberTexto} />
+                    <CartaoSimples rotulo="Já pago" valor={formatarMoeda(r.comissoes.resumo.pago)} cor={C.greenTexto} />
                     <CartaoSimples rotulo="Comissões no período" valor={String(r.comissoes.resumo.quantidade)} secreto={false} />
                   </View>
                   {r.comissoes.porProfissional.length === 0
@@ -717,7 +716,7 @@ export default function Relatorios() {
                       {r.avaliacoes.ranking.map((p, i, arr) => (
                         <View key={`${p.nome}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 14, borderBottomWidth: i === arr.length - 1 ? 0 : 1, borderBottomColor: C.border }}>
                           <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>{p.nome}</Text>
-                          <Star size={12} color={C.amber} fill={C.amber} />
+                          <Star size={12} color={C.amberTexto} fill={C.amberTexto} />
                           <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>{p.media.toFixed(1)}</Text>
                           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>({p.qtd})</Text>
                         </View>
@@ -730,7 +729,7 @@ export default function Relatorios() {
                             <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text }}>
                               {av.cliente?.nome ?? 'Cliente'}{av.profissional?.user?.nome ? ` · ${av.profissional.user.nome}` : ''}
                             </Text>
-                            <Star size={11} color={C.amber} fill={C.amber} />
+                            <Star size={11} color={C.amberTexto} fill={C.amberTexto} />
                             <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text }}>{av.nota}</Text>
                           </View>
                           {av.comentario ? (
@@ -750,3 +749,5 @@ export default function Relatorios() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Relatorios);

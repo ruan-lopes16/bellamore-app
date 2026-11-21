@@ -10,12 +10,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
 import { carregarMeusConvites, aceitarConvite, recusarConvite } from '@shared/convites-consultas';
 import { rotuloPapelEquipe } from '@shared/equipe';
-
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6',
-};
+import { useTema } from '@/lib/tema';
 
 /**
  * Banner "Você foi convidada para entrar na equipe de {empresa} como {papel}" com Aceitar e Recusar
@@ -24,6 +19,7 @@ const C = {
  * vazia e o banner não aparece. Nunca grava em `empresa_membros`: tudo passa pelas funções do banco.
  */
 export function BannerConvites() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -76,7 +72,7 @@ export function BannerConvites() {
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
               <View style={{ width: 30, height: 30, borderRadius: 10, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                <MailOpen size={15} color={C.primary} strokeWidth={2} />
+                <MailOpen size={15} color={C.primaryTexto}strokeWidth={2} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text, lineHeight: 19 }}>

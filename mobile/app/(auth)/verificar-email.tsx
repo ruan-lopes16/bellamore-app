@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   View, Text, TouchableOpacity, Alert,
-  ActivityIndicator, StatusBar, ScrollView,
+  ActivityIndicator, ScrollView,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,13 +17,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { supabase } from '@/lib/supabase';
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EDE8F7',
-  accent: '#9B6FE8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
+import { BarraDeStatus, comTemaDoUsuario, useTema } from '@/lib/tema';
 
 const PASSOS = [
   'Abra o e-mail que enviamos',
@@ -32,7 +26,8 @@ const PASSOS = [
 ];
 
 /** Tela "Verifique seu e-mail", mesmo conteúdo do web (/verificar-email). */
-export default function VerificarEmail() {
+function VerificarEmail() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ email?: string }>();
   const email = params.email ?? '';
@@ -71,7 +66,7 @@ export default function VerificarEmail() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" />
+      <BarraDeStatus />
       <ScrollView
         contentContainerStyle={{
           flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24,
@@ -88,7 +83,7 @@ export default function VerificarEmail() {
             width: 64, height: 64, borderRadius: 20, backgroundColor: C.primarySoft,
             alignItems: 'center', justifyContent: 'center', marginBottom: 24,
           }}>
-            <Mail size={28} color={C.primary} strokeWidth={1.8} />
+            <Mail size={28} color={C.primaryTexto}strokeWidth={1.8} />
           </View>
 
           <Text style={{ fontFamily: 'Fraunces_700Bold', fontSize: 30, color: C.text, marginBottom: 8 }}>
@@ -114,7 +109,7 @@ export default function VerificarEmail() {
                   width: 20, height: 20, borderRadius: 10, backgroundColor: C.primarySoft,
                   alignItems: 'center', justifyContent: 'center', marginTop: 1,
                 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.primary }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.primaryTexto }}>
                     {i + 1}
                   </Text>
                 </View>
@@ -131,7 +126,7 @@ export default function VerificarEmail() {
             style={{ alignSelf: 'stretch', marginBottom: 12 }}
           >
             <LinearGradient
-              colors={['#2C1654', '#4A2480']}
+              colors={[C.primary, '#5B2D99']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={{ borderRadius: 16, paddingVertical: 16, alignItems: 'center' }}
             >
@@ -157,3 +152,5 @@ export default function VerificarEmail() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(VerificarEmail);

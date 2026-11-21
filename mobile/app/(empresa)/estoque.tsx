@@ -46,19 +46,10 @@ import {
 import type { MovimentoEstoque } from '@shared/estoque-consultas';
 import { formatarMoeda } from '@shared/moeda';
 import { chaveMesBRT, somarMeses, rotuloMesAno, rotuloDataHoraBRT } from '@shared/periodos';
+import { type Paleta, useTema, BarraDeStatus, comTemaDoUsuario } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8', accentSoft: '#F3EEFD',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  rose: '#C2185B', roseSoft: '#FDEEF4',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 type Aba = 'produtos' | 'movimentacoes';
 
@@ -68,24 +59,25 @@ type FiltroTipoProduto = 'todos' | 'material' | 'venda';
 type FiltroSituacao = 'todos' | 'alertas';
 type FiltroTipoMov = 'todos' | 'entrada' | 'saida';
 
-const rotuloSecao = {
+const rotuloSecao = (C: Paleta) => ({
   fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3,
   letterSpacing: 1, textTransform: 'uppercase' as const, marginBottom: 8,
-};
+});
 
 // ── Banner de erro ───────────────────────────────────────────
 
 function BannerErro({ mensagem, onTentar }: { mensagem: string; onTentar: () => void }) {
+  const { C } = useTema();
   return (
     <View style={{
       flexDirection: 'row', alignItems: 'center', gap: 10,
       marginHorizontal: 24, marginBottom: 16, padding: 14,
-      backgroundColor: C.redSoft, borderRadius: 16, borderWidth: 1, borderColor: '#F5C6C0',
+      backgroundColor: C.redSoft, borderRadius: 16, borderWidth: 1, borderColor: `${C.redTexto}40`,
     }}>
-      <AlertTriangle size={18} color={C.red} strokeWidth={2} />
-      <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.red }}>{mensagem}</Text>
+      <AlertTriangle size={18} color={C.redTexto} strokeWidth={2} />
+      <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.redTexto }}>{mensagem}</Text>
       <TouchableOpacity onPress={onTentar} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red }}>Tentar de novo</Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.redTexto }}>Tentar de novo</Text>
       </TouchableOpacity>
     </View>
   );
@@ -97,6 +89,7 @@ function Cartao({ label, value, sub, Icon, cor, bg }: {
   label: string; value: string; sub: string;
   Icon: typeof Package; cor: string; bg: string;
 }) {
+  const { C } = useTema();
   return (
     <View style={{
       width: '48.5%', backgroundColor: C.surface, borderRadius: 18, padding: 14,
@@ -130,6 +123,7 @@ interface ModalMovProps {
 }
 
 function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
+  const { C } = useTema();
   const [tipo, setTipo] = useState<'entrada' | 'saida'>('entrada');
   const [quantidade, setQuantidade] = useState('');
   const [motivo, setMotivo] = useState('');
@@ -230,7 +224,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
           </View>
 
           {/* Tipo */}
-          <Text style={rotuloSecao}>Tipo</Text>
+          <Text style={rotuloSecao(C)}>Tipo</Text>
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
             {(['entrada', 'saida'] as const).map((t) => {
               const ativo = tipo === t;
@@ -276,7 +270,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
           </View>
 
           {/* Quantidade */}
-          <Text style={rotuloSecao}>Quantidade *</Text>
+          <Text style={rotuloSecao(C)}>Quantidade *</Text>
           <TextInput
             value={quantidade}
             onChangeText={setQuantidade}
@@ -300,7 +294,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3 }}>Novo estoque</Text>
               <Text style={{
                 fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13,
-                color: novoEstoque < 0 ? C.red : tipo === 'entrada' ? C.green : C.text,
+                color: novoEstoque < 0 ? C.redTexto : tipo === 'entrada' ? C.greenTexto : C.text,
               }}>
                 {formatarQuantidadeBR(novoEstoque)} {produto.unidade}
               </Text>
@@ -308,7 +302,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
           )}
 
           {/* Motivo */}
-          <Text style={rotuloSecao}>Motivo (opcional)</Text>
+          <Text style={rotuloSecao(C)}>Motivo (opcional)</Text>
           <TextInput
             value={motivo}
             onChangeText={setMotivo}
@@ -349,6 +343,7 @@ function ModalMovimentacao({ produto, onClose, onConfirmar }: ModalMovProps) {
 function ModalEscolherProduto({ produtos, valor, onEscolher, onClose }: {
   produtos: Produto[]; valor: string; onEscolher: (id: string) => void; onClose: () => void;
 }) {
+  const { C } = useTema();
   const [busca, setBusca] = useState('');
   const q = busca.trim().toLowerCase();
   const lista = q ? produtos.filter(p => p.nome.toLowerCase().includes(q)) : produtos;
@@ -391,7 +386,7 @@ function ModalEscolherProduto({ produtos, valor, onEscolher, onClose }: {
                     backgroundColor: ativo ? C.primarySoft : 'transparent',
                   }}
                 >
-                  <Text numberOfLines={1} style={{ flex: 1, fontFamily: ativo ? 'PlusJakartaSans_700Bold' : 'PlusJakartaSans_500Medium', fontSize: 13, color: ativo ? C.primary : C.text }}>
+                  <Text numberOfLines={1} style={{ flex: 1, fontFamily: ativo ? 'PlusJakartaSans_700Bold' : 'PlusJakartaSans_500Medium', fontSize: 13, color: ativo ? C.primaryTexto : C.text }}>
                     {p.nome}
                   </Text>
                   {!!p.unidade && (
@@ -412,6 +407,7 @@ function ModalEscolherProduto({ produtos, valor, onEscolher, onClose }: {
 function ProdutoRow({ produto, onMovimentar, onHistorico, onEdit }: {
   produto: Produto; onMovimentar: () => void; onHistorico: () => void; onEdit: () => void;
 }) {
+  const { C } = useTema();
   const pct = produto.estoque_minimo > 0
     ? Math.max(0, Math.min(produto.estoque_atual / produto.estoque_minimo, 1))
     : 1;
@@ -460,7 +456,7 @@ function ProdutoRow({ produto, onMovimentar, onHistorico, onEdit }: {
               </Text>
               {produto.tipo === 'venda' && (
                 <Text style={{
-                  fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.green,
+                  fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.greenTexto,
                   backgroundColor: C.greenSoft, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, overflow: 'hidden',
                 }}>
                   PDV
@@ -475,7 +471,7 @@ function ProdutoRow({ produto, onMovimentar, onHistorico, onEdit }: {
 
           {/* Saldo */}
           <View style={{ alignItems: 'flex-end', gap: 2 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: produto.status === 'critico' ? C.red : produto.status === 'baixo' ? C.amber : C.text }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: produto.status === 'critico' ? C.redTexto : produto.status === 'baixo' ? C.amberTexto : C.text }}>
               {formatarQuantidadeBR(produto.estoque_atual)}
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
@@ -501,28 +497,29 @@ function ProdutoRow({ produto, onMovimentar, onHistorico, onEdit }: {
 
       {/* Ações */}
       <View style={{ flexDirection: 'row', gap: 8, paddingLeft: 66, paddingRight: 16, paddingBottom: 12 }}>
-        <TouchableOpacity onPress={onHistorico} style={estiloAcao}>
+        <TouchableOpacity onPress={onHistorico} style={estiloAcao(C)}>
           <CalendarDays size={12} color={C.text3} strokeWidth={2} />
-          <Text style={textoAcao}>Histórico</Text>
+          <Text style={textoAcao(C)}>Histórico</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={onMovimentar} style={estiloAcao}>
+        <TouchableOpacity onPress={onMovimentar} style={estiloAcao(C)}>
           <RefreshCw size={12} color={C.text3} strokeWidth={2} />
-          <Text style={textoAcao}>Movimentar</Text>
+          <Text style={textoAcao(C)}>Movimentar</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-const estiloAcao = {
+const estiloAcao = (C: Paleta) => ({
   flexDirection: 'row' as const, alignItems: 'center' as const, gap: 5,
   paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, borderWidth: 1, borderColor: C.border,
-};
-const textoAcao = { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 };
+});
+const textoAcao = (C: Paleta) => ({ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 });
 
 // ── Mostrar mais (paginação local) ───────────────────────────
 
 function BotaoMostrarMais({ restantes, onPress }: { restantes: number; onPress: () => void }) {
+  const { C } = useTema();
   return (
     <TouchableOpacity onPress={onPress} style={{ paddingVertical: 14, alignItems: 'center' }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.accent }}>
@@ -535,6 +532,7 @@ function BotaoMostrarMais({ restantes, onPress }: { restantes: number; onPress: 
 // ── Linha de movimentação ────────────────────────────────────
 
 function MovimentoRow({ m }: { m: MovimentoEstoque }) {
+  const { C } = useTema();
   const isEntrada = m.tipo === 'entrada';
   const isAjuste = m.tipo === 'ajuste';
   const cor = isEntrada ? C.green : isAjuste ? C.primary : C.red;
@@ -550,8 +548,8 @@ function MovimentoRow({ m }: { m: MovimentoEstoque }) {
         </Text>
         {m.agendamento_id ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-start', backgroundColor: C.primarySoft, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
-            <CalendarDays size={10} color={C.primary} strokeWidth={2} />
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.primary }}>Via comanda</Text>
+            <CalendarDays size={10} color={C.primaryTexto} strokeWidth={2} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.primaryTexto }}>Via comanda</Text>
           </View>
         ) : (
           <Text numberOfLines={2} style={{ fontFamily: 'PlusJakartaSans_400Regular', fontStyle: 'italic', fontSize: 11, color: C.text4, marginTop: 3 }}>
@@ -574,7 +572,8 @@ function MovimentoRow({ m }: { m: MovimentoEstoque }) {
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function EstoqueScreen() {
+function EstoqueScreen() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { pode } = usePermissoes();
 
@@ -714,7 +713,7 @@ export default function EstoqueScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" />
+      <BarraDeStatus />
 
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -803,20 +802,20 @@ export default function EstoqueScreen() {
                 <View style={{
                   flexDirection: 'row', alignItems: 'center', gap: 10,
                   marginHorizontal: 24, marginBottom: 14, padding: 12,
-                  backgroundColor: C.amberSoft, borderRadius: 16, borderWidth: 1, borderColor: '#F6DDB8',
+                  backgroundColor: C.amberSoft, borderRadius: 16, borderWidth: 1, borderColor: `${C.amberTexto}40`,
                 }}>
-                  <AlertTriangle size={18} color={C.amber} strokeWidth={2} />
+                  <AlertTriangle size={18} color={C.amberTexto} strokeWidth={2} />
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.amber }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.amberTexto }}>
                       {alertas.length} {alertas.length === 1 ? 'produto precisa' : 'produtos precisam'} de reposição
                     </Text>
-                    <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amber, marginTop: 2 }}>
+                    <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amberTexto, marginTop: 2 }}>
                       {alertas.slice(0, 3).map(p => p.nome).join(', ')}
                       {alertas.length > 3 ? ` e mais ${alertas.length - 3}` : ''}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => { setFiltroSt('alertas'); setFiltroCat(null); }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.amber }}>Ver todos</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.amberTexto }}>Ver todos</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -859,7 +858,7 @@ export default function EstoqueScreen() {
               <View style={{ marginHorizontal: 24, marginBottom: 12 }}>
                 <SmoothTabs
                   variant="pill"
-                  activeColor={filtroSt === 'alertas' ? '#D97706' : undefined}
+                  activeColor={filtroSt === 'alertas' ? C.amberTexto : undefined}
                   tabs={[
                     { key: 'todos', label: 'Todos' },
                     { key: 'alertas', label: alertas.length > 0 ? `Alertas (${alertas.length})` : 'Alertas' },
@@ -881,10 +880,10 @@ export default function EstoqueScreen() {
                         style={{
                           paddingVertical: 7, paddingHorizontal: 14, borderRadius: 20,
                           backgroundColor: ativo ? C.primarySoft : C.surface,
-                          borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                          borderWidth: 1, borderColor: ativo ? C.primaryTexto : C.border,
                         }}
                       >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text3 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text3 }}>
                           {c.label}
                         </Text>
                       </TouchableOpacity>
@@ -967,12 +966,12 @@ export default function EstoqueScreen() {
             {!!filtroProdId && !!produtoFiltradoNome && (
               <View style={{ alignItems: 'center', marginBottom: 12 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primarySoft, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 }}>
-                  <Search size={12} color={C.primary} strokeWidth={2} />
-                  <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primary, maxWidth: 220 }}>
+                  <Search size={12} color={C.primaryTexto} strokeWidth={2} />
+                  <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primaryTexto, maxWidth: 220 }}>
                     Mostrando: {produtoFiltradoNome}
                   </Text>
                   <TouchableOpacity onPress={() => setFiltroProdId('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>Limpar</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto }}>Limpar</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1087,3 +1086,5 @@ export default function EstoqueScreen() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(EstoqueScreen);

@@ -31,17 +31,11 @@ import {
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 /** Chip de seleção (mesmo visual para Sim/Não e para as demais opções). */
 function Chip({ ativo, rotulo, onPress }: { ativo: boolean; rotulo: string; onPress: () => void }) {
+  const { C } = useTema();
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -60,19 +54,19 @@ function Chip({ ativo, rotulo, onPress }: { ativo: boolean; rotulo: string; onPr
   );
 }
 
-const caixaTexto = {
-  backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14,
-  paddingHorizontal: 14, paddingTop: 12,
-  shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
-} as const;
-const inputTexto = {
-  fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text,
-  minHeight: 52, paddingBottom: 12, textAlignVertical: 'top',
-} as const;
-
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function Anamnese() {
+function Anamnese() {
+  const { C } = useTema();
+  const caixaTexto = {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14,
+    paddingHorizontal: 14, paddingTop: 12,
+    shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
+  } as const;
+  const inputTexto = {
+    fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text,
+    minHeight: 52, paddingBottom: 12, textAlignVertical: 'top',
+  } as const;
   const { id }  = useLocalSearchParams<{ id: string }>();
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
@@ -157,8 +151,8 @@ export default function Anamnese() {
 
         <View style={{ padding: 24 }}>
           {erroAnamnese && (
-            <View style={{ backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.red, borderRadius: 14, padding: 14, marginBottom: 20 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red }}>
+            <View style={{ backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.redTexto, borderRadius: 14, padding: 14, marginBottom: 20 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto }}>
                 Não foi possível carregar a ficha de anamnese: {erroAnamnese}
               </Text>
             </View>
@@ -170,7 +164,7 @@ export default function Anamnese() {
               <View key={p.key} style={{ marginBottom: 20 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   {r.resposta === 'sim' && ehRestricao(p.key) && (
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.red }} />
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.redTexto }} />
                   )}
                   <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{p.label}</Text>
                 </View>
@@ -240,7 +234,7 @@ export default function Anamnese() {
           >
             <View style={{
               width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, marginTop: 1,
-              borderColor: C.primary, backgroundColor: respostas.declaracao_aceita ? C.primary : C.surface,
+              borderColor: C.primaryTexto, backgroundColor: respostas.declaracao_aceita ? C.primary : C.surface,
               alignItems: 'center', justifyContent: 'center',
             }}>
               {respostas.declaracao_aceita && <Check size={14} color="#fff" strokeWidth={3} />}
@@ -263,3 +257,5 @@ export default function Anamnese() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(Anamnese);

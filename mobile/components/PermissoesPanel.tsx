@@ -11,13 +11,7 @@ import {
 } from '@shared/permissoes';
 import { carregarConfigPermissoes, carregarHistoricoPermissoes, salvarPermissoes } from '@shared/permissoes-consultas';
 import { mensagemErroBanco } from '@shared/erros';
-
-// Mesmas cores das telas de Configurações/Equipe (o app define o tema localmente em cada tela).
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
+import { useTema } from '@/lib/tema';
 
 type Membro = { user_id: string; nome: string; role: 'owner' | 'gestor' | 'profissional' };
 type SubAba = 'papel' | 'pessoa' | 'historico';
@@ -26,6 +20,7 @@ const F = { r: 'PlusJakartaSans_400Regular', s: 'PlusJakartaSans_600SemiBold', b
 
 /** Aba Permissões do app — mesma regra e mesmo fluxo de rascunho/salvar do web. */
 export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empresaId: string; meuUserId: string; membroInicial?: string }) {
+  const { C } = useTema();
   const { isOwner, papel, chaves } = usePermissoes();
   const editor = { isOwner, papel, userId: meuUserId };
   /** A gestora não liga o que ela mesma não tem (salvar_permissoes recusaria). Já gravado ligado pode ficar. */
@@ -102,7 +97,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
     await carregar();
   }
 
-  if (loading) return <ActivityIndicator color={C.primary} style={{ marginTop: 24 }}/>;
+  if (loading) return <ActivityIndicator color={C.primaryTexto} style={{ marginTop: 24 }}/>;
 
   const tituloGrupo = (g: string) => (
     <Text style={{ fontFamily: F.b, fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginTop: 18, marginBottom: 8 }}>{g}</Text>
@@ -157,7 +152,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
             const ativo = m.user_id === membroSel;
             return (
               <Pressable key={m.user_id} onPress={() => { if (m.user_id !== membroSel) comConfirmacaoDeDescarte(() => setMembroSel(m.user_id)); }}
-                style={{ paddingVertical: 10, paddingHorizontal: 12, marginTop: 6, borderRadius: 12, borderWidth: 1, borderColor: ativo ? C.primary : C.border }}>
+                style={{ paddingVertical: 10, paddingHorizontal: 12, marginTop: 6, borderRadius: 12, borderWidth: 1, borderColor: ativo ? C.primaryTexto : C.border }}>
                 <Text style={{ fontFamily: F.s, fontSize: 14, color: C.text }}>{m.nome}</Text>
                 <Text style={{ fontFamily: F.r, fontSize: 11, color: C.text4 }}>
                   {m.role === 'gestor' ? 'Gestora' : 'Profissional'}{n ? ` · ${n} ${n === 1 ? 'exceção' : 'exceções'}` : ''}
@@ -183,8 +178,8 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
                         <Pressable key={e} disabled={semChave}
                           onPress={() => mudar({ tipo: 'membro', alvo: membroAtual.user_id, chave: p.chave, permitido: e === 'padrao' ? null : e === 'permitir' })}
                           style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99, borderWidth: 1, opacity: semChave ? 0.4 : 1,
-                                   borderColor: estado === e ? C.primary : C.border, backgroundColor: estado === e ? C.primarySoft : 'transparent' }}>
-                          <Text style={{ fontFamily: F.s, fontSize: 11.5, color: estado === e ? C.primary : C.text2 }}>
+                                   borderColor: estado === e ? C.primaryTexto : C.border, backgroundColor: estado === e ? C.primarySoft : 'transparent' }}>
+                          <Text style={{ fontFamily: F.s, fontSize: 11.5, color: estado === e ? C.primaryTexto : C.text2 }}>
                             {e === 'padrao' ? `${ROTULO_ESTADO[e]} (${padrao ? '✔' : '✘'})` : ROTULO_ESTADO[e]}
                           </Text>
                         </Pressable>
@@ -213,10 +208,10 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
 
       {mudancas.length > 0 && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.text, borderRadius: 16, padding: 12, marginTop: 8 }}>
-          <Text style={{ flex: 1, fontFamily: F.s, fontSize: 13, color: '#fff' }}>
+          <Text style={{ flex: 1, fontFamily: F.s, fontSize: 13, color: C.bg }}>
             {mudancas.length} {mudancas.length === 1 ? 'alteração não salva' : 'alterações não salvas'}
           </Text>
-          <Pressable onPress={() => setRascunho({})}><Text style={{ fontFamily: F.s, color: '#fff', opacity: 0.8 }}>Descartar</Text></Pressable>
+          <Pressable onPress={() => setRascunho({})}><Text style={{ fontFamily: F.s, color: C.bg, opacity: 0.8 }}>Descartar</Text></Pressable>
           <Pressable onPress={salvar} disabled={salvando}
             style={{ backgroundColor: C.primary, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, opacity: salvando ? 0.6 : 1 }}>
             <Text style={{ fontFamily: F.s, color: '#fff' }}>{salvando ? 'Salvando…' : 'Salvar'}</Text>

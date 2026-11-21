@@ -226,8 +226,7 @@ describe('app: modo escuro', () => {
       expect(s, p).not.toMatch(/^const C = \{/m);
     }
   });
-  it('telas não migradas continuam com a paleta clara fixa (padrão do contexto é claro)', () => {
+  it('o tema aplicado começa claro (tela que não pediu o tema do usuário fica clara)', () => {
     expect(tema).toMatch(/createContext<EsquemaTema>\('claro'\)/);
-    expect(ler('mobile/app/(empresa)/estoque.tsx')).toMatch(/^const C = \{/m);
   });
 });

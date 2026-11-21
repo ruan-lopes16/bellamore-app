@@ -3,18 +3,15 @@ import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { Clock } from 'lucide-react-native';
 import { DURACOES_PADRAO } from '@shared/servicos';
 import { formatarDuracao } from '@shared/dominio';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
 
 /**
  * Duração do serviço: atalhos de `DURACOES_PADRAO` mais "Personalizada" em horas e minutos
  * (mesma regra do web: minutos limitados a 59, total só muda quando > 0).
  */
 export function DuracaoSeletor({ duracao, onChange }: { duracao: number; onChange: (min: number) => void }) {
+  const { C } = useTema();
   const [personal, setPersonal] = useState(!DURACOES_PADRAO.includes(duracao));
   const [horas, setHoras] = useState(String(Math.floor(duracao / 60)));
   const [minutos, setMinutos] = useState(String(duracao % 60));
@@ -28,11 +25,11 @@ export function DuracaoSeletor({ duracao, onChange }: { duracao: number; onChang
           flexDirection: 'row', alignItems: 'center', gap: 5,
           paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20,
           backgroundColor: ativo ? C.primarySoft : C.surface,
-          borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+          borderWidth: 1, borderColor: ativo ? C.primaryTexto : C.border,
         }}
       >
-        <Clock size={12} color={ativo ? C.primary : C.text3} strokeWidth={2} />
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text3 }}>
+        <Clock size={12} color={ativo ? C.primaryTexto : C.text3} strokeWidth={2} />
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text3 }}>
           {label}
         </Text>
       </TouchableOpacity>

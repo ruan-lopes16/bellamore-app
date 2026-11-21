@@ -43,15 +43,8 @@ import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { hojeBRT, rotuloDataBR } from '@shared/periodos';
 import { novoUuid } from '@shared/uuid';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 export type CobrancaPacote = 'agora' | 'comanda';
 
@@ -89,6 +82,7 @@ export function VenderPacoteSheet(props: VenderPacoteSheetProps) {
 }
 
 function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, onClose, onVendido }: VenderPacoteSheetProps) {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const { pode } = usePermissoes();
@@ -239,7 +233,7 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
 
   const chip = (ativo: boolean) => ({
     paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1,
-    borderColor: ativo ? C.primary : C.border, backgroundColor: ativo ? C.primary : C.surface,
+    borderColor: ativo ? C.primaryTexto : C.border, backgroundColor: ativo ? C.primary : C.surface,
   });
   const chipTxt = (ativo: boolean) => ({ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? '#fff' : C.text2 });
   const rotulo = { fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.text3, textTransform: 'uppercase' as const, letterSpacing: 1.2, marginBottom: 8 };
@@ -294,7 +288,7 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
                   )}
                 </View>
               ) : erroClientes ? (
-                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red }}>{erroClientes}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto }}>{erroClientes}</Text>
               ) : (
                 <>
                   <TextInput value={buscaCliente} onChangeText={setBuscaCliente} placeholder="Buscar cliente por nome ou telefone" placeholderTextColor={C.text4} style={input} />
@@ -315,12 +309,12 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, height: 42 }}>
                   <TouchableOpacity onPress={() => setQuantidade(q => Math.max(1, q - 1))} accessibilityLabel="Diminuir quantidade"
                     style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.primary }}>−</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.primaryTexto }}>−</Text>
                   </TouchableOpacity>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: C.text, minWidth: 20, textAlign: 'center' }}>{quantidade}</Text>
                   <TouchableOpacity onPress={() => setQuantidade(q => Math.min(100, q + 1))} accessibilityLabel="Aumentar quantidade"
                     style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.primary }}>+</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.primaryTexto }}>+</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -381,8 +375,8 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
 
           {erro ? (
             <View style={{ flexDirection: 'row', gap: 8, backgroundColor: C.redSoft, borderRadius: 12, padding: 12 }}>
-              <AlertCircle size={14} color={C.red} />
-              <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red }}>{erro}</Text>
+              <AlertCircle size={14} color={C.redTexto} />
+              <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto }}>{erro}</Text>
             </View>
           ) : null}
 
@@ -404,6 +398,7 @@ function ConteudoVenda({ empresaId, pacotes, pacoteId, cliente, padraoCobranca, 
 }
 
 function Linha({ rotulo, valor, forte }: { rotulo: string; valor: string; forte?: boolean }) {
+  const { C } = useTema();
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
       <Text style={{ fontFamily: forte ? 'PlusJakartaSans_700Bold' : 'PlusJakartaSans_500Medium', fontSize: forte ? 15 : 13, color: forte ? C.text : C.text2 }}>{rotulo}</Text>

@@ -44,15 +44,7 @@ import { AvaliacaoAtendimento } from '@/components/atendimento/AvaliacaoAtendime
 /** Botão das ações rápidas do topo (Ligar / WhatsApp). */
 type AcaoRapida = { icon: ReactNode; label: string; onPress: () => void };
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 const AVATAR_COLORS: [string, string][] = [
   ['#7C3AED', '#A855F7'], ['#D4608A', '#F472B6'],
@@ -104,7 +96,8 @@ function useAgendamento(id: string) {
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function AgendamentoProfissional() {
+function AgendamentoProfissional() {
+  const { C } = useTema();
   const { id }  = useLocalSearchParams<{ id: string }>();
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
@@ -125,7 +118,7 @@ export default function AgendamentoProfissional() {
   if (!fontsLoaded || isLoading || !ag) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={C.primary} />
+        <ActivityIndicator color={C.primaryTexto} />
       </View>
     );
   }
@@ -273,8 +266,8 @@ export default function AgendamentoProfissional() {
           style={{ marginHorizontal: 24, marginTop: -16, flexDirection: 'row', gap: 8 }}
         >
           {[
-            { value: format(inicio, 'HH:mm'), label: 'Início',   color: C.primary },
-            { value: format(fim,    'HH:mm'), label: 'Término',  color: C.primary },
+            { value: format(inicio, 'HH:mm'), label: 'Início',   color: C.primaryTexto },
+            { value: format(fim,    'HH:mm'), label: 'Término',  color: C.primaryTexto },
             { value: `${duracao}min`,          label: 'Duração',  color: C.text },
           ].map((k) => (
             <View key={k.label} style={{
@@ -307,17 +300,17 @@ export default function AgendamentoProfissional() {
           }}>
             {[
               {
-                icon: <Scissors size={13} color={C.primary} strokeWidth={2} />,
+                icon: <Scissors size={13} color={C.primaryTexto} strokeWidth={2} />,
                 label: 'Serviço',
                 value: ag.servico?.nome ?? '—',
               },
               {
-                icon: <Clock size={13} color={C.primary} strokeWidth={2} />,
+                icon: <Clock size={13} color={C.primaryTexto} strokeWidth={2} />,
                 label: 'Data e horário',
                 value: format(inicio, "EEEE',' d MMM · HH:mm", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase()),
               },
               {
-                icon: <DollarSign size={13} color={C.primary} strokeWidth={2} />,
+                icon: <DollarSign size={13} color={C.primaryTexto} strokeWidth={2} />,
                 label: 'Valor do serviço',
                 value: formatarMoeda(ag.valor),
               },
@@ -380,7 +373,7 @@ export default function AgendamentoProfissional() {
               backgroundColor: C.primarySoft, alignItems: 'center',
             }}
           >
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primaryTexto }}>
               Editar atendimento
             </Text>
           </TouchableOpacity>
@@ -406,14 +399,14 @@ export default function AgendamentoProfissional() {
           >
             <View style={{
               backgroundColor: estaCancelado ? C.redSoft : C.amberSoft,
-              borderWidth: 1, borderColor: estaCancelado ? 'rgba(192,57,43,0.15)' : 'rgba(180,83,9,0.15)',
+              borderWidth: 1, borderColor: C.border,
               borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12,
             }}>
-              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: estaCancelado ? 'rgba(192,57,43,0.1)' : 'rgba(180,83,9,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                {estaCancelado ? <X size={18} color={C.red} strokeWidth={2.5} /> : <AlertTriangle size={18} color={C.amber} strokeWidth={2} />}
+              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}>
+                {estaCancelado ? <X size={18} color={C.redTexto} strokeWidth={2.5} /> : <AlertTriangle size={18} color={C.amberTexto} strokeWidth={2} />}
               </View>
               <View>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: estaCancelado ? C.red : C.amber }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: estaCancelado ? C.redTexto : C.amberTexto }}>
                   {estaCancelado ? 'Agendamento cancelado' : 'Cliente não compareceu'}
                 </Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
@@ -437,3 +430,5 @@ export default function AgendamentoProfissional() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(AgendamentoProfissional);

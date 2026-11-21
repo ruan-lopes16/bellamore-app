@@ -24,12 +24,7 @@ import {
   montarRetiradaSociaInsert,
   type RetiradaSociaTipo, type MetodoPagamentoRetirada,
 } from '@shared/retiradas-socia';
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', accent: '#9B6FE8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 const METODOS: { key: MetodoPagamentoRetirada; label: string }[] = [
   { key: 'dinheiro', label: 'Dinheiro' },
@@ -56,13 +51,8 @@ function bancoParaData(iso: string | null | undefined): string {
   return `${d}/${m}/${a}`;
 }
 
-const inputStyle = {
-  backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12,
-  paddingHorizontal: 14, height: 46, fontFamily: 'PlusJakartaSans_600SemiBold' as const,
-  fontSize: 15, color: C.text,
-};
-
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 16 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 6 }}>{label}</Text>
@@ -71,7 +61,13 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export default function NovaRetirada() {
+function NovaRetirada() {
+  const { C } = useTema();
+  const inputStyle = {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12,
+    paddingHorizontal: 14, height: 46, fontFamily: 'PlusJakartaSans_600SemiBold' as const,
+    fontSize: 15, color: C.text,
+  };
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user } = useAuthStore();
   const qc = useQueryClient();
@@ -178,7 +174,7 @@ export default function NovaRetirada() {
         </LinearGradient>
 
         {carregando ? (
-          <ActivityIndicator color={C.primary} style={{ marginTop: 40 }} />
+          <ActivityIndicator color={C.primaryTexto} style={{ marginTop: 40 }} />
         ) : (
           <MotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 350, delay: 60 }} style={{ padding: 24 }}>
             <Campo label="Tipo">
@@ -261,3 +257,5 @@ export default function NovaRetirada() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(NovaRetirada);

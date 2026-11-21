@@ -21,29 +21,6 @@ const rel = (p: string) => path.relative(RAIZ, p).split(path.sep).join('/');
 
 /** Arquivos (relativos a `mobile/`) ainda com paleta própria ou sem `comTemaDoUsuario`. */
 const PENDENTES = new Set<string>([
-  // Task 2 — entrada e equipe
-  'app/(auth)/esqueci-senha.tsx', 'app/(auth)/login.tsx', 'app/(auth)/register.tsx', 'app/(auth)/verificar-email.tsx',
-  'app/criar-empresa.tsx', 'app/index.tsx', 'app/(empresa)/equipe.tsx', 'app/(empresa)/convidar-profissional.tsx',
-  'app/(empresa)/editar-profissional/[id].tsx',
-  'components/EquipeConvites.tsx', 'components/BannerConvites.tsx', 'components/PermissoesPanel.tsx',
-  // Task 3 — dinheiro
-  'app/(empresa)/financeiro.tsx', 'app/(empresa)/nova-despesa.tsx', 'app/(empresa)/nova-retirada.tsx',
-  'app/(empresa)/relatorios.tsx', 'app/(empresa)/comissoes.tsx',
-  'components/CalendarioMesFinanceiro.tsx', 'components/SparkLinha.tsx',
-  // Task 4 — catálogo e estoque
-  'app/(empresa)/estoque.tsx', 'app/(empresa)/novo-produto.tsx', 'app/(empresa)/editar-produto/[id].tsx',
-  'app/(empresa)/vendas.tsx', 'app/(empresa)/servicos.tsx', 'app/(empresa)/pacotes.tsx',
-  'app/(empresa)/novo-servico.tsx', 'app/(empresa)/editar-servico/[id].tsx',
-  'app/(empresa)/novo-pacote.tsx', 'app/(empresa)/editar-pacote/[id].tsx',
-  'components/servicos/DuracaoSeletor.tsx', 'components/servicos/InsumosEditor.tsx', 'components/servicos/ServicoForm.tsx',
-  'components/pacotes/PacoteForm.tsx', 'components/pacotes/VenderPacoteSheet.tsx',
-  'components/UnidadesEstoqueModal.tsx', 'components/CategoriaPicker.tsx', 'components/CategoriasManagerModal.tsx',
-  // Task 5 — atendimento e clientes
-  'app/(empresa)/agendamento/[id].tsx', 'app/(profissional)/agendamento/[id].tsx',
-  'app/(empresa)/cliente/[id].tsx', 'app/(empresa)/cliente/[id]/anamnese.tsx', 'app/(empresa)/cliente/[id]/editar.tsx',
-  'app/(empresa)/novo-cliente.tsx', 'app/(empresa)/novo-agendamento.tsx',
-  'components/atendimento/AvaliacaoAtendimento.tsx', 'components/atendimento/BotoesStatus.tsx',
-  'components/agenda/LinhasServicoEditor.tsx', 'components/agenda/SeletorHorario.tsx',
 ]);
 
 const TELAS = listar(path.join(RAIZ, 'app')).filter((p) => {

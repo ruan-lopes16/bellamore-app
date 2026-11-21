@@ -24,17 +24,9 @@ import { invalidarFinanceiro } from '@/lib/invalidarFinanceiro';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { calcularRecorrenciaAtePorParcelas, clampParcelaAtual, dividirValorCompra } from '@shared/despesas';
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
 
 const CATEGORIAS = [
   'Aluguel', 'Energia', 'Água', 'Internet', 'Produtos / Insumos',
@@ -52,6 +44,7 @@ const PERIODICIDADES = [
 // ── Campo simples ─────────────────────────────────────────────
 
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 16 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 6 }}>
@@ -64,7 +57,8 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function NovaDespesa() {
+function NovaDespesa() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const qc = useQueryClient();
@@ -302,8 +296,8 @@ export default function NovaDespesa() {
               {recorrente && <Check size={13} color="#fff" strokeWidth={2.5} />}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <RefreshCw size={15} color={recorrente ? C.primary : C.text3} strokeWidth={2} />
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: recorrente ? C.primary : C.text3 }}>
+              <RefreshCw size={15} color={recorrente ? C.primaryTexto : C.text3} strokeWidth={2} />
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: recorrente ? C.primaryTexto : C.text3 }}>
                 Despesa recorrente
               </Text>
             </View>
@@ -319,11 +313,11 @@ export default function NovaDespesa() {
                     style={{
                       paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12,
                       backgroundColor: periodicidade === p.key ? C.amberSoft : C.surface,
-                      borderWidth: 1, borderColor: periodicidade === p.key ? C.amber : C.border,
+                      borderWidth: 1, borderColor: periodicidade === p.key ? C.amberTexto : C.border,
                       alignItems: 'center',
                     }}
                   >
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: periodicidade === p.key ? C.amber : C.text3 }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: periodicidade === p.key ? C.amberTexto : C.text3 }}>
                       {p.label}
                     </Text>
                   </TouchableOpacity>
@@ -338,10 +332,10 @@ export default function NovaDespesa() {
                         style={{
                           flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                           backgroundColor: modoRepeticao === 'data' ? C.amberSoft : C.surface,
-                          borderWidth: 1, borderColor: modoRepeticao === 'data' ? C.amber : C.border,
+                          borderWidth: 1, borderColor: modoRepeticao === 'data' ? C.amberTexto : C.border,
                         }}
                       >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoRepeticao === 'data' ? C.amber : C.text3 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoRepeticao === 'data' ? C.amberTexto : C.text3 }}>
                           Por data
                         </Text>
                       </TouchableOpacity>
@@ -350,10 +344,10 @@ export default function NovaDespesa() {
                         style={{
                           flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                           backgroundColor: modoRepeticao === 'parcelas' ? C.amberSoft : C.surface,
-                          borderWidth: 1, borderColor: modoRepeticao === 'parcelas' ? C.amber : C.border,
+                          borderWidth: 1, borderColor: modoRepeticao === 'parcelas' ? C.amberTexto : C.border,
                         }}
                       >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoRepeticao === 'parcelas' ? C.amber : C.text3 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoRepeticao === 'parcelas' ? C.amberTexto : C.text3 }}>
                           Por quantidade de parcelas
                         </Text>
                       </TouchableOpacity>
@@ -377,10 +371,10 @@ export default function NovaDespesa() {
                           style={{
                             flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                             backgroundColor: !contratoEmAndamento ? C.amberSoft : C.surface,
-                            borderWidth: 1, borderColor: !contratoEmAndamento ? C.amber : C.border,
+                            borderWidth: 1, borderColor: !contratoEmAndamento ? C.amberTexto : C.border,
                           }}
                         >
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: !contratoEmAndamento ? C.amber : C.text3 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: !contratoEmAndamento ? C.amberTexto : C.text3 }}>
                             Novo
                           </Text>
                         </TouchableOpacity>
@@ -389,10 +383,10 @@ export default function NovaDespesa() {
                           style={{
                             flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                             backgroundColor: contratoEmAndamento ? C.amberSoft : C.surface,
-                            borderWidth: 1, borderColor: contratoEmAndamento ? C.amber : C.border,
+                            borderWidth: 1, borderColor: contratoEmAndamento ? C.amberTexto : C.border,
                           }}
                         >
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: contratoEmAndamento ? C.amber : C.text3 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: contratoEmAndamento ? C.amberTexto : C.text3 }}>
                             Já em andamento
                           </Text>
                         </TouchableOpacity>
@@ -415,10 +409,10 @@ export default function NovaDespesa() {
                           style={{
                             flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                             backgroundColor: modoValor === 'parcela' ? C.amberSoft : C.surface,
-                            borderWidth: 1, borderColor: modoValor === 'parcela' ? C.amber : C.border,
+                            borderWidth: 1, borderColor: modoValor === 'parcela' ? C.amberTexto : C.border,
                           }}
                         >
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoValor === 'parcela' ? C.amber : C.text3 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoValor === 'parcela' ? C.amberTexto : C.text3 }}>
                             Valor da parcela
                           </Text>
                         </TouchableOpacity>
@@ -427,10 +421,10 @@ export default function NovaDespesa() {
                           style={{
                             flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                             backgroundColor: modoValor === 'total' ? C.amberSoft : C.surface,
-                            borderWidth: 1, borderColor: modoValor === 'total' ? C.amber : C.border,
+                            borderWidth: 1, borderColor: modoValor === 'total' ? C.amberTexto : C.border,
                           }}
                         >
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoValor === 'total' ? C.amber : C.text3 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoValor === 'total' ? C.amberTexto : C.text3 }}>
                             Valor total da compra
                           </Text>
                         </TouchableOpacity>
@@ -483,3 +477,5 @@ export default function NovaDespesa() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(NovaDespesa);

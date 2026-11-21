@@ -28,15 +28,9 @@ import { podeAtribuirRole } from '@/lib/permissions';
 import { maskPhone } from '@shared/mascaras';
 import { rotuloContrato, type TipoContrato } from '@shared/equipe';
 import { MENSAGEM_CONVITE_PENDENTE } from '@shared/convites-consultas';
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8', green: '#0D7E5F', greenSoft: '#EAFAF5',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 function gerarSenha() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
@@ -58,6 +52,7 @@ function Campo({
   secureTextEntry?: boolean;
   rightIcon?: React.ReactNode;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 16 }}>
       {label ? (
@@ -88,7 +83,8 @@ function Campo({
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function ConvidarProfissional() {
+function ConvidarProfissional() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva, isOwner } = useAuthStore();
   const qc = useQueryClient();
@@ -267,7 +263,7 @@ export default function ConvidarProfissional() {
 
           {/* Info */}
           <View style={{ backgroundColor: C.primarySoft, borderRadius: 14, padding: 14, marginBottom: 24 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primary, marginBottom: 4 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primaryTexto, marginBottom: 4 }}>
               Como funciona
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text2, lineHeight: 18 }}>
@@ -277,7 +273,7 @@ export default function ConvidarProfissional() {
 
           <Campo
             label="E-mail *"
-            icon={<Mail size={13} color={C.primary} strokeWidth={1.8} />}
+            icon={<Mail size={13} color={C.primaryTexto} strokeWidth={1.8} />}
             value={email} onChange={setEmail}
             placeholder="email@exemplo.com"
             keyboardType="email-address"
@@ -285,14 +281,14 @@ export default function ConvidarProfissional() {
 
           <Campo
             label="Nome *"
-            icon={<User size={13} color={C.primary} strokeWidth={1.8} />}
+            icon={<User size={13} color={C.primaryTexto} strokeWidth={1.8} />}
             value={nome} onChange={setNome}
             placeholder="Nome completo"
           />
 
           <Campo
             label="Telefone (opcional)"
-            icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
+            icon={<Phone size={13} color={C.primaryTexto} strokeWidth={1.8} />}
             value={telefone} onChange={(v) => setTelefone(maskPhone(v))}
             placeholder="(00) 00000-0000"
             keyboardType="phone-pad"
@@ -307,10 +303,10 @@ export default function ConvidarProfissional() {
                 style={{
                   flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
                   borderWidth: 1, paddingHorizontal: 4,
-                  borderColor: modoAcesso === 'convite' ? C.primary : C.border,
+                  borderColor: modoAcesso === 'convite' ? C.primaryTexto : C.border,
                   backgroundColor: modoAcesso === 'convite' ? C.primarySoft : C.surface,
                 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoAcesso === 'convite' ? C.primary : C.text2, textAlign: 'center' }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoAcesso === 'convite' ? C.primaryTexto : C.text2, textAlign: 'center' }}>
                   Enviar convite
                 </Text>
               </TouchableOpacity>
@@ -318,10 +314,10 @@ export default function ConvidarProfissional() {
                 style={{
                   flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
                   borderWidth: 1, paddingHorizontal: 4,
-                  borderColor: modoAcesso === 'senha' ? C.primary : C.border,
+                  borderColor: modoAcesso === 'senha' ? C.primaryTexto : C.border,
                   backgroundColor: modoAcesso === 'senha' ? C.primarySoft : C.surface,
                 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoAcesso === 'senha' ? C.primary : C.text2, textAlign: 'center' }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: modoAcesso === 'senha' ? C.primaryTexto : C.text2, textAlign: 'center' }}>
                   Definir senha agora
                 </Text>
               </TouchableOpacity>
@@ -346,7 +342,7 @@ export default function ConvidarProfissional() {
               </View>
               <Campo
                 label=""
-                icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+                icon={<Lock size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={senha} onChange={setSenha}
                 placeholder={`mínimo ${SENHA_MINIMA} caracteres`}
                 secureTextEntry={!verSenha}
@@ -371,10 +367,10 @@ export default function ConvidarProfissional() {
                   style={{
                     flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
                     borderWidth: 1,
-                    borderColor: role === 'profissional' ? C.primary : C.border,
+                    borderColor: role === 'profissional' ? C.primaryTexto : C.border,
                     backgroundColor: role === 'profissional' ? C.primarySoft : C.surface,
                   }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: role === 'profissional' ? C.primary : C.text2 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: role === 'profissional' ? C.primaryTexto : C.text2 }}>
                     Profissional
                   </Text>
                 </TouchableOpacity>
@@ -382,10 +378,10 @@ export default function ConvidarProfissional() {
                   style={{
                     flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
                     borderWidth: 1,
-                    borderColor: role === 'gestor' ? C.primary : C.border,
+                    borderColor: role === 'gestor' ? C.primaryTexto : C.border,
                     backgroundColor: role === 'gestor' ? C.primarySoft : C.surface,
                   }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: role === 'gestor' ? C.primary : C.text2 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: role === 'gestor' ? C.primaryTexto : C.text2 }}>
                     Gestora
                   </Text>
                 </TouchableOpacity>
@@ -395,7 +391,7 @@ export default function ConvidarProfissional() {
 
           <Campo
             label="Comissão por atendimento (%)"
-            icon={<Percent size={13} color={C.primary} strokeWidth={1.8} />}
+            icon={<Percent size={13} color={C.primaryTexto} strokeWidth={1.8} />}
             value={comissao} onChange={setComissao}
             placeholder="0"
             keyboardType="decimal-pad"
@@ -413,10 +409,10 @@ export default function ConvidarProfissional() {
                     style={{
                       height: 40, borderRadius: 12, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center',
                       borderWidth: 1,
-                      borderColor: ativo ? C.primary : C.border,
+                      borderColor: ativo ? C.primaryTexto : C.border,
                       backgroundColor: ativo ? C.primarySoft : C.surface,
                     }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text2 }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text2 }}>
                       {label}
                     </Text>
                   </TouchableOpacity>
@@ -448,3 +444,5 @@ export default function ConvidarProfissional() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(ConvidarProfissional);

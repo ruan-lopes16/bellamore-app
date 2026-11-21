@@ -6,13 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { salvarAvaliacao, carregarAvaliacao } from '@shared/agenda-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 
-const C = {
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  amber: '#F59E0B', star: '#D8D0E4',
-  green: '#0D7E5F', red: '#C0392B',
-  border: '#E8E2DC', surface: '#FFFFFF', bg: '#F4F1EE',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
+import { useTema } from '@/lib/tema';
 
 type AvaliacaoExistente = { nota: number; comentario: string | null } | null;
 
@@ -25,6 +19,7 @@ type AvaliacaoExistente = { nota: number; comentario: string | null } | null;
 export function AvaliacaoAtendimento({ empresaId, agendamentoId, clienteId }: {
   empresaId: string; agendamentoId: string; clienteId: string;
 }) {
+  const { C } = useTema();
   const qc = useQueryClient();
   const { data: existente, isLoading, error: erroCarga } = useQuery({
     queryKey: ['avaliacao-atendimento', agendamentoId],
@@ -74,9 +69,9 @@ export function AvaliacaoAtendimento({ empresaId, agendamentoId, clienteId }: {
         borderRadius: 16, padding: 16, gap: 12,
       }}>
         {isLoading ? (
-          <ActivityIndicator color={C.primary} />
+          <ActivityIndicator color={C.primaryTexto} />
         ) : erroCarga ? (
-          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto }}>
             {(erroCarga as Error).message}
           </Text>
         ) : (
@@ -92,8 +87,8 @@ export function AvaliacaoAtendimento({ empresaId, agendamentoId, clienteId }: {
                 >
                   <Star
                     size={30}
-                    color={n <= nota ? C.amber : C.star}
-                    fill={n <= nota ? C.amber : 'transparent'}
+                    color={n <= nota ? C.amberTexto : C.border}
+                    fill={n <= nota ? C.amberTexto : 'transparent'}
                     strokeWidth={1.8}
                   />
                 </TouchableOpacity>
@@ -115,7 +110,7 @@ export function AvaliacaoAtendimento({ empresaId, agendamentoId, clienteId }: {
             />
 
             {msg && (
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: msg.tipo === 'ok' ? C.green : C.red }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: msg.tipo === 'ok' ? C.greenTexto : C.redTexto }}>
                 {msg.texto}
               </Text>
             )}

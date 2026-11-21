@@ -5,10 +5,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC', primary: '#2C1654', rose: '#B42318',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
+import { useTema } from '@/lib/tema';
 
 /** "HH:MM" de 00:00 a 23:59. */
 export function horaValida(h: string): boolean {
@@ -29,6 +26,7 @@ type Props = {
 };
 
 export default function SeletorHorario({ horarios, hora, onChange, desabilitado }: Props) {
+  const { C } = useTema();
   const foraDaLista = !!hora && !horarios.includes(hora);
   const [outro, setOutro] = useState(foraDaLista ? hora! : '');
 
@@ -82,7 +80,7 @@ export default function SeletorHorario({ horarios, hora, onChange, desabilitado 
           keyboardType="number-pad"
           maxLength={5}
           style={{
-            width: 90, borderWidth: 1, borderColor: outroInvalido ? C.rose : (foraDaLista ? C.primary : C.border),
+            width: 90, borderWidth: 1, borderColor: outroInvalido ? C.rose : (foraDaLista ? C.primaryTexto : C.border),
             borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: C.surface,
             fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text,
           }}

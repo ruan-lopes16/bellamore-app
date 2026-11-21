@@ -21,15 +21,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { supabase } from '@/lib/supabase';
-
-// ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654',
-  accent: '#9B6FE8',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Campo de input ───────────────────────────────────────────
 
@@ -46,6 +38,7 @@ function Campo({
   icon: React.ReactNode;
   rightIcon?: React.ReactNode;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={{
@@ -83,7 +76,8 @@ function Campo({
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function Login() {
+function Login() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const [email, setEmail]          = useState('');
   const [senha, setSenha]          = useState('');
@@ -219,7 +213,7 @@ export default function Login() {
 
           <TouchableOpacity onPress={entrar} disabled={loading} activeOpacity={0.85} style={{ marginBottom: 16 }}>
             <LinearGradient
-              colors={['#2C1654', '#4A2480']}
+              colors={[C.primary, '#5B2D99']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={{
                 borderRadius: 16, paddingVertical: 16, alignItems: 'center',
@@ -251,3 +245,5 @@ export default function Login() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(Login);

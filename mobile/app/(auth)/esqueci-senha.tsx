@@ -21,16 +21,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import { supabase } from '@/lib/supabase';
-
-// ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654',
-  accent: '#9B6FE8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-  red: '#C0392B',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Campo de input ───────────────────────────────────────────
 
@@ -43,6 +34,7 @@ function Campo({
   keyboardType?: any;
   icon: React.ReactNode;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={{
@@ -78,7 +70,8 @@ function Campo({
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function EsqueciSenha() {
+function EsqueciSenha() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const [email, setEmail]     = useState('');
   const [loading, setLoading] = useState(false);
@@ -198,7 +191,7 @@ export default function EsqueciSenha() {
               />
 
               {erro ? (
-                <Text style={{ color: C.red, fontSize: 13, textAlign: 'center', marginBottom: 12 }}>
+                <Text style={{ color: C.redTexto, fontSize: 13, textAlign: 'center', marginBottom: 12 }}>
                   {erro}
                 </Text>
               ) : null}
@@ -208,7 +201,7 @@ export default function EsqueciSenha() {
                 style={{ marginTop: 10, marginBottom: 16 }}
               >
                 <LinearGradient
-                  colors={['#2C1654', '#4A2480']}
+                  colors={[C.primary, '#5B2D99']}
                   start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={{
                     borderRadius: 16, paddingVertical: 16, alignItems: 'center',
@@ -232,3 +225,5 @@ export default function EsqueciSenha() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(EsqueciSenha);
