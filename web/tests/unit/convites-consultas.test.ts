@@ -53,13 +53,30 @@ describe('convites (consultas)', () => {
     const linhas = Array.from({ length: n + 1 }, (_, i) => ({ id: `h${i}`, acao: 'desativado', alvo_user_id: 'u1', feito_por: null, criado_em: '2026-10-16', detalhe: {} }));
     const { db, rpcs } = fakeDb({ rpc: () => ok(linhas) });
     const r = await carregarHistoricoEquipe(db, 'e1', { criado_em: '2026-10-17', id: 'zz', vistos: 2 * n });
-    expect(rpcs[0]).toEqual({ fn: 'listar_historico_equipe', args: { p_empresa: 'e1', p_limite: n + 1, p_offset: 2 * n } });
+    // 104: cursor de verdade no banco (último item já mostrado).
+    expect(rpcs[0]).toEqual({ fn: 'listar_historico_equipe_cursor', args: { p_empresa: 'e1', p_limite: n + 1, p_antes_em: '2026-10-17', p_antes_id: 'zz' } });
+    expect(rpcs).toHaveLength(1);
     expect(r).toMatchObject({ temMais: true, disponivel: true });
     expect(r.linhas).toHaveLength(n);
     expect((await carregarHistoricoEquipe(fakeDb({ rpc: () => ok(linhas.slice(0, 3)) }).db, 'e1', null)).temMais).toBe(false);
     expect(await carregarHistoricoEquipe(fakeDb().db, 'e1')).toEqual({ linhas: [], temMais: false, disponivel: false });
     await expect(carregarHistoricoEquipe(fakeDb({ rpc: () => ({ data: null, error: { code: '42501', message: 'Sem permissão para ver o histórico da equipe.' } }) }).db, 'e1'))
       .rejects.toThrow('Sem permissão para ver o histórico da equipe.');
+  });
+
+  it('carregarHistoricoEquipe sem a 104 usa a função da 092 por offset', async () => {
+    const n = TAMANHO_PAGINA_HISTORICO_EQUIPE;
+    const linhas = [{ id: 'h1', acao: 'desativado', alvo_user_id: 'u1', feito_por: null, criado_em: '2026-10-16', detalhe: {} }];
+    const { db, rpcs } = fakeDb({
+      rpc: (fn: string) => fn === 'listar_historico_equipe_cursor'
+        ? { data: null, error: { code: 'PGRST202', message: 'sem função' } }
+        : ok(linhas),
+    });
+    const r = await carregarHistoricoEquipe(db, 'e1', { criado_em: '2026-10-17', id: 'zz', vistos: n });
+    expect(rpcs.map(x => x.fn)).toEqual(['listar_historico_equipe_cursor', 'listar_historico_equipe']);
+    expect(rpcs[1].args).toEqual({ p_empresa: 'e1', p_limite: n + 1, p_offset: n });
+    expect(r).toMatchObject({ disponivel: true, temMais: false });
+    expect(r.linhas).toHaveLength(1);
   });
 
   it('semMigration092 só para função/tabela inexistente', () => {

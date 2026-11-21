@@ -77,3 +77,15 @@ export const DIAS_DISPOSITIVO_ATIVO = 30;
 export function limiteVistoEm(agora: Date): string {
   return new Date(agora.getTime() - DIAS_DISPOSITIVO_ATIVO * 24 * 60 * 60 * 1000).toISOString();
 }
+
+/** Intervalo mínimo entre duas renovações do aparelho quando o app volta ao primeiro plano. */
+export const HORAS_RENOVAR_DISPOSITIVO = 24;
+
+/**
+ * O app deve renovar o registro do aparelho (`visto_em`) agora? Verdadeiro na primeira vez
+ * (`ultimaMs` nulo) e quando já passou `HORAS_RENOVAR_DISPOSITIVO` desde a última. Assim um app que
+ * fica aberto em segundo plano por semanas nunca passa dos 30 dias sem sinal de vida.
+ */
+export function deveRenovarDispositivo(ultimaMs: number | null, agoraMs: number): boolean {
+  return ultimaMs === null || agoraMs - ultimaMs >= HORAS_RENOVAR_DISPOSITIVO * 60 * 60 * 1000;
+}
