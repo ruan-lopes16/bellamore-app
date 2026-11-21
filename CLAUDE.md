@@ -1529,7 +1529,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 **Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
 
-**Pendências para produção:** rodar `101_conferencias_banco.sql` seguindo `docs/superpowers/notes/2026-11-10-deploy-101.md` (ordem livre; contar antes os pagamentos com comanda e venda juntas, esperado 0).
+**Pendências para produção:** ~~rodar `101_conferencias_banco.sql`~~ — **aplicada em produção em 2026-11-20** (conferência: policy de `pacote_uso` com `pacote_clientes` = 1, constraint = 1, triggers = 2). Opcional: `validate constraint pagamentos_comanda_xor_venda` se a contagem de pagamentos com comanda e venda juntas deu 0.
 
 **Registrados, não corrigidos:**
 - Histórico da Equipe: com mais eventos novos do que cabem numa página entre duas cargas, "Carregar mais" pode voltar vazio (o cursor de verdade precisaria mudar a RPC).
