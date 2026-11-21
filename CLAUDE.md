@@ -1500,6 +1500,43 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-10/20 — Permissões, travas no banco (101) e ajustes
+
+*Escopo (spec e plano em `docs/superpowers/{specs,plans}/2026-11-10-permissoes-pendencias-c*`), executado em 4 tasks paralelas:*
+- *B9: resumo diário com a visão da empresa só para a dona ou para quem tem `agenda.ver_equipe`.*
+- *B11: "Excluir" pacote vendido aparece para quem o banco já aceita (`pacotes.vender` ou gestora/dona).*
+- *B13, migration 101: `pacote_uso` só com pacote da mesma empresa; pagamento nunca de comanda e venda juntos (`not valid`); maquininha e bandeira da mesma empresa em taxas e pagamentos (trigger).*
+- *C7: "Retornos" e segmentos sem atendimento futuro.*
+- *C9: saldo do pacote misto em texto único (`resumoSaldoPacote`/`saldoTexto`).*
+- *C10: exceções de bandeira acompanham a padrão; nome da maquininha única; maquininha desativada visível no pagamento reaberto.*
+- *C11: o painel de permissões confirma antes de descartar o rascunho e mostra a dica no app.*
+- *C12: paginação nas clientes da agenda web e nos insumos; histórico da Equipe por cursor.*
+
+*O B8 já estava resolvido pela 097.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 3213/3213; mobile só com o erro pré-existente de `useAgenda.ts`; `next build` OK |
+| UX / Padrões    | 9.0  | Mesmos textos nas duas plataformas (constantes e funções de shared) |
+| Segurança       | 9.5  | 101: três travas para gravações diretas pela API; testada em PGlite sobre 090→100, com os caminhos normais (fechar/editar comanda, venda avulsa, vender pacote) passando |
+| Documentação    | 9.0  | Spec, plano, nota de deploy da 101 com conferências e rollback, backlog atualizado |
+| Arquitetura     | 9.5  | Regras novas em shared (`podeExcluirPacoteVendido`, `resumoSaldoPacote`, `propagarPadraoParaExcecoes`, `opcoesMaquininha`, cursor do histórico); teste cruzado |
+| Performance     | 9.0  | Paginação nas 3 listas que ainda carregavam tudo |
+| Visual (UI)     | —    | Não executado |
+| **Completude**  | 9.0  | 9 itens do backlog; histórico por cursor no cliente (a RPC só aceita offset) |
+| **Proatividade**| 8.5  | Revisão final curta, feita inline, a pedido do dono |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Score parcial (sem visual/humana):** `9.2 / 10` → **A+**
+
+**Pendências para produção:** rodar `101_conferencias_banco.sql` seguindo `docs/superpowers/notes/2026-11-10-deploy-101.md` (ordem livre; contar antes os pagamentos com comanda e venda juntas, esperado 0).
+
+**Registrados, não corrigidos:**
+- Histórico da Equipe: com mais eventos novos do que cabem numa página entre duas cargas, "Carregar mais" pode voltar vazio (o cursor de verdade precisaria mudar a RPC).
+- Editar a padrão e deixar, na mesma edição, uma exceção igual à padrão antiga faz essa exceção acompanhar a nova.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
