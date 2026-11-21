@@ -50,11 +50,11 @@ const AVATAR_COLORS: [string, string][] = [
 
 /** Cor de cada tag (pelo rótulo de `tagsDaLinha`; "Arquivada" usa a padrão). */
 const corTag = (C: Paleta): Record<string, { bg: string; color: string }> => ({
-  [ROTULO_SEGMENTO.vip]:        { bg: C.amberSoft,   color: C.amber },
-  [ROTULO_SEGMENTO.nova]:       { bg: C.greenSoft,   color: C.green },
-  [ROTULO_SEGMENTO.recorrente]: { bg: C.primarySoft, color: C.primary },
-  [ROTULO_SEGMENTO.em_risco]:   { bg: C.amberSoft,   color: C.amber },
-  [ROTULO_SEGMENTO.sumida]:     { bg: C.redSoft,     color: C.red },
+  [ROTULO_SEGMENTO.vip]:        { bg: C.amberSoft,   color: C.amberTexto },
+  [ROTULO_SEGMENTO.nova]:       { bg: C.greenSoft,   color: C.greenTexto },
+  [ROTULO_SEGMENTO.recorrente]: { bg: C.primarySoft, color: C.primaryTexto },
+  [ROTULO_SEGMENTO.em_risco]:   { bg: C.amberSoft,   color: C.amberTexto },
+  [ROTULO_SEGMENTO.sumida]:     { bg: C.redSoft,     color: C.redTexto },
 });
 const corTagPadrao = (C: Paleta) => ({ bg: C.bg, color: C.text3 });
 
@@ -62,7 +62,7 @@ const FILTROS: { key: FiltroClientes; label: string }[] = FILTROS_CLIENTES.map((
 
 /** Cor do número de cada cartão (rótulo e filtro vêm de `CARTOES_CLIENTES`). */
 const corCartao = (C: Paleta): Record<ChaveCartaoClientes, string> => ({
-  total: C.text, novasMes: C.green, vip: C.amber, em_risco: C.amber, sumida: C.rose, nunca_atendida: C.text2,
+  total: C.text, novasMes: C.greenTexto, vip: C.amberTexto, em_risco: C.amberTexto, sumida: C.rose, nunca_atendida: C.text2,
 });
 
 // ── Helpers ──────────────────────────────────────────────────

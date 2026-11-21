@@ -12,38 +12,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { StatusBar, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PALETA_CLARA, PALETA_ESCURA, type Paleta } from '@shared/paleta-tema';
 import { CHAVE_TEMA_APP, lerModoTema, resolverEsquemaTema, type EsquemaTema, type ModoTema } from '@shared/tema';
 
-/** Paleta clara: a mesma que as telas do app usavam, uma por arquivo. */
-export const PALETA_CLARA = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8', accentSoft: 'rgba(155,111,232,0.06)',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-  linha: '#D8D0C8',
-};
-
-export type Paleta = { [K in keyof typeof PALETA_CLARA]: string };
-
-/**
- * Paleta escura com as mesmas chaves. `primary`, `green`, `amber` e `red` servem tanto de fundo
- * (com texto branco) quanto de texto sobre `surface`: os tons foram escolhidos para os dois usos.
- */
-export const PALETA_ESCURA: Paleta = {
-  bg: '#121017', surface: '#1C1824', border: '#2E2838',
-  primary: '#8F6BEA', primarySoft: '#2A2140',
-  accent: '#B497F5', accentSoft: 'rgba(180,151,245,0.10)',
-  green: '#2BA57C', greenSoft: '#12302A',
-  amber: '#D98A1F', amberSoft: '#33260F',
-  rose: '#E07AA0', roseSoft: '#3A1E2C',
-  red: '#E05A4F', redSoft: '#3A1A1A',
-  text: '#F2EEF8', text2: '#CFC6DE', text3: '#A094B8', text4: '#6E6482',
-  linha: '#3A3346',
-};
+export { PALETA_CLARA, PALETA_ESCURA, type Paleta };
 
 type Preferencia = {
   /** Escolha da pessoa. */
@@ -117,6 +89,15 @@ export function comTemaDoUsuario<P extends object>(Tela: ComponentType<P>): Comp
 export function BarraDeStatus({ comFundo = false }: { comFundo?: boolean }) {
   const { C, escuro } = useTema();
   return <StatusBar barStyle={escuro ? 'light-content' : 'dark-content'} backgroundColor={comFundo ? C.bg : undefined} />;
+}
+
+/**
+ * Cores da ESCOLHA da pessoa, para o que fica na raiz do app, fora de qualquer tela
+ * (cobertura de erro, "Sem acesso", faíscas do toque): segue Claro/Escuro/Sistema direto.
+ */
+export function useTemaGlobal(): { C: Paleta; escuro: boolean } {
+  const { esquema } = usePreferenciaTema();
+  return esquema === 'escuro' ? { C: PALETA_ESCURA, escuro: true } : { C: PALETA_CLARA, escuro: false };
 }
 
 /** Cores do tema aplicado neste trecho. `escuro` serve para a StatusBar e detalhes. */

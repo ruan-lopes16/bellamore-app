@@ -48,7 +48,7 @@ export function TimelineColunas<T extends { data_hora_inicio: string; data_hora_
               width: larguraColuna, marginLeft: 8, paddingVertical: 6, borderRadius: 10,
               backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: 'center',
             }}>
-              <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>
+              <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto }}>
                 {c.profissional.nome}
               </Text>
             </View>

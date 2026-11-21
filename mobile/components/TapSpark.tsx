@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, AccessibilityInfo } from 'react-native';
 import { MotiView } from 'moti';
 import { Easing } from 'react-native-reanimated';
+import { useTemaGlobal } from '@/lib/tema';
 
 /**
  * TapSpark — pequenas faíscas que se espalham do ponto tocado.
@@ -18,9 +19,10 @@ const QTD       = 7;
 const COMPRIMENTO = 14;
 const DISTANCIA   = 20;
 const DURACAO     = 450;
-const COR         = '#2C1750';
 
 export function TapSpark({ children }: { children: React.ReactNode }) {
+  const { C } = useTemaGlobal();
+  const COR = C.primaryTexto;
   const [bursts, setBursts] = useState<Burst[]>([]);
   const idRef = useRef(0);
   const reducedMotionRef = useRef(false);

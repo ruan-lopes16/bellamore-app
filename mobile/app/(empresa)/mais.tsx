@@ -62,7 +62,7 @@ function MenuItem({
       <View style={{ flex: 1 }}>
         <Text style={{
           fontFamily: 'PlusJakartaSans_600SemiBold',
-          fontSize: 14, color: danger ? C.red : C.text,
+          fontSize: 14, color: danger ? C.redTexto : C.text,
         }}>
           {label}
         </Text>
@@ -225,10 +225,10 @@ function Mais() {
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
             }}>
               <MenuItem
-                icon={<Scissors size={16} color={C.primary} strokeWidth={2} />}
+                icon={<Scissors size={16} color={C.primaryTexto} strokeWidth={2} />}
                 label="Serviços"
                 sublabel="Gerencie preços e duração"
-                iconBg={C.primarySoft} iconColor={C.primary}
+                iconBg={C.primarySoft} iconColor={C.primaryTexto}
                 onPress={() => router.push('/(empresa)/servicos' as any)}
               />
               <MenuItem
@@ -259,38 +259,38 @@ function Mais() {
               )}
               {pode('comissoes.ver_todas') && (
                 <MenuItem
-                  icon={<DollarSign size={16} color={C.amber} strokeWidth={2} />}
+                  icon={<DollarSign size={16} color={C.amberTexto} strokeWidth={2} />}
                   label="Comissões"
                   sublabel="Repasses da equipe"
-                  iconBg={C.amberSoft} iconColor={C.amber}
+                  iconBg={C.amberSoft} iconColor={C.amberTexto}
                   badge={pendentes ?? 0}
                   onPress={() => router.push('/(empresa)/comissoes' as any)}
                 />
               )}
               {pode('estoque.acessar') && (
                 <MenuItem
-                  icon={<Package size={16} color={C.amber} strokeWidth={2} />}
+                  icon={<Package size={16} color={C.amberTexto} strokeWidth={2} />}
                   label="Produtos & Estoque"
                   sublabel="Controle de insumos"
-                  iconBg={C.amberSoft} iconColor={C.amber}
+                  iconBg={C.amberSoft} iconColor={C.amberTexto}
                   onPress={() => router.push('/(empresa)/estoque' as any)}
                 />
               )}
               {pode('vendas.acessar') && (
                 <MenuItem
-                  icon={<ShoppingCart size={16} color={C.green} strokeWidth={2} />}
+                  icon={<ShoppingCart size={16} color={C.greenTexto} strokeWidth={2} />}
                   label="Vendas"
                   sublabel="Vendas avulsas de produtos"
-                  iconBg={C.greenSoft} iconColor={C.green}
+                  iconBg={C.greenSoft} iconColor={C.greenTexto}
                   onPress={() => router.push('/(empresa)/vendas' as any)}
                 />
               )}
               {pode('financeiro.ver') && (
                 <MenuItem
-                  icon={<BarChart2 size={16} color={C.green} strokeWidth={2} />}
+                  icon={<BarChart2 size={16} color={C.greenTexto} strokeWidth={2} />}
                   label="Relatórios"
                   sublabel="Desempenho e faturamento"
-                  iconBg={C.greenSoft} iconColor={C.green}
+                  iconBg={C.greenSoft} iconColor={C.greenTexto}
                   onPress={() => router.push('/(empresa)/relatorios' as any)}
                 />
               )}
@@ -350,9 +350,9 @@ function Mais() {
           }}>
             <View style={{ borderBottomWidth: 0 }}>
               <MenuItem
-                icon={<LogOut size={16} color={C.red} strokeWidth={2} />}
+                icon={<LogOut size={16} color={C.redTexto} strokeWidth={2} />}
                 label="Sair"
-                iconBg={C.redSoft} iconColor={C.red}
+                iconBg={C.redSoft} iconColor={C.redTexto}
                 onPress={confirmarSaida}
                 danger
               />

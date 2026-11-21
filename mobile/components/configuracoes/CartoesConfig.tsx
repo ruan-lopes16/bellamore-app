@@ -18,13 +18,8 @@ import {
   type BandeiraCartao, type ConfigCartoes, type GradeTaxas, type Maquininha, type ResumoTaxas, type TaxaLinha,
 } from '@shared/taxas-cartao';
 import { carregarConfigCartoes, definirPadrao, excluirBandeira, salvarBandeira, salvarMaquininha } from '@shared/taxas-cartao-consultas';
+import { useTema, type Paleta } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  red: '#C0392B',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 const F = {
   r: 'PlusJakartaSans_400Regular', m: 'PlusJakartaSans_500Medium',
   s: 'PlusJakartaSans_600SemiBold', b: 'PlusJakartaSans_700Bold', t: 'Fraunces_600SemiBold',
@@ -39,12 +34,13 @@ function msgErro(e: unknown, acao: string): string {
   return e instanceof Error && e.message ? e.message : mensagemErroBanco(e as Parameters<typeof mensagemErroBanco>[0], acao);
 }
 
-const inputStyle = {
+const estiloInput = (C: Paleta) => ({
   height: 40, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg,
   paddingHorizontal: 12, fontFamily: F.m, fontSize: 14, color: C.text,
-} as const;
+} as const);
 
 function BotaoSec({ children, onPress, disabled, flex }: { children: React.ReactNode; onPress: () => void; disabled?: boolean; flex?: boolean }) {
+  const { C } = useTema();
   return (
     <TouchableOpacity onPress={onPress} disabled={disabled} activeOpacity={0.7}
       style={{
@@ -56,10 +52,11 @@ function BotaoSec({ children, onPress, disabled, flex }: { children: React.React
     </TouchableOpacity>
   );
 }
-const txtSec = { fontFamily: F.s, fontSize: 12, color: C.text2 } as const;
+const estiloTxtSec = (C: Paleta) => ({ fontFamily: F.s, fontSize: 12, color: C.text2 } as const);
 
 /** Linha do resumo: nome da bandeira (ou "Padrão") e suas três taxas. */
 function LinhaResumo({ nome, taxas, cabecalho, destaque }: { nome: string; taxas: ResumoTaxas; cabecalho?: boolean; destaque?: boolean }) {
+  const { C } = useTema();
   const fonte = cabecalho ? { fontFamily: F.b, fontSize: 10, color: C.text3 } : { fontFamily: F.m, fontSize: 12, color: C.text2 };
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8, gap: 6, backgroundColor: cabecalho ? C.bg : destaque ? C.primarySoft : undefined }}>
@@ -73,6 +70,7 @@ function LinhaResumo({ nome, taxas, cabecalho, destaque }: { nome: string; taxas
 
 /** Resumo das taxas da maquininha: a tabela padrão e o que cada bandeira com taxa própria cobra. */
 function ResumoTaxasMaquininha({ m, bandeiras }: { m: Maquininha; bandeiras: BandeiraCartao[] }) {
+  const { C } = useTema();
   const r = resumoMaquininha(m, bandeiras);
   return (
     <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, overflow: 'hidden' }}>
@@ -92,6 +90,8 @@ function ResumoTaxasMaquininha({ m, bandeiras }: { m: Maquininha; bandeiras: Ban
 function CampoTaxa({ rotulo, valor, onChange, desabilitado, placeholder }: {
   rotulo: string; valor: string; onChange: (v: string) => void; desabilitado: boolean; placeholder?: string;
 }) {
+  const { C } = useTema();
+  const inputStyle = estiloInput(C);
   return (
     <View style={{ width: '31%', minWidth: 90, flexGrow: 1 }}>
       <Text style={{ fontFamily: F.s, fontSize: 11, color: C.text3, marginBottom: 4 }}>{rotulo}</Text>
@@ -126,6 +126,9 @@ function GradeEditor({ grade, max, onChange, desabilitado, vazioOk }: {
 }
 
 export function CartoesConfig({ empresaId }: { empresaId: string }) {
+  const { C } = useTema();
+  const inputStyle = estiloInput(C);
+  const txtSec = estiloTxtSec(C);
   const { pode } = usePermissoes();
   const podeEditar = pode('config.taxas');
   const [config, setConfig] = useState<ConfigCartoes | null>(null);
@@ -174,8 +177,8 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
 
   if (!config) {
     return erroCarga
-      ? <Text style={{ fontFamily: F.m, fontSize: 13, color: C.red }}>{erroCarga}</Text>
-      : <ActivityIndicator color={C.primary} style={{ marginVertical: 16 }} />;
+      ? <Text style={{ fontFamily: F.m, fontSize: 13, color: C.redTexto }}>{erroCarga}</Text>
+      : <ActivityIndicator color={C.primaryTexto} style={{ marginVertical: 16 }} />;
   }
 
   const cfg: ConfigCartoes = config;
@@ -344,7 +347,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
       </Text>
       {cfg.legado && <Text style={{ fontFamily: F.s, fontSize: 12, color: C.text3 }}>Disponível após a atualização do sistema</Text>}
       {!cfg.legado && !podeEditar && <Text style={{ fontFamily: F.s, fontSize: 12, color: C.text3 }}>Você pode consultar, mas não editar as taxas.</Text>}
-      {!!erro && <Text style={{ fontFamily: F.m, fontSize: 13, color: C.red }}>{erro}</Text>}
+      {!!erro && <Text style={{ fontFamily: F.m, fontSize: 13, color: C.redTexto }}>{erro}</Text>}
       {!!aviso && <Text style={{ fontFamily: F.m, fontSize: 13, color: C.text2 }}>{aviso}</Text>}
 
       {/* Maquininhas */}
@@ -365,8 +368,8 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
               </View>
               {m.padrao && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, height: 24, borderRadius: 12, backgroundColor: C.primarySoft }}>
-                  <Star size={11} color={C.primary} />
-                  <Text style={{ fontFamily: F.b, fontSize: 11, color: C.primary }}>Padrão</Text>
+                  <Star size={11} color={C.primaryTexto} />
+                  <Text style={{ fontFamily: F.b, fontSize: 11, color: C.primaryTexto }}>Padrão</Text>
                 </View>
               )}
             </View>
@@ -375,7 +378,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {!m.padrao && <BotaoSec onPress={() => tornarPadrao(m)} disabled={ocupado}><Text style={txtSec}>Tornar padrão</Text></BotaoSec>}
                 <BotaoSec onPress={() => abrirEdicao(m)} disabled={ocupado}><Pencil size={13} color={C.text2} /><Text style={txtSec}>Editar</Text></BotaoSec>
-                <BotaoSec onPress={() => remover(m)} disabled={ocupado}><Trash2 size={13} color={C.red} /><Text style={txtSec}>Remover</Text></BotaoSec>
+                <BotaoSec onPress={() => remover(m)} disabled={ocupado}><Trash2 size={13} color={C.redTexto} /><Text style={txtSec}>Remover</Text></BotaoSec>
               </View>
             )}
           </View>
@@ -417,7 +420,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
               </BotaoSec>
             )}
             {!somenteLeitura && (
-              <BotaoSec onPress={() => excluirBandeiraAcao(b.id)} disabled={ocupado}><Trash2 size={13} color={C.red} /></BotaoSec>
+              <BotaoSec onPress={() => excluirBandeiraAcao(b.id)} disabled={ocupado}><Trash2 size={13} color={C.redTexto} /></BotaoSec>
             )}
           </View>
         ))}
@@ -470,7 +473,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                           <Text style={{ fontFamily: F.s, fontSize: 14, color: C.text }}>{b?.nome ?? 'Bandeira'}</Text>
                           <BotaoSec disabled={ocupado} onPress={() => { const { [bid]: _, ...resto } = editor.excecoes; setEditor({ ...editor, excecoes: resto }); }}>
-                            <Trash2 size={13} color={C.red} /><Text style={txtSec}>Remover exceção</Text>
+                            <Trash2 size={13} color={C.redTexto} /><Text style={txtSec}>Remover exceção</Text>
                           </BotaoSec>
                         </View>
                         <GradeEditor grade={g} max={maxEditor} desabilitado={ocupado} vazioOk
@@ -497,7 +500,7 @@ export function CartoesConfig({ empresaId }: { empresaId: string }) {
                     </View>
                   )}
                 </View>
-                {!!erroEditor && <Text style={{ fontFamily: F.m, fontSize: 13, color: C.red }}>{erroEditor}</Text>}
+                {!!erroEditor && <Text style={{ fontFamily: F.m, fontSize: 13, color: C.redTexto }}>{erroEditor}</Text>}
               </ScrollView>
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, padding: 18, borderTopWidth: 1, borderTopColor: C.border }}>
                 <BotaoSec onPress={fecharEditor} disabled={ocupado}><Text style={txtSec}>Cancelar</Text></BotaoSec>

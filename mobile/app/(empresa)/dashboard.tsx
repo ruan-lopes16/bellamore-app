@@ -204,7 +204,7 @@ function Dashboard() {
               <Text style={{
                 fontFamily: 'PlusJakartaSans_500Medium',
                 fontSize: 11,
-                color: C.primary,
+                color: C.primaryTexto,
               }}>
                 {empresaAtiva?.nome ?? 'Meu Estúdio'}
               </Text>
@@ -309,7 +309,7 @@ function Dashboard() {
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-                <Calendar size={14} color={C.primary} strokeWidth={2} />
+                <Calendar size={14} color={C.primaryTexto} strokeWidth={2} />
               </View>
               <View>
                 <Text style={{
@@ -485,18 +485,18 @@ function Dashboard() {
         {podeVerFinanceiro && financeiroPronto && (
           <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {cartoesMes.map(c => {
-              const cor = c.tom === 'negativo' ? C.rose : c.tom === 'alerta' ? C.amber : C.primary;
+              const cor = c.tom === 'negativo' ? C.rose : c.tom === 'alerta' ? C.amberTexto : C.primaryTexto;
               return (
                 <View key={c.id} style={{ width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 12 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>{c.rotulo}</Text>
                   <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: cor }}>{c.valor}</SecretText>
                   {c.delta !== null && (
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: c.delta >= 0 ? C.green : C.rose, marginTop: 4 }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: c.delta >= 0 ? C.greenTexto : C.rose, marginTop: 4 }}>
                       {c.delta >= 0 ? '▲' : '▼'} {Math.abs(c.delta)}%
                     </Text>
                   )}
                   {c.sub && (
-                    <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: c.subDestaque ? 'PlusJakartaSans_600SemiBold' : 'PlusJakartaSans_400Regular', fontSize: 10, color: c.subDestaque ? C.amber : C.text4, marginTop: 4 }}>{c.sub}</SecretText>
+                    <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: c.subDestaque ? 'PlusJakartaSans_600SemiBold' : 'PlusJakartaSans_400Regular', fontSize: 10, color: c.subDestaque ? C.amberTexto : C.text4, marginTop: 4 }}>{c.sub}</SecretText>
                   )}
                 </View>
               );
@@ -584,7 +584,7 @@ function Dashboard() {
             <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
               fontFamily: 'PlusJakartaSans_700Bold',
               fontSize: 20,
-              color: C.green,
+              color: C.greenTexto,
               lineHeight: 22,
               marginBottom: 4,
             }}>{hojePronto ? formatarMoeda(receitaHoje) : '—'}</SecretText>
@@ -598,7 +598,7 @@ function Dashboard() {
               <Text style={{
                 fontFamily: 'PlusJakartaSans_700Bold',
                 fontSize: 9,
-                color: C.green,
+                color: C.greenTexto,
               }}>
                 confirmada
               </Text>
@@ -634,7 +634,7 @@ function Dashboard() {
             <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{
               fontFamily: 'PlusJakartaSans_700Bold',
               fontSize: 20,
-              color: C.amber,
+              color: C.amberTexto,
               lineHeight: 22,
               marginBottom: 4,
             }}>{comissoesPendentesPronto ? formatarMoeda(comissoesPendentes.total) : '—'}</SecretText>
@@ -648,7 +648,7 @@ function Dashboard() {
               <Text style={{
                 fontFamily: 'PlusJakartaSans_700Bold',
                 fontSize: 9,
-                color: C.amber,
+                color: C.amberTexto,
               }}>
                 pendente
               </Text>
@@ -696,10 +696,10 @@ function Dashboard() {
             marginBottom: 20,
           }}>
             {[
-              { icon: Calendar, label: 'Agendar', bg: C.primarySoft, color: C.primary, route: '/(empresa)/novo-agendamento' },
+              { icon: Calendar, label: 'Agendar', bg: C.primarySoft, color: C.primaryTexto, route: '/(empresa)/novo-agendamento' },
               { icon: FileText, label: 'Comanda', bg: C.roseSoft, color: C.rose, route: '/(empresa)/nova-comanda' },
-              { icon: User, label: 'Cliente', bg: C.greenSoft, color: C.green, route: '/(empresa)/novo-cliente' },
-              { icon: DollarSign, label: 'Despesa', bg: C.amberSoft, color: C.amber, route: '/(empresa)/nova-despesa' },
+              { icon: User, label: 'Cliente', bg: C.greenSoft, color: C.greenTexto, route: '/(empresa)/novo-cliente' },
+              { icon: DollarSign, label: 'Despesa', bg: C.amberSoft, color: C.amberTexto, route: '/(empresa)/nova-despesa' },
             ].map(({ icon: Icon, label, bg, color, route }) => (
               <TouchableOpacity
                 key={label}
@@ -1034,13 +1034,13 @@ function Dashboard() {
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
-                      <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+                      <AlertTriangle size={14} color={C.amberTexto} strokeWidth={2} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{
                         fontFamily: 'PlusJakartaSans_600SemiBold',
                         fontSize: 12,
-                        color: C.amber,
+                        color: C.amberTexto,
                         lineHeight: 16,
                       }}>
                         Estoque baixo: {produto.nome}
@@ -1054,7 +1054,7 @@ function Dashboard() {
                         {produto.estoque_atual} un. restantes · mínimo: {produto.estoque_minimo}
                       </Text>
                     </View>
-                    <ChevronRight size={14} color={C.amber} strokeWidth={2} />
+                    <ChevronRight size={14} color={C.amberTexto} strokeWidth={2} />
                   </TouchableOpacity>
                 ))
               )}
@@ -1151,7 +1151,7 @@ function Dashboard() {
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_600SemiBold',
                       fontSize: 12,
-                      color: C.primary,
+                      color: C.primaryTexto,
                       lineHeight: 16,
                     }}>
                       <SecretText>{comissoesPendentes.quantidade}</SecretText> comissões pendentes de pagamento

@@ -25,10 +25,10 @@ import { BarraDeStatus, useTema, type Paleta } from '@/lib/tema';
 
 /** Cores dos tokens de shared (`CorAviso`) na paleta do app. */
 const corAviso = (C: Paleta): Record<CorAviso, { fg: string; bg: string }> => ({
-  primary: { fg: C.primary, bg: C.primarySoft },
-  amber: { fg: C.amber, bg: C.amberSoft },
-  green: { fg: C.green, bg: C.greenSoft },
-  red: { fg: C.red, bg: C.redSoft },
+  primary: { fg: C.primaryTexto, bg: C.primarySoft },
+  amber: { fg: C.amberTexto, bg: C.amberSoft },
+  green: { fg: C.greenTexto, bg: C.greenSoft },
+  red: { fg: C.redTexto, bg: C.redSoft },
   rose: { fg: C.rose, bg: C.roseSoft },
 });
 
@@ -97,7 +97,7 @@ function ErroCarga({ texto, onTentar }: { texto: string; onTentar: () => void })
   const { C } = useTema();
   return (
     <View style={{ paddingHorizontal: 24, paddingVertical: 14, backgroundColor: C.redSoft }}>
-      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.red, marginBottom: 8 }}>{texto}</Text>
+      <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.redTexto, marginBottom: 8 }}>{texto}</Text>
       <TouchableOpacity onPress={onTentar}>
         <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.text2 }}>{T.tentarDeNovo}</Text>
       </TouchableOpacity>
@@ -164,7 +164,7 @@ function LinhaAviso({ aviso, ultimo, onPress, onMarcar }: {
           hitSlop={8}
           style={{ width: 28, height: 28, borderRadius: 10, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Check size={13} color={C.primary} strokeWidth={2} />
+          <Check size={13} color={C.primaryTexto} strokeWidth={2} />
         </TouchableOpacity>
       )}
     </View>
@@ -266,7 +266,7 @@ export function TelaNotificacoes({ area }: { area: AreaApp }) {
         <Secao
           titulo={T.secaoAlertas}
           extra={alertas && alertas.length > 0
-            ? <Pilula texto={String(alertas.length)} fundo={urgentes > 0 ? C.rose : C.amberSoft} cor={urgentes > 0 ? '#fff' : C.amber} />
+            ? <Pilula texto={String(alertas.length)} fundo={urgentes > 0 ? C.rose : C.amberSoft} cor={urgentes > 0 ? '#fff' : C.amberTexto} />
             : null}
         >
           <Caixa>

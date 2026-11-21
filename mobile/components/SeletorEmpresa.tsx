@@ -7,8 +7,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
 import { useTema } from '@/lib/tema';
 
-const AVATAR_BG = ['#2C1654', '#0D7E5F', '#B45309', '#7C3AED', '#C0392B'];
-
 function rotuloPapel(role: string, owner: boolean) {
   if (owner) return 'Proprietário(a)';
   if (role === 'gestor') return 'Gestor(a)';
@@ -24,6 +22,7 @@ function rotuloPapel(role: string, owner: boolean) {
  */
 export function SeletorEmpresa({ style }: { style?: object }) {
   const { C } = useTema();
+  const AVATAR_BG = [C.primary, C.green, C.amber, '#7C3AED', C.red];
   const { empresasDisponiveis, empresaAtiva, trocarEmpresa } = useAuthStore();
   const qc = useQueryClient();
   const [trocando, setTrocando] = useState<string | null>(null);

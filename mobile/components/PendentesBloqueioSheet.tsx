@@ -4,8 +4,7 @@ import { format } from 'date-fns';
 import { X } from 'lucide-react-native';
 import { motivoBloqueioLabel } from '@shared/bloqueios';
 import type { BloqueioAgenda } from '@/hooks/useAgenda';
-
-const C = { surface: '#FFFFFF', border: '#E8E2DC', text: '#1A1228', text3: '#8878A6', green: '#0D7E5F', red: '#C0392B' };
+import { useTema } from '@/lib/tema';
 
 /**
  * Folha nativa com os bloqueios pendentes de aprovação da empresa ativa.
@@ -29,6 +28,7 @@ export function PendentesBloqueioSheet({
   onAprovar: (id: string) => void;
   onRecusar: (id: string) => void;
 }) {
+  const { C } = useTema();
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => { setBusyId(null); }, [pendentes]);
@@ -69,7 +69,7 @@ export function PendentesBloqueioSheet({
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => disparar(b.id, onRecusar)} disabled={ocupado}
                       style={{ flex: 1, height: 34, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', opacity: ocupado ? 0.5 : 1 }}>
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red }}>Recusar</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.redTexto }}>Recusar</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

@@ -61,7 +61,7 @@ function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number |
   return (
     <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 14, marginHorizontal: 24, marginBottom: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <Target size={14} color={progresso.temMeta && progresso.percentual >= 100 ? C.green : C.accent} />
+        <Target size={14} color={progresso.temMeta && progresso.percentual >= 100 ? C.greenTexto : C.accent} />
         <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6 }}>
           Minha meta do mês
         </Text>
@@ -82,7 +82,7 @@ function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number |
         </View>
       ) : progresso.temMeta ? (
         <>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: progresso.percentual >= 100 ? C.green : C.text2, marginBottom: 6 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: progresso.percentual >= 100 ? C.greenTexto : C.text2, marginBottom: 6 }}>
             <SecretText>{formatarMoeda(faturamentoBruto)} / {formatarMoeda(meta!)}</SecretText>
           </Text>
           <View style={{ height: 8, borderRadius: 999, backgroundColor: C.bg, overflow: 'hidden' }}>
@@ -103,7 +103,7 @@ function MetaPessoalCard({ meta, faturamentoBruto, empresaId }: { meta: number |
 function Inicio() {
   const { C: T } = useTema();
   // Nesta tela o alerta ("rose") sempre foi o vermelho.
-  const C = { ...T, rose: T.red, roseSoft: T.redSoft };
+  const C = { ...T, rose: T.redTexto, roseSoft: T.redSoft };
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const hoje = new Date();
@@ -167,7 +167,7 @@ function Inicio() {
               {!!sino && sino > 0 && (
                 <View style={{
                   position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8,
-                  backgroundColor: C.rose, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
+                  backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
                 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: '#fff', lineHeight: 11 }}>
                     {sino > 9 ? '9+' : sino}
@@ -198,9 +198,9 @@ function Inicio() {
         <View style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 16, flexWrap: 'wrap' }}>
           {[
             { value: erroAgenda ? '—' : String(ags.length),                          label: 'Agenda hoje',       color: C.accent },
-            { value: erroKpis || carregandoKpis || !kpisDia ? '—' : formatarMoeda(kpisDia.receitaDia),             label: 'Fat. hoje',         color: C.primary },
-            { value: semResumo ? '—' : formatarMoeda(resumoMes.faturamentoBruto),     label: 'Fat. bruto do mês', color: C.primary },
-            { value: semResumo ? '—' : formatarMoeda(resumoMes.total), label: 'Comissão do mês', color: C.green },
+            { value: erroKpis || carregandoKpis || !kpisDia ? '—' : formatarMoeda(kpisDia.receitaDia),             label: 'Fat. hoje',         color: C.primaryTexto },
+            { value: semResumo ? '—' : formatarMoeda(resumoMes.faturamentoBruto),     label: 'Fat. bruto do mês', color: C.primaryTexto },
+            { value: semResumo ? '—' : formatarMoeda(resumoMes.total), label: 'Comissão do mês', color: C.greenTexto },
           ].map((s) => (
             <View key={s.label} style={{
               width: '47%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -236,7 +236,7 @@ function Inicio() {
                     {ag.cliente?.nome ?? 'Cliente'} · {ag.servico?.nome ?? 'Serviço'}
                   </Text>
                 </View>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.primary }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.primaryTexto }}>
                   <SecretText>{formatarMoeda(Number(ag.valor))}</SecretText>
                 </Text>
               </TouchableOpacity>

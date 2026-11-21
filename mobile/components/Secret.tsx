@@ -1,6 +1,7 @@
 import { Text, TouchableOpacity, type TextStyle, type StyleProp, type TextProps } from 'react-native';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { usePrivacyStore } from '@/stores/privacyStore';
+import { useTema } from '@/lib/tema';
 
 /**
  * Envolve um valor sensível. Modo privado desligado → mostra o filho normal.
@@ -11,6 +12,7 @@ export function SecretText({
   children, style, ...rest
 }: { children: React.ReactNode; style?: StyleProp<TextStyle> } & Pick<TextProps, 'numberOfLines' | 'adjustsFontSizeToFit' | 'minimumFontScale'>) {
   const hidden = usePrivacyStore((s) => s.hidden);
+  const { escuro } = useTema();
   return (
     <Text
       {...rest}
@@ -19,7 +21,7 @@ export function SecretText({
         style,
         hidden && {
           color: 'transparent',
-          textShadowColor: 'rgba(0,0,0,0.62)',
+          textShadowColor: escuro ? 'rgba(242,238,248,0.55)' : 'rgba(0,0,0,0.62)',
           textShadowRadius: 10,
           textShadowOffset: { width: 0, height: 0 },
         },

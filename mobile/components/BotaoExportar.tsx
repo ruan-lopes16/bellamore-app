@@ -2,19 +2,23 @@ import { useState } from 'react';
 import { ActionSheetIOS, ActivityIndicator, Alert, Platform, TouchableOpacity } from 'react-native';
 import { Download } from 'lucide-react-native';
 import type { DefinicaoExportacao } from '@shared/exportacao/tipos';
+import { useTema } from '@/lib/tema';
 import { exportarExcel, exportarPdf } from '@/lib/exportar';
 
 /**
  * Ícone de Download do cabeçalho: pergunta Excel ou PDF, gera com o que a tela
  * mostra (getLinhas) e abre o compartilhar. `definicao` nula esconde o botão.
  */
-export function BotaoExportar<T>({ definicao, getLinhas, cor = '#6B7280', disabled = false }: {
+export function BotaoExportar<T>({ definicao, getLinhas, cor, disabled = false }: {
   definicao: DefinicaoExportacao<T> | null;
   getLinhas: () => T[];
+  /** Cor do ícone; sem ela, usa o texto secundário do tema. */
   cor?: string;
   /** Desliga o botão enquanto a carga dos dados exportados está com erro ou carregando. */
   disabled?: boolean;
 }) {
+  const { C } = useTema();
+  const corIcone = cor ?? C.text3;
   const [gerando, setGerando] = useState(false);
   const [escolhendo, setEscolhendo] = useState(false);
   if (!definicao) return null;
@@ -51,7 +55,7 @@ export function BotaoExportar<T>({ definicao, getLinhas, cor = '#6B7280', disabl
   return (
     <TouchableOpacity onPress={escolher} disabled={gerando || disabled} accessibilityLabel="Exportar"
       style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}>
-      {gerando ? <ActivityIndicator size="small" color={cor} /> : <Download size={16} color={cor} strokeWidth={1.8} />}
+      {gerando ? <ActivityIndicator size="small" color={corIcone} /> : <Download size={16} color={corIcone} strokeWidth={1.8} />}
     </TouchableOpacity>
   );
 }

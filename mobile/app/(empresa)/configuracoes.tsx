@@ -530,7 +530,7 @@ function Configuracoes() {
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 60 }}>
             {tituloSecao('Dados da Empresa')}
             <View style={cartao}>
-              <Campo label="Nome" icon={<Store size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Nome" icon={<Store size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={nomeEmpresa} onChange={setNomeEmpresa} placeholder="Nome do estúdio" />
               <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
@@ -551,15 +551,15 @@ function Configuracoes() {
                   })}
                 </View>
               </View>
-              <Campo label="CNPJ" icon={<FileText size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="CNPJ" icon={<FileText size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={cnpj} onChange={(v) => void mudarCnpj(v)} placeholder="00.000.000/0001-00" keyboardType="numeric"
                 buscando={buscandoCnpj} maxLength={18} />
               {cnpj.length === 18 && !validaCNPJ(cnpj) && (
-                <Text style={{ marginHorizontal: 16, marginTop: -4, marginBottom: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.red }}>
+                <Text style={{ marginHorizontal: 16, marginTop: -4, marginBottom: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.redTexto }}>
                   CNPJ inválido. Verifique os dígitos.
                 </Text>
               )}
-              <Campo label="Telefone" icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Telefone" icon={<Phone size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={telefoneEmp} onChange={(v) => setTelefoneEmp(maskPhone(v))} placeholder="(00) 00000-0000" keyboardType="phone-pad" ultimo />
             </View>
           </MotiView>
@@ -568,7 +568,7 @@ function Configuracoes() {
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 90 }}>
             {tituloSecao('Endereço')}
             <View style={cartao}>
-              <Campo label={'CEP'} icon={<MapPin size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label={'CEP'} icon={<MapPin size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={endereco.cep} onChange={(v) => void mudarCep(v)} placeholder="00000-000" keyboardType="numeric"
                 buscando={buscandoCep} maxLength={9} />
               <Campo label={'Rua'} value={endereco.rua} onChange={(v) => setCampoEndereco('rua', v)} placeholder="Rua, avenida…" />
@@ -585,7 +585,7 @@ function Configuracoes() {
           <MotiView from={{ opacity: 0, translateY: 6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 380, delay: 100 }}>
             {tituloSecao('Meta mensal de receita')}
             <View style={cartao}>
-              <Campo label="Meta de receita bruta (R$)" icon={<Target size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Meta de receita bruta (R$)" icon={<Target size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={metaMensal} onChange={(v) => setMetaMensal(maskMoeda(v))} placeholder="0,00" keyboardType="numeric" ultimo />
             </View>
             <Text style={{ marginHorizontal: 24, marginTop: 6, fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3 }}>
@@ -684,7 +684,7 @@ function Configuracoes() {
                           borderWidth: 1, borderColor: taxaModo === m ? C.primary : C.border,
                           backgroundColor: taxaModo === m ? C.primarySoft : 'transparent',
                         }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: taxaModo === m ? C.primary : C.text3 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: taxaModo === m ? C.primaryTexto : C.text3 }}>
                           {rotulo}
                         </Text>
                       </TouchableOpacity>
@@ -747,7 +747,7 @@ function Configuracoes() {
                           borderWidth: 1, borderColor: reservaModo === m ? C.primary : C.border,
                           backgroundColor: reservaModo === m ? C.primarySoft : 'transparent',
                         }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === m ? C.primary : C.text3 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: reservaModo === m ? C.primaryTexto : C.text3 }}>
                           {rotulo}
                         </Text>
                       </TouchableOpacity>
@@ -795,7 +795,7 @@ function Configuracoes() {
                     backgroundColor: C.primarySoft,
                     alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.primary }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.primaryTexto }}>
                       {initials(nomeUser || 'U')}
                     </Text>
                   </View>
@@ -818,14 +818,14 @@ function Configuracoes() {
                 </View>
               </View>
 
-              <Campo label="Nome" icon={<User size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Nome" icon={<User size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={nomeUser} onChange={setNomeUser} placeholder="Seu nome" />
-              <Campo label="Telefone" icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Telefone" icon={<Phone size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={telefoneUser} onChange={(v) => setTelefoneUser(maskPhone(v))} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
               <TrocarEmail />
-              <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Nova senha" icon={<Lock size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry />
-              <Campo label="Confirmar nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Confirmar nova senha" icon={<Lock size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={confirmaSenha} onChange={setConfirmaSenha} placeholder="Repita a nova senha" secureTextEntry ultimo />
             </View>
           </MotiView>
@@ -864,12 +864,12 @@ function Configuracoes() {
                 })}
               </View>
               {prefAgenda.isError && !msgPref && (
-                <Text style={{ marginTop: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.red }}>
+                <Text style={{ marginTop: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.redTexto }}>
                   Não foi possível carregar a preferência.
                 </Text>
               )}
               {msgPref && (
-                <Text style={{ marginTop: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: msgPref.ok ? C.green : C.red }}>
+                <Text style={{ marginTop: 8, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: msgPref.ok ? C.greenTexto : C.redTexto }}>
                   {msgPref.texto}
                 </Text>
               )}
@@ -913,7 +913,7 @@ function Configuracoes() {
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 380, delay: 300 }}
             style={{ marginHorizontal: 24, marginTop: 16 }}
           >
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.red, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.redTexto, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10 }}>
               Zona de Perigo
             </Text>
             <TouchableOpacity
@@ -924,8 +924,8 @@ function Configuracoes() {
                 flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}
             >
-              <LogOut size={15} color={C.red} strokeWidth={2} />
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.red }}>
+              <LogOut size={15} color={C.redTexto} strokeWidth={2} />
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.redTexto }}>
                 Sair da conta
               </Text>
             </TouchableOpacity>

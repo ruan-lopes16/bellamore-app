@@ -8,6 +8,7 @@ import {
   CATEGORIA_BG,
   CATEGORIA_SVG,
 } from '@shared/categorias';
+import { useTema } from '@/lib/tema';
 
 export { type CategoriaServico, CATEGORIA_COR, CATEGORIA_BG } from '@shared/categorias';
 
@@ -46,10 +47,11 @@ export function CategoriaIcon({ categoria, size = 20, color, strokeWidth = 1.8 }
 
 /** Ícone de categoria personalizada por nome lucide (ver CATEGORIA_ICONES no shared). */
 export function CategoriaIconCustom({
-  name, size = 20, color = '#6B7280', strokeWidth = 1.8,
+  name, size = 20, color, strokeWidth = 1.8,
 }: { name: string; size?: number; color?: string; strokeWidth?: number }) {
+  const { C } = useTema();
   const Cmp = (LucideRN as unknown as Record<string, React.ComponentType<any>>)[name] ?? LucideRN.Tag;
-  return <Cmp size={size} color={color} strokeWidth={strokeWidth} />;
+  return <Cmp size={size} color={color ?? C.text3} strokeWidth={strokeWidth} />;
 }
 
 export default CategoriaIcon;
