@@ -8,6 +8,7 @@ import { montarInsertBloqueio, type MontarInsertBloqueioInput } from '@shared/bl
 import { chaveDiaBRT, limitesDias, limitesMes } from '@shared/periodos';
 import { buscarTodasPaginas } from '@shared/paginacao';
 import { TODAS, type FiltroProfissional } from '@shared/agenda-grade';
+import { carregarContinuacoesDaVespera } from '@shared/agenda-consultas';
 
 // ── Tipos ────────────────────────────────────────────────────
 
@@ -135,6 +136,34 @@ export function useAgendamentoDia(dia: string, profissional: FiltroProfissional)
         };
       }) as AgendamentoCompleto[];
     },
+  });
+}
+
+/**
+ * Atendimentos que começaram na véspera e terminam depois das 00:00 de `dia` (ex.: 23:00–01:30).
+ * Servem SÓ para `continuacoesPorHora` e para esticar a janela: nunca entram no resumo, nas
+ * contagens nem nos KPIs. Erro aqui não derruba a agenda (a tela usa a lista vazia).
+ */
+export function useContinuacoesVespera(dia: string, profissional: FiltroProfissional) {
+  const { empresaAtiva } = useAuthStore();
+  const empresaId = empresaAtiva?.id;
+
+  return useQuery({
+    queryKey: ['agenda-dia', 'vespera', empresaId, dia, profissional],
+    enabled: !!empresaId && !!profissional,
+    staleTime: 1000 * 30,
+    queryFn: () => carregarContinuacoesDaVespera<AgendamentoCompleto>(supabase, {
+      empresaId: empresaId!,
+      dia,
+      profissionalId: profissional === TODAS ? null : profissional,
+      select: `
+        *,
+        cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
+        profissional:users!agendamentos_profissional_id_fkey(id, nome, foto_url),
+        servico:servicos(id, nome, duracao_minutos, categoria, categoria_id),
+        agendamento_servicos(ordem, servico:servicos(nome))
+      `,
+    }),
   });
 }
 

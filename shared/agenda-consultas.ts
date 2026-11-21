@@ -6,6 +6,7 @@
 import type { ClienteDb } from './kpis-financeiros-consultas';
 import { mensagemErroBanco } from './erros';
 import { formatarMoeda } from './moeda';
+import { limitesDias, somarDias } from './periodos';
 
 /** Client com `rpc` (web: @supabase/ssr; mobile: @supabase/supabase-js). */
 export type ClienteDbAgenda = ClienteDb & {
@@ -140,4 +141,42 @@ export async function avisoTaxaPagaAoExcluir(db: ClienteDb, agendamentoId: strin
   const totalPago = pagas.reduce((s, t) => s + Number(t.valor || 0), 0);
   if (totalPago <= 0) return '';
   return ` A taxa de ${formatarMoeda(totalPago)} (paga) também será removida e sai do faturamento daquele período.`;
+}
+
+/**
+ * Limites para achar os atendimentos da véspera que atravessam a meia-noite: início dentro do dia
+ * anterior (Brasília) e fim depois do começo do dia exibido. Função pura, testável sem banco.
+ */
+export function limitesVesperaQueContinua(dia: string): { inicioDeIso: string; inicioAteIso: string; fimDepoisDeIso: string } {
+  const vespera = limitesDias(somarDias(dia, -1), somarDias(dia, -1));
+  return {
+    inicioDeIso: vespera.startIso,
+    inicioAteIso: vespera.endIso,
+    fimDepoisDeIso: limitesDias(dia, dia).startIso,
+  };
+}
+
+/**
+ * Atendimentos que começaram na véspera e terminam depois das 00:00 do dia `dia` (ex.: 23:00–01:30),
+ * sem cancelados. Servem SÓ para desenhar a continuação na grade do dia: nunca entram no resumo,
+ * nas contagens nem nos KPIs. `profissionalId` filtra igual às cargas do dia (omitido = todas).
+ * `select` é o mesmo da carga do dia, para os tipos baterem. Uma consulta só; LANÇA `Error` em
+ * português se falhar (quem chama mostra a grade sem as continuações).
+ */
+export async function carregarContinuacoesDaVespera<T>(
+  db: ClienteDb,
+  opcoes: { empresaId: string; dia: string; profissionalId?: string | null; select: string },
+): Promise<T[]> {
+  const lim = limitesVesperaQueContinua(opcoes.dia);
+  let q = db.from('agendamentos')
+    .select(opcoes.select)
+    .eq('empresa_id', opcoes.empresaId)
+    .gte('data_hora_inicio', lim.inicioDeIso)
+    .lte('data_hora_inicio', lim.inicioAteIso)
+    .gt('data_hora_fim', lim.fimDepoisDeIso)
+    .neq('status', 'cancelado');
+  if (opcoes.profissionalId) q = q.eq('profissional_id', opcoes.profissionalId);
+  const { data, error } = await q.order('data_hora_inicio', { ascending: true });
+  if (error) throw new Error(mensagemErroBanco(error, 'carregar os atendimentos da véspera'));
+  return (data ?? []) as T[];
 }

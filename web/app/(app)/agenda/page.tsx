@@ -57,9 +57,10 @@ import {
 } from '@shared/agenda';
 import {
   TODAS, dataDoDia, filtroInicialAgenda, type FiltroProfissional, bloqueiosDaProfissional, colunasComExtras, horasDaJanela, itensDaJanela,
+  intervalosDaVespera,
 } from '@shared/agenda-grade';
 import { parseValorBR } from '@shared/comanda-fechamento';
-import { avisoTaxaPagaAoExcluir, carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas';
+import { avisoTaxaPagaAoExcluir, carregarContinuacoesDaVespera, carregarPreferenciaAgenda, salvarAvaliacao } from '@shared/agenda-consultas';
 import { carregarConfigTaxas, colunaCobrarTaxaExiste, perguntaTaxaCancelamento, valorTaxaReservaSugerida } from '@shared/taxas-atendimento';
 import { PerguntaTaxaCancelamentoModal } from '@/components/PerguntaTaxaCancelamentoModal';
 import { podeExcluirAgendamento, motivoExclusaoBloqueada, podeMexerNoAgendamento } from '@shared/agendamentos';
@@ -1736,9 +1737,11 @@ function ModalDetalhe({ apenasMobile = false, onClose, children }: {
  * Clicar num bloco abre o AgCard no painel lateral.
  */
 function TimelineView({
-  ags, bloqueios, profissionaisEmpresa, filtro, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuUserId, podeAlterar,
+  ags, vespera = [], bloqueios, profissionaisEmpresa, filtro, loading, empresaId, categoriasCustom, onStatus, dataSel, onEditar, onNovo, onPedirRemoverBloqueio, onAvisoBloqueio, meuUserId, podeAlterar,
 }: {
   ags: Ag[]; bloqueios: Bloqueio[]; profissionaisEmpresa: { id: string; nome: string }[];
+  /** Atendimentos da véspera que passam da meia-noite: bloco recortado a partir de 00:00, fora do resumo. */
+  vespera?: Ag[];
   /** Profissional escolhida ou "todas" (já validado contra `agenda.ver_equipe`). */
   filtro: FiltroProfissional;
   loading: boolean; empresaId: string;
@@ -1767,7 +1770,7 @@ function TimelineView({
   const chaveDia = chaveDiaExibido(dataSel);
 
   // Janela do dia: 7h–21h esticada para caber todo atendimento e bloqueio visível.
-  const janela = useMemo(() => janelaDoDia(itensDaJanela(chaveDia, ags.map(a => ({ data_hora_inicio: a.data_hora_inicio, data_hora_fim: a.data_hora_fim })), bloqueios)), [ags, bloqueios, chaveDia]);
+  const janela = useMemo(() => janelaDoDia(itensDaJanela(chaveDia, ags.map(a => ({ data_hora_inicio: a.data_hora_inicio, data_hora_fim: a.data_hora_fim })), [...bloqueios, ...intervalosDaVespera(vespera)])), [ags, vespera, bloqueios, chaveDia]);
   const alturaTotal = alturaDaJanela(janela);
   const horas = horasDaJanela(janela);
 
@@ -1981,6 +1984,44 @@ function TimelineView({
                             </span>
                           )}
                         </div>
+                      );
+                    })}
+
+                  {/* Continuação da véspera (começou ontem e passa da meia-noite): recortada a partir de 00:00 */}
+                  {vespera
+                    .filter(v => v.status !== 'faltou' && v.status !== 'cancelado' && (v.profissional?.id ?? v.profissional_id) === prof.id)
+                    .map(v => {
+                      const { top: topV, height: hV } = posicaoNaTimeline(v.data_hora_inicio, v.data_hora_fim, chaveDia, janela, 26);
+                      const infoV = infoCategoria(categoriasDoAg(v, categoriasCustom)[0] ?? 'outros', categoriasCustom);
+                      const selV = agSel?.id === v.id;
+                      return (
+                        <button
+                          key={`vespera-${v.id}`}
+                          onClick={e => { e.stopPropagation(); setAgSel(selV ? null : v); }}
+                          style={{
+                            top: topV + 2, height: hV - 4, left: 3, width: 'calc(100% - 6px)',
+                            borderRadius: 5, borderLeft: `3px solid ${infoV.cor}`,
+                            borderTop: '1px solid rgba(0,0,0,0.06)', borderRight: '1px solid rgba(0,0,0,0.06)', borderBottom: '1px solid rgba(0,0,0,0.06)',
+                            background: infoV.bg,
+                          }}
+                          className={`absolute overflow-hidden text-left transition-all ${selV ? 'ring-2 ring-accent shadow-lg z-10' : 'hover:shadow-sm hover:brightness-95 z-0'}`}
+                        >
+                          <div className="px-1.5 py-1 h-full flex flex-col justify-start gap-0.5 min-w-0">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="text-[10px] font-bold leading-none flex-shrink-0 whitespace-nowrap tabular-nums text-text-3">
+                                desde ontem {horaBRT(v.data_hora_inicio)}
+                              </span>
+                              <p className="text-[11px] font-bold leading-tight truncate flex-1 text-text">
+                                {v.cliente?.nome ?? '—'}
+                              </p>
+                            </div>
+                            {hV >= 34 && (
+                              <p className="text-[10px] text-text-3 leading-tight truncate">
+                                até {horaBRT(v.data_hora_fim)} · {nomesServicosDoAg(v)}
+                              </p>
+                            )}
+                          </div>
+                        </button>
                       );
                     })}
 
@@ -2200,6 +2241,8 @@ export default function AgendaPage() {
   const [dataSel,   setDataSel]   = useState(() => dataDoDia(hojeBRT()));
   const [semana,    setSemana]    = useState(() => semanaDoDia(dataDoDia(hojeBRT())));
   const [ags,        setAgs]       = useState<Ag[]>([]);
+  // Atendimentos da véspera que passam da meia-noite: só desenhados na Timeline (nunca no resumo, nas listas nem nas contagens).
+  const [vespera,    setVespera]   = useState<Ag[]>([]);
   const [bloqueios,  setBloqueios] = useState<Bloqueio[]>([]);
   const [agsMes,     setAgsMes]    = useState<Map<string, number>>(new Map());
   /** Bloqueios da grade do mês (42 dias), para marcar os dias na visão Mês. */
@@ -2318,7 +2361,7 @@ export default function AgendaPage() {
     const { startIso: iniDia, endIso: fimDia } = limitesDias(chaveDiaExibido(data), chaveDiaExibido(data));
 
     try {
-      const [rows, blRows] = await Promise.all([
+      const [rows, blRows, vesperaRows] = await Promise.all([
         buscarPaginas((de, ate) => {
           let q = supabase
             .from('agendamentos')
@@ -2344,10 +2387,22 @@ export default function AgendaPage() {
           .gte('data_fim',    iniDia)
           .order('data_inicio').order('id')
           .range(de, ate)),
+        // Carga extra: falha aqui não derruba a agenda, só fica sem a continuação da véspera.
+        carregarContinuacoesDaVespera<Ag>(supabase, {
+          empresaId: empId,
+          dia: chaveDiaExibido(data),
+          profissionalId: filtro === TODAS ? null : filtro,
+          select: `*,
+            cliente:clientes!agendamentos_cliente_id_fkey(id,nome,telefone),
+            profissional:users!agendamentos_profissional_id_fkey(id,nome),
+            servico:servicos(id,nome,duracao_minutos,categoria,categoria_id),
+            agendamento_servicos(servico_id,valor,duracao_minutos,ordem,servico:servicos(id,nome,categoria,categoria_id))`,
+        }).catch(() => [] as Ag[]),
       ]);
       if (req !== reqDia.current) return;
       setErroDia('');
       setAgs(rows as unknown as Ag[]);
+      setVespera(vesperaRows);
       setBloqueios(blRows as Bloqueio[]);
     } catch (e) {
       if (req !== reqDia.current) return;
@@ -2735,6 +2790,7 @@ export default function AgendaPage() {
       ) : view === 'timeline' ? (
         <TimelineView
           ags={agsVisiveis}
+          vespera={vespera}
           bloqueios={bloqueiosDaLista}
           profissionaisEmpresa={profissionaisEmpresa}
           filtro={filtro}

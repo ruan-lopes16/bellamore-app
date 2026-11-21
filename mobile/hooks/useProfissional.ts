@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { resolverCategoria, type AgendamentoCompleto, type BloqueioAgenda } from '@/hooks/useAgenda';
 import { limitesDias, limitesMes, chaveDiaBRT, type Limites } from '@shared/periodos';
 import { buscarTodasPaginas } from '@shared/paginacao';
+import { carregarContinuacoesDaVespera } from '@shared/agenda-consultas';
 import { normalizarComissoes } from '@shared/comissoes';
 import { carregarComissoesDoPeriodo } from '@shared/comissoes-consultas';
 export type { ComissaoItem } from '@shared/comissoes';
@@ -63,6 +64,34 @@ export function useAgendaProfissional(dia: Date) {
         categoria: resolverCategoria(ag.servico?.categoria),
       })) as AgendamentoCompleto[];
     },
+  });
+}
+
+/**
+ * Atendimentos da profissional que começaram na véspera e terminam depois das 00:00 de `dia`.
+ * Só para desenhar a continuação na grade: nunca entram nos KPIs nem nas contagens.
+ */
+export function useContinuacoesVesperaProfissional(dia: Date) {
+  const { user, empresaAtiva } = useAuthStore();
+  const userId = user?.id;
+  const empresaId = empresaAtiva?.id;
+  const chave = format(dia, 'yyyy-MM-dd');
+
+  return useQuery({
+    queryKey: ['prof-agenda', 'vespera', userId, empresaId, chave],
+    enabled: !!userId && !!empresaId,
+    staleTime: 1000 * 30,
+    queryFn: () => carregarContinuacoesDaVespera<AgendamentoCompleto>(supabase, {
+      empresaId: empresaId!,
+      dia: chave,
+      profissionalId: userId!,
+      select: `
+        *,
+        cliente:clientes!agendamentos_cliente_id_fkey(id, nome, telefone),
+        profissional:users!agendamentos_profissional_id_fkey(id, nome, foto_url),
+        servico:servicos(id, nome, duracao_minutos, categoria)
+      `,
+    }),
   });
 }
 
