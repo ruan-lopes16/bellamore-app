@@ -1562,7 +1562,7 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 **Pendências para produção:** ~~rodar `102_push_bloqueio_e_recibos.sql`~~ — **aplicada em produção em 2026-11-20** (conferência: coluna 1, pendentes 0, índice 1, RLS true, policies 0, trigger da 097 intacto).
 
 **Registrados, não corrigidos:**
-- Os títulos dos avisos de bloqueio vêm sem acento do trigger da 069 ("aprovacao") e saem assim no push.
+- ~~Os títulos dos avisos de bloqueio vêm sem acento do trigger da 069 ("aprovacao") e saem assim no push.~~ — corrigido em 2026-11-21 (migration 103: corpo da 069 com o título acentuado + update dos avisos já gravados).
 - Recibo `DeviceNotRegistered` apaga pelo token: se outra conta registrar o mesmo token antes da leitura, esse aparelho também sai (o app se registra de novo ao abrir).
 
 ---
