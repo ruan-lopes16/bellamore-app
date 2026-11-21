@@ -66,7 +66,7 @@ export function TrocarEmail() {
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-          <Mail size={13} color={C.primary} strokeWidth={1.8} />
+          <Mail size={13} color={C.primaryTexto} strokeWidth={1.8} />
         </View>
         <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text }} numberOfLines={1}>
           {atual === null ? '…' : atual || '—'}
@@ -78,7 +78,7 @@ export function TrocarEmail() {
         )}
       </View>
       {!!pendente && pendente !== atual && (
-        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amber }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amberTexto }}>
           Aguardando confirmação de {pendente}.
         </Text>
       )}
@@ -106,7 +106,7 @@ export function TrocarEmail() {
         </View>
       )}
       {msg && (
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: msg.ok ? C.green : C.red }}>{msg.texto}</Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: msg.ok ? C.greenTexto : C.redTexto }}>{msg.texto}</Text>
       )}
     </View>
   );

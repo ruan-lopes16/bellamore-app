@@ -57,19 +57,9 @@ import { formatarMoeda } from '@shared/moeda';
 import { colunaCobrarTaxaExiste } from '@shared/taxas-atendimento';
 import { mensagemErroBanco } from '@shared/erros';
 import { useAuthStore } from '@/stores/authStore';
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  indigo: '#4F46E5', indigoSoft: '#EEF2FF',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 const CATEGORIAS_MOBILE = [
   'Aluguel', 'Energia', 'Água', 'Internet',
@@ -84,21 +74,26 @@ const PERIODICIDADES_MOBILE = [
   { key: 'anual', label: 'Anual' },
 ];
 
-const METODO_CONFIG: Record<PagamentoMetodo, {
-  label: string; icon: React.ReactNode; bg: string; color: string; barColor: string;
-}> = {
-  pix:      { label: 'PIX / Transferência', icon: <Layers size={14} color="#4F46E5" strokeWidth={2} />,    bg: C.indigoSoft, color: C.indigo,  barColor: '#4F46E5' },
-  dinheiro: { label: 'Dinheiro',            icon: <Banknote size={14} color="#16A34A" strokeWidth={2} />,  bg: '#F0FDF4',    color: '#16A34A', barColor: '#16A34A' },
-  credito:  { label: 'Crédito',             icon: <CreditCard size={14} color="#D97706" strokeWidth={2} />, bg: '#FEF3C7',   color: '#D97706', barColor: '#D97706' },
-  debito:   { label: 'Débito',              icon: <CreditCard size={14} color="#9D174D" strokeWidth={2} />, bg: '#FDF2F8',   color: '#9D174D', barColor: '#9D174D' },
-  cortesia: { label: 'Cortesia',            icon: <Gift size={14} color="#6B7280" strokeWidth={2} />,      bg: '#F9FAFB',    color: '#6B7280', barColor: '#9CA3AF' },
-};
+type ConfigMetodo = { label: string; icon: React.ReactNode; bg: string; color: string; barColor: string };
+
+/** Cores por forma de pagamento. No escuro o fundo vira translúcido e o texto clareia (contraste). */
+function configMetodos(escuro: boolean): Record<PagamentoMetodo, ConfigMetodo> {
+  const t = (claro: string, esc: string) => (escuro ? esc : claro);
+  return {
+    pix:      { label: 'PIX / Transferência', icon: <Layers size={14} color={t('#4F46E5', '#818CF8')} strokeWidth={2} />,     bg: t('#EEF2FF', 'rgba(129,140,248,0.16)'), color: t('#4F46E5', '#818CF8'), barColor: '#4F46E5' },
+    dinheiro: { label: 'Dinheiro',            icon: <Banknote size={14} color={t('#16A34A', '#4ADE80')} strokeWidth={2} />,   bg: t('#F0FDF4', 'rgba(74,222,128,0.14)'),  color: t('#16A34A', '#4ADE80'), barColor: '#16A34A' },
+    credito:  { label: 'Crédito',             icon: <CreditCard size={14} color={t('#D97706', '#FBBF24')} strokeWidth={2} />, bg: t('#FEF3C7', 'rgba(251,191,36,0.14)'),  color: t('#D97706', '#FBBF24'), barColor: '#D97706' },
+    debito:   { label: 'Débito',              icon: <CreditCard size={14} color={t('#9D174D', '#F472B6')} strokeWidth={2} />, bg: t('#FDF2F8', 'rgba(244,114,182,0.14)'), color: t('#9D174D', '#F472B6'), barColor: '#9D174D' },
+    cortesia: { label: 'Cortesia',            icon: <Gift size={14} color={t('#6B7280', '#9CA3AF')} strokeWidth={2} />,       bg: t('#F9FAFB', 'rgba(156,163,175,0.14)'), color: t('#6B7280', '#9CA3AF'), barColor: '#9CA3AF' },
+  };
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 
 // ── Gráfico de barras SVG ────────────────────────────────────
 
 function GraficoEvolucao({ dados }: { dados: { mes: string; receita: number; gastos: number }[] }) {
+  const { C } = useTema();
   const W = 330;
   const H = 110;
   const PAD_LEFT = 8;
@@ -127,7 +122,7 @@ function GraficoEvolucao({ dados }: { dados: { mes: string; receita: number; gas
               width={barW}
               height={rH}
               rx={3}
-              fill={C.primary}
+              fill={C.primaryTexto}
               opacity={isLast ? 1 : 0.35 + i * 0.1}
             />
             {/* Gastos */}
@@ -145,7 +140,7 @@ function GraficoEvolucao({ dados }: { dados: { mes: string; receita: number; gas
               x={x + barW}
               y={H - 4}
               fontSize={9}
-              fill={isLast ? C.primary : C.text4}
+              fill={isLast ? C.primaryTexto : C.text4}
               fontWeight={isLast ? '700' : '400'}
               textAnchor="middle"
             >
@@ -161,6 +156,8 @@ function GraficoEvolucao({ dados }: { dados: { mes: string; receita: number; gas
 // ── Componente método de pagamento ───────────────────────────
 
 function MetodoRow({ item, isLast }: { item: MetodoPagamento; isLast: boolean }) {
+  const { C, escuro } = useTema();
+  const METODO_CONFIG = configMetodos(escuro);
   const cfg = METODO_CONFIG[item.metodo];
   if (!cfg) return null;
 
@@ -211,6 +208,7 @@ function DespesaRow({
   onMarcarPago: (item: DespesaItem) => void;
   onEditar: (item: DespesaItem) => void;
 }) {
+  const { C } = useTema();
   const pago = item.status === 'pago';
   const vencimentoPendente = !pago ? item.data_vencimento : undefined;
   const dias = vencimentoPendente
@@ -242,8 +240,8 @@ function DespesaRow({
           alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         }}>
           {pago
-            ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
-            : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+            ? <CheckCircle2 size={14} color={C.greenTexto} strokeWidth={2} />
+            : <AlertTriangle size={14} color={C.amberTexto} strokeWidth={2} />
           }
         </View>
         <View style={{ flex: 1 }}>
@@ -269,7 +267,7 @@ function DespesaRow({
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.redTexto }}>
             {formatarMoeda(item.valor)}
           </SecretText>
           <View style={{
@@ -279,7 +277,7 @@ function DespesaRow({
           }}>
             <Text style={{
               fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
-              color: pago ? C.green : C.amber,
+              color: pago ? C.greenTexto : C.amberTexto,
               textTransform: 'uppercase',
             }}>
               {pago ? 'Pago' : podeGerenciar ? 'Toque p/ pagar' : 'Pendente'}
@@ -306,7 +304,7 @@ function DespesaRow({
         }}>
           <View style={{
             width: `${progresso * 100}%`, height: '100%',
-            backgroundColor: dias !== null && dias < 0 ? C.red : C.amber,
+            backgroundColor: dias !== null && dias < 0 ? C.redTexto : C.amberTexto,
           }} />
         </View>
       )}
@@ -327,6 +325,8 @@ function TaxaCancelamentoRow({
   isLast: boolean;
   onMarcarPago: (item: TaxaCancelamento & { cliente: { nome: string } | null }) => void;
 }) {
+  const { C, escuro } = useTema();
+  const METODO_CONFIG = configMetodos(escuro);
   const pago = item.status === 'pago';
 
   return (
@@ -345,8 +345,8 @@ function TaxaCancelamentoRow({
         alignItems: 'center', justifyContent: 'center', flexShrink: 0,
       }}>
         {pago
-          ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
-          : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+          ? <CheckCircle2 size={14} color={C.greenTexto} strokeWidth={2} />
+          : <AlertTriangle size={14} color={C.amberTexto} strokeWidth={2} />
         }
       </View>
       <View style={{ flex: 1 }}>
@@ -361,7 +361,7 @@ function TaxaCancelamentoRow({
         </Text>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.redTexto }}>
           {formatarMoeda(item.valor)}
         </Text>
         <View style={{
@@ -371,7 +371,7 @@ function TaxaCancelamentoRow({
         }}>
           <Text style={{
             fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
-            color: pago ? C.green : C.amber,
+            color: pago ? C.greenTexto : C.amberTexto,
             textTransform: 'uppercase',
           }}>
             {pago ? 'Paga' : podeMarcar ? 'Toque p/ pagar' : 'Pendente'}
@@ -398,11 +398,13 @@ function TaxaReservaRow({
   isLast: boolean;
   onMarcarPago: (item: TaxaReserva & { cliente: { nome: string } | null }) => void;
 }) {
+  const { C, escuro } = useTema();
+  const METODO_CONFIG = configMetodos(escuro);
   const pago = item.status === 'pago';
   const retida = item.status === 'retida';
   const acionavel = item.status === 'pendente' && podeMarcar;
   const corFundo = pago ? C.greenSoft : retida ? C.border : C.amberSoft;
-  const corTexto = pago ? C.green : retida ? C.text3 : C.amber;
+  const corTexto = pago ? C.greenTexto : retida ? C.text3 : C.amberTexto;
 
   return (
     <TouchableOpacity
@@ -420,10 +422,10 @@ function TaxaReservaRow({
         alignItems: 'center', justifyContent: 'center', flexShrink: 0,
       }}>
         {pago
-          ? <CheckCircle2 size={14} color={C.green} strokeWidth={2} />
+          ? <CheckCircle2 size={14} color={C.greenTexto} strokeWidth={2} />
           : retida
             ? <Ban size={14} color={C.text3} strokeWidth={2} />
-            : <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+            : <AlertTriangle size={14} color={C.amberTexto} strokeWidth={2} />
         }
       </View>
       <View style={{ flex: 1 }}>
@@ -438,7 +440,7 @@ function TaxaReservaRow({
         </Text>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.redTexto }}>
           {formatarMoeda(item.valor)}
         </Text>
         <View style={{
@@ -468,6 +470,7 @@ function ModalMarcarPago({
   onClose: () => void;
   onSalvo: () => void;
 }) {
+  const { C } = useTema();
   const hoje = format(new Date(), 'dd/MM/yyyy');
   const [dataPgto, setDataPgto] = useState(hoje);
   const [valorDespesa, setValorDespesa] = useState('');
@@ -566,16 +569,16 @@ function ModalMarcarPago({
                 backgroundColor: C.redSoft, borderRadius: 14, padding: 14,
                 marginBottom: 20,
               }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.red, marginBottom: 8, textAlign: 'center' }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.redTexto, marginBottom: 8, textAlign: 'center' }}>
                   Valor deste mês
                 </Text>
                 <View style={{
                   flexDirection: 'row', alignItems: 'center',
-                  backgroundColor: 'rgba(255,255,255,0.7)',
+                  backgroundColor: C.surface,
                   borderWidth: 1, borderColor: 'rgba(239,68,68,0.18)',
                   borderRadius: 12, paddingHorizontal: 14, height: 52,
                 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.red, marginRight: 8 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.redTexto, marginRight: 8 }}>
                     R$
                   </Text>
                   <TextInput
@@ -584,7 +587,7 @@ function ModalMarcarPago({
                     placeholder="0,00"
                     placeholderTextColor={C.text4}
                     keyboardType="decimal-pad"
-                    style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 24, color: C.red, textAlign: 'center', paddingVertical: 0 }}
+                    style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 24, color: C.redTexto, textAlign: 'center', paddingVertical: 0 }}
                   />
                 </View>
               </View>
@@ -645,6 +648,8 @@ function ModalConfirmarTaxa({
   onClose: () => void;
   onConfirmar: (metodo: PagamentoMetodo | null) => void;
 }) {
+  const { C, escuro } = useTema();
+  const METODO_CONFIG = configMetodos(escuro);
   const [metodo, setMetodo] = useState<PagamentoMetodo | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -679,7 +684,7 @@ function ModalConfirmarTaxa({
             <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, marginBottom: 4 }}>
               {item?.cliente?.nome ?? 'Cliente'}
             </Text>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.green, marginBottom: 18 }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.greenTexto, marginBottom: 18 }}>
               {item ? formatarMoeda(item.valor) : ''}
             </Text>
 
@@ -737,6 +742,8 @@ function ModalConfirmarTaxa({
 function ModalDevolucaoRetirada({ retirada, saldo, onClose, onSalvo }: {
   retirada: RetiradaSociaRow | null; saldo: number; onClose: () => void; onSalvo: () => void;
 }) {
+  const { C, escuro } = useTema();
+  const METODO_CONFIG = configMetodos(escuro);
   const sugestao = retirada?.valor_parcela && saldo > 0 ? Math.min(Number(retirada.valor_parcela), saldo) : saldo;
   const [valor, setValor] = useState('');
   const [metodo, setMetodo] = useState<PagamentoMetodo | null>(null);
@@ -770,7 +777,7 @@ function ModalDevolucaoRetirada({ retirada, saldo, onClose, onSalvo }: {
               value={valor} onChangeText={setValor} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={C.text4}
               style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, height: 46, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 15, color: C.text, marginBottom: sobra > 0 ? 6 : 18 }}
             />
-            {sobra > 0 && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amber, marginBottom: 14 }}>Isso quita o empréstimo e sobra {formatarMoeda(sobra)}.</Text>}
+            {sobra > 0 && <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.amberTexto, marginBottom: 14 }}>Isso quita o empréstimo e sobra {formatarMoeda(sobra)}.</Text>}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 22 }}>
               {(Object.keys(METODO_CONFIG) as PagamentoMetodo[]).map(key => {
                 const cfg = METODO_CONFIG[key]; const ativo = metodo === key;
@@ -797,6 +804,7 @@ function ModalConfirmacaoRetirada({ visivel, titulo, texto, corBotao, textoBotao
   visivel: boolean; titulo: string; texto: string; corBotao: string; textoBotao: string;
   onClose: () => void; onConfirmar: () => Promise<void>;
 }) {
+  const { C } = useTema();
   const [salvando, setSalvando] = useState(false);
   useEffect(() => { setSalvando(false); }, [visivel]);
   async function go() { setSalvando(true); await onConfirmar(); setSalvando(false); }
@@ -832,6 +840,7 @@ function ModalEditarDespesa({
   onClose: () => void;
   onSalvo: () => void;
 }) {
+  const { C } = useTema();
   // Excluir despesa é só da dona (policy 'despesas: owner pode deletar'), igual ao web.
   const { pode } = usePermissoes();
   const podeExcluir = pode('dona');
@@ -1166,14 +1175,14 @@ function ModalEditarDespesa({
                     style={{
                       flex: 1, minWidth: 80, paddingVertical: 8,
                       borderRadius: 12, borderWidth: 1,
-                      borderColor: periodicidade === p.key ? C.amber : C.border,
+                      borderColor: periodicidade === p.key ? C.amberTexto : C.border,
                       backgroundColor: periodicidade === p.key ? C.amberSoft : C.bg,
                       alignItems: 'center',
                     }}
                   >
                     <Text style={{
                       fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11,
-                      color: periodicidade === p.key ? C.amber : C.text3,
+                      color: periodicidade === p.key ? C.amberTexto : C.text3,
                     }}>
                       {p.label}
                     </Text>
@@ -1190,10 +1199,10 @@ function ModalEditarDespesa({
                         style={{
                           flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                           backgroundColor: modoRepeticao === 'data' ? C.amberSoft : C.bg,
-                          borderWidth: 1, borderColor: modoRepeticao === 'data' ? C.amber : C.border,
+                          borderWidth: 1, borderColor: modoRepeticao === 'data' ? C.amberTexto : C.border,
                         }}
                       >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoRepeticao === 'data' ? C.amber : C.text3 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoRepeticao === 'data' ? C.amberTexto : C.text3 }}>
                           Por data
                         </Text>
                       </TouchableOpacity>
@@ -1202,10 +1211,10 @@ function ModalEditarDespesa({
                         style={{
                           flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                           backgroundColor: modoRepeticao === 'parcelas' ? C.amberSoft : C.bg,
-                          borderWidth: 1, borderColor: modoRepeticao === 'parcelas' ? C.amber : C.border,
+                          borderWidth: 1, borderColor: modoRepeticao === 'parcelas' ? C.amberTexto : C.border,
                         }}
                       >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoRepeticao === 'parcelas' ? C.amber : C.text3 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoRepeticao === 'parcelas' ? C.amberTexto : C.text3 }}>
                           Por quantidade de parcelas
                         </Text>
                       </TouchableOpacity>
@@ -1232,10 +1241,10 @@ function ModalEditarDespesa({
                           style={{
                             flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                             backgroundColor: !contratoEmAndamento ? C.amberSoft : C.bg,
-                            borderWidth: 1, borderColor: !contratoEmAndamento ? C.amber : C.border,
+                            borderWidth: 1, borderColor: !contratoEmAndamento ? C.amberTexto : C.border,
                           }}
                         >
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: !contratoEmAndamento ? C.amber : C.text3 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: !contratoEmAndamento ? C.amberTexto : C.text3 }}>
                             Novo
                           </Text>
                         </TouchableOpacity>
@@ -1244,10 +1253,10 @@ function ModalEditarDespesa({
                           style={{
                             flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                             backgroundColor: contratoEmAndamento ? C.amberSoft : C.bg,
-                            borderWidth: 1, borderColor: contratoEmAndamento ? C.amber : C.border,
+                            borderWidth: 1, borderColor: contratoEmAndamento ? C.amberTexto : C.border,
                           }}
                         >
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: contratoEmAndamento ? C.amber : C.text3 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: contratoEmAndamento ? C.amberTexto : C.text3 }}>
                             Já em andamento
                           </Text>
                         </TouchableOpacity>
@@ -1273,10 +1282,10 @@ function ModalEditarDespesa({
                           style={{
                             flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                             backgroundColor: modoValor === 'parcela' ? C.amberSoft : C.bg,
-                            borderWidth: 1, borderColor: modoValor === 'parcela' ? C.amber : C.border,
+                            borderWidth: 1, borderColor: modoValor === 'parcela' ? C.amberTexto : C.border,
                           }}
                         >
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoValor === 'parcela' ? C.amber : C.text3 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoValor === 'parcela' ? C.amberTexto : C.text3 }}>
                             Valor da parcela
                           </Text>
                         </TouchableOpacity>
@@ -1285,10 +1294,10 @@ function ModalEditarDespesa({
                           style={{
                             flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center',
                             backgroundColor: modoValor === 'total' ? C.amberSoft : C.bg,
-                            borderWidth: 1, borderColor: modoValor === 'total' ? C.amber : C.border,
+                            borderWidth: 1, borderColor: modoValor === 'total' ? C.amberTexto : C.border,
                           }}
                         >
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoValor === 'total' ? C.amber : C.text3 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: modoValor === 'total' ? C.amberTexto : C.text3 }}>
                             Valor total da compra
                           </Text>
                         </TouchableOpacity>
@@ -1333,7 +1342,7 @@ function ModalEditarDespesa({
             {podeExcluir && <View style={{ borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16, marginTop: 4, marginBottom: 20 }}>
               {confirmDelete ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red, flex: 1 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto, flex: 1 }}>
                     Confirmar exclusão?
                   </Text>
                   <TouchableOpacity
@@ -1354,8 +1363,8 @@ function ModalEditarDespesa({
                 </View>
               ) : (
                 <TouchableOpacity onPress={() => setConfirmDelete(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Trash2 size={13} color={C.red} strokeWidth={2} />
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red }}>
+                  <Trash2 size={13} color={C.redTexto} strokeWidth={2} />
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto }}>
                     Excluir despesa
                   </Text>
                 </TouchableOpacity>
@@ -1399,7 +1408,9 @@ function ModalEditarDespesa({
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Financeiro() {
+function Financeiro() {
+  const { C, escuro } = useTema();
+  const METODO_CONFIG = configMetodos(escuro);
   const insets = useSafeAreaInsets();
   const permissoes = usePermissoes();
   const { pode } = permissoes;
@@ -1586,9 +1597,9 @@ export default function Financeiro() {
           <TouchableOpacity
             onPress={() => refetch()}
             activeOpacity={0.8}
-            style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.red, borderRadius: 14, padding: 12 }}
+            style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.redTexto, borderRadius: 14, padding: 12 }}
           >
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red, marginBottom: 2 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.redTexto, marginBottom: 2 }}>
               Não foi possível carregar o financeiro
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text2 }}>
@@ -1599,26 +1610,26 @@ export default function Financeiro() {
 
         {/* ── Recorrentes do mês anterior não lançadas (mesma regra do web) ── */}
         {!isError && podeDespesas && recorrentesParaLancar.length > 0 && (
-          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.2)', borderRadius: 14, padding: 12, gap: 8 }}>
+          <View style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.amberSoft, borderWidth: 1, borderColor: C.amber, borderRadius: 14, padding: 12, gap: 8 }}>
             {recorrentesParaLancar.map((t, i) => (
               <View key={`${t.descricao}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber }}>{t.descricao}</Text>
+                <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amberTexto }}>{t.descricao}</Text>
                 <TouchableOpacity disabled={descartandoRecorrente}
                   onPress={() => { descartarRecorrente(t as typeof t & { id?: string }, 'pular').catch(e => Alert.alert('Erro', (e as Error).message)); }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.amber }}>Pular mês</Text>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.amberTexto }}>Pular mês</Text>
                 </TouchableOpacity>
                 <TouchableOpacity disabled={descartandoRecorrente}
                   onPress={() => Alert.alert('Encerrar série', `"${t.descricao}" não será mais sugerida nos meses seguintes (lançamentos já feitos continuam).`, [
                     { text: 'Cancelar', style: 'cancel' },
                     { text: 'Encerrar', style: 'destructive', onPress: () => { descartarRecorrente(t as typeof t & { id?: string }, 'encerrar').catch(e => Alert.alert('Erro', (e as Error).message)); } },
                   ])}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.amber }}>Encerrar</Text>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.amberTexto }}>Encerrar</Text>
                 </TouchableOpacity>
               </View>
             ))}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <RefreshCw size={14} color={C.amber} strokeWidth={2} />
-            <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.amber }}>
+            <RefreshCw size={14} color={C.amberTexto} strokeWidth={2} />
+            <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.amberTexto }}>
               {textoRecorrentesPendentes(recorrentesParaLancar.length)}
             </Text>
             <TouchableOpacity
@@ -1654,7 +1665,7 @@ export default function Financeiro() {
               label: 'Receita',
               value: resumo ? formatarMoeda(resumo.receita) : '—',
               delta: deltaReceita,
-              color: C.green,
+              color: C.greenTexto,
               bg: C.greenSoft,
               sub: null as string | null,
             },
@@ -1662,7 +1673,7 @@ export default function Financeiro() {
               label: 'Gastos',
               value: resumo ? formatarMoeda(resumo.gastos) : '—',
               delta: deltaGastos,
-              color: C.red,
+              color: C.redTexto,
               bg: C.redSoft,
               invertDelta: true,
               sub: null as string | null,
@@ -1671,7 +1682,7 @@ export default function Financeiro() {
               label: 'Lucro',
               value: resumo ? formatarMoeda(resumo.lucro) : '—',
               delta: null,
-              color: C.primary,
+              color: C.primaryTexto,
               bg: C.primarySoft,
               sub: resumo && ehDona && retiradasPeriodo > 0 ? `Após retiradas ${formatarMoeda(resumo?.aposRetiradas ?? 0)}` : null,
             },
@@ -1694,12 +1705,12 @@ export default function Financeiro() {
               {s.delta !== null && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   {(s.invertDelta ? (s.delta ?? 0) < 0 : (s.delta ?? 0) >= 0)
-                    ? <TrendingUp size={10} color={C.green} strokeWidth={2.5} />
-                    : <TrendingDown size={10} color={C.red} strokeWidth={2.5} />
+                    ? <TrendingUp size={10} color={C.greenTexto} strokeWidth={2.5} />
+                    : <TrendingDown size={10} color={C.redTexto} strokeWidth={2.5} />
                   }
                   <Text style={{
                     fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
-                    color: (s.invertDelta ? (s.delta ?? 0) < 0 : (s.delta ?? 0) >= 0) ? C.green : C.red,
+                    color: (s.invertDelta ? (s.delta ?? 0) < 0 : (s.delta ?? 0) >= 0) ? C.greenTexto : C.redTexto,
                   }}>
                     {(s.delta ?? 0) >= 0 ? '+' : ''}{s.delta}%
                   </Text>
@@ -1713,9 +1724,9 @@ export default function Financeiro() {
         {resumo && (
         <View style={{ marginHorizontal: 24, marginBottom: 12, flexDirection: 'row', gap: 8 }}>
           {[
-            { label: 'Taxas de cartão',    value: resumo?.taxasCartao ?? 0,      delta: null as number | null, color: C.red,     invertDelta: false },
-            { label: 'Líquido após taxas', value: resumo?.liquidoAposTaxas ?? 0, delta: null as number | null, color: C.primary, invertDelta: false },
-            { label: 'Comissões',          value: resumo?.comissoes ?? 0,        delta: deltaComissoes,        color: C.amber,   invertDelta: true },
+            { label: 'Taxas de cartão',    value: resumo?.taxasCartao ?? 0,      delta: null as number | null, color: C.redTexto,     invertDelta: false },
+            { label: 'Líquido após taxas', value: resumo?.liquidoAposTaxas ?? 0, delta: null as number | null, color: C.primaryTexto, invertDelta: false },
+            { label: 'Comissões',          value: resumo?.comissoes ?? 0,        delta: deltaComissoes,        color: C.amberTexto,   invertDelta: true },
           ].map((s) => (
             <View key={s.label} style={{
               flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -1731,7 +1742,7 @@ export default function Financeiro() {
               {s.delta !== null && (
                 <Text style={{
                   fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9,
-                  color: (s.invertDelta ? s.delta < 0 : s.delta >= 0) ? C.green : C.red,
+                  color: (s.invertDelta ? s.delta < 0 : s.delta >= 0) ? C.greenTexto : C.redTexto,
                 }}>
                   {s.delta >= 0 ? '+' : ''}{s.delta}%
                 </Text>
@@ -1781,7 +1792,7 @@ export default function Financeiro() {
             {/* Legenda */}
             <View style={{ flexDirection: 'row', gap: 14, marginBottom: 14 }}>
               {[
-                { color: C.primary, label: 'Receita' },
+                { color: C.primaryTexto, label: 'Receita' },
                 { color: '#F87171', label: 'Gastos' },
               ].map((l) => (
                 <View key={l.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
@@ -1885,7 +1896,7 @@ export default function Financeiro() {
                 >
                   <Text style={{
                     fontFamily: 'PlusJakartaSans_700Bold',
-                    fontSize: 20, color: i < 2 ? C.primary : C.text4,
+                    fontSize: 20, color: i < 2 ? C.primaryTexto : C.text4,
                     minWidth: 20,
                   }}>
                     {i + 1}
@@ -2087,7 +2098,7 @@ export default function Financeiro() {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: r.tipo === 'emprestimo' ? C.amberSoft : C.greenSoft }}>
-                            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: r.tipo === 'emprestimo' ? C.amber : C.green, textTransform: 'uppercase' }}>
+                            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: r.tipo === 'emprestimo' ? C.amberTexto : C.greenTexto, textTransform: 'uppercase' }}>
                               {r.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'}
                             </Text>
                           </View>
@@ -2127,7 +2138,7 @@ export default function Financeiro() {
                           <Pencil size={14} color={C.text3} strokeWidth={2} />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => setExcluirDe(r)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
-                          <Trash2 size={14} color={C.red} strokeWidth={2} />
+                          <Trash2 size={14} color={C.redTexto} strokeWidth={2} />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -2197,7 +2208,7 @@ export default function Financeiro() {
         visivel={!!excluirDe}
         titulo={excluirDe ? `${excluirDe.tipo === 'emprestimo' ? 'Empréstimo' : 'Retirada'} de ${formatarMoeda(Number(excluirDe.valor))}` : ''}
         texto="Isso apaga o lançamento e todas as devoluções ligadas a ele. Não dá pra desfazer."
-        corBotao={C.red}
+        corBotao={C.redTexto}
         textoBotao="Excluir"
         onClose={() => setExcluirDe(null)}
         onConfirmar={async () => {
@@ -2211,3 +2222,5 @@ export default function Financeiro() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Financeiro);

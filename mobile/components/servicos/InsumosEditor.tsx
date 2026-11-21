@@ -2,12 +2,8 @@ import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, FlatList } from 'react-native';
 import { Package, Plus, Trash2, X, Search } from 'lucide-react-native';
 import type { InsumoItem, ProdutoInsumo } from './servicos-gravacao';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', accent: '#9B6FE8', accentSoft: '#F3EEFD', red: '#C0392B',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
 
 /**
  * Editor de insumos do serviço (mesmo do web): produto, quantidade e unidade; os produtos são
@@ -19,6 +15,7 @@ export function InsumosEditor({ produtos, insumos, onChange, erroProdutos }: {
   onChange: (insumos: InsumoItem[]) => void;
   erroProdutos: string | null;
 }) {
+  const { C } = useTema();
   const [escolhendo, setEscolhendo] = useState(false);
   const [busca, setBusca] = useState('');
 
@@ -73,13 +70,13 @@ export function InsumosEditor({ produtos, insumos, onChange, erroProdutos }: {
             accessibilityLabel={`Remover ${ins.nome}`}
             style={{ width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}
           >
-            <Trash2 size={14} color={C.red} strokeWidth={2} />
+            <Trash2 size={14} color={C.redTexto} strokeWidth={2} />
           </TouchableOpacity>
         </View>
       ))}
 
       {erroProdutos ? (
-        <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red }}>{erroProdutos}</Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto }}>{erroProdutos}</Text>
       ) : (
         <TouchableOpacity
           onPress={() => setEscolhendo(true)}
@@ -89,8 +86,8 @@ export function InsumosEditor({ produtos, insumos, onChange, erroProdutos }: {
             paddingVertical: 10, backgroundColor: C.accentSoft,
           }}
         >
-          <Plus size={14} color={C.primary} strokeWidth={2.5} />
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primary }}>
+          <Plus size={14} color={C.primaryTexto} strokeWidth={2.5} />
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primaryTexto }}>
             Adicionar insumo
           </Text>
         </TouchableOpacity>

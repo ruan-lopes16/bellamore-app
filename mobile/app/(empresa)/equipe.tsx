@@ -40,18 +40,14 @@ import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { formatarMoeda } from '@shared/moeda';
 import { toWhatsApp } from '@shared/mascaras';
 import { ConvitesPendentesSecao, HistoricoEquipeSecao } from '@/components/EquipeConvites';
+import { comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  blue: '#3B82F6', blueSoft: '#EAF2FE',
-  rose: '#C9527F', roseSoft: '#FCEEF3',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
+/** Azul do selo "Gestor(a)": não existe na paleta do app, então tem o par claro/escuro aqui. */
+const AZUL = {
+  claro: { texto: '#3B82F6', fundo: '#EAF2FE' },
+  escuro: { texto: '#7FB0FA', fundo: '#14263F' },
 };
 
 const AVATAR_COLORS: [string, string][] = [
@@ -68,10 +64,11 @@ function avatarColors(nome: string): [string, string] {
 function iniciaisNome(nome: string) {
   return (nome ?? '').split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 }
-function roleBadge(role: MembroEquipe['role']) {
-  if (role === 'owner')  return { label: 'Dono(a)',      bg: C.primarySoft, color: C.primary };
-  if (role === 'gestor') return { label: 'Gestor(a)',    bg: C.blueSoft,    color: C.blue };
-  return                        { label: 'Profissional', bg: '#F3F4F6',     color: C.text3 };
+function roleBadge(role: MembroEquipe['role'], C: Paleta, escuro: boolean) {
+  const azul = escuro ? AZUL.escuro : AZUL.claro;
+  if (role === 'owner')  return { label: 'Dono(a)',      bg: C.primarySoft, color: C.primaryTexto };
+  if (role === 'gestor') return { label: 'Gestor(a)',    bg: azul.fundo,    color: azul.texto };
+  return                        { label: 'Profissional', bg: C.bg,          color: C.text3 };
 }
 
 // ── Hook ─────────────────────────────────────────────────────
@@ -111,8 +108,9 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
   onPagar: () => void;
   onAlterarRole: () => void;
 }) {
+  const { C, escuro } = useTema();
   const [c1, c2] = membro.ativo ? avatarColors(membro.user.nome) : ['#9CA3AF', '#6B7280'];
-  const badge = roleBadge(membro.role);
+  const badge = roleBadge(membro.role, C, escuro);
   const temPendente = visiveis.comissao && membro.comissao_pendente > 0;
 
   function ligar() {
@@ -153,8 +151,8 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
             {membro.user.telefone ?? 'Sem telefone'}
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-            <View style={{ backgroundColor: membro.ativo ? C.greenSoft : '#F3F4F6', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: membro.ativo ? C.green : C.text4, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+            <View style={{ backgroundColor: membro.ativo ? C.greenSoft : C.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: membro.ativo ? C.greenTexto : C.text3, textTransform: 'uppercase', letterSpacing: 0.3 }}>
                 {membro.ativo ? 'Ativa' : 'Inativa'}
               </Text>
             </View>
@@ -168,7 +166,7 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
                 onPress={onVerExcecoes}
                 style={{ backgroundColor: C.primarySoft, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 }}
               >
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.primary, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.primaryTexto, textTransform: 'uppercase', letterSpacing: 0.3 }}>
                   {excecoes} {excecoes === 1 ? 'exceção' : 'exceções'}
                 </Text>
               </TouchableOpacity>
@@ -187,8 +185,8 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
       {membro.ativo && (
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
           {[
-            { value: visiveis.producao ? String(membro.atendimentos_mes) : '—', label: 'Atendimentos', color: C.primary },
-            { value: visiveis.producao ? formatarMoeda(membro.total_mes) : '—',  label: 'Faturado no mês', color: C.green },
+            { value: visiveis.producao ? String(membro.atendimentos_mes) : '—', label: 'Atendimentos', color: C.primaryTexto },
+            { value: visiveis.producao ? formatarMoeda(membro.total_mes) : '—',  label: 'Faturado no mês', color: C.greenTexto },
           ].map((s) => (
             <View key={s.label} style={{
               flex: 1, backgroundColor: C.bg, borderRadius: 10, padding: 10, alignItems: 'center',
@@ -216,11 +214,11 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
             marginBottom: 12,
           }}
         >
-          <Percent size={14} color={C.primary} strokeWidth={2} />
+          <Percent size={14} color={C.primaryTexto}strokeWidth={2} />
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text3, flex: 1 }}>
             Comissão por atendimento
           </Text>
-          <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.primary, letterSpacing: -0.5 }}>
+          <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 20, color: C.primaryTexto, letterSpacing: -0.5 }}>
             {`${membro.percentual_comissao}%`}
           </SecretText>
           {podeGerenciar && <Edit3 size={13} color={C.text3} strokeWidth={2} />}
@@ -241,7 +239,7 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
           disabled={pagando}
           style={{
             height: 42, borderRadius: 12, marginBottom: 10,
-            backgroundColor: pagando ? '#F3F4F6' : C.amber,
+            backgroundColor: pagando ? C.bg : C.amber,
             flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
             opacity: pagando ? 0.7 : 1,
           }}
@@ -264,8 +262,8 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
       {/* Pendente do mês sem permissão de pagar: só informa */}
       {membro.ativo && temPendente && !podePagar && (
         <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.amberSoft, borderRadius: 12, padding: 10, marginBottom: 10 }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.amber }}>Comissão pendente do mês: </Text>
-          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.amber }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.amberTexto }}>Comissão pendente do mês: </Text>
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.amberTexto }}>
             {formatarMoeda(membro.comissao_pendente)}
           </SecretText>
         </View>
@@ -273,11 +271,11 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
 
       {membro.ativo && visiveis.comissao && membro.comissao_pendente_anterior > 0 && (
         <TouchableOpacity onPress={() => router.push('/(empresa)/comissoes' as any)} style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10 }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber }}>+ </Text>
-          <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.amber }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amberTexto }}>+ </Text>
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.amberTexto }}>
             {formatarMoeda(membro.comissao_pendente_anterior)}
           </SecretText>
-          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber }}> de meses anteriores — pague em Comissões</Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amberTexto }}> de meses anteriores — pague em Comissões</Text>
         </TouchableOpacity>
       )}
 
@@ -290,8 +288,8 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
 
       {membro.ativo && visiveis.comissao && !temPendente && membro.comissao_pendente_anterior === 0 && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.greenSoft, borderRadius: 12, padding: 10, marginBottom: 12 }}>
-          <CheckCircle2 size={13} color={C.green} strokeWidth={2.5} />
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.green }}>Comissão em dia</Text>
+          <CheckCircle2 size={13} color={C.greenTexto} strokeWidth={2.5} />
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.greenTexto }}>Comissão em dia</Text>
         </View>
       )}
 
@@ -318,7 +316,7 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: podeGerenciar ? 8 : 0 }}>
               {[
                 { icon: <Phone size={13} color={C.text2} strokeWidth={2} />, label: 'Ligar', onPress: ligar },
-                { icon: <MaterialCommunityIcons name="whatsapp" size={15} color={C.green} />, label: 'WhatsApp', onPress: whatsapp },
+                { icon: <MaterialCommunityIcons name="whatsapp" size={15} color={C.greenTexto} />, label: 'WhatsApp', onPress: whatsapp },
               ].map((a) => (
                 <TouchableOpacity
                   key={a.label}
@@ -343,7 +341,7 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
               onPress={onToggle}
               style={{
                 padding: 10, borderRadius: 10,
-                borderWidth: 1, borderColor: 'rgba(201,82,127,0.3)',
+                borderWidth: 1, borderColor: C.rose + '4D',
                 flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}
             >
@@ -364,8 +362,8 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
             flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >
-          <RotateCcw size={14} color={C.primary} strokeWidth={2} />
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primary }}>
+          <RotateCcw size={14} color={C.primaryTexto} strokeWidth={2} />
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primaryTexto }}>
             Reativar profissional
           </Text>
         </TouchableOpacity>
@@ -376,7 +374,8 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Equipe() {
+function Equipe() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva, isOwner, user, roleAtivo } = useAuthStore();
   const { pode, papel, permissoesCarregadas } = usePermissoes();
@@ -499,6 +498,7 @@ export default function Equipe() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
+      {/* cabeçalho roxo fixo nos dois temas: ícones claros */}
       <StatusBar barStyle="light-content" />
 
       <ScrollView
@@ -572,8 +572,8 @@ export default function Equipe() {
             style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginTop: 16, marginBottom: 20 }}
           >
             {[
-              { value: membros.length, label: 'Total',    color: C.primary },
-              { value: ativos,         label: 'Ativas',   color: C.green },
+              { value: membros.length, label: 'Total',    color: C.primaryTexto },
+              { value: ativos,         label: 'Ativas',   color: C.greenTexto },
               { value: inativos,       label: 'Inativas', color: C.text3 },
             ].map((s) => (
               <View key={s.label} style={{
@@ -664,3 +664,5 @@ export default function Equipe() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Equipe);

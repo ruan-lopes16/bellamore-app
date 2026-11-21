@@ -41,8 +41,8 @@ export function SmoothTabs({
   style,
 }: Props) {
   // Cores padrão do tema aplicado (claro nas telas não migradas; escuro só nas que pediram o tema).
-  const { C, escuro } = useTema();
-  const activeColor = activeColorProp ?? (escuro ? C.primary : '#2C1750');
+  const { C } = useTema();
+  const activeColor = activeColorProp ?? C.primary;
   const inactiveTextColor = inactiveTextColorProp ?? C.text3;
   const trackBg = trackBgProp ?? C.surface;
   const trackBorder = trackBorderProp ?? C.border;

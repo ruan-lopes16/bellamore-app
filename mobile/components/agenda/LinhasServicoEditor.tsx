@@ -10,12 +10,7 @@ import { parseValorBR } from '@shared/comanda-fechamento';
 import { valorDigitadoValido } from '@shared/agenda';
 import { formatarMoeda } from '@shared/moeda';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8', accent: '#9B6FE8', accentSoft: '#F3EFFE',
-  rose: '#B42318',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
+import { useTema } from '@/lib/tema';
 
 /** Uma linha do formulário. `valor` e `duracao` ficam como texto digitado. */
 export type LinhaServicoForm = {
@@ -62,6 +57,7 @@ type Props = {
 };
 
 export default function LinhasServicoEditor({ linhas, servicos, onChange, desabilitado }: Props) {
+  const { C } = useTema();
   const [escolhendoPara, setEscolhendoPara] = useState<string | null>(null);
 
   function atualizar(uid: string, parcial: Partial<LinhaServicoForm>) {
@@ -104,7 +100,7 @@ export default function LinhasServicoEditor({ linhas, servicos, onChange, desabi
               >
                 <Text numberOfLines={1} style={{
                   flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13,
-                  color: l.servico_id ? C.primary : C.text3,
+                  color: l.servico_id ? C.primaryTexto : C.text3,
                 }}>
                   {l.servico_id ? l.nome : `Serviço ${i + 1}: escolher…`}
                 </Text>
@@ -181,8 +177,8 @@ export default function LinhasServicoEditor({ linhas, servicos, onChange, desabi
             paddingVertical: 10, backgroundColor: C.accentSoft,
           }}
         >
-          <Plus size={14} color={C.primary} strokeWidth={2.5} />
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primary }}>
+          <Plus size={14} color={C.primaryTexto} strokeWidth={2.5} />
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primaryTexto }}>
             Adicionar serviço
           </Text>
         </TouchableOpacity>

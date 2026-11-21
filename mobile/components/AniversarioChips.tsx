@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { diasNoMes } from '@shared/clientes';
+import { useTema } from '@/lib/tema';
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -12,15 +13,16 @@ export default function AniversarioChips({ mes, dia, onMes, onDia }: {
   mes: string; dia: string;
   onMes: (v: string) => void; onDia: (v: string) => void;
 }) {
+  const { C } = useTema();
   const chip = (ativo: boolean) => ({
     paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, marginRight: 8,
-    backgroundColor: ativo ? '#2C1654' : '#FFFFFF',
-    borderWidth: 1, borderColor: ativo ? '#2C1654' : '#E8E2DC',
+    backgroundColor: ativo ? C.primary : C.surface,
+    borderWidth: 1, borderColor: ativo ? C.primary : C.border,
   });
   const txt = (ativo: boolean) => ({
-    fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? '#fff' : '#8878A6',
+    fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? '#fff' : C.text3,
   });
-  const rotulo = { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: '#1A1228', marginBottom: 6 } as const;
+  const rotulo = { fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 6 } as const;
 
   return (
     <View style={{ marginBottom: 14 }}>

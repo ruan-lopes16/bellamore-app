@@ -74,7 +74,7 @@ describe('app: agendar e editar (novo-agendamento)', () => {
   });
 
   it('nenhum return null antes do último hook e nenhum setState dentro de useMemo', () => {
-    const corpo = tela.slice(tela.indexOf('export default function'));
+    const corpo = tela.slice(tela.indexOf('function NovoAgendamento()'));
     const linhas = corpo.split('\n');
     const ehHook = (l: string) => /^ {2}(const .*= |)use[A-Z]\w*\(/.test(l);
     const ehReturnCedo = (l: string) => /^ {2}(if \(.*\) )?return (null|\()/.test(l);

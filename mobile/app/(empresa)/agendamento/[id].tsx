@@ -51,16 +51,7 @@ import { AvaliacaoAtendimento } from '@/components/atendimento/AvaliacaoAtendime
 /** Botão das ações rápidas do topo (Ligar / WhatsApp / Perfil). */
 type AcaoRapida = { icon: ReactNode; label: string; onPress: () => void };
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
 
 const AVATAR_COLORS: [string, string][] = [
   ['#7C3AED', '#A855F7'], ['#D4608A', '#F472B6'],
@@ -68,13 +59,13 @@ const AVATAR_COLORS: [string, string][] = [
   ['#1D4ED8', '#60A5FA'], ['#7C2D12', '#EA580C'],
 ];
 
-const STATUS_CONFIG: Record<AgendamentoStatus, { label: string; bg: string; color: string; heroBg: [string, string] }> = {
-  agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primary,  heroBg: ['#2C1654', '#3D1F72'] },
-  confirmado: { label: 'Confirmado', bg: C.greenSoft,   color: C.green,    heroBg: ['#065F46', '#0D7E5F'] },
-  concluido:  { label: 'Concluído',  bg: C.greenSoft,   color: C.green,    heroBg: ['#065F46', '#0D7E5F'] },
-  cancelado:  { label: 'Cancelado',  bg: C.redSoft,     color: C.red,      heroBg: ['#7F1D1D', '#991B1B'] },
-  faltou:     { label: 'Faltou',     bg: C.amberSoft,   color: C.amber,    heroBg: ['#78350F', '#92400E'] },
-};
+const statusConfig = (C: Paleta): Record<AgendamentoStatus, { label: string; bg: string; color: string; heroBg: [string, string] }> => ({
+  agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primaryTexto,  heroBg: ['#2C1654', '#3D1F72'] },
+  confirmado: { label: 'Confirmado', bg: C.greenSoft,   color: C.greenTexto,    heroBg: ['#065F46', '#0D7E5F'] },
+  concluido:  { label: 'Concluído',  bg: C.greenSoft,   color: C.greenTexto,    heroBg: ['#065F46', '#0D7E5F'] },
+  cancelado:  { label: 'Cancelado',  bg: C.redSoft,     color: C.redTexto,      heroBg: ['#7F1D1D', '#991B1B'] },
+  faltou:     { label: 'Faltou',     bg: C.amberSoft,   color: C.amberTexto,    heroBg: ['#78350F', '#92400E'] },
+});
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -117,6 +108,7 @@ function useAgendamentoDetalhe(id: string, modoComanda: boolean) {
 function InfoRow({ icon, label, value, last = false }: {
   icon: React.ReactNode; label: string; value: string; last?: boolean;
 }) {
+  const { C } = useTema();
   return (
     <View style={{
       paddingVertical: 11, paddingHorizontal: 16,
@@ -179,6 +171,7 @@ function useComandaDetalhe(comandaId: string | null, agendamentoId: string | nul
 
 /** Cartao de secao do detalhe, no mesmo formato visual do bloco "Detalhes". */
 function SecaoDetalhe({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  const { C } = useTema();
   return (
     <View style={{ paddingHorizontal: 24, marginBottom: 14 }}>
       <Text style={{
@@ -203,6 +196,7 @@ function SecaoDetalhe({ titulo, children }: { titulo: string; children: React.Re
 function LinhaValor({ rotulo, valor, destaque = false, last = false }: {
   rotulo: string; valor: string; destaque?: boolean; last?: boolean;
 }) {
+  const { C } = useTema();
   return (
     <View style={{
       paddingVertical: 10, paddingHorizontal: 16,
@@ -230,6 +224,7 @@ function LinhaValor({ rotulo, valor, destaque = false, last = false }: {
  * de um agendamento quanto pelo modo comanda (servico avulso, sem agendamento).
  */
 function SecoesComanda({ detalhe }: { detalhe?: DetalheAtendimento }) {
+  const { C } = useTema();
   if (!detalhe) return null;
 
   const aviso = detalhe.situacao === 'bloqueado_por_rls'
@@ -349,7 +344,8 @@ function SecoesComanda({ detalhe }: { detalhe?: DetalheAtendimento }) {
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function AgendamentoDetalhe() {
+function AgendamentoDetalhe() {
+  const { C, escuro } = useTema();
   const { id, tipo } = useLocalSearchParams<{ id: string; tipo?: string }>();
   const modoComanda = tipo === 'comanda';
   const insets  = useSafeAreaInsets();
@@ -375,7 +371,7 @@ export default function AgendamentoDetalhe() {
   if (!fontsLoaded || (!modoComanda && (isLoading || !ag))) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={C.primary} />
+        <ActivityIndicator color={C.primaryTexto} />
       </View>
     );
   }
@@ -385,7 +381,7 @@ export default function AgendamentoDetalhe() {
   if (modoComanda) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
-        <StatusBar barStyle="dark-content" />
+        <StatusBar barStyle={escuro ? 'light-content' : 'dark-content'} />
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
           <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, paddingBottom: 18 }}>
             <TouchableOpacity onPress={() => router.back()} style={{
@@ -408,7 +404,7 @@ export default function AgendamentoDetalhe() {
     );
   }
 
-  const statusCfg = STATUS_CONFIG[ag.status as AgendamentoStatus] ?? STATUS_CONFIG.agendado;
+  const statusCfg = statusConfig(C)[ag.status as AgendamentoStatus] ?? statusConfig(C).agendado;
   const inicio    = new Date(ag.data_hora_inicio);
   const fim       = new Date(ag.data_hora_fim);
   const duracao   = differenceInMinutes(fim, inicio);
@@ -601,8 +597,8 @@ export default function AgendamentoDetalhe() {
           style={{ marginHorizontal: 24, marginTop: -16, flexDirection: 'row', gap: 8 }}
         >
           {[
-            { value: format(inicio, 'HH:mm'), label: 'Início', color: C.primary },
-            { value: format(fim,    'HH:mm'), label: 'Término', color: C.primary },
+            { value: format(inicio, 'HH:mm'), label: 'Início', color: C.primaryTexto },
+            { value: format(fim,    'HH:mm'), label: 'Término', color: C.primaryTexto },
             { value: `${duracao} min`,        label: 'Duração', color: C.text },
           ].map((k) => (
             <View key={k.label} style={{
@@ -633,16 +629,16 @@ export default function AgendamentoDetalhe() {
             borderRadius: 18, overflow: 'hidden',
             shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
           }}>
-            <InfoRow icon={<Calendar size={13} color={C.primary} strokeWidth={2} />} label="Data" value={format(inicio, "EEEE',' d 'de' MMMM 'de' yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())} />
-            <InfoRow icon={<Scissors size={13} color={C.primary} strokeWidth={2} />} label="Serviço" value={descreverServicos(ag) ?? '—'} />
+            <InfoRow icon={<Calendar size={13} color={C.primaryTexto} strokeWidth={2} />} label="Data" value={format(inicio, "EEEE',' d 'de' MMMM 'de' yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())} />
+            <InfoRow icon={<Scissors size={13} color={C.primaryTexto} strokeWidth={2} />} label="Serviço" value={descreverServicos(ag) ?? '—'} />
             <InfoRow
-              icon={<User size={13} color={C.primary} strokeWidth={2} />}
+              icon={<User size={13} color={C.primaryTexto} strokeWidth={2} />}
               label="Profissional"
               value={ag.profissional?.nome ?? '—'}
             />
-            <InfoRow icon={<DollarSign size={13} color={C.primary} strokeWidth={2} />} label="Valor" value={formatarMoeda(ag.valor)} />
+            <InfoRow icon={<DollarSign size={13} color={C.primaryTexto} strokeWidth={2} />} label="Valor" value={formatarMoeda(ag.valor)} />
             {ag.observacao && (
-              <InfoRow icon={<FileText size={13} color={C.primary} strokeWidth={2} />} label="Observação" value={ag.observacao} last />
+              <InfoRow icon={<FileText size={13} color={C.primaryTexto} strokeWidth={2} />} label="Observação" value={ag.observacao} last />
             )}
           </View>
         </MotiView>
@@ -659,7 +655,7 @@ export default function AgendamentoDetalhe() {
               backgroundColor: C.primarySoft, alignItems: 'center',
             }}
           >
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primaryTexto }}>
               Editar atendimento
             </Text>
           </TouchableOpacity>
@@ -685,21 +681,21 @@ export default function AgendamentoDetalhe() {
           >
             <View style={{
               backgroundColor: estaConcluido ? C.greenSoft : C.redSoft,
-              borderWidth: 1, borderColor: estaConcluido ? 'rgba(13,126,95,0.2)' : 'rgba(192,57,43,0.15)',
+              borderWidth: 1, borderColor: C.border,
               borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12,
             }}>
               <View style={{
                 width: 36, height: 36, borderRadius: 10,
-                backgroundColor: estaConcluido ? 'rgba(13,126,95,0.15)' : 'rgba(192,57,43,0.1)',
+                backgroundColor: C.surface,
                 alignItems: 'center', justifyContent: 'center',
               }}>
                 {estaConcluido
-                  ? <Check size={18} color={C.green} strokeWidth={2.5} />
-                  : <X     size={18} color={C.red}   strokeWidth={2.5} />
+                  ? <Check size={18} color={C.greenTexto} strokeWidth={2.5} />
+                  : <X     size={18} color={C.redTexto}   strokeWidth={2.5} />
                 }
               </View>
               <View>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: estaConcluido ? C.green : C.red }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: estaConcluido ? C.greenTexto : C.redTexto }}>
                   {estaConcluido ? 'Atendimento concluído' : 'Agendamento cancelado'}
                 </Text>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 2 }}>
@@ -725,13 +721,13 @@ export default function AgendamentoDetalhe() {
               onPress={confirmarExclusao}
               disabled={atualizando}
               style={{
-                borderWidth: 1, borderColor: 'rgba(192,57,43,0.3)',
+                borderWidth: 1, borderColor: C.redTexto,
                 borderRadius: 14, padding: 14, flexDirection: 'row',
                 alignItems: 'center', justifyContent: 'center', gap: 8,
               }}
             >
-              <Trash2 size={15} color={C.red} strokeWidth={2} />
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.red }}>
+              <Trash2 size={15} color={C.redTexto} strokeWidth={2} />
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.redTexto }}>
                 Excluir agendamento
               </Text>
             </TouchableOpacity>
@@ -742,3 +738,5 @@ export default function AgendamentoDetalhe() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(AgendamentoDetalhe);

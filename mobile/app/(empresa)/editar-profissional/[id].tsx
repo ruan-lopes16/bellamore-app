@@ -23,20 +23,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { usePermissoes } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 import { maskPhone } from '@shared/mascaras';
 import { mensagemErroBanco } from '@shared/erros';
 import { podeGerenciarMembro } from '@shared/permissoes';
 import { rotuloContrato, normalizarComissao, type TipoContrato } from '@shared/equipe';
 
 // ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8', green: '#0D7E5F',
-  rose: '#C9527F', roseSoft: '#FCEEF3',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 type MembroEditavel = {
   id: string; user_id: string; role: 'owner' | 'gestor' | 'profissional';
@@ -78,6 +71,7 @@ function Campo({
   keyboardType?: 'default' | 'email-address' | 'phone-pad' | 'decimal-pad';
   sufixo?: string; maxLength?: number;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 6 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>
@@ -106,7 +100,8 @@ function Campo({
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function EditarProfissional() {
+function EditarProfissional() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { empresaAtiva, user } = useAuthStore();
@@ -237,7 +232,7 @@ export default function EditarProfissional() {
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
           {tentar && (
             <TouchableOpacity onPress={() => refetch()} style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.primary }}>Tentar de novo</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.primaryTexto }}>Tentar de novo</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={() => router.back()} style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}>
@@ -252,7 +247,7 @@ export default function EditarProfissional() {
   if (isLoading || !permissoesCarregadas) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={C.primary} />
+        <ActivityIndicator color={C.primaryTexto} />
       </View>
     );
   }
@@ -291,7 +286,7 @@ export default function EditarProfissional() {
           <View style={{ marginBottom: 16 }}>
             <Campo
               label="Nome *"
-              icon={<User size={13} color={C.primary} strokeWidth={1.8} />}
+              icon={<User size={13} color={C.primaryTexto} strokeWidth={1.8} />}
               value={nome} onChange={setNome}
               placeholder="Nome completo"
             />
@@ -300,7 +295,7 @@ export default function EditarProfissional() {
           <View style={{ marginBottom: 16 }}>
             <Campo
               label="Telefone"
-              icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
+              icon={<Phone size={13} color={C.primaryTexto} strokeWidth={1.8} />}
               value={telefone} onChange={(v) => setTelefone(maskPhone(v))}
               placeholder="(11) 99999-9999"
               keyboardType="phone-pad" maxLength={15}
@@ -310,7 +305,7 @@ export default function EditarProfissional() {
           <View style={{ marginBottom: 16 }}>
             <Campo
               label="E-mail"
-              icon={<Mail size={13} color={C.primary} strokeWidth={1.8} />}
+              icon={<Mail size={13} color={C.primaryTexto} strokeWidth={1.8} />}
               value={email} onChange={setEmail}
               placeholder="email@exemplo.com"
               keyboardType="email-address"
@@ -326,7 +321,7 @@ export default function EditarProfissional() {
           <View style={{ marginBottom: 16 }}>
             <Campo
               label="Comissão por atendimento (%)"
-              icon={<Percent size={13} color={C.primary} strokeWidth={1.8} />}
+              icon={<Percent size={13} color={C.primaryTexto} strokeWidth={1.8} />}
               value={comissao} onChange={setComissao}
               placeholder="0"
               keyboardType="decimal-pad" sufixo="%"
@@ -345,10 +340,10 @@ export default function EditarProfissional() {
                     style={{
                       height: 40, borderRadius: 12, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center',
                       borderWidth: 1,
-                      borderColor: ativo ? C.primary : C.border,
+                      borderColor: ativo ? C.primaryTexto : C.border,
                       backgroundColor: ativo ? C.primarySoft : C.surface,
                     }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text2 }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text2 }}>
                       {c.label}
                     </Text>
                   </TouchableOpacity>
@@ -383,3 +378,5 @@ export default function EditarProfissional() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(EditarProfissional);

@@ -4,12 +4,8 @@ import { X } from 'lucide-react-native';
 import {
   GRUPOS_UNIDADE, UNIDADES_PRODUTO, UNIDADES_PADRAO, normalizarUnidadesVisiveis,
 } from '@shared/estoque';
+import { useTema } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 /**
  * Ajuste das unidades de medida que aparecem no cadastro de produto (mesma tela do web,
@@ -25,6 +21,7 @@ export function UnidadesEstoqueModal({ visiveis, onClose, onSalvar, onSalvo }: {
   onSalvar: (lista: string[]) => Promise<string[]>;
   onSalvo: (lista: string[]) => void;
 }) {
+  const { C } = useTema();
   const [ligadas, setLigadas] = useState<string[]>(() => normalizarUnidadesVisiveis(visiveis ?? UNIDADES_PADRAO));
   const [salvando, setSalvando] = useState(false);
   const salvandoRef = useRef(false);
@@ -95,10 +92,10 @@ export function UnidadesEstoqueModal({ visiveis, onClose, onSalvar, onSalvo }: {
                         style={{
                           paddingVertical: 7, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1,
                           backgroundColor: ativo ? C.primarySoft : C.bg,
-                          borderColor: ativo ? C.primary : C.border,
+                          borderColor: ativo ? C.primaryTexto : C.border,
                         }}
                       >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text3 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text3 }}>
                           {u.label} ({u.key})
                         </Text>
                       </TouchableOpacity>

@@ -57,11 +57,11 @@ import { fundoCategoriaNoTema } from '@shared/tema';
 
 /** Cores de cada status no tema aplicado. */
 const statusConfig = (C: Paleta) => ({
-  agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primary },
-  confirmado: { label: 'Confirmado', bg: C.greenSoft,   color: C.green },
+  agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primaryTexto },
+  confirmado: { label: 'Confirmado', bg: C.greenSoft,   color: C.greenTexto },
   concluido:  { label: 'Concluído',  bg: C.bg,          color: C.text3 },
-  faltou:     { label: 'Faltou',     bg: C.amberSoft,   color: C.amber },
-  cancelado:  { label: 'Cancelado',  bg: C.redSoft,     color: C.red },
+  faltou:     { label: 'Faltou',     bg: C.amberSoft,   color: C.amberTexto },
+  cancelado:  { label: 'Cancelado',  bg: C.redSoft,     color: C.redTexto },
 } as Record<string, { label: string; bg: string; color: string }>);
 
 const AVATAR_COLORS: [string, string][] = [
@@ -209,7 +209,7 @@ function SlotVazio({ hora, dia, profissionalId }: { hora: number; dia: string; p
 // ── Tela principal ───────────────────────────────────────────
 
 function Agenda() {
-  const { C } = useTema();
+  const { C, escuro } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user } = useAuthStore();
   const { pode, permissoesCarregadas } = usePermissoes();
@@ -350,7 +350,7 @@ function Agenda() {
         padding: 10, marginBottom: 6, flexDirection: 'row', alignItems: 'flex-start', gap: 8,
       }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: escuro ? C.rose : '#C9527F' }}>
             {b.titulo || motivoBloqueioLabel(b.motivo)}
           </Text>
           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
@@ -364,7 +364,7 @@ function Agenda() {
             disabled={remover.isPending}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={{ padding: 2, opacity: remover.isPending ? 0.4 : 1 }}>
-            <X size={14} color="#C9527F" strokeWidth={2.5} />
+            <X size={14} color={escuro ? C.rose : '#C9527F'} strokeWidth={2.5} />
           </TouchableOpacity>
         )}
       </View>
@@ -460,17 +460,17 @@ function Agenda() {
           <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 24, marginBottom: 12, alignItems: 'center' }}>
             <TouchableOpacity onPress={() => setModalBloqueio(true)}
               style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: C.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ban size={14} color="#C9527F" strokeWidth={2} />
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>Bloquear</Text>
+              <Ban size={14} color={escuro ? C.rose : '#C9527F'} strokeWidth={2} />
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: escuro ? C.rose : '#C9527F' }}>Bloquear</Text>
             </TouchableOpacity>
             {pendentes.length > 0 && (
               <TouchableOpacity onPress={() => setSheetPendentes(true)}
-                style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: '#FEF3E2', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#B45309' }}>Pendentes ({pendentes.length})</Text>
+                style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: C.amberSoft, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.amberTexto }}>Pendentes ({pendentes.length})</Text>
               </TouchableOpacity>
             )}
             {pendentesErro && (
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.red }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.redTexto }}>
                 Erro ao carregar pendentes
               </Text>
             )}
@@ -508,9 +508,9 @@ function Agenda() {
           }}>
             {[
               { value: erroDia ? '—' : String(resumo.total),           label: 'Agendamentos', color: C.text },
-              { value: erroDia ? '—' : formatarMoeda(resumo.receitaPrevista),  label: 'Receita prev.',  color: C.green },
+              { value: erroDia ? '—' : formatarMoeda(resumo.receitaPrevista),  label: 'Receita prev.',  color: C.greenTexto },
               { value: erroDia ? '—' : String(resumo.profissionais),   label: 'Profissionais',  color: C.text },
-              { value: erroDia ? '—' : String(resumo.pendentes),       label: 'Pendentes',      color: !erroDia && resumo.pendentes > 0 ? C.amber : C.text },
+              { value: erroDia ? '—' : String(resumo.pendentes),       label: 'Pendentes',      color: !erroDia && resumo.pendentes > 0 ? C.amberTexto : C.text },
             ].map((s, i, arr) => (
               <View key={s.label} style={{ flex: 1, alignItems: 'center' }}>
                 <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: s.color, letterSpacing: -0.5 }}>
@@ -605,7 +605,7 @@ function Agenda() {
                       {iniciaisNome(prof.nome)}
                     </Text>
                   </LinearGradient>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: ativo ? C.primary : C.text2 }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: ativo ? C.primaryTexto : C.text2 }}>
                     {prof.nome.split(' ')[0]}
                   </Text>
                 </TouchableOpacity>
@@ -617,7 +617,7 @@ function Agenda() {
 
         {/* ── Timeline (visão Dia) ── */}
         {visao === 'dia' && (erroDia ? (
-          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red }}>
+          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto }}>
             Não foi possível carregar a agenda do dia. Puxe para atualizar.
           </Text>
         ) : filtro === TODAS ? (

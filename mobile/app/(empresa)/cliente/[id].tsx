@@ -45,16 +45,7 @@ import { formatarMoeda } from '@shared/moeda';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema, type Paleta } from '@/lib/tema';
 
 const AVATAR_COLORS: [string, string][] = [
   ['#7C3AED', '#A855F7'], ['#D4608A', '#F472B6'],
@@ -62,13 +53,13 @@ const AVATAR_COLORS: [string, string][] = [
   ['#1D4ED8', '#60A5FA'], ['#7C2D12', '#EA580C'],
 ];
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string }> = {
-  agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primary },
-  confirmado: { label: 'Confirmado', bg: C.greenSoft,  color: C.green },
-  concluido:  { label: 'Concluído',  bg: C.greenSoft,  color: C.green },
-  cancelado:  { label: 'Cancelado',  bg: C.redSoft,    color: C.red },
-  faltou:     { label: 'Faltou',     bg: C.amberSoft,  color: C.amber },
-};
+const statusConfig = (C: Paleta): Record<string, { label: string; bg: string; color: string }> => ({
+  agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primaryTexto },
+  confirmado: { label: 'Confirmado', bg: C.greenSoft,  color: C.greenTexto },
+  concluido:  { label: 'Concluído',  bg: C.greenSoft,  color: C.greenTexto },
+  cancelado:  { label: 'Cancelado',  bg: C.redSoft,    color: C.redTexto },
+  faltou:     { label: 'Faltou',     bg: C.amberSoft,  color: C.amberTexto },
+});
 
 const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
@@ -83,9 +74,9 @@ function diaMesBRT(instante: string): { dia: string; mes: string; ano: string } 
 }
 
 /** Cor de cada KPI do perfil (os textos vêm de `kpisPerfilCliente`, iguais aos do web). */
-const COR_KPI: Record<string, string> = {
-  Atendimentos: C.primary, 'Total gasto': C.green, 'Última visita': C.text, 'Serviço favorito': C.accent,
-};
+const corKpi = (C: Paleta): Record<string, string> => ({
+  Atendimentos: C.primaryTexto, 'Total gasto': C.greenTexto, 'Última visita': C.text, 'Serviço favorito': C.accent,
+});
 
 function avatarColors(nome: string): [string, string] {
   return AVATAR_COLORS[(nome?.charCodeAt(0) ?? 0) % AVATAR_COLORS.length];
@@ -99,6 +90,7 @@ function InfoRow({ icon, label, value, iconBg, iconColor }: {
   icon: React.ReactNode; label: string; value: string;
   iconBg: string; iconColor: string;
 }) {
+  const { C } = useTema();
   return (
     <View style={{
       paddingVertical: 11, paddingHorizontal: 16,
@@ -129,8 +121,9 @@ function AnamneseRow({ pergunta, resposta, tipo }: {
   pergunta: string; resposta: string;
   tipo: 'alerta' | 'ok' | 'neutro';
 }) {
-  const dotColor = tipo === 'alerta' ? '#EF4444' : tipo === 'ok' ? C.green : C.text4;
-  const respostaColor = tipo === 'alerta' ? C.red : tipo === 'ok' ? C.green : C.text2;
+  const { C } = useTema();
+  const dotColor = tipo === 'alerta' ? C.redTexto : tipo === 'ok' ? C.greenTexto : C.text4;
+  const respostaColor = tipo === 'alerta' ? C.redTexto : tipo === 'ok' ? C.greenTexto : C.text2;
 
   return (
     <View style={{
@@ -166,6 +159,7 @@ function AnamneseRow({ pergunta, resposta, tipo }: {
  * venda mostra os itens; taxas mostram o status e a forma de pagamento.
  */
 function LinhaHistorico({ item }: { item: ItemHistorico }) {
+  const { C } = useTema();
   const { dia, mes } = diaMesBRT(item.data);
 
   let titulo: string;
@@ -178,7 +172,7 @@ function LinhaHistorico({ item }: { item: ItemHistorico }) {
     case 'atendimento':
       titulo = item.servicos || 'Serviço';
       subtitulo = item.profissional ?? 'Profissional';
-      badge = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.agendado;
+      badge = statusConfig(C)[item.status] ?? statusConfig(C).agendado;
       // Sessão de pacote vale R$ 0 no total gasto: mostra o rótulo em vez do valor.
       if (item.pacote) valor = null;
       destino = `/(empresa)/agendamento/${item.id}`;
@@ -262,7 +256,9 @@ function LinhaHistorico({ item }: { item: ItemHistorico }) {
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function ClientePerfil() {
+function ClientePerfil() {
+  const { C } = useTema();
+  const COR_KPI = corKpi(C);
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const [aba, setAba] = useState<Aba>('perfil');
@@ -370,11 +366,11 @@ export default function ClientePerfil() {
         </Text>
         {isError && (
           <TouchableOpacity onPress={() => refetch()} style={{ marginTop: 16 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primary }}>Tentar novamente</Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primaryTexto }}>Tentar novamente</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primary }}>Voltar</Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primaryTexto }}>Voltar</Text>
         </TouchableOpacity>
       </View>
     );
@@ -567,13 +563,13 @@ export default function ClientePerfil() {
             onPress={() => refetch()}
             style={{
               marginHorizontal: 24, marginTop: 12,
-              backgroundColor: C.redSoft, borderWidth: 1, borderColor: 'rgba(192,57,43,0.15)',
+              backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.border,
               borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10,
             }}
           >
-            <AlertTriangle size={14} color={C.red} strokeWidth={2} />
+            <AlertTriangle size={14} color={C.redTexto} strokeWidth={2} />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.redTexto }}>
                 Não foi possível carregar o histórico.
               </Text>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
@@ -587,11 +583,11 @@ export default function ClientePerfil() {
         {arquivada && (
           <View style={{
             marginHorizontal: 24, marginTop: 12,
-            backgroundColor: C.amberSoft, borderWidth: 1, borderColor: 'rgba(180,83,9,0.15)',
+            backgroundColor: C.amberSoft, borderWidth: 1, borderColor: C.border,
             borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10,
           }}>
-            <Archive size={14} color={C.amber} strokeWidth={2} />
-            <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber }}>
+            <Archive size={14} color={C.amberTexto} strokeWidth={2} />
+            <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amberTexto }}>
               {AVISO_CLIENTE_ARQUIVADA}
             </Text>
             {podeArquivarCliente(pode) && (
@@ -662,15 +658,15 @@ export default function ClientePerfil() {
                   </TouchableOpacity>
                 )}
               </View>
-              <InfoRow icon={<Edit3 size={13} color={C.primary} strokeWidth={2} />} label="Nome completo" value={cliente.nome ?? '—'} iconBg={C.primarySoft} iconColor={C.primary} />
-              {cliente.telefone && <InfoRow icon={<Phone size={13} color={C.green} strokeWidth={2} />} label="Telefone" value={cliente.telefone} iconBg={C.greenSoft} iconColor={C.green} />}
+              <InfoRow icon={<Edit3 size={13} color={C.primaryTexto} strokeWidth={2} />} label="Nome completo" value={cliente.nome ?? '—'} iconBg={C.primarySoft} iconColor={C.primaryTexto} />
+              {cliente.telefone && <InfoRow icon={<Phone size={13} color={C.greenTexto} strokeWidth={2} />} label="Telefone" value={cliente.telefone} iconBg={C.greenSoft} iconColor={C.greenTexto} />}
               {cliente.email && <InfoRow icon={<MessageCircle size={13} color={C.rose} strokeWidth={2} />} label="E-mail" value={cliente.email} iconBg={C.roseSoft} iconColor={C.rose} />}
               {formatarAniversario(cliente.data_nascimento) !== '' && (
                 <InfoRow
-                  icon={<CalendarPlus size={13} color={C.amber} strokeWidth={2} />}
+                  icon={<CalendarPlus size={13} color={C.amberTexto} strokeWidth={2} />}
                   label="Data de nascimento"
                   value={`${formatarAniversario(cliente.data_nascimento)}${idadeLabel ? ` · ${idadeLabel}` : ''}`}
-                  iconBg={C.amberSoft} iconColor={C.amber}
+                  iconBg={C.amberSoft} iconColor={C.amberTexto}
                 />
               )}
               {/* Remove border from last item */}
@@ -689,26 +685,26 @@ export default function ClientePerfil() {
                 style={{
                   marginHorizontal: 24, marginBottom: 14,
                   backgroundColor: C.amberSoft,
-                  borderWidth: 1, borderColor: 'rgba(180,83,9,0.15)',
+                  borderWidth: 1, borderColor: C.border,
                   borderRadius: 14, padding: 14,
                   flexDirection: 'row', alignItems: 'center', gap: 12,
                 }}
               >
                 <View style={{
-                  width: 30, height: 30, backgroundColor: 'rgba(180,83,9,0.1)',
+                  width: 30, height: 30, backgroundColor: C.surface,
                   borderRadius: 8, alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <AlertTriangle size={14} color={C.amber} strokeWidth={2} />
+                  <AlertTriangle size={14} color={C.amberTexto} strokeWidth={2} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.amber }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.amberTexto }}>
                     Atenção: restrições na anamnese
                   </Text>
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3, marginTop: 1 }}>
                     {restricoes.join(' · ')}
                   </Text>
                 </View>
-                <ChevronLeft size={14} color={C.amber} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+                <ChevronLeft size={14} color={C.amberTexto} strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
               </TouchableOpacity>
             )}
           </MotiView>
@@ -720,14 +716,14 @@ export default function ClientePerfil() {
             <View style={{ paddingHorizontal: 24, gap: 6 }}>
               {erroHistorico ? (
                 <View style={{
-                  backgroundColor: C.redSoft, borderWidth: 1, borderColor: 'rgba(192,57,43,0.15)',
+                  backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.border,
                   borderRadius: 16, padding: 24, alignItems: 'center', gap: 10,
                 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.red, textAlign: 'center' }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.redTexto, textAlign: 'center' }}>
                     Não foi possível carregar o histórico.
                   </Text>
                   <TouchableOpacity onPress={() => refetch()}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primary }}>Tentar novamente</Text>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.primaryTexto }}>Tentar novamente</Text>
                   </TouchableOpacity>
                 </View>
               ) : cliente.historico.length === 0 ? (
@@ -850,7 +846,7 @@ export default function ClientePerfil() {
             <TouchableOpacity onPress={arquivar} disabled={gravandoAtivo}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10, opacity: gravandoAtivo ? 0.6 : 1 }}>
               <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.amberSoft, alignItems: 'center', justifyContent: 'center' }}>
-                <Archive size={16} color={C.amber} />
+                <Archive size={16} color={C.amberTexto} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text }}>Arquivar</Text>
@@ -878,3 +874,5 @@ export default function ClientePerfil() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(ClientePerfil);

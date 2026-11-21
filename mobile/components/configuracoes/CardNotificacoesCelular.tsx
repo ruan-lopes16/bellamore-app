@@ -84,10 +84,10 @@ export function CardNotificacoesCelular() {
   let status: { cor: string; texto: string };
   if (permissao === null) status = { cor: C.text3, texto: 'Verificando…' };
   else if (permissao === 'sem_suporte') status = { cor: C.text3, texto: 'Este aparelho não recebe notificações (simulador).' };
-  else if (erro) status = { cor: C.red, texto: `Não foi possível registrar este aparelho: ${erro}` };
-  else if (ativado) status = { cor: C.green, texto: 'Ativadas neste aparelho.' };
+  else if (erro) status = { cor: C.redTexto, texto: `Não foi possível registrar este aparelho: ${erro}` };
+  else if (ativado) status = { cor: C.greenTexto, texto: 'Ativadas neste aparelho.' };
   else if (permissao === 'negada') status = {
-    cor: C.amber,
+    cor: C.amberTexto,
     texto: 'Permissão negada. Abra os ajustes do aparelho → Notificações → App Estética e permita.',
   };
   else status = { cor: C.text3, texto: 'Desativadas neste aparelho.' };
@@ -110,7 +110,7 @@ export function CardNotificacoesCelular() {
   return (
     <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 18, gap: 14 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <Bell size={16} color={C.primary} strokeWidth={1.8} />
+        <Bell size={16} color={C.primaryTexto} strokeWidth={1.8} />
         <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 16, color: C.text }}>Notificações no celular</Text>
       </View>
 
@@ -146,7 +146,7 @@ export function CardNotificacoesCelular() {
         </TouchableOpacity>
       ))}
       {msgPref && (
-        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: msgPref.ok ? C.green : C.red }}>
+        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: msgPref.ok ? C.greenTexto : C.redTexto }}>
           {msgPref.texto}
         </Text>
       )}

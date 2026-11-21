@@ -5,16 +5,12 @@
  * rótulos e destaque (@shared/periodos). Só visual: a tela filtra o mês inteiro.
  */
 import { View, Text, TouchableOpacity } from 'react-native';
+import { useTema } from '@/lib/tema';
 import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react-native';
 import {
   chaveDoMesExibido, chaveDiaExibido, gradeCalendarioMes, rotuloIntervaloMes, rotuloMesAno, rotuloDiaExtenso,
   DIAS_SEMANA_ABREV,
 } from '@shared/periodos';
-
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC', bg: '#F4F1EE', primary: '#2C1654',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 export type CalendarioMesFinanceiroProps = {
   mes: Date;
@@ -25,14 +21,14 @@ export type CalendarioMesFinanceiroProps = {
   onProximoMes: () => void;
 };
 
-const botaoSeta = {
-  width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border,
-  alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: C.bg,
-};
-
 export function CalendarioMesFinanceiro({
   mes, aberto, proximoDesabilitado, onAlternar, onMesAnterior, onProximoMes,
 }: CalendarioMesFinanceiroProps) {
+  const { C } = useTema();
+  const botaoSeta = {
+    width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: C.border,
+    alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: C.bg,
+  };
   const chave = chaveDoMesExibido(mes);
   const titulo = rotuloMesAno(chave);
   const grade = gradeCalendarioMes(chave, chaveDiaExibido(mes));
@@ -86,7 +82,7 @@ export function CalendarioMesFinanceiro({
                 <View style={{ flex: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: c.destacado ? C.primary : 'transparent' }}>
                   <Text style={{
                     fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13,
-                    color: c.destacado ? '#fff' : c.foraDoMes ? C.text4 : C.text2,
+                    color: c.destacado ? '#FFFFFF' : c.foraDoMes ? C.text4 : C.text2,
                     opacity: c.foraDoMes && !c.destacado ? 0.6 : 1,
                   }}>
                     {c.numero}

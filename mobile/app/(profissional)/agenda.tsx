@@ -49,11 +49,11 @@ import { fundoCategoriaNoTema } from '@shared/tema';
 
 /** Cores de cada status no tema aplicado. */
 const statusConfig = (C: Paleta) => ({
-  agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primary },
-  confirmado: { label: 'Confirmado', bg: C.greenSoft,   color: C.green },
+  agendado:   { label: 'Agendado',   bg: C.primarySoft, color: C.primaryTexto },
+  confirmado: { label: 'Confirmado', bg: C.greenSoft,   color: C.greenTexto },
   concluido:  { label: 'Concluído',  bg: C.bg,          color: C.text3 },
-  faltou:     { label: 'Faltou',     bg: C.amberSoft,   color: C.amber },
-  cancelado:  { label: 'Cancelado',  bg: C.redSoft,     color: C.red },
+  faltou:     { label: 'Faltou',     bg: C.amberSoft,   color: C.amberTexto },
+  cancelado:  { label: 'Cancelado',  bg: C.redSoft,     color: C.redTexto },
 } as Record<string, { label: string; bg: string; color: string }>);
 
 const AVATAR_COLORS: [string, string][] = [
@@ -167,7 +167,7 @@ function SlotVazio({ hora, dia, profissionalId }: { hora: number; dia: string; p
 // ── Tela principal ───────────────────────────────────────────
 
 function AgendaProfissional() {
-  const { C } = useTema();
+  const { C, escuro } = useTema();
   const insets = useSafeAreaInsets();
   const { user, empresaAtiva } = useAuthStore();
 
@@ -326,8 +326,8 @@ function AgendaProfissional() {
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
             }}>
               {[
-                { value: erroKpis ? '—' : String(kpis?.total ?? 0), label: 'Atendimentos', color: C.primary },
-                { value: erroKpis ? '—' : formatarMoeda(kpis?.comissaoDia ?? 0), label: 'Comissão do dia', color: C.green },
+                { value: erroKpis ? '—' : String(kpis?.total ?? 0), label: 'Atendimentos', color: C.primaryTexto },
+                { value: erroKpis ? '—' : formatarMoeda(kpis?.comissaoDia ?? 0), label: 'Comissão do dia', color: C.greenTexto },
                 { value: erroDia ? '—' : `${agendamentos.reduce((s, a) => s + (a.servico?.duracao_minutos ?? 0), 0)}min`, label: 'Tempo total', color: C.text },
               ].map((s, i, arr) => (
                 <View key={s.label} style={{ flex: 1, alignItems: 'center', position: 'relative' }}>
@@ -350,8 +350,8 @@ function AgendaProfissional() {
               gap: 8, backgroundColor: C.surface,
             }}
           >
-            <Ban size={14} color="#C9527F" strokeWidth={2} />
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: '#C9527F' }}>
+            <Ban size={14} color={escuro ? C.rose : '#C9527F'} strokeWidth={2} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: escuro ? C.rose : '#C9527F' }}>
               Bloquear horário
             </Text>
           </TouchableOpacity>
@@ -359,7 +359,7 @@ function AgendaProfissional() {
 
         {/* ── Timeline (visão Dia) ── */}
         {visao === 'dia' && (erroDia ? (
-          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red }}>
+          <Text style={{ marginHorizontal: 24, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto }}>
             Não foi possível carregar a agenda do dia. Puxe para atualizar.
           </Text>
         ) : (
@@ -410,7 +410,7 @@ function AgendaProfissional() {
                         }}
                       >
                         <View style={{ flex: 1 }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C9527F' }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: escuro ? C.rose : '#C9527F' }}>
                             {b.titulo || motivoBloqueioLabel(b.motivo)}
                           </Text>
                           <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: C.text3 }}>
@@ -424,7 +424,7 @@ function AgendaProfissional() {
                             disabled={remover.isPending}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             style={{ padding: 2, opacity: remover.isPending ? 0.4 : 1 }}>
-                            <X size={14} color="#C9527F" strokeWidth={2.5} />
+                            <X size={14} color={escuro ? C.rose : '#C9527F'} strokeWidth={2.5} />
                           </TouchableOpacity>
                         )}
                       </View>

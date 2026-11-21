@@ -2,11 +2,7 @@ import { Modal, View, Text, TouchableOpacity } from 'react-native';
 import { format } from 'date-fns';
 import { motivoBloqueioLabel } from '@shared/bloqueios';
 import type { BloqueioAgenda } from '@/hooks/useAgenda';
-
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC', bg2: '#F4F1EE',
-  ink: '#1A1228', ink2: '#4A3F63', ink3: '#8878A6', rose: '#C9527F',
-};
+import { useTema } from '@/lib/tema';
 
 /**
  * Diálogo nativo centralizado de confirmação para remover um bloqueio
@@ -24,6 +20,7 @@ export function ConfirmarRemoverBloqueio({
   onCancelar: () => void;
   onConfirmar: () => void;
 }) {
+  const { C } = useTema();
   if (!bloqueio) return null;
 
   const alvo = bloqueio.escopo === 'geral' ? 'Toda a agenda' : (profNome ?? 'Profissional');
@@ -34,21 +31,21 @@ export function ConfirmarRemoverBloqueio({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancelar}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <View style={{ width: '100%', maxWidth: 360, backgroundColor: C.surface, borderRadius: 20, borderWidth: 1, borderColor: C.border, padding: 20 }}>
-          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 17, color: C.ink }}>
+          <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 17, color: C.text }}>
             Remover bloqueio?
           </Text>
-          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.ink2, marginTop: 8 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text2, marginTop: 8 }}>
             {alvo} · {motivoBloqueioLabel(bloqueio.motivo)} · {intervalo}.
           </Text>
           {bloqueio.situacao === 'pendente' && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.ink3, marginTop: 6 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 12, color: C.text3, marginTop: 6 }}>
               Este pedido ainda aguarda aprovação.
             </Text>
           )}
           <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
             <TouchableOpacity onPress={onCancelar} disabled={removendo}
-              style={{ flex: 1, height: 44, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg2, alignItems: 'center', justifyContent: 'center', opacity: removendo ? 0.5 : 1 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.ink2 }}>Cancelar</Text>
+              style={{ flex: 1, height: 44, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', opacity: removendo ? 0.5 : 1 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text2 }}>Cancelar</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onConfirmar} disabled={removendo}
               style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: C.rose, alignItems: 'center', justifyContent: 'center', opacity: removendo ? 0.5 : 1 }}>

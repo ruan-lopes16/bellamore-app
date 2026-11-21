@@ -218,7 +218,7 @@ export default function PagamentosEditor<S extends SplitEditavel>({
           <View style={{
             borderRadius: 14, padding: 14, borderWidth: 1,
             backgroundColor: falta <= 0.01 && troco <= 0.01 ? C.greenSoft : falta > 0.01 ? C.amberSoft : C.primarySoft,
-            borderColor: falta <= 0.01 && troco <= 0.01 ? '#0D7E5F33' : falta > 0.01 ? '#B4530933' : '#2C165433',
+            borderColor: falta <= 0.01 && troco <= 0.01 ? C.greenTexto + '33' : falta > 0.01 ? C.amberTexto + '33' : C.primaryTexto + '33',
           }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Recebido</Text>
@@ -226,20 +226,20 @@ export default function PagamentosEditor<S extends SplitEditavel>({
             </View>
             {falta > 0.01 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.amber }}>Falta</Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amber }}>{formatarMoeda(falta)}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.amberTexto }}>Falta</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.amberTexto }}>{formatarMoeda(falta)}</Text>
               </View>
             )}
             {troco > 0.01 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primary }}>Troco</Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>{formatarMoeda(troco)}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primaryTexto }}>Troco</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primaryTexto }}>{formatarMoeda(troco)}</Text>
               </View>
             )}
             {falta <= 0.01 && troco <= 0.01 && (
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 6 }}>
-                <Check size={14} color={C.green} strokeWidth={3} />
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green }}>Valor quitado</Text>
+                <Check size={14} color={C.greenTexto} strokeWidth={3} />
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.greenTexto }}>Valor quitado</Text>
               </View>
             )}
           </View>

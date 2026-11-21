@@ -32,14 +32,8 @@ import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { rotuloValidade, validarPacote, MSG_VENDIDO_NAO_CONFERIDO } from '@shared/pacotes';
 import { sincronizarServicosPacote } from '@shared/pacotes-consultas';
+import { type Paleta, useTema } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8', red: '#C0392B', redSoft: '#FEF2F2',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 /** Atalhos de validade (dias); qualquer número inteiro positivo vale. */
 const ATALHOS_VALIDADE = [30, 90, 180, 365];
@@ -51,13 +45,14 @@ export const MSG_VENDIDO_ERRO = MSG_VENDIDO_NAO_CONFERIDO;
 type Item = { servico_id: string; nome: string; quantidade: number | null };
 type ServicoOpcao = { id: string; nome: string; preco: number };
 
-const inputStyle = {
+const inputStyle = (C: Paleta) => ({
   backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
   borderRadius: 12, paddingHorizontal: 14, height: 48,
   fontFamily: 'PlusJakartaSans_500Medium', fontSize: 15, color: C.text,
-} as const;
+} as const);
 
 function Campo({ label, children, dica }: { label: string; children: React.ReactNode; dica?: string }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 20 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>{label}</Text>
@@ -68,6 +63,7 @@ function Campo({ label, children, dica }: { label: string; children: React.React
 }
 
 export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const empresaId = useAuthStore(s => s.empresaAtiva?.id ?? null);
   const empresaNome = useAuthStore(s => s.empresaAtiva?.nome ?? '');
@@ -287,10 +283,10 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
         </LinearGradient>
 
         {carregando ? (
-          <ActivityIndicator color={C.primary} style={{ marginTop: 40 }} />
+          <ActivityIndicator color={C.primaryTexto} style={{ marginTop: 40 }} />
         ) : erroCarga ? (
           <View style={{ margin: 24, backgroundColor: C.redSoft, borderRadius: 14, padding: 16, gap: 10 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.red }}>{erroCarga}</Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.redTexto }}>{erroCarga}</Text>
             <TouchableOpacity onPress={carregar} style={{ alignSelf: 'flex-start', backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Recarregar</Text>
             </TouchableOpacity>
@@ -298,20 +294,20 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
         ) : (
           <View style={{ padding: 24 }}>
             <Campo label="Nome do pacote *">
-              <TextInput value={nome} onChangeText={setNome} placeholder="Ex: Pacote Escova Mensal" placeholderTextColor={C.text4} style={inputStyle} />
+              <TextInput value={nome} onChangeText={setNome} placeholder="Ex: Pacote Escova Mensal" placeholderTextColor={C.text4} style={inputStyle(C)} />
             </Campo>
 
             {jaVendido && (
               <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: C.amberSoft, borderRadius: 12, padding: 12, marginBottom: 20 }}>
-                <AlertCircle size={14} color={C.amber} />
-                <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.amber }}>
+                <AlertCircle size={14} color={C.amberTexto} />
+                <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.amberTexto }}>
                   Pacote já vendido — o tipo, os serviços e as quantidades não podem ser alterados.
                 </Text>
               </View>
             )}
             {erroVendido && (
               <View style={{ backgroundColor: C.redSoft, borderRadius: 12, padding: 12, marginBottom: 20, gap: 8 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red }}>{erroVendido}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto }}>{erroVendido}</Text>
                 <TouchableOpacity onPress={carregar} style={{ alignSelf: 'flex-start', backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 6 }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#fff' }}>Recarregar</Text>
                 </TouchableOpacity>
@@ -331,7 +327,7 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
                     <TouchableOpacity key={rotulo} disabled={composicaoTravada} onPress={() => setControlaSessoes(valor)}
                       style={{
                         flex: 1, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1,
-                        backgroundColor: ativo ? C.primary : C.surface, borderColor: ativo ? C.primary : C.border,
+                        backgroundColor: ativo ? C.primary : C.surface, borderColor: ativo ? C.primaryTexto : C.border,
                         opacity: composicaoTravada ? 0.5 : 1,
                       }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: ativo ? '#fff' : C.text3 }}>{rotulo}</Text>
@@ -342,7 +338,7 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
             </Campo>
 
             <Campo label="Preço *">
-              <View style={{ ...inputStyle, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ ...inputStyle(C), flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text3 }}>R$</Text>
                 <TextInput value={preco} onChangeText={setPreco} placeholder="0,00" placeholderTextColor={C.text4}
                   keyboardType="decimal-pad" accessibilityLabel="Preço"
@@ -353,20 +349,20 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
             <Campo label="Validade" dica={semValidade ? 'Vale enquanto houver sessões.' : rotuloValidade(Number(validade) || null)}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text2 }}>Sem validade</Text>
-                <Switch value={semValidade} onValueChange={setSemValidade} trackColor={{ false: '#E5E7EB', true: C.primary }} thumbColor="#fff" />
+                <Switch value={semValidade} onValueChange={setSemValidade} trackColor={{ false: C.border, true: C.primary }} thumbColor="#fff" />
               </View>
               {!semValidade && (
                 <>
                   <TextInput value={validade} onChangeText={v => setValidade(v.replace(/\D/g, '').slice(0, 4))}
                     keyboardType="number-pad" placeholder="Dias" placeholderTextColor={C.text4}
-                    accessibilityLabel="Validade em dias" style={inputStyle} />
+                    accessibilityLabel="Validade em dias" style={inputStyle(C)} />
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                     {ATALHOS_VALIDADE.map(d => {
                       const ativo = validade === String(d);
                       return (
                         <TouchableOpacity key={d} onPress={() => setValidade(String(d))}
-                          style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, backgroundColor: ativo ? C.primarySoft : C.surface, borderColor: ativo ? C.primary : C.border }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text3 }}>{d} dias</Text>
+                          style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, backgroundColor: ativo ? C.primarySoft : C.surface, borderColor: ativo ? C.primaryTexto : C.border }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text3 }}>{d} dias</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -381,7 +377,7 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
                   <View key={item.servico_id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 10 }}>
                     <Text numberOfLines={2} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{item.nome}</Text>
                     {controlaSessoes && item.quantidade == null ? (
-                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>Ilimitado</Text>
+                      <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto }}>Ilimitado</Text>
                     ) : composicaoTravada ? (
                       <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
                         {item.quantidade ?? 1} {controlaSessoes ? 'sessões' : '×'}
@@ -390,12 +386,12 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <TouchableOpacity onPress={() => mudarQtd(item.servico_id, -1)} accessibilityLabel="Diminuir"
                           style={{ width: 26, height: 26, borderRadius: 7, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>−</Text>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primaryTexto }}>−</Text>
                         </TouchableOpacity>
-                        <Text style={{ minWidth: 22, textAlign: 'center', fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.primary }}>{item.quantidade ?? 1}</Text>
+                        <Text style={{ minWidth: 22, textAlign: 'center', fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.primaryTexto }}>{item.quantidade ?? 1}</Text>
                         <TouchableOpacity onPress={() => mudarQtd(item.servico_id, 1)} accessibilityLabel="Aumentar"
                           style={{ width: 26, height: 26, borderRadius: 7, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>+</Text>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primaryTexto }}>+</Text>
                         </TouchableOpacity>
                         <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text4 }}>{controlaSessoes ? 'sessões' : '×'}</Text>
                       </View>
@@ -404,7 +400,7 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
                       <TouchableOpacity onPress={() => alternarIlimitado(item.servico_id)}
                         accessibilityLabel={item.quantidade == null ? 'Definir quantidade' : 'Tornar ilimitado'}
                         style={{ width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: item.quantidade == null ? C.primarySoft : C.bg }}>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: item.quantidade == null ? C.primary : C.text4 }}>∞</Text>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 15, color: item.quantidade == null ? C.primaryTexto : C.text4 }}>∞</Text>
                       </TouchableOpacity>
                     )}
                     {!composicaoTravada && (
@@ -423,7 +419,7 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
               {!composicaoTravada && (
                 <View style={{ marginTop: 12 }}>
                   <TextInput value={buscaServico} onChangeText={setBuscaServico} placeholder="+ Adicionar serviço..."
-                    placeholderTextColor={C.text4} style={inputStyle} />
+                    placeholderTextColor={C.text4} style={inputStyle(C)} />
                   <View style={{ marginTop: 6, gap: 4 }}>
                     {disponiveis.map(s => (
                       <TouchableOpacity key={s.id} onPress={() => adicionarServico(s)}
@@ -442,7 +438,7 @@ export function PacoteForm({ pacoteId }: { pacoteId?: string }) {
 
             {erro ? (
               <View style={{ backgroundColor: C.redSoft, borderRadius: 12, padding: 12, marginBottom: 16 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.red }}>{erro}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.redTexto }}>{erro}</Text>
               </View>
             ) : null}
 

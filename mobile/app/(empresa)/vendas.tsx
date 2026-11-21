@@ -60,15 +60,8 @@ import { buscarTodasOuLancar } from '@shared/kpis-financeiros-consultas';
 import { mensagemErroBanco } from '@shared/erros';
 import { formatarMoeda } from '@shared/moeda';
 import { limitesDias, chaveDiaExibido, horaBRT, rotuloDiaExtenso } from '@shared/periodos';
+import { useTema, BarraDeStatus, comTemaDoUsuario } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  red: '#EF4444', redSoft: '#FEF2F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 // ── Tipos ─────────────────────────────────────────────────────
 
@@ -111,7 +104,8 @@ const somarDiasData = (d: Date, n: number) => { const x = new Date(d); x.setDate
 
 // ── Tela ──────────────────────────────────────────────────────
 
-export default function VendasScreen() {
+function VendasScreen() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const empresaId = useAuthStore(s => s.empresaAtiva?.id ?? null);
   const { pode, permissoesCarregadas } = usePermissoes();
@@ -373,7 +367,7 @@ export default function VendasScreen() {
   if (!permissoesCarregadas) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={C.primary} />
+        <ActivityIndicator color={C.primaryTexto} />
       </View>
     );
   }
@@ -397,12 +391,12 @@ export default function VendasScreen() {
     const s = sucesso;
     return (
       <View style={{ flex: 1, backgroundColor: C.surface, paddingTop: insets.top }}>
-        <StatusBar barStyle="dark-content" />
+        <BarraDeStatus />
         <ScrollView contentContainerStyle={{ alignItems: 'center', padding: 24, paddingBottom: insets.bottom + 32 }}>
           <SuccessCheck size={84} />
           <MotiView from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 350, delay: 200 }}>
             <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 22, color: C.text, textAlign: 'center', marginTop: 16 }}>Venda finalizada</Text>
-            <Text style={{ fontFamily: fonte('700'), fontSize: 14, color: C.green, textAlign: 'center', marginTop: 4 }}>{formatarMoeda(s.total)}</Text>
+            <Text style={{ fontFamily: fonte('700'), fontSize: 14, color: C.greenTexto, textAlign: 'center', marginTop: 4 }}>{formatarMoeda(s.total)}</Text>
             <Text style={{ fontFamily: fonte('400'), fontSize: 12, color: C.text3, textAlign: 'center', marginTop: 2 }}>
               {s.cliente ? s.cliente.nome : 'Venda avulsa'}
             </Text>
@@ -418,8 +412,8 @@ export default function VendasScreen() {
             ))}
             {s.desconto > 0 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ fontFamily: fonte('500'), fontSize: 13, color: C.green }}>(−) Desconto</Text>
-                <Text style={{ fontFamily: fonte('600'), fontSize: 13, color: C.green }}>− {formatarMoeda(s.desconto)}</Text>
+                <Text style={{ fontFamily: fonte('500'), fontSize: 13, color: C.greenTexto }}>(−) Desconto</Text>
+                <Text style={{ fontFamily: fonte('600'), fontSize: 13, color: C.greenTexto }}>− {formatarMoeda(s.desconto)}</Text>
               </View>
             )}
             <Text style={{ fontFamily: fonte('700'), fontSize: 10.5, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 8 }}>Pagamento</Text>
@@ -436,8 +430,8 @@ export default function VendasScreen() {
 
           {s.avisoEstoque && (
             <View style={{ width: '100%', maxWidth: 340, marginTop: 12, flexDirection: 'row', gap: 8, backgroundColor: C.amberSoft, borderRadius: 12, padding: 12 }}>
-              <AlertCircle size={16} color={C.amber} />
-              <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.amber, flex: 1 }}>{s.avisoEstoque}</Text>
+              <AlertCircle size={16} color={C.amberTexto} />
+              <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.amberTexto, flex: 1 }}>{s.avisoEstoque}</Text>
             </View>
           )}
 
@@ -476,7 +470,7 @@ export default function VendasScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
-        <StatusBar barStyle="dark-content" />
+        <BarraDeStatus />
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 }}>
           <TouchableOpacity onPress={() => router.back()} style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
@@ -498,7 +492,7 @@ export default function VendasScreen() {
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 200, gap: 16 }} keyboardShouldPersistTaps="handled">
               {erroCarga && (
                 <TouchableOpacity onPress={carregar} style={{ backgroundColor: C.redSoft, borderRadius: 12, padding: 12 }}>
-                  <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.red }}>{erroCarga} — toque para tentar de novo.</Text>
+                  <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.redTexto }}>{erroCarga} — toque para tentar de novo.</Text>
                 </TouchableOpacity>
               )}
 
@@ -510,7 +504,7 @@ export default function VendasScreen() {
                     style={{ flex: 1, marginLeft: 8, fontFamily: fonte('500'), fontSize: 14, color: C.text }} />
                 </View>
                 {loading ? (
-                  <ActivityIndicator color={C.primary} style={{ marginVertical: 20 }} />
+                  <ActivityIndicator color={C.primaryTexto} style={{ marginVertical: 20 }} />
                 ) : produtosFiltrados.length === 0 ? (
                   <View style={{ alignItems: 'center', paddingVertical: 20 }}>
                     <Package size={26} color={C.text4} />
@@ -528,11 +522,11 @@ export default function VendasScreen() {
                           disabled={semEstoque || travada} activeOpacity={0.7}
                           style={{
                             flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 12, marginBottom: 6,
-                            borderWidth: 1, borderColor: noCart ? C.primary : C.border,
+                            borderWidth: 1, borderColor: noCart ? C.primaryTexto : C.border,
                             backgroundColor: noCart ? C.primarySoft : C.surface, opacity: semEstoque ? 0.5 : 1,
                           }}>
                           <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                            <Package size={14} color={C.primary} />
+                            <Package size={14} color={C.primaryTexto} />
                           </View>
                           <View style={{ flex: 1 }}>
                             <Text style={{ fontFamily: fonte('600'), fontSize: 13, color: C.text }} numberOfLines={1}>{p.nome}</Text>
@@ -641,7 +635,7 @@ export default function VendasScreen() {
               {podeDesconto && (
               <View pointerEvents={travada ? 'none' : 'auto'} style={{ opacity: travada ? 0.6 : 1 }}>
                 <Text style={{ fontFamily: fonte('700'), fontSize: 10, color: C.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>Desconto</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: erroDesconto ? C.red : C.border }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: erroDesconto ? C.redTexto : C.border }}>
                   <Tag size={16} color={C.text3} />
                   <Text style={{ flex: 1, fontFamily: fonte('400'), fontSize: 14, color: C.text2, marginLeft: 10 }}>Desconto</Text>
                   {/* Seletor % / R$ — trocar o modo limpa o valor para não reinterpretar o número */}
@@ -664,7 +658,7 @@ export default function VendasScreen() {
                   <Text style={{ fontFamily: fonte('700'), fontSize: 12, color: C.text3, marginLeft: 4 }}>{descontoModo === 'percentual' ? '%' : 'R$'}</Text>
                 </View>
                 {erroDesconto && (
-                  <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.red, marginTop: 6 }}>{erroDesconto}</Text>
+                  <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.redTexto, marginTop: 6 }}>{erroDesconto}</Text>
                 )}
               </View>
               )}
@@ -681,7 +675,7 @@ export default function VendasScreen() {
                       <Text style={{ fontFamily: fonte('400'), fontSize: 14, color: C.text2 }}>
                         (−) Desconto{descontoModo === 'percentual' ? ` ${String(descontoEntradaN).replace('.', ',')}%` : ''}
                       </Text>
-                      <Text style={{ fontFamily: fonte('600'), fontSize: 14, color: C.red }}>− {formatarMoeda(descontoN)}</Text>
+                      <Text style={{ fontFamily: fonte('600'), fontSize: 14, color: C.redTexto }}>− {formatarMoeda(descontoN)}</Text>
                     </View>
                   </>
                 )}
@@ -700,15 +694,15 @@ export default function VendasScreen() {
 
               {!!erro && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.redSoft, borderRadius: 12, padding: 12 }}>
-                  <AlertCircle size={15} color={C.red} />
-                  <Text style={{ flex: 1, fontFamily: fonte('500'), fontSize: 13, color: C.red }}>{erro}</Text>
+                  <AlertCircle size={15} color={C.redTexto} />
+                  <Text style={{ flex: 1, fontFamily: fonte('500'), fontSize: 13, color: C.redTexto }}>{erro}</Text>
                 </View>
               )}
 
               {/* Carrinho travado: venda sem resposta (confere antes) ou gravada pela metade — igual ao web */}
               {travada && (
                 <View style={{ backgroundColor: C.amberSoft, borderRadius: 12, padding: 12, gap: 8 }}>
-                  <Text style={{ fontFamily: fonte('500'), fontSize: 13, color: C.amber }}>
+                  <Text style={{ fontFamily: fonte('500'), fontSize: 13, color: C.amberTexto }}>
                     {pendente
                       ? 'A venda anterior ficou sem resposta e pode ter sido registrada. Repita sem mudar nada, ou confira antes.'
                       : 'Esta venda já foi registrada. Confira em Financeiro.'}
@@ -716,13 +710,13 @@ export default function VendasScreen() {
                   <View style={{ flexDirection: 'row', gap: 16 }}>
                     {pendente && (
                       <TouchableOpacity onPress={() => conferirPendente(false)} disabled={conferindo} style={{ opacity: conferindo ? 0.5 : 1 }}>
-                        <Text style={{ fontFamily: fonte('700'), fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                        <Text style={{ fontFamily: fonte('700'), fontSize: 12, color: C.primaryTexto, textDecorationLine: 'underline' }}>
                           {conferindo ? 'Conferindo...' : 'Recarregar'}
                         </Text>
                       </TouchableOpacity>
                     )}
                     <TouchableOpacity onPress={novaVenda} disabled={conferindo} style={{ opacity: conferindo ? 0.5 : 1 }}>
-                      <Text style={{ fontFamily: fonte('700'), fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>Nova venda</Text>
+                      <Text style={{ fontFamily: fonte('700'), fontSize: 12, color: C.primaryTexto, textDecorationLine: 'underline' }}>Nova venda</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -732,7 +726,7 @@ export default function VendasScreen() {
             {/* Footer — Finalizar venda */}
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: insets.bottom + 12, paddingTop: 12, backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border }}>
               {cart.length > 0 && !travada && resumo.motivo && (
-                <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: erroDesconto ? C.red : C.amber, textAlign: 'center', marginBottom: 8 }}>
+                <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: erroDesconto ? C.redTexto : C.amberTexto, textAlign: 'center', marginBottom: 8 }}>
                   {resumo.motivo}
                 </Text>
               )}
@@ -785,10 +779,10 @@ export default function VendasScreen() {
             )}
 
             {loadingVendas ? (
-              <ActivityIndicator color={C.primary} style={{ marginTop: 30 }} />
+              <ActivityIndicator color={C.primaryTexto} style={{ marginTop: 30 }} />
             ) : erroVendas ? (
               <TouchableOpacity onPress={carregarVendas} style={{ backgroundColor: C.redSoft, borderRadius: 12, padding: 12 }}>
-                <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.red }}>{erroVendas} — toque para tentar de novo.</Text>
+                <Text style={{ fontFamily: fonte('600'), fontSize: 12, color: C.redTexto }}>{erroVendas} — toque para tentar de novo.</Text>
               </TouchableOpacity>
             ) : vendas.length === 0 ? (
               <View style={{ alignItems: 'center', paddingVertical: 40 }}>
@@ -830,3 +824,5 @@ export default function VendasScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(VendasScreen);

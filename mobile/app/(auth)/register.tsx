@@ -23,15 +23,7 @@ import {
 
 import { supabase } from '@/lib/supabase';
 import { SENHA_MINIMA, validarSenhaMinima } from '@shared/senha';
-
-// ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654',
-  accent: '#9B6FE8',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Campo de input ───────────────────────────────────────────
 
@@ -49,6 +41,7 @@ function Campo({
   icon: React.ReactNode;
   rightIcon?: React.ReactNode;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={{
@@ -86,7 +79,8 @@ function Campo({
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function Register() {
+function Register() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const [nome, setNome]            = useState('');
   const [email, setEmail]          = useState('');
@@ -267,7 +261,7 @@ export default function Register() {
             }
           />
           {confirmar && senha !== confirmar ? (
-            <Text style={{ color: '#C0392B', fontSize: 12, marginTop: -8, marginBottom: 12 }}>
+            <Text style={{ color: C.redTexto, fontSize: 12, marginTop: -8, marginBottom: 12 }}>
               As senhas não coincidem
             </Text>
           ) : null}
@@ -279,7 +273,7 @@ export default function Register() {
             style={{ marginTop: 10, marginBottom: 16 }}
           >
             <LinearGradient
-              colors={['#2C1654', '#4A2480']}
+              colors={[C.primary, '#5B2D99']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={{
                 borderRadius: 16, paddingVertical: 16, alignItems: 'center',
@@ -311,3 +305,5 @@ export default function Register() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(Register);

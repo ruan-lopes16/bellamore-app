@@ -67,14 +67,7 @@ import { avisoVendaPacoteAgenda, type ResultadoVendaPacote } from '@shared/pacot
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8', accentSoft: '#F3EFFE',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  rose: '#B42318', roseSoft: '#FEF3F2',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 const AVATAR_COLORS: [string, string][] = [
   ['#7C3AED', '#A855F7'], ['#D4608A', '#F472B6'],
@@ -136,6 +129,7 @@ type AgEdicao = {
 function Secao({ numero, titulo, completo, children }: {
   numero: number; titulo: string; completo?: boolean; children: React.ReactNode;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginHorizontal: 24, marginBottom: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -165,7 +159,8 @@ function Secao({ numero, titulo, completo, children }: {
  * `?id=` edição · `?data=AAAA-MM-DD` · `?hora=HH:MM` (ISO completo também é aceito) ·
  * `?profissional=<user_id>` · `?clienteId=`.
  */
-export default function NovoAgendamento() {
+function NovoAgendamento() {
+  const { C, escuro } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva, user } = useAuthStore();
   const { pode } = usePermissoes();
@@ -794,7 +789,7 @@ export default function NovoAgendamento() {
   if (sucesso) {
     return (
       <View style={{ flex: 1, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: insets.top }}>
-        <StatusBar barStyle="dark-content" />
+        <StatusBar barStyle={escuro ? 'light-content' : 'dark-content'} />
         <SuccessCheck size={72} />
         <MotiView from={{ translateY: 12, opacity: 0 }} animate={{ translateY: 0, opacity: 1 }}
           transition={{ type: 'timing', duration: 350, delay: 150 }}
@@ -812,7 +807,7 @@ export default function NovoAgendamento() {
             {horaBRT(sucesso.inicioIso)}–{horaBRT(sucesso.fimIso)}
           </Text>
           {!!avisoTaxaReserva && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: '#B45309', textAlign: 'center', marginTop: 8 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amberTexto, textAlign: 'center', marginTop: 8 }}>
               {avisoTaxaReserva}
             </Text>
           )}
@@ -856,15 +851,15 @@ export default function NovoAgendamento() {
       >
         {editId && (carregandoEdit || !!motivoEdicaoTravada) && (
           <View style={{ marginHorizontal: 24, marginBottom: 16, padding: 12, borderRadius: 12,
-            backgroundColor: motivoEdicaoTravada ? C.roseSoft : C.accentSoft }}>
+            backgroundColor: motivoEdicaoTravada ? C.redSoft : C.accentSoft }}>
             {motivoEdicaoTravada
-              ? <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.rose }}>{motivoEdicaoTravada}</Text>
-              : <ActivityIndicator color={C.primary} />}
+              ? <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto }}>{motivoEdicaoTravada}</Text>
+              : <ActivityIndicator color={C.primaryTexto} />}
           </View>
         )}
         {!!idCriado && (
-          <View style={{ marginHorizontal: 24, marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: C.roseSoft }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.rose }}>
+          <View style={{ marginHorizontal: 24, marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: C.redSoft }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto }}>
               O agendamento já foi criado, mas os serviços não foram gravados. Toque em "Salvar serviços" para tentar de novo.
             </Text>
           </View>
@@ -876,7 +871,7 @@ export default function NovoAgendamento() {
             onPress={() => { if (!formTravado) setModalCliente(true); }}
             style={{
               backgroundColor: C.surface, borderWidth: 1,
-              borderColor: clienteSelecionado ? C.green : C.border,
+              borderColor: clienteSelecionado ? C.greenTexto : C.border,
               borderRadius: 14, padding: 14,
               flexDirection: 'row', alignItems: 'center', gap: 12,
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
@@ -899,8 +894,8 @@ export default function NovoAgendamento() {
                   {clienteCriadoFlash ? (
                     <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 200 }}
                       style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 }}>
-                      <Check size={11} color={C.green} strokeWidth={3} />
-                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.green }}>
+                      <Check size={11} color={C.greenTexto} strokeWidth={3} />
+                      <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.greenTexto }}>
                         Cadastrada agora
                       </Text>
                     </MotiView>
@@ -917,7 +912,7 @@ export default function NovoAgendamento() {
             ) : (
               <>
                 <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-                  <User size={16} color={C.primary} strokeWidth={2} />
+                  <User size={16} color={C.primaryTexto} strokeWidth={2} />
                 </View>
                 <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.text3, flex: 1 }}>
                   Selecionar cliente…
@@ -946,17 +941,17 @@ export default function NovoAgendamento() {
                         style={{
                           flexDirection: 'row', alignItems: 'center', gap: 6,
                           backgroundColor: ativo ? C.primarySoft : C.surface,
-                          borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                          borderWidth: 1, borderColor: ativo ? C.primaryTexto : C.border,
                           borderRadius: 20, paddingVertical: 8, paddingHorizontal: 12,
                         }}
                       >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text2 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text2 }}>
                           {p.nome}
                         </Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: ativo ? C.primary : C.text4 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: ativo ? C.primaryTexto : C.text4 }}>
                           {p.saldoTexto}
                         </Text>
-                        {ativo && <Check size={12} color={C.primary} strokeWidth={2.5} />}
+                        {ativo && <Check size={12} color={C.primaryTexto} strokeWidth={2.5} />}
                       </TouchableOpacity>
                     );
                   })}
@@ -1010,7 +1005,7 @@ export default function NovoAgendamento() {
             {/* Pacote vendido agora fora da lista de elegíveis (ex.: combo): vinculado mesmo assim. */}
             {pacoteVendido && pacoteVendido.clienteId === clienteSelecionado.id && pacoteClienteId === pacoteVendido.id
               && !pacotesCliente.some(p => p.id === pacoteVendido.id) && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, backgroundColor: C.greenSoft, borderWidth: 1, borderColor: C.green, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, backgroundColor: C.greenSoft, borderWidth: 1, borderColor: C.greenTexto, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 }}>
                 <Text numberOfLines={1} style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text2 }}>
                   Pacote vendido agora: {pacoteVendido.nome}
                 </Text>
@@ -1021,10 +1016,10 @@ export default function NovoAgendamento() {
               </View>
             )}
             {!!avisoPacoteExibido && (
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: '#B45309', marginBottom: 8 }}>{avisoPacoteExibido}</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amberTexto, marginBottom: 8 }}>{avisoPacoteExibido}</Text>
             )}
             {!!erroPacotes && (
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.rose, marginBottom: 8 }}>{erroPacotes}</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.redTexto, marginBottom: 8 }}>{erroPacotes}</Text>
             )}
 
             {!pacoteClienteId && pacotesCatalogo.length > 0 && podeVenderPacote && (
@@ -1043,17 +1038,17 @@ export default function NovoAgendamento() {
                         style={{
                           flexDirection: 'row', alignItems: 'center', gap: 6,
                           backgroundColor: ativo ? C.greenSoft : C.surface,
-                          borderWidth: 1, borderColor: ativo ? C.green : C.border,
+                          borderWidth: 1, borderColor: ativo ? C.greenTexto : C.border,
                           borderRadius: 20, paddingVertical: 8, paddingHorizontal: 12,
                         }}
                       >
-                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.green : C.text2 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.greenTexto : C.text2 }}>
                           {p.nome}
                         </Text>
-                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: ativo ? C.green : C.text4 }}>
+                        <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 10, color: ativo ? C.greenTexto : C.text4 }}>
                           {formatarMoeda(p.preco)}
                         </Text>
-                        {ativo && <Check size={12} color={C.green} strokeWidth={2.5} />}
+                        {ativo && <Check size={12} color={C.greenTexto} strokeWidth={2.5} />}
                       </TouchableOpacity>
                     );
                   })}
@@ -1079,7 +1074,7 @@ export default function NovoAgendamento() {
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.text3 }}>
                 Total ({linhasPreenchidas.length} {linhasPreenchidas.length === 1 ? 'serviço' : 'serviços'})
               </Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: valoresOk ? C.text : C.rose }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: valoresOk ? C.text : C.redTexto }}>
                 {valoresOk ? formatarMoeda(valorTotal) : '—'}
               </Text>
             </View>
@@ -1103,7 +1098,7 @@ export default function NovoAgendamento() {
                   style={{
                     flexDirection: 'row', alignItems: 'center', gap: 8,
                     backgroundColor: ativo ? C.primarySoft : C.surface,
-                    borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                    borderWidth: 1, borderColor: ativo ? C.primaryTexto : C.border,
                     borderRadius: 20, paddingVertical: 8, paddingHorizontal: 12,
                     shadowColor: C.primary, shadowOpacity: 0.03, shadowRadius: 4, elevation: 1,
                   }}
@@ -1118,11 +1113,11 @@ export default function NovoAgendamento() {
                   </LinearGradient>
                   <Text style={{
                     fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12,
-                    color: ativo ? C.primary : C.text2,
+                    color: ativo ? C.primaryTexto : C.text2,
                   }}>
                     {p.nome.split(' ')[0]}
                   </Text>
-                  {ativo && <Check size={12} color={C.primary} strokeWidth={2.5} />}
+                  {ativo && <Check size={12} color={C.primaryTexto} strokeWidth={2.5} />}
                 </TouchableOpacity>
               );
             })}
@@ -1194,7 +1189,7 @@ export default function NovoAgendamento() {
               keyboardType="number-pad"
               maxLength={4}
               style={{
-                width: 80, borderWidth: 1, borderColor: duracaoTotalOk ? C.border : C.rose, borderRadius: 10,
+                width: 80, borderWidth: 1, borderColor: duracaoTotalOk ? C.border : C.redTexto, borderRadius: 10,
                 paddingHorizontal: 10, paddingVertical: 7, backgroundColor: C.surface,
                 fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.text,
               }}
@@ -1235,7 +1230,7 @@ export default function NovoAgendamento() {
             </View>
             {cobrarTaxaReserva && (
               <View style={{
-                marginTop: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: taxaOk ? C.border : C.rose,
+                marginTop: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: taxaOk ? C.border : C.redTexto,
                 borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 12,
                 paddingHorizontal: 14,
                 shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
@@ -1257,7 +1252,7 @@ export default function NovoAgendamento() {
               </View>
             )}
             {cobrarTaxaReserva && !taxaOk && (
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.rose, marginTop: 6 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.redTexto, marginTop: 6 }}>
                 Valor da taxa inválido. Use, por exemplo, 30,00.
               </Text>
             )}
@@ -1347,7 +1342,7 @@ export default function NovoAgendamento() {
           transition={{ type: 'timing', duration: 250 }}
           style={{ marginBottom: 10 }}
         >
-          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: podeSalvar ? C.text3 : C.rose, textAlign: 'center' }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: podeSalvar ? C.text3 : C.redTexto, textAlign: 'center' }}>
             {podeSalvar
               ? `${clienteSelecionado?.nome?.split(' ')[0]} · ${linhasPreenchidas.length} ${linhasPreenchidas.length === 1 ? 'serviço' : 'serviços'} · ${formatarMoeda(valorTotal)} · ${rotuloDiaCurto(dataChave)} ${hora ?? ''}`
               : (motivoNaoSalva ?? '')}
@@ -1522,7 +1517,7 @@ export default function NovoAgendamento() {
                 }}>
                   <UserPlus size={18} color="#fff" strokeWidth={2} />
                 </View>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primary }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.primaryTexto }}>
                   Cadastrar nova cliente
                 </Text>
               </TouchableOpacity>
@@ -1569,7 +1564,7 @@ export default function NovoAgendamento() {
               <View style={{ padding: 32, alignItems: 'center', gap: 12 }}>
                 {erroClientes ? (
                   <>
-                    <Text accessibilityRole="alert" style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.rose, textAlign: 'center' }}>
+                    <Text accessibilityRole="alert" style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.redTexto, textAlign: 'center' }}>
                       {mensagemErroBanco(erroClientesObj as { code?: string; message?: string }, 'carregar as clientes')}
                     </Text>
                     <TouchableOpacity
@@ -1581,7 +1576,7 @@ export default function NovoAgendamento() {
                     </TouchableOpacity>
                   </>
                 ) : carregandoClientes ? (
-                  <ActivityIndicator color={C.primary} />
+                  <ActivityIndicator color={C.primaryTexto} />
                 ) : (
                   <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 13, color: C.text3 }}>
                     Nenhuma cliente encontrada
@@ -1596,3 +1591,5 @@ export default function NovoAgendamento() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(NovoAgendamento);

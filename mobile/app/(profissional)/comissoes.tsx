@@ -81,7 +81,7 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
               {item.percentual}%
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text4 }}>=</Text>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.green, letterSpacing: -0.5 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: C.greenTexto, letterSpacing: -0.5 }}>
               <SecretText>{formatarMoeda(item.valorComissao)}</SecretText>
             </Text>
           </View>
@@ -94,7 +94,7 @@ function ComissaoCard({ item, index }: { item: ComissaoItem; index: number }) {
             <Text style={{
               fontFamily: 'PlusJakartaSans_700Bold',
               fontSize: 9, textTransform: 'uppercase',
-              color: pago ? C.green : C.amber,
+              color: pago ? C.greenTexto : C.amberTexto,
               letterSpacing: 0.3,
             }}>
               {pago ? 'Pago' : 'Pendente'}
@@ -219,9 +219,9 @@ function Comissoes() {
           <TouchableOpacity
             onPress={() => { refetch(); refetchResumo(); }}
             activeOpacity={0.8}
-            style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#C0392B', borderRadius: 14, padding: 12 }}
+            style={{ marginHorizontal: 24, marginBottom: 12, backgroundColor: C.redSoft, borderWidth: 1, borderColor: C.red, borderRadius: 14, padding: 12 }}
           >
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: '#C0392B', marginBottom: 2 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.redTexto, marginBottom: 2 }}>
               Não foi possível carregar suas comissões
             </Text>
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.text2 }}>
@@ -271,10 +271,10 @@ function Comissoes() {
           style={{ marginHorizontal: 24, marginBottom: 20, flexDirection: 'row', gap: 8 }}
         >
           {[
-            { label: 'Atendimentos', value: numRes(resumo?.atendimentos ?? 0), color: C.primary },
-            { label: 'Comissão média', value: fmtRes(resumo?.ticketMedio ?? 0), color: C.primary },
-            { label: 'Já recebido', value: fmtRes(resumo?.pago ?? 0), color: C.green, pill: 'pago' },
-            { label: 'Pendente', value: fmtRes(resumo?.pendente ?? 0), color: C.amber, pill: 'pendente' },
+            { label: 'Atendimentos', value: numRes(resumo?.atendimentos ?? 0), color: C.primaryTexto },
+            { label: 'Comissão média', value: fmtRes(resumo?.ticketMedio ?? 0), color: C.primaryTexto },
+            { label: 'Já recebido', value: fmtRes(resumo?.pago ?? 0), color: C.greenTexto, pill: 'pago' },
+            { label: 'Pendente', value: fmtRes(resumo?.pendente ?? 0), color: C.amberTexto, pill: 'pendente' },
           ].map((k) => (
             <View key={k.label} style={{
               flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -289,7 +289,7 @@ function Comissoes() {
               </Text>
               {k.pill && (
                 <View style={{ backgroundColor: k.pill === 'pago' ? C.greenSoft : C.amberSoft, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start' }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: k.pill === 'pago' ? C.green : C.amber, textTransform: 'uppercase' }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: k.pill === 'pago' ? C.greenTexto : C.amberTexto, textTransform: 'uppercase' }}>
                     {k.pill}
                   </Text>
                 </View>

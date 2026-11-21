@@ -34,18 +34,9 @@ import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoComissoes } from '@shared/exportacao/comissoes';
 import { formatarMoeda } from '@shared/moeda';
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 const AVATAR_COLORS = [
   ['#7C3AED', '#A855F7'], ['#D4608A', '#E879A0'],
@@ -73,6 +64,7 @@ function ProfCard({
   /** `comissoes.pagar` — o banco exige essa chave no UPDATE de `comissoes`. */
   podePagar: boolean;
 }) {
+  const { C } = useTema();
   const [from, to] = AVATAR_COLORS[index % AVATAR_COLORS.length];
   const grupos = agruparComissoesPorData(filtrarComissoes(item.itens, filtro), periodo);
 
@@ -119,8 +111,8 @@ function ProfCard({
           </TouchableOpacity>
         ) : null) : (
           <View style={{ backgroundColor: C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-            <CircleCheck size={12} color={C.green} strokeWidth={2} />
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.green }}>Pago</Text>
+            <CircleCheck size={12} color={C.greenTexto} strokeWidth={2} />
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.greenTexto }}>Pago</Text>
           </View>
         )}
       </View>
@@ -129,7 +121,7 @@ function ProfCard({
       {grupos.map((g) => (
         <View key={g.chave}>
           {periodo !== 'dia' && (
-            <View style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: '#FAFAF9', borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <View style={{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 9, color: C.text3, letterSpacing: 1, textTransform: 'uppercase' }}>
                 {g.rotulo}
               </Text>
@@ -168,7 +160,7 @@ function ProfCard({
                     marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
                     backgroundColor: c.status === 'pago' ? C.greenSoft : C.amberSoft,
                   }}>
-                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 8, textTransform: 'uppercase', color: c.status === 'pago' ? C.green : C.amber }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 8, textTransform: 'uppercase', color: c.status === 'pago' ? C.greenTexto : C.amberTexto }}>
                       {c.status === 'pago' ? 'Pago' : 'Pendente'}
                     </Text>
                   </View>
@@ -180,12 +172,12 @@ function ProfCard({
       ))}
 
       {/* Footer com ação */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: '#FAFAF9', borderTopWidth: 1, borderTopColor: C.border }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: C.bg, borderTopWidth: 1, borderTopColor: C.border }}>
         <View>
           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 10, color: C.text3 }}>
             {temPendente ? 'Pendente para repassar' : 'Tudo repassado'}
           </Text>
-          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: temPendente ? C.amber : C.green }}>
+          <SecretText style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: temPendente ? C.amberTexto : C.greenTexto }}>
             {formatarMoeda(temPendente ? item.pendente : item.pago)}
           </SecretText>
         </View>
@@ -204,6 +196,7 @@ function ModalPagamento({
   onClose: () => void;
   onConfirmar: () => Promise<unknown>;
 }) {
+  const { C } = useTema();
   const [salvando, setSalvando] = useState(false);
 
   async function confirmar() {
@@ -229,8 +222,8 @@ function ModalPagamento({
               {profissional?.nome}
             </Text>
             <View style={{ backgroundColor: C.amberSoft, borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 24 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber, marginBottom: 4 }}>Pendentes de {rotuloPeriodo}</Text>
-              <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 32, color: C.amber, letterSpacing: -1 }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amberTexto, marginBottom: 4 }}>Pendentes de {rotuloPeriodo}</Text>
+              <SecretText numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 32, color: C.amberTexto, letterSpacing: -1 }}>
                 {formatarMoeda(profissional?.pendente ?? 0)}
               </SecretText>
             </View>
@@ -249,7 +242,8 @@ function ModalPagamento({
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Comissoes() {
+function Comissoes() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const [periodo, setPeriodo] = useState<PeriodoComissao>('mes');
   const [deslocamento, setDeslocamento] = useState(0);
@@ -360,9 +354,9 @@ export default function Comissoes() {
           style={{ flexDirection: 'row', gap: 8, marginHorizontal: 24, marginBottom: 16 }}
         >
           {[
-            { label: 'Total', val: resumo.total,    color: C.primary },
-            { label: 'Pendente', val: resumo.pendente, color: C.amber   },
-            { label: 'Pago',    val: resumo.pago,    color: C.green   },
+            { label: 'Total', val: resumo.total,    color: C.primaryTexto },
+            { label: 'Pendente', val: resumo.pendente, color: C.amberTexto   },
+            { label: 'Pago',    val: resumo.pago,    color: C.greenTexto   },
           ].map((s) => (
             <View key={s.label} style={{ flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 14, shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{s.label}</Text>
@@ -418,3 +412,5 @@ export default function Comissoes() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Comissoes);

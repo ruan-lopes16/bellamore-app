@@ -33,15 +33,7 @@ import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F', greenSoft: '#EAFAF5',
-  rose: '#D4608A', roseSoft: '#FDF0F5',
-  amber: '#B45309', amberSoft: '#FEF3E2',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 // ── Campo de input ───────────────────────────────────────────
 
@@ -59,6 +51,7 @@ function Campo({
   obrigatorio?: boolean;
   maxLength?: number;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 14 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
@@ -103,7 +96,8 @@ function Campo({
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function NovoCliente() {
+function NovoCliente() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const { pode, permissoesCarregadas } = usePermissoes();
@@ -131,7 +125,7 @@ export default function NovoCliente() {
   if (!permissoesCarregadas) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={C.primary} />
+        <ActivityIndicator color={C.primaryTexto} />
       </View>
     );
   }
@@ -143,7 +137,7 @@ export default function NovoCliente() {
           Você não tem permissão para cadastrar cliente.
         </Text>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primary }}>Voltar</Text>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.primaryTexto }}>Voltar</Text>
         </TouchableOpacity>
       </View>
     );
@@ -306,7 +300,7 @@ export default function NovoCliente() {
             <Text style={{ fontSize: 14 }}>💡</Text>
             <Text style={{
               fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11,
-              color: C.primary, lineHeight: 16, flex: 1,
+              color: C.primaryTexto, lineHeight: 16, flex: 1,
             }}>
               Depois de cadastrar, você segue direto para a ficha de anamnese.
             </Text>
@@ -343,3 +337,5 @@ export default function NovoCliente() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(NovoCliente);

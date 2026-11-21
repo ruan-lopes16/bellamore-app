@@ -24,13 +24,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { rotaInicial } from '@/lib/permissions';
 import { temVinculoAtivo } from '@shared/empresa-ativa';
 import { BannerConvites } from '@/components/BannerConvites';
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-  red: '#C0392B',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 function Campo({
   label, value, onChangeText, placeholder, keyboardType, icon, maxLength, autoCapitalize,
@@ -43,6 +37,7 @@ function Campo({
   autoCapitalize?: any;
   icon: React.ReactNode;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 6 }}>
@@ -74,7 +69,8 @@ function Campo({
  * Chama a RPC `criar_empresa_completo`; o _layout raiz redireciona para a home
  * quando o papel aparece após recarregar a sessão.
  */
-export default function CriarEmpresa() {
+function CriarEmpresa() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const [nome, setNome]         = useState('');
   const [telefone, setTelefone] = useState('');
@@ -201,12 +197,12 @@ export default function CriarEmpresa() {
           />
 
           {erro ? (
-            <Text style={{ color: C.red, fontSize: 13, textAlign: 'center', marginBottom: 12 }}>{erro}</Text>
+            <Text style={{ color: C.redTexto, fontSize: 13, textAlign: 'center', marginBottom: 12 }}>{erro}</Text>
           ) : null}
 
           <TouchableOpacity onPress={criar} disabled={desabilitado} activeOpacity={0.85} style={{ marginTop: 10, marginBottom: 16 }}>
             <LinearGradient
-              colors={['#2C1654', '#4A2480']}
+              colors={[C.primary, '#5B2D99']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={{
                 borderRadius: 16, paddingVertical: 16, alignItems: 'center',
@@ -232,3 +228,5 @@ export default function CriarEmpresa() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(CriarEmpresa);

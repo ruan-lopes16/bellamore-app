@@ -36,6 +36,7 @@ import { formatarDuracao } from '@shared/dominio';
 import { formatarMoeda } from '@shared/moeda';
 import { mensagemErroBanco } from '@shared/erros';
 import { definirAtivoServico } from '@/components/servicos/servicos-gravacao';
+import { useTema, comTemaDoUsuario } from '@/lib/tema';
 
 /** Cor/fundo/label/ícone de uma chave de categoria resolvida (built-in ou id de personalizada). */
 function infoChave(chave: string, customs: CategoriaCustom[]): {
@@ -49,13 +50,6 @@ function infoChave(chave: string, customs: CategoriaCustom[]): {
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  green: '#0D7E5F',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 // ── Hook ─────────────────────────────────────────────────────
 
@@ -92,6 +86,7 @@ function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
   onToggle: () => void;
   onEdit: () => void;
 }) {
+  const { C } = useTema();
   return (
     <MotiView
       from={{ opacity: 0, translateY: 4 }}
@@ -119,7 +114,7 @@ function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
           <Switch
             value={servico.ativo}
             onValueChange={onToggle}
-            trackColor={{ false: '#E5E7EB', true: C.green }}
+            trackColor={{ false: C.border, true: C.green }}
             thumbColor="#fff"
             style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
           />
@@ -142,7 +137,7 @@ function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
           )}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: servico.ativo ? C.primary : C.text3, letterSpacing: -0.5 }}>
+          <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 16, color: servico.ativo ? C.primaryTexto : C.text3, letterSpacing: -0.5 }}>
             {formatarMoeda(servico.preco)}
           </Text>
           {podeGerenciar && (
@@ -165,7 +160,8 @@ function ServicoCard({ servico, podeGerenciar, onToggle, onEdit }: {
 
 // ── Tela principal ───────────────────────────────────────────
 
-export default function Servicos() {
+function Servicos() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const { pode } = usePermissoes();
@@ -276,8 +272,8 @@ export default function Servicos() {
         >
           {[
             // Carregando ou com erro: "—", nunca zeros.
-            { value: isError || isLoading ? '—' : total,          label: 'Total',    color: C.primary },
-            { value: isError || isLoading ? '—' : ativos,         label: 'Ativos',   color: C.green },
+            { value: isError || isLoading ? '—' : total,          label: 'Total',    color: C.primaryTexto },
+            { value: isError || isLoading ? '—' : ativos,         label: 'Ativos',   color: C.greenTexto },
             { value: isError || isLoading ? '—' : total - ativos, label: 'Inativos', color: C.text3 },
           ].map((s) => (
             <View key={s.label} style={{
@@ -359,8 +355,8 @@ export default function Servicos() {
         })}
 
         {isError && (
-          <View style={{ marginHorizontal: 24, marginBottom: 16, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#F5C2C7', borderRadius: 16, padding: 16, alignItems: 'center', gap: 10 }}>
-            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: '#C0392B', textAlign: 'center' }}>
+          <View style={{ marginHorizontal: 24, marginBottom: 16, backgroundColor: C.redSoft, borderWidth: 1, borderColor: `${C.redTexto}40`, borderRadius: 16, padding: 16, alignItems: 'center', gap: 10 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.redTexto, textAlign: 'center' }}>
               {mensagemErroBanco(error as { code?: string; message?: string }, 'carregar os serviços')}
             </Text>
             <TouchableOpacity onPress={() => refetch()} style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 8 }}>
@@ -419,3 +415,5 @@ export default function Servicos() {
     </View>
   );
 }
+
+export default comTemaDoUsuario(Servicos);

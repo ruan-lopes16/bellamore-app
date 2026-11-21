@@ -31,20 +31,15 @@ import {
   unidadePedeQtdPorUnidade, montarProduto, margemVenda, formatarQuantidadeBR,
   type TipoProduto, type OriginalProduto,
 } from '@shared/estoque';
+import { useTema, BarraDeStatus, comTemaDoUsuario } from '@/lib/tema';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8',
-  red: '#C0392B', green: '#2E7D5B',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6', text4: '#B8AECC',
-};
 
 // ── Componentes auxiliares ───────────────────────────────────
 
 function Label({ children }: { children: string }) {
+  const { C } = useTema();
   return (
     <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>
       {children}
@@ -59,6 +54,7 @@ function Field({
   placeholder?: string; keyboardType?: 'default' | 'decimal-pad' | 'numeric' | 'numbers-and-punctuation';
   opcional?: boolean; dica?: string;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 20 }}>
       <View style={{ flexDirection: 'row', gap: 4, marginBottom: 8 }}>
@@ -99,6 +95,7 @@ const TECLADO_COM_SINAL = Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'n
 function ChipSelector({ label, options, value, onChange }: {
   label: string; options: { key: string; label: string }[]; value: string; onChange: (v: string) => void;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 20 }}>
       <Label>{label}</Label>
@@ -112,7 +109,7 @@ function ChipSelector({ label, options, value, onChange }: {
               style={{
                 paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20,
                 backgroundColor: ativo ? C.primary : C.surface,
-                borderWidth: 1, borderColor: ativo ? C.primary : C.border,
+                borderWidth: 1, borderColor: ativo ? C.primaryTexto : C.border,
               }}
             >
               <Text style={{
@@ -130,6 +127,7 @@ function ChipSelector({ label, options, value, onChange }: {
 }
 
 function TipoSelector({ value, onChange }: { value: TipoProduto; onChange: (v: TipoProduto) => void }) {
+  const { C } = useTema();
   const opcoes: { key: TipoProduto; titulo: string; sub: string; cor: string }[] = [
     { key: 'material', titulo: 'Material / Insumo', sub: 'Usado em atendimentos', cor: C.primary },
     { key: 'venda', titulo: 'Para venda (PDV)', sub: 'Revenda para clientes', cor: C.green },
@@ -175,7 +173,8 @@ function invalidarEstoque(qc: QueryClient, empresaId: string) {
 
 // ── Tela ─────────────────────────────────────────────────────
 
-export default function NovoProdutoScreen() {
+function NovoProdutoScreen() {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const qc = useQueryClient();
@@ -245,7 +244,7 @@ export default function NovoProdutoScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={{ flex: 1, backgroundColor: C.bg }}
     >
-      <StatusBar barStyle="dark-content" />
+      <BarraDeStatus />
 
       {/* Header */}
       <View style={{
@@ -264,7 +263,7 @@ export default function NovoProdutoScreen() {
           </Text>
         </View>
         <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-          <Package size={18} color={C.primary} strokeWidth={2} />
+          <Package size={18} color={C.primaryTexto} strokeWidth={2} />
         </View>
       </View>
 
@@ -360,3 +359,5 @@ export default function NovoProdutoScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(NovoProdutoScreen);

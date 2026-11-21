@@ -40,15 +40,11 @@ import {
   carregarCategorias, carregarProdutosInsumo, carregarServicoComInsumos, definirAtivoServico,
   type InsumoItem, type ProdutoInsumo,
 } from './servicos-gravacao';
+import { type Paleta, useTema, BarraDeStatus } from '@/lib/tema';
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  accent: '#9B6FE8', red: '#C0392B', redSoft: '#FEF2F2',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
 
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 20 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>{label}</Text>
@@ -57,11 +53,11 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-const inputStyle = {
+const inputStyle = (C: Paleta) => ({
   backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
   borderRadius: 12, paddingHorizontal: 14, height: 48,
   fontFamily: 'PlusJakartaSans_500Medium', fontSize: 15, color: C.text,
-} as const;
+} as const);
 
 /**
  * Cadastro de serviço do app (criar e editar), igual ao modal do web: nome, descrição, categoria,
@@ -73,6 +69,7 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
   categoriaInicial?: string | null;
   categoriaIdInicial?: string | null;
 }) {
+  const { C } = useTema();
   const insets = useSafeAreaInsets();
   const { empresaAtiva } = useAuthStore();
   const empresaId = empresaAtiva?.id;
@@ -259,7 +256,7 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
   if (carregando) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={C.primary} />
+        <ActivityIndicator color={C.primaryTexto} />
       </View>
     );
   }
@@ -267,7 +264,7 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
   if (erroCarga) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14 }}>
-        <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.red, textAlign: 'center' }}>{erroCarga}</Text>
+        <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 14, color: C.redTexto, textAlign: 'center' }}>{erroCarga}</Text>
         <TouchableOpacity onPress={carregar} style={{ backgroundColor: C.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10 }}>
           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: '#fff' }}>Tentar de novo</Text>
         </TouchableOpacity>
@@ -281,7 +278,7 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
   if (sucesso) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: insets.top }}>
-        <StatusBar barStyle="dark-content" />
+        <BarraDeStatus />
         <SuccessCheck size={72} />
         <MotiView from={{ translateY: 12, opacity: 0 }} animate={{ translateY: 0, opacity: 1 }}
           transition={{ type: 'timing', duration: 350, delay: 150 }}
@@ -320,16 +317,16 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
         <MotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 350, delay: 60 }} style={{ padding: 24 }}>
 
           <Campo label="Nome do serviço *">
-            <TextInput value={nome} onChangeText={setNome} placeholder="Ex: Design de Sobrancelha" placeholderTextColor={C.text4} style={inputStyle} />
+            <TextInput value={nome} onChangeText={setNome} placeholder="Ex: Design de Sobrancelha" placeholderTextColor={C.text4} style={inputStyle(C)} />
           </Campo>
 
           <Campo label="Descrição (opcional)">
-            <TextInput value={descricao} onChangeText={setDescricao} placeholder="Detalhes do serviço..." placeholderTextColor={C.text4} multiline numberOfLines={3} style={[inputStyle, { height: 80, paddingTop: 12, textAlignVertical: 'top' }]} />
+            <TextInput value={descricao} onChangeText={setDescricao} placeholder="Detalhes do serviço..." placeholderTextColor={C.text4} multiline numberOfLines={3} style={[inputStyle(C), { height: 80, paddingTop: 12, textAlignVertical: 'top' }]} />
           </Campo>
 
           <Campo label="Categoria">
             {erroCat ? (
-              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red, marginBottom: 8 }}>{erroCat}</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto, marginBottom: 8 }}>{erroCat}</Text>
             ) : null}
             <CategoriaPicker
               empresaId={empresaId ?? ''}
@@ -344,14 +341,14 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
           <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>Preço cobrado *</Text>
-              <View style={{ ...inputStyle, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ ...inputStyle(C), flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text3 }}>R$</Text>
                 <TextInput value={preco} onChangeText={setPreco} placeholder="0,00" placeholderTextColor={C.text4} keyboardType="decimal-pad" style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 16, color: C.text }} />
               </View>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 8 }}>Custo (opcional)</Text>
-              <View style={{ ...inputStyle, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ ...inputStyle(C), flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.text3 }}>R$</Text>
                 <TextInput value={custo} onChangeText={setCusto} placeholder="0,00" placeholderTextColor={C.text4} keyboardType="decimal-pad" style={{ flex: 1, fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 16, color: C.text }} />
               </View>
@@ -380,7 +377,7 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
           <InsumosEditor produtos={produtos} insumos={insumos} onChange={setInsumos} erroProdutos={erroProdutos} />
 
           {erro ? (
-            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.red, marginBottom: 12 }}>{erro}</Text>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.redTexto, marginBottom: 12 }}>{erro}</Text>
           ) : null}
 
           <TouchableOpacity onPress={salvar} disabled={salvando || ocupado} style={{ backgroundColor: C.primary, borderRadius: 14, height: 54, alignItems: 'center', justifyContent: 'center', opacity: salvando ? 0.7 : 1 }}>
@@ -407,10 +404,10 @@ export function ServicoForm({ servicoId, categoriaInicial, categoriaIdInicial }:
                 onPress={confirmarExcluir}
                 disabled={ocupado || salvando}
                 accessibilityLabel="Excluir serviço"
-                style={{ flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: `${C.red}40`, backgroundColor: C.redSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: ocupado ? 0.6 : 1 }}
+                style={{ flex: 1, height: 46, borderRadius: 12, borderWidth: 1, borderColor: `${C.redTexto}40`, backgroundColor: C.redSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: ocupado ? 0.6 : 1 }}
               >
-                <Trash2 size={14} color={C.red} strokeWidth={2} />
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.red }}>Excluir serviço</Text>
+                <Trash2 size={14} color={C.redTexto} strokeWidth={2} />
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.redTexto }}>Excluir serviço</Text>
               </TouchableOpacity>
             </View>
           )}

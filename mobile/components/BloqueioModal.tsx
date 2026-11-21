@@ -6,11 +6,7 @@ import {
   MOTIVOS_BLOQUEIO, podeSelecionarEscopoGeral,
   type MontarInsertBloqueioInput, type EscopoBloqueio, type MotivoBloqueio,
 } from '@shared/bloqueios';
-
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', rose: '#C9527F', text: '#1A1228', text3: '#8878A6',
-};
+import { useTema } from '@/lib/tema';
 
 type SubmitInput = Omit<MontarInsertBloqueioInput, 'podeAprovarBloqueios' | 'meuUserId' | 'empresaId'>;
 
@@ -35,6 +31,7 @@ export function BloqueioModal({
   onClose: () => void;
   onSubmit: (input: SubmitInput) => Promise<{ situacao: 'aprovado' | 'pendente' }>;
 }) {
+  const { C } = useTema();
   const ehGestao = podeSelecionarEscopoGeral(podeAprovarBloqueios);
   const [escopo, setEscopo] = useState<EscopoBloqueio>('profissional');
   const [profId, setProfId] = useState('');
@@ -88,7 +85,7 @@ export function BloqueioModal({
                 <View style={{ flexDirection: 'row', borderWidth: 1, borderColor: C.border, borderRadius: 12, overflow: 'hidden' }}>
                   {(['profissional', 'geral'] as EscopoBloqueio[]).map((op) => (
                     <TouchableOpacity key={op} onPress={() => setEscopo(op)}
-                      style={{ flex: 1, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: escopo === op ? C.primary : '#fff' }}>
+                      style={{ flex: 1, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: escopo === op ? C.primary : C.surface }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: escopo === op ? '#fff' : C.text3 }}>
                         {op === 'profissional' ? 'Um profissional' : 'Toda a agenda'}
                       </Text>
@@ -99,7 +96,7 @@ export function BloqueioModal({
                   <View style={{ gap: 6 }}>
                     {membros.map((m) => (
                       <TouchableOpacity key={m.id} onPress={() => setProfId(m.id)}
-                        style={{ padding: 12, borderRadius: 10, borderWidth: 1, borderColor: profId === m.id ? C.primary : C.border, backgroundColor: profId === m.id ? '#EEE8F8' : '#fff' }}>
+                        style={{ padding: 12, borderRadius: 10, borderWidth: 1, borderColor: profId === m.id ? C.primary : C.border, backgroundColor: profId === m.id ? C.primarySoft : C.surface }}>
                         <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.text }}>{m.nome}</Text>
                       </TouchableOpacity>
                     ))}
@@ -120,7 +117,7 @@ export function BloqueioModal({
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {MOTIVOS_BLOQUEIO.map((m) => (
                 <TouchableOpacity key={m.key} onPress={() => setMotivo(m.key)}
-                  style={{ paddingHorizontal: 14, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: motivo === m.key ? C.primary : '#fff', borderWidth: 1, borderColor: motivo === m.key ? C.primary : C.border }}>
+                  style={{ paddingHorizontal: 14, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: motivo === m.key ? C.primary : C.surface, borderWidth: 1, borderColor: motivo === m.key ? C.primary : C.border }}>
                   <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: motivo === m.key ? '#fff' : C.text3 }}>{m.label}</Text>
                 </TouchableOpacity>
               ))}

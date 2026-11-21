@@ -30,17 +30,14 @@ import { mensagemErroBanco } from '@shared/erros';
 
 // ── Constantes ───────────────────────────────────────────────
 
-const C = {
-  bg: '#F4F1EE', surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654',
-  text: '#1A1228', text3: '#8878A6', text4: '#B8AECC',
-};
+import { comTemaDoUsuario, useTema } from '@/lib/tema';
 
 function Campo({ label, icon, value, onChangeText, placeholder, keyboardType, autoCapitalize, maxLength, multiline }: {
   label: string; icon: React.ReactNode; value: string;
   onChangeText: (v: string) => void; placeholder: string;
   keyboardType?: any; autoCapitalize?: any; maxLength?: number; multiline?: boolean;
 }) {
+  const { C } = useTema();
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.text, marginBottom: 6 }}>
@@ -64,7 +61,8 @@ function Campo({ label, icon, value, onChangeText, placeholder, keyboardType, au
   );
 }
 
-export default function EditarCliente() {
+function EditarCliente() {
+  const { C } = useTema();
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets  = useSafeAreaInsets();
   const qc      = useQueryClient();
@@ -172,3 +170,5 @@ export default function EditarCliente() {
     </KeyboardAvoidingView>
   );
 }
+
+export default comTemaDoUsuario(EditarCliente);

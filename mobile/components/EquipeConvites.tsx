@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MailQuestion, X } from 'lucide-react-native';
 
 import { supabase } from '@/lib/supabase';
+import { useTema, type Paleta } from '@/lib/tema';
 import {
   carregarConvitesPendentes, cancelarConvite, carregarHistoricoEquipe, cursorHistoricoEquipe, podeCancelarConvite,
   type ConvitePendente,
@@ -13,17 +14,11 @@ import {
   type LinhaHistoricoEquipe,
 } from '@shared/equipe';
 
-const C = {
-  surface: '#FFFFFF', border: '#E8E2DC',
-  primary: '#2C1654', primarySoft: '#EEE8F8',
-  rose: '#C9527F', roseSoft: '#FCEEF3',
-  text: '#1A1228', text2: '#4A3F5C', text3: '#8878A6',
-};
-
-const titulo = {
+/** Estilo do título de seção, com a cor do tema. */
+const tituloDe = (C: Paleta) => ({
   fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11, color: C.text3,
   textTransform: 'uppercase', letterSpacing: 1.5, marginHorizontal: 24, marginBottom: 12,
-} as const;
+} as const);
 
 /** "16/10/2026" a partir do instante ISO (Brasília, sem Intl). */
 const diaDe = (iso: string) => quandoHistoricoEquipe(iso).slice(0, 10);
@@ -34,6 +29,8 @@ const diaDe = (iso: string) => quandoHistoricoEquipe(iso).slice(0, 10);
  * (a tela decide); convite de gestora só a dona cancela (botão escondido, igual ao web; o banco também recusa).
  */
 export function ConvitesPendentesSecao({ empresaId, isOwner }: { empresaId: string; isOwner: boolean }) {
+  const { C } = useTema();
+  const titulo = tituloDe(C);
   const qc = useQueryClient();
   const [cancelandoId, setCancelandoId] = useState<string | null>(null);
 
@@ -92,7 +89,7 @@ export function ConvitesPendentesSecao({ empresaId, isOwner }: { empresaId: stri
             flexDirection: 'row', alignItems: 'center', gap: 12,
           }}>
             <View style={{ width: 34, height: 34, borderRadius: 11, backgroundColor: C.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
-              <MailQuestion size={16} color={C.primary} strokeWidth={2} />
+              <MailQuestion size={16} color={C.primaryTexto}strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13, color: C.text }}>
@@ -110,7 +107,7 @@ export function ConvitesPendentesSecao({ empresaId, isOwner }: { empresaId: stri
               onPress={() => confirmarCancelar(c)} disabled={cancelandoId !== null}
               style={{
                 flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, height: 34, borderRadius: 10,
-                borderWidth: 1, borderColor: 'rgba(201,82,127,0.3)', opacity: cancelandoId !== null ? 0.5 : 1,
+                borderWidth: 1, borderColor: C.rose + '4D', opacity: cancelandoId !== null ? 0.5 : 1,
               }}
             >
               {cancelandoId === c.id
@@ -132,6 +129,8 @@ export function ConvitesPendentesSecao({ empresaId, isOwner }: { empresaId: stri
  * Sem a 092 (`disponivel: false`) a seção some. `nomes` = user_id → nome, montado pela tela.
  */
 export function HistoricoEquipeSecao({ empresaId, nomes }: { empresaId: string; nomes: Record<string, string> }) {
+  const { C } = useTema();
+  const titulo = tituloDe(C);
   const [carregandoMais, setCarregandoMais] = useState(false);
   const [erroMais, setErroMais] = useState('');
   // Páginas além da primeira; a primeira vem do useQuery e se renova ao invalidar (aí as extras zeram).
@@ -213,8 +212,8 @@ export function HistoricoEquipeSecao({ empresaId, nomes }: { empresaId: string; 
             style={{ marginTop: 10, height: 44, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', opacity: carregandoMais ? 0.6 : 1 }}
           >
             {carregandoMais
-              ? <ActivityIndicator color={C.primary} />
-              : <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primary }}>Mostrar mais</Text>}
+              ? <ActivityIndicator color={C.primaryTexto} />
+              : <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.primaryTexto }}>Mostrar mais</Text>}
           </TouchableOpacity>
         )}
       </View>

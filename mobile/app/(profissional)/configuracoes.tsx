@@ -153,14 +153,14 @@ function ConfiguracoesProfissional() {
               borderRadius: 18, marginHorizontal: 24, overflow: 'hidden',
               shadowColor: C.primary, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1,
             }}>
-              <Campo label="Nome" icon={<User size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Nome" icon={<User size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={nomeUser} onChange={setNomeUser} placeholder="Seu nome" />
-              <Campo label="Telefone" icon={<Phone size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Telefone" icon={<Phone size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={telefoneUser} onChange={(v) => setTelefoneUser(maskPhone(v))} placeholder="(00) 00000-0000" keyboardType="phone-pad" />
               <TrocarEmail />
-              <Campo label="Nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Nova senha" icon={<Lock size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={novaSenha} onChange={setNovaSenha} placeholder="Deixe em branco para manter" secureTextEntry />
-              <Campo label="Confirmar nova senha" icon={<Lock size={13} color={C.primary} strokeWidth={1.8} />}
+              <Campo label="Confirmar nova senha" icon={<Lock size={13} color={C.primaryTexto} strokeWidth={1.8} />}
                 value={confirmaSenha} onChange={setConfirmaSenha} placeholder="Repita a nova senha" secureTextEntry ultimo />
             </View>
           </MotiView>
@@ -205,7 +205,7 @@ function ConfiguracoesProfissional() {
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 380, delay: 240 }}
             style={{ marginHorizontal: 24, marginTop: 16 }}
           >
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.red, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 10, color: C.redTexto, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10 }}>
               Zona de Perigo
             </Text>
             <TouchableOpacity
@@ -216,8 +216,8 @@ function ConfiguracoesProfissional() {
                 flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}
             >
-              <LogOut size={15} color={C.red} strokeWidth={2} />
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.red }}>
+              <LogOut size={15} color={C.redTexto} strokeWidth={2} />
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 13, color: C.redTexto }}>
                 Sair da conta
               </Text>
             </TouchableOpacity>

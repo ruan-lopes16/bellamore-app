@@ -81,10 +81,10 @@ import { BarraDeStatus, comTemaDoUsuario, useTema, type Paleta } from '@/lib/tem
 
 
 const statusCor = (C: Paleta): Record<string, { bg: string; text: string }> => ({
-  agendado:   { bg: C.amberSoft, text: C.amber },
-  confirmado: { bg: C.primarySoft, text: C.primary },
-  concluido:  { bg: C.greenSoft, text: C.green },
-  faltou:     { bg: C.redSoft, text: C.red },
+  agendado:   { bg: C.amberSoft, text: C.amberTexto },
+  confirmado: { bg: C.primarySoft, text: C.primaryTexto },
+  concluido:  { bg: C.greenSoft, text: C.greenTexto },
+  faltou:     { bg: C.redSoft, text: C.redTexto },
 });
 
 /** Métodos de pagamento (mesmos chips do bloco de pagamento compartilhado). */
@@ -1470,7 +1470,7 @@ function NovaComandaScreen() {
             <Text style={{ fontFamily: 'Fraunces_600SemiBold', fontSize: 26, color: C.text, textAlign: 'center' }}>
               Comanda fechada!
             </Text>
-            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.green, textAlign: 'center', marginTop: 4 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.greenTexto, textAlign: 'center', marginTop: 4 }}>
               {formatarMoeda(sucessoData.valor)}
             </Text>
           </MotiView>
@@ -1611,7 +1611,7 @@ function NovaComandaScreen() {
               <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 9, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.4 }}>
                 Total do dia
               </Text>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.green }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 14, color: C.greenTexto }}>
                 {formatarMoeda(totalDia)}
               </Text>
             </View>
@@ -1637,7 +1637,7 @@ function NovaComandaScreen() {
             {chaveDiaExibido(dataComanda) !== hojeBRT() && (
               <TouchableOpacity onPress={() => selecionarDia(dataDoDia(hojeBRT()))}
                 style={{ borderRadius: 10, backgroundColor: C.primarySoft, paddingHorizontal: 10, height: 32, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>Hoje</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto }}>Hoje</Text>
               </TouchableOpacity>
             )}
             <View style={{ flexDirection: 'row', backgroundColor: C.surface, borderRadius: 10, padding: 2 }}>
@@ -1705,7 +1705,7 @@ function NovaComandaScreen() {
                       style={{ aspectRatio: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
                         backgroundColor: sel ? C.primary : chaveDiaExibido(d) === hojeBRT() ? C.primarySoft : 'transparent' }}>
                       <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 13,
-                        color: sel ? '#fff' : chaveDiaExibido(d) === hojeBRT() ? C.primary : dMes ? C.text2 : C.text4 }}>
+                        color: sel ? '#fff' : chaveDiaExibido(d) === hojeBRT() ? C.primaryTexto : dMes ? C.text2 : C.text4 }}>
                         {format(d, 'd')}
                       </Text>
                       {count > 0 && (
@@ -1721,7 +1721,7 @@ function NovaComandaScreen() {
           </ScrollView>
         ) : loading ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator size="large" color={C.primary} />
+            <ActivityIndicator size="large" color={C.primaryTexto} />
           </View>
         ) : erroDia ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 10 }}>
@@ -1729,7 +1729,7 @@ function NovaComandaScreen() {
             <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 13, color: C.text2, textAlign: 'center' }}>{erroDia}</Text>
             <TouchableOpacity onPress={() => { setLoading(true); carregarDia(); }}
               style={{ borderRadius: 10, backgroundColor: C.primarySoft, paddingHorizontal: 14, height: 34, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary }}>Tentar de novo</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto }}>Tentar de novo</Text>
             </TouchableOpacity>
           </View>
         ) : clientesDia.length === 0 ? (
@@ -1743,8 +1743,8 @@ function NovaComandaScreen() {
           <ScrollView contentContainerStyle={{ padding: 12, gap: 8 }}>
             {erroSoExtras && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.redSoft, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 }}>
-                <AlertCircle size={14} color={C.red} />
-                <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red }}>{erroSoExtras}</Text>
+                <AlertCircle size={14} color={C.redTexto} />
+                <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto }}>{erroSoExtras}</Text>
               </View>
             )}
             {clientesDia.map((cliente, idx) => {
@@ -1796,7 +1796,7 @@ function NovaComandaScreen() {
                       </View>
                       {jaFeita ? (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <Check size={16} color={C.green} strokeWidth={2.5} />
+                          <Check size={16} color={C.greenTexto} strokeWidth={2.5} />
                           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text4 }}>
                             {travado ? 'Comanda fechada' : 'Editar'}
                           </Text>
@@ -1858,7 +1858,7 @@ function NovaComandaScreen() {
             </Text>
             {carregandoComanda && (
               <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                <ActivityIndicator color={C.primary} />
+                <ActivityIndicator color={C.primaryTexto} />
               </View>
             )}
             {itens.map((item, idxItem) => {
@@ -1901,7 +1901,7 @@ function NovaComandaScreen() {
                       onPress={() => item.tipo === 'agendamento' ? tirarAtendimento(item.agendamento_id!) : removerItem(item.uid)}
                       accessibilityLabel={item.tipo === 'agendamento' ? 'Remover da comanda (não cancela o agendamento)' : aCobrar ? TITULO_TIRAR_A_COBRAR : 'Remover'}
                       style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
-                      <Trash2 size={14} color={C.red} />
+                      <Trash2 size={14} color={C.redTexto} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1960,7 +1960,7 @@ function NovaComandaScreen() {
                             disabled={travadoComissao}
                             accessibilityState={{ selected: ativo, disabled: travadoComissao }}
                             style={{ opacity: travadoComissao && !ativo ? 0.4 : 1, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: ativo ? C.primary : C.border, backgroundColor: ativo ? C.primarySoft : C.surface }}>
-                            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primary : C.text3 }}>{m.nome}</Text>
+                            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text3 }}>{m.nome}</Text>
                           </TouchableOpacity>
                         );
                       })}
@@ -1992,7 +1992,7 @@ function NovaComandaScreen() {
                         disabled={emEdicao}
                         style={{ marginTop: 8, backgroundColor: parcial ? C.amberSoft : C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: parcial ? C.amber : C.green, flex: 1 }} numberOfLines={1}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: parcial ? C.amberTexto : C.greenTexto, flex: 1 }} numberOfLines={1}>
                             Sessão de pacote — {pacoteVinculado.nome}
                           </Text>
                           {!emEdicao && (
@@ -2000,7 +2000,7 @@ function NovaComandaScreen() {
                           )}
                         </View>
                         {parcial && (
-                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amber, marginTop: 4 }}>
+                          <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amberTexto, marginTop: 4 }}>
                             {AVISO_PACOTE_PARCIAL}
                           </Text>
                         )}
@@ -2127,7 +2127,7 @@ function NovaComandaScreen() {
               </Text>
             </View>
             {erroDesconto && (
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, marginTop: 6 }}>{erroDesconto}</Text>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto, marginTop: 6 }}>{erroDesconto}</Text>
             )}
           </View>
           )}
@@ -2141,7 +2141,7 @@ function NovaComandaScreen() {
             {descontoReservaAplicado > 0 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: C.border }}>
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>Taxa de reserva paga</Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.red }}>− {formatarMoeda(descontoReservaAplicado)}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.redTexto }}>− {formatarMoeda(descontoReservaAplicado)}</Text>
               </View>
             )}
             {descontoN > 0 && (
@@ -2149,7 +2149,7 @@ function NovaComandaScreen() {
                 <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text2 }}>
                   (−) Desconto{descontoModo === 'percentual' ? ` ${String(descontoEntradaN).replace('.', ',')}%` : ''}
                 </Text>
-                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.red }}>− {formatarMoeda(descontoN)}</Text>
+                <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 14, color: C.redTexto }}>− {formatarMoeda(descontoN)}</Text>
               </View>
             )}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14 }}>
@@ -2169,28 +2169,28 @@ function NovaComandaScreen() {
         {/* Footer — Fechar comanda */}
         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: insets.bottom + 12, paddingTop: 12, backgroundColor: C.surface, borderTopWidth: 1, borderColor: C.border }}>
           {!emEdicao && !podeFechar && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto, textAlign: 'center', marginBottom: 8 }}>
               Você não tem permissão para fechar comanda.
             </Text>
           )}
           {emEdicao && !podeEditarFechada && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto, textAlign: 'center', marginBottom: 8 }}>
               Você não tem permissão para editar comanda fechada.
             </Text>
           )}
           {emEdicao && cargaFalhou && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto, textAlign: 'center', marginBottom: 8 }}>
               Volte e abra a comanda de novo antes de salvar.
             </Text>
           )}
           {bloqueioPacoteParcial && (
             <View style={{ alignItems: 'center', marginBottom: 8 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: estadoPacotes === 'carregando' && bloqueioCargaPacote ? C.text3 : C.red, textAlign: 'center' }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: estadoPacotes === 'carregando' && bloqueioCargaPacote ? C.text3 : C.redTexto, textAlign: 'center' }}>
                 {bloqueioPacoteParcial}
               </Text>
               {bloqueioCargaPacote && estadoPacotes === 'erro' && (
                 <TouchableOpacity onPress={() => setRecargaPacotes(n => n + 1)} activeOpacity={0.7} style={{ marginTop: 4 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto, textDecorationLine: 'underline' }}>
                     Tentar de novo
                   </Text>
                 </TouchableOpacity>
@@ -2199,7 +2199,7 @@ function NovaComandaScreen() {
                 <TouchableOpacity
                   onPress={() => { atendimentosVinculados(itens, pacoteLinks).forEach(id => desvincularPacote(id)); }}
                   activeOpacity={0.7} style={{ marginTop: 6 }}>
-                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.red, textDecorationLine: 'underline' }}>
+                  <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.redTexto, textDecorationLine: 'underline' }}>
                     {ROTULO_DESVINCULAR_TODOS}
                   </Text>
                 </TouchableOpacity>
@@ -2208,12 +2208,12 @@ function NovaComandaScreen() {
           )}
           {bloqueioTaxaReserva && (
             <View style={{ alignItems: 'center', marginBottom: 8 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center' }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto, textAlign: 'center' }}>
                 {bloqueioTaxaReserva}
               </Text>
               <TouchableOpacity onPress={recarregarTaxasReserva} disabled={recarregandoTaxas} activeOpacity={0.7}
                 style={{ marginTop: 4, opacity: recarregandoTaxas ? 0.5 : 1 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto, textDecorationLine: 'underline' }}>
                   {recarregandoTaxas ? 'Carregando...' : 'Tentar de novo'}
                 </Text>
               </TouchableOpacity>
@@ -2221,24 +2221,24 @@ function NovaComandaScreen() {
           )}
           {!emEdicao && clienteSel && pendentes[cartaoDoFechamento(clienteSel)] && (
             <View style={{ alignItems: 'center', marginBottom: 8 }}>
-              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amber, textAlign: 'center' }}>
+              <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.amberTexto, textAlign: 'center' }}>
                 A tentativa anterior ficou sem resposta e pode ter fechado a comanda. Repita sem mudar nada, ou confira antes.
               </Text>
               <TouchableOpacity onPress={conferirTentativaPendente} disabled={conferindoPendente} activeOpacity={0.7}
                 style={{ marginTop: 4, opacity: conferindoPendente ? 0.5 : 1 }}>
-                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primary, textDecorationLine: 'underline' }}>
+                <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto, textDecorationLine: 'underline' }}>
                   {conferindoPendente ? 'Conferindo...' : 'Recarregar'}
                 </Text>
               </TouchableOpacity>
             </View>
           )}
           {!emEdicao && comandaParcialAberta && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.red, textAlign: 'center', marginBottom: 8 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: C.redTexto, textAlign: 'center', marginBottom: 8 }}>
               {AVISO_COMANDA_PARCIAL}
             </Text>
           )}
           {podeAcaoPrincipal && itens.length > 0 && resumo.motivo && (
-            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: erroDesconto ? C.red : C.amber, textAlign: 'center', marginBottom: 8 }}>
+            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: erroDesconto ? C.redTexto : C.amberTexto, textAlign: 'center', marginBottom: 8 }}>
               {resumo.motivo}
             </Text>
           )}
