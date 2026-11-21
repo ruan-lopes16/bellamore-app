@@ -52,13 +52,13 @@ describe('convites (consultas)', () => {
     const n = TAMANHO_PAGINA_HISTORICO_EQUIPE;
     const linhas = Array.from({ length: n + 1 }, (_, i) => ({ id: `h${i}`, acao: 'desativado', alvo_user_id: 'u1', feito_por: null, criado_em: '2026-10-16', detalhe: {} }));
     const { db, rpcs } = fakeDb({ rpc: () => ok(linhas) });
-    const r = await carregarHistoricoEquipe(db, 'e1', 2);
+    const r = await carregarHistoricoEquipe(db, 'e1', { criado_em: '2026-10-17', id: 'zz', vistos: 2 * n });
     expect(rpcs[0]).toEqual({ fn: 'listar_historico_equipe', args: { p_empresa: 'e1', p_limite: n + 1, p_offset: 2 * n } });
     expect(r).toMatchObject({ temMais: true, disponivel: true });
     expect(r.linhas).toHaveLength(n);
-    expect((await carregarHistoricoEquipe(fakeDb({ rpc: () => ok(linhas.slice(0, 3)) }).db, 'e1', -1)).temMais).toBe(false);
-    expect(await carregarHistoricoEquipe(fakeDb().db, 'e1', 0)).toEqual({ linhas: [], temMais: false, disponivel: false });
-    await expect(carregarHistoricoEquipe(fakeDb({ rpc: () => ({ data: null, error: { code: '42501', message: 'Sem permissão para ver o histórico da equipe.' } }) }).db, 'e1', 0))
+    expect((await carregarHistoricoEquipe(fakeDb({ rpc: () => ok(linhas.slice(0, 3)) }).db, 'e1', null)).temMais).toBe(false);
+    expect(await carregarHistoricoEquipe(fakeDb().db, 'e1')).toEqual({ linhas: [], temMais: false, disponivel: false });
+    await expect(carregarHistoricoEquipe(fakeDb({ rpc: () => ({ data: null, error: { code: '42501', message: 'Sem permissão para ver o histórico da equipe.' } }) }).db, 'e1'))
       .rejects.toThrow('Sem permissão para ver o histórico da equipe.');
   });
 

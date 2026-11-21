@@ -5,7 +5,8 @@
  * notificacoes (tipo 'resumo') por membro com algo a reportar.
  *
  * Conteúdo (`corpoResumoDoMembro`):
- * - dona/gestora: visão da empresa; profissional: visão pessoal (atendimentos e comissão dela).
+ * - dona: visão da empresa; demais: visão da empresa só com `agenda.ver_equipe`, senão pessoal
+ *   (atendimentos e comissão dela).
  * - despesas vencendo hoje só para quem tem `financeiro.ver`; estoque baixo só para quem tem
  *   `estoque.acessar`. Mesma ordem de `tem_permissao` (dona → exceção da pessoa → papel → padrão),
  *   resolvida em lote por empresa com `resolverPermissao` (service role não tem auth.uid(), então
@@ -102,7 +103,9 @@ export async function executarCronResumo(deps: DepsCron & { hoje: string }): Pro
         isOwner: false, papel, papelLinhas: (papel && papelLinhas[papel]) || {}, membroLinhas: membroLinhas[m.user_id] ?? {},
       }, chave));
       const corpo = corpoResumoDoMembro({
-        visao: m.role === 'profissional' ? 'pessoal' : 'empresa',
+        // B9: dona vê a empresa; as demais só com `agenda.ver_equipe` (gestora sem a chave, ou com erro ao ler
+        // as permissões, recebe só os próprios números — nunca os da empresa por falha).
+        visao: isOwner || pode('agenda.ver_equipe') ? 'empresa' : 'pessoal',
         agendamentosEmpresa: nAgsEmpresa,
         atendimentosDela: atendimentosPorProf.get(m.user_id) ?? 0,
         comissaoDela: comissaoPorProf.get(m.user_id) ?? 0,

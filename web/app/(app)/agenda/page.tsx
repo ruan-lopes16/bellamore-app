@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { ExportButton } from '@/components/ExportButton';
 import { definicaoAgenda } from '@shared/exportacao/agenda';
+import { buscarTodasPaginas } from '@shared/paginacao';
 import { createClient } from '@/lib/supabase/client';
 import { useScrollLock } from '@/lib/useScrollLock';
 import { Sk } from '@/components/Skeleton';
@@ -504,8 +505,10 @@ function NovoAgModal({
 
   useEffect(() => {
     Promise.all([
-      supabase.from('clientes').select('id, nome, telefone')
-        .eq('empresa_id', empresaId).eq('ativo', true).order('nome'),
+      // Paginado: o PostgREST corta em 1000 linhas sem avisar (desempate por id para não repetir/pular).
+      buscarTodasPaginas<ClienteOpt>((de, ate) => supabase.from('clientes').select('id, nome, telefone')
+        .eq('empresa_id', empresaId).eq('ativo', true).order('nome').order('id').range(de, ate))
+        .then(data => ({ data })),
       supabase.from('empresa_membros').select('user_id, user:users(id, nome)')
         .eq('empresa_id', empresaId).in('role', ['owner', 'gestor', 'profissional']).eq('ativo', true),
       supabase.from('servicos').select('id, nome, preco, duracao_minutos')
@@ -1124,7 +1127,7 @@ function NovoAgModal({
               <div className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
                   <SearchSelect
-                    options={pacotesOpcoes.map(p => ({ value: p.id, label: p.nome, sub: p.restantes == null ? 'ilimitado' : `${p.restantes} restante${p.restantes !== 1 ? 's' : ''}` }))}
+                    options={pacotesOpcoes.map(p => ({ value: p.id, label: p.nome, sub: p.saldoTexto }))}
                     value={pacoteClienteId}
                     onChange={onPacoteClienteChange}
                     placeholder="Pagar avulso (sem pacote)"

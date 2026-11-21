@@ -100,6 +100,15 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
     });
   }
 
+  /** Com rascunho não salvo, trocar de aba ou de pessoa pede confirmação; confirmar descarta o rascunho. */
+  function comConfirmacaoDeDescarte(acao: () => void) {
+    if (mudancas.length > 0) {
+      if (!window.confirm('Descartar as alterações não salvas?')) return;
+      setRascunho({});
+    }
+    acao();
+  }
+
   async function salvar() {
     setSalvando(true); setErro('');
     const { error } = await salvarPermissoes(supabase, empresaId, mudancas);
@@ -123,7 +132,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
       <SmoothTabs
         tabs={[{ key: 'papel', label: 'Por papel' }, { key: 'pessoa', label: 'Por pessoa' }, { key: 'historico', label: 'Histórico' }]}
         active={sub}
-        onChange={k => setSub(k as SubAba)}
+        onChange={k => { if (k !== sub) comConfirmacaoDeDescarte(() => setSub(k as SubAba)); }}
       />
 
       {erro && <p className="text-sm text-rose bg-rose-soft rounded-xl px-4 py-3">{erro}</p>}
@@ -174,7 +183,7 @@ export function PermissoesPanel({ empresaId, meuUserId, membroInicial }: { empre
               return { value: m.user_id, label: m.nome, sub: `${m.role === 'gestor' ? 'Gestora' : 'Profissional'}${n ? ` · ${n} ${n === 1 ? 'exceção' : 'exceções'}` : ''}` };
             })}
             value={membroSel}
-            onChange={setMembroSel}
+            onChange={(v: string) => { if (v !== membroSel) comConfirmacaoDeDescarte(() => setMembroSel(v)); }}
             placeholder="Escolha alguém da equipe..."
           />
           {membrosEditaveis.length === 0 && (

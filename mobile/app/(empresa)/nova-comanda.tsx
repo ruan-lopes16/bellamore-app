@@ -2032,7 +2032,7 @@ function NovaComandaScreen() {
                             Vincular: {p.nome}
                           </Text>
                           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text3 }}>
-                            {p.restantes == null ? 'ilimitado' : `${p.restantes} rest.`}
+                            {p.saldoTexto}
                           </Text>
                         </TouchableOpacity>
                       ))}

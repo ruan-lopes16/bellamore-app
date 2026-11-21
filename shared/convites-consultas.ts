@@ -139,15 +139,42 @@ export async function cancelarConvite(db: ClienteDbConvites, empresaId: string, 
   if (error) throw new Error(mensagemErroBanco(error, 'cancelar o convite'));
 }
 
+/** Posição no histórico: a última linha já mostrada e quantas linhas já foram mostradas. */
+export type CursorHistoricoEquipe = { criado_em: string; id: string; vistos: number };
+
+/** Cursor da lista já mostrada (ordem `criado_em desc, id desc`); lista vazia = `null` (começa do início). */
+export function cursorHistoricoEquipe(linhas: { criado_em: string; id: string }[]): CursorHistoricoEquipe | null {
+  const ultima = linhas[linhas.length - 1];
+  return ultima ? { criado_em: ultima.criado_em, id: ultima.id, vistos: linhas.length } : null;
+}
+
 /**
- * Uma página do histórico da Equipe (0 = mais recente), pela função `listar_historico_equipe`
- * (e-mails mascarados para quem não é a dona). `disponivel: false` = a 092 não foi rodada.
+ * Mantém só o que vem DEPOIS do cursor na ordem `criado_em desc, id desc`. Evento novo empurra as
+ * linhas já vistas para baixo; ler só por posição as repetiria, então elas são descartadas aqui.
  */
-export async function carregarHistoricoEquipe(db: ClienteDbConvites, empresaId: string, pagina: number):
+export function linhasAposCursorHistorico<T extends { criado_em: string; id: string }>(
+  linhas: T[], cursor: { criado_em: string; id: string } | null,
+): T[] {
+  if (!cursor) return linhas;
+  const t0 = Date.parse(cursor.criado_em);
+  return linhas.filter((l) => {
+    const t = Date.parse(l.criado_em);
+    if (Number.isNaN(t) || Number.isNaN(t0)) return l.criado_em < cursor.criado_em || (l.criado_em === cursor.criado_em && l.id < cursor.id);
+    return t < t0 || (t === t0 && l.id < cursor.id);
+  });
+}
+
+/**
+ * Uma página do histórico da Equipe, pela função `listar_historico_equipe` (e-mails mascarados para
+ * quem não é a dona). Sem `cursor` lê a primeira página; com `cursor` (`cursorHistoricoEquipe` da lista
+ * já mostrada) continua dali sem pular nem repetir itens quando chega evento novo.
+ * `disponivel: false` = a 092 não foi rodada.
+ */
+export async function carregarHistoricoEquipe(db: ClienteDbConvites, empresaId: string, cursor: CursorHistoricoEquipe | null = null):
   Promise<{ linhas: LinhaHistoricoEquipe[]; temMais: boolean; disponivel: boolean }> {
   const n = TAMANHO_PAGINA_HISTORICO_EQUIPE;
-  const p = Number.isInteger(pagina) && pagina > 0 ? pagina : 0;
-  const { data, error } = await db.rpc('listar_historico_equipe', { p_empresa: empresaId, p_limite: n + 1, p_offset: p * n });
+  const offset = cursor && Number.isInteger(cursor.vistos) && cursor.vistos > 0 ? cursor.vistos : 0;
+  const { data, error } = await db.rpc('listar_historico_equipe', { p_empresa: empresaId, p_limite: n + 1, p_offset: offset });
   if (error) {
     if (semMigration092(error)) return { linhas: [], temMais: false, disponivel: false };
     throw new Error(mensagemErroBanco(error, 'carregar o histórico da equipe'));
@@ -163,5 +190,6 @@ export async function carregarHistoricoEquipe(db: ClienteDbConvites, empresaId: 
     alvo_nome: typeof h.alvo_nome === 'string' ? h.alvo_nome : null,
     feito_por_nome: typeof h.feito_por_nome === 'string' ? h.feito_por_nome : null,
   }));
-  return { linhas: todas.slice(0, n), temMais: todas.length > n, disponivel: true };
+  const novas = linhasAposCursorHistorico(todas, cursor);
+  return { linhas: novas.slice(0, n), temMais: todas.length > n, disponivel: true };
 }

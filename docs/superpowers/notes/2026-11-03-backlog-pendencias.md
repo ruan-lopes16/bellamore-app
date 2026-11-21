@@ -28,12 +28,12 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 | B5 | Erro ao ler os vínculos leva a `/login`; convite troca a empresa ativa ao carregar |
 | B6 | Exportar com erro de carga (Clientes) gera arquivo vazio |
 | B7 | `novo-agendamento` do app carrega a base inteira de clientes e falha sem aviso |
-| B8 | Badge com erro mostra 0 no app (web mantém o número); badge de comandas não respeita `comanda.fechar` |
-| B9 | Gestora sem `agenda.ver_equipe` recebe a contagem da empresa inteira no resumo diário |
+| ~~B8~~ | ~~Badge com erro mostra 0 no app (web mantém o número); badge de comandas não respeita `comanda.fechar`~~ — já resolvido pela 097 |
+| ~~B9~~ | ~~Gestora sem `agenda.ver_equipe` recebe a contagem da empresa inteira no resumo diário~~ — resolvido em 10/11 |
 | B10 | Profissional com Financeiro/Relatórios vê só os extras das próprias comandas, sem aviso; segmentos de clientes idem |
-| B11 | Gestora sem `pacotes.vender` não vê "Excluir" pacote |
+| ~~B11~~ | ~~Gestora sem `pacotes.vender` não vê "Excluir" pacote~~ — resolvido em 10/11 |
 | B12 | Troca de login sem aviso ao e-mail antigo |
-| B13 | Conferências incompletas no banco: `pacote_uso` UPDATE; `pagamentos` com `comanda_id` + `venda_id`; FKs entre empresas nas tabelas de cartão |
+| ~~B13~~ | ~~Conferências incompletas no banco: `pacote_uso` UPDATE; `pagamentos` com `comanda_id` + `venda_id`; FKs entre empresas nas tabelas de cartão~~ — resolvido em 10/11 (101) |
 | B14 | Push: token compartilhado por 2 contas recebe só o 1º resumo; recibos assíncronos da Expo não são lidos |
 
 ## C — Funcionalidade e aparência
@@ -45,12 +45,12 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 | ~~C4~~ | ~~Cancelado não aparece nas agendas~~ — decisão do dono (04/11): fica como está |
 | ~~C5~~ | ~~Seletor de dia do web usa o calendário local (não Brasília)~~ — resolvido em 04/11 |
 | ~~C6~~ | ~~Contagem do mês da agenda do app não atualiza depois de mexer no detalhe/comanda~~ — resolvido em 04/11 |
-| C7 | Filtro "Retornos" aceita data futura |
+| ~~C7~~ | ~~Filtro "Retornos" aceita data futura~~ — resolvido em 10/11 |
 | C8 | Vincular pacote ao editar uma comanda já fechada |
-| C9 | Pacote misto exibido como ilimitado |
-| C10 | Exceção de bandeira copiada da padrão não acompanha mudanças; seletor de maquininha oculto com 1 ativa / pagamento reaberto em maquininha inativa |
-| C11 | Painel de permissões: rascunho perdido ao trocar de aba sem aviso; dica "Escolha uma pessoa" no app |
-| C12 | Paginação: clientes na agenda web, produtos nos insumos, histórico da equipe por offset |
+| ~~C9~~ | ~~Pacote misto exibido como ilimitado~~ — resolvido em 10/11 |
+| ~~C10~~ | ~~Exceção de bandeira copiada da padrão não acompanha mudanças; seletor de maquininha oculto com 1 ativa / pagamento reaberto em maquininha inativa~~ — resolvido em 10/11 |
+| ~~C11~~ | ~~Painel de permissões: rascunho perdido ao trocar de aba sem aviso; dica "Escolha uma pessoa" no app~~ — resolvido em 10/11 |
+| ~~C12~~ | ~~Paginação: clientes na agenda web, produtos nos insumos, histórico da equipe por offset~~ — resolvido em 10/11 |
 | C13 | Gráficos do app: sparkline e rótulos que se sobrepõem em tela estreita; mensagens de erro duplicadas; alerta "0 lançadas"; spinner do histórico de Vendas pisca |
 | C14 | Aviso de bloqueio pendente só no sino (sem push) |
 

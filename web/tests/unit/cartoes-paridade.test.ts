@@ -53,7 +53,7 @@ describe('cobrança pela configuração de cartões (maquininhas)', () => {
 
   it('comanda web: seletor de maquininha, bandeiras e parcelas da configuração, aviso de taxa ausente', () => {
     const src = ler('web/app/(app)/comanda/page.tsx');
-    for (const f of ['maquininhasAtivas(', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(', 'nomeBandeira(']) expect(src).toContain(f);
+    for (const f of ['opcoesMaquininha(config', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(', 'nomeBandeira(']) expect(src).toContain(f);
     expect(src).toContain('Taxa não cadastrada para esta combinação');
     expect(src).toContain('maquininha_id');
     expect(src).toContain('maquininhaGravada');
@@ -63,8 +63,8 @@ describe('cobrança pela configuração de cartões (maquininhas)', () => {
     // O bloco de pagamentos foi extraído para PagamentosEditor (compartilhado com Vendas do app).
     const src = ler('mobile/app/(empresa)/nova-comanda.tsx') + ler('mobile/components/comanda/PagamentosEditor.tsx');
     expect(ler('mobile/app/(empresa)/nova-comanda.tsx')).toContain('<PagamentosEditor');
-    for (const f of ['maquininhasAtivas(', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(', 'nomeBandeira(', 'atualizarSplitMaquininha(']) expect(src).toContain(f);
-    expect(src).toContain('maquininhasAtivas(config).length >= 2');
+    for (const f of ['opcoesMaquininha(config', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(', 'nomeBandeira(', 'atualizarSplitMaquininha(']) expect(src).toContain(f);
+    expect(src).toContain('opcoesMaquininha(config');
     expect(src).toContain('Taxa não cadastrada para esta combinação');
     expect(src).toContain('maquininha_id');
     expect(src).toContain('maquininhaGravada');
@@ -83,7 +83,7 @@ describe('Vendas avulsas (PDV web) pela regra da comanda', () => {
   it('PDV usa carrinho, desconto, resumo e gravação de shared/', () => {
     const src = ler('web/app/(app)/vendas/page.tsx');
     for (const f of ['adicionarAoCarrinho(', 'alterarQuantidade(', 'subtotalVenda(', 'gravarVenda(', 'calcularDesconto(', 'resumoComanda(',
-      'parseValorBR(', 'taxaDoSplit(', 'maquininhasAtivas(config).length >= 2', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(',
+      'parseValorBR(', 'taxaDoSplit(', 'opcoesMaquininha(config', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(',
       'nomeBandeira(', 'Taxa não cadastrada para esta combinação', 'será registrado como Cortesia', 'resumo.podeFechar', 'useRef(']) {
       expect(src, f).toContain(f);
     }
@@ -114,7 +114,7 @@ describe('Vendas avulsas (app) pela regra da comanda', () => {
   });
   it('PagamentosEditor do app: maquininha/bandeira/parcelas da configuração e aviso de taxa ausente', () => {
     const src = ler('mobile/components/comanda/PagamentosEditor.tsx');
-    for (const f of ['maquininhasAtivas(config).length >= 2', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(',
+    for (const f of ['opcoesMaquininha(config', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'maquininhaPadrao(',
       'taxaDoSplit(', 'Taxa não cadastrada para esta combinação', 'parseValorBR(']) {
       expect(src, f).toContain(f);
     }

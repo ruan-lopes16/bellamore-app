@@ -122,7 +122,8 @@ export function segmentosDaCliente(c: ClienteBase, a: Agregado | undefined, hoje
   const gasto = centavos(a?.totalGasto ?? 0);
   const dias = diasSemVir(a, hojeChave);
   if (gasto >= VIP_GASTO * 100 || atend >= VIP_ATENDIMENTOS) s.add('vip');
-  if (dias !== null) {
+  // Atendimento futuro (dias < 0) nunca é "última visita": não entra em nenhum segmento de tempo.
+  if (dias !== null && dias >= 0) {
     if (atend >= RECORRENTE_ATENDIMENTOS && dias <= DIAS_EM_RISCO) s.add('recorrente');
     if (dias > DIAS_EM_RISCO && dias <= DIAS_SUMIDA) s.add('em_risco');
     if (dias > DIAS_SUMIDA) s.add('sumida');
@@ -187,7 +188,7 @@ export function filtrarClientes(clientes: ClienteBase[], ag: Map<string, Agregad
     const ativas = clientes.filter(c => c.ativo !== false);
     if (filtro === 'todas') lista = ativas;
     else if (filtro === 'retornos') {
-      lista = ativas.filter(c => { const d = diasSemVir(ag.get(c.id), hojeChave); return d !== null && d <= DIAS_RETORNO; });
+      lista = ativas.filter(c => { const d = diasSemVir(ag.get(c.id), hojeChave); return d !== null && d >= 0 && d <= DIAS_RETORNO; });
     } else {
       const alvo: Segmento = filtro === 'novas' ? 'nova' : filtro;
       lista = ativas.filter(c => segmentosDaCliente(c, ag.get(c.id), hojeChave).has(alvo));

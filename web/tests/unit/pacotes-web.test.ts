@@ -221,7 +221,7 @@ describe('VenderPacoteModal', () => {
     expect(modal).toContain('calcularDesconto(');
     expect(modal).toContain('BlocoPagamento');
     const bloco = ler('components/pacotes/BlocoPagamento.tsx');
-    for (const f of ['maquininhasAtivas(', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'taxaDoSplit(', 'Taxa não cadastrada para esta combinação']) expect(bloco).toContain(f);
+    for (const f of ['opcoesMaquininha(', 'bandeirasAtivas(', 'parcelasDisponiveis(', 'taxaDoSplit(', 'Taxa não cadastrada para esta combinação']) expect(bloco).toContain(f);
   });
   it('desconto e cortesia só com comanda.desconto; clientes paginadas', () => {
     expect(modal).toContain("pode('comanda.desconto')");

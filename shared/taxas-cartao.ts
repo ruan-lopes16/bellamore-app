@@ -306,3 +306,58 @@ export function resumoMaquininha(m: Maquininha, bandeiras: BandeiraCartao[]): Re
     usamPadrao: ordenadas.filter(b => !comExcecao.has(b.id)),
   };
 }
+
+/**
+ * Ao salvar a tabela padrão de uma maquininha: cada exceção (bandeira × modalidade × parcelas) cujo valor
+ * era IGUAL ao da padrão antiga passa a ter o valor da padrão nova. Exceções que já eram diferentes ficam
+ * como estão. Só linhas com `bandeiraId` preenchido são tratadas como exceção; as demais de `excecoes` voltam intactas.
+ * Devolve as exceções atualizadas e quantas mudaram de valor (para o aviso "N exceções acompanharam…").
+ */
+export function propagarPadraoParaExcecoes(
+  padraoAntiga: TaxaLinha[], padraoNova: TaxaLinha[], excecoes: TaxaLinha[],
+): { excecoes: TaxaLinha[]; acompanharam: number } {
+  const chave = (t: Pick<TaxaLinha, 'modalidade' | 'parcelas'>) => `${t.modalidade}|${t.parcelas}`;
+  const cent = (n: number) => Math.round(n * 1e6);
+  const antiga = new Map(padraoAntiga.filter(t => t.bandeiraId === null).map(t => [chave(t), t.taxa]));
+  const nova = new Map(padraoNova.filter(t => t.bandeiraId === null).map(t => [chave(t), t.taxa]));
+  let acompanharam = 0;
+  const saida = excecoes.map(e => {
+    if (e.bandeiraId === null) return e;
+    const a = antiga.get(chave(e));
+    const n = nova.get(chave(e));
+    if (a === undefined || n === undefined) return e;
+    if (cent(e.taxa) === cent(a) && cent(n) !== cent(a)) { acompanharam++; return { ...e, taxa: n }; }
+    return e;
+  });
+  return { excecoes: saida, acompanharam };
+}
+
+/** Texto do aviso mostrado depois de salvar quando `n` exceções acompanharam a tabela padrão (n > 0). */
+export function avisoExcecoesAcompanharam(n: number): string {
+  return `${n} ${n === 1 ? 'exceção acompanhou' : 'exceções acompanharam'} a tabela padrão.`;
+}
+
+/** Opção do seletor de maquininha. */
+export type OpcaoMaquininha = { id: string; nome: string; desativada: boolean; rotulo: string };
+
+/**
+ * Opções do seletor de maquininha de um pagamento. `selecionadaId` é a maquininha do pagamento (pode ser
+ * de um pagamento reaberto). Maquininha inativa selecionada aparece como "Nome (desativada)"; pagamentos
+ * novos só veem as ativas. `mostrarSeletor` só com 2+ opções; com uma única ativa (e nada mais) o seletor
+ * fica oculto e `textoUnica` traz "Maquininha: X".
+ */
+export function opcoesMaquininha(
+  config: ConfigCartoes, selecionadaId: string | null | undefined,
+): { opcoes: OpcaoMaquininha[]; mostrarSeletor: boolean; textoUnica: string | null } {
+  const ativas = maquininhasAtivas(config);
+  const opcoes: OpcaoMaquininha[] = ativas.map(m => ({ id: m.id, nome: m.nome, desativada: false, rotulo: m.nome }));
+  const sel = selecionadaId ? config.maquininhas.find(m => m.id === selecionadaId) : undefined;
+  if (sel && !ativas.some(m => m.id === sel.id)) {
+    opcoes.push({ id: sel.id, nome: sel.nome, desativada: true, rotulo: `${sel.nome} (desativada)` });
+  }
+  return {
+    opcoes,
+    mostrarSeletor: opcoes.length >= 2,
+    textoUnica: opcoes.length === 1 ? `Maquininha: ${opcoes[0].nome}` : null,
+  };
+}
