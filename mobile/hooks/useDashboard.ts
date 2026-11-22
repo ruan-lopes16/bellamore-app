@@ -17,6 +17,7 @@ import { carregarDadosFinanceiros, carregarComissoesPendentes, carregarRetiradas
 import { somaDevolucoesPorRetirada, saldoDevedorTotal } from '@shared/retiradas-socia';
 import {
   navegacaoMesDashboard, clientesParaReconquistar, aniversariantesProximos, resumoComandasNaoFechadas, progressoMetaEmpresa,
+  estadoTrocaMesDashboard,
 } from '@shared/dashboard';
 import {
   carregarComandasNaoFechadas, carregarDespesasVencendo, carregarUltimasVisitas, carregarAniversariantes,
@@ -65,13 +66,24 @@ export function useDashboard(
     },
   });
 
-  // Mês exibido + anterior (delta) numa busca só.
+  // Mês exibido + anterior (delta) numa busca só. O dado carrega o próprio mês (`chave`): ao
+  // trocar de mês, o anterior fica na tela (keepPreviousData) calculado com OS LIMITES DELE,
+  // esmaecido e marcado, até o novo chegar — nunca números de outro mês sob o rótulo novo.
   const financeiro = useQuery({
     queryKey: ['dash-financeiro', empresaId, nav.chave],
     enabled: !!empresaId && podeVerFinanceiro,
     placeholderData: keepPreviousData,
     staleTime: 1000 * 60,
-    queryFn: () => carregarDadosFinanceiros(supabase, empresaId!, uniaoLimites(limAnt, limMes)),
+    queryFn: async () => ({ chave: nav.chave, dados: await carregarDadosFinanceiros(supabase, empresaId!, uniaoLimites(limAnt, limMes)) }),
+  });
+  // Mês dos números em tela (o pedido, ou o anterior enquanto o novo carrega).
+  const navDados = navegacaoMesDashboard(financeiro.data?.chave ?? nav.chave, hoje);
+  const limMesDados = limitesMes(navDados.chave);
+  const limAntDados = limitesMes(navDados.anterior);
+  const trocaMes = estadoTrocaMesDashboard({
+    mesPedido: nav.chave,
+    mesDosDados: financeiro.data?.chave ?? null,
+    carregando: financeiro.isPlaceholderData && financeiro.isFetching,
   });
   // "Receita hoje" quando o mês exibido não é o atual (mesma regra do web).
   const financeiroHoje = useQuery({
@@ -144,10 +156,10 @@ export function useDashboard(
     queryFn: () => carregarRetiradas(supabase, empresaId!),
   });
 
-  const dados    = financeiro.data ?? DADOS_VAZIOS;
-  const kpisMes  = calcularKpisFinanceiros(dados, limMes);
-  const kpisAnt  = calcularKpisFinanceiros(dados, limAnt);
-  const kpisHoje = calcularKpisFinanceiros(nav.isMesAtual ? dados : (financeiroHoje.data ?? DADOS_VAZIOS), limHoje);
+  const dados    = financeiro.data?.dados ?? DADOS_VAZIOS;
+  const kpisMes  = calcularKpisFinanceiros(dados, limMesDados);
+  const kpisAnt  = calcularKpisFinanceiros(dados, limAntDados);
+  const kpisHoje = calcularKpisFinanceiros(navDados.isMesAtual ? dados : (financeiroHoje.data ?? DADOS_VAZIOS), limHoje);
   const rowsRet  = retiradas.data?.rows ?? [];
   const devsRet  = retiradas.data?.devs ?? [];
 
@@ -167,11 +179,15 @@ export function useDashboard(
     kpisAnt,
     receitaHoje: kpisHoje.bruto,
     receitaMes: kpisMes.bruto,
-    variacaoReceitaMes: financeiro.data && !financeiro.isPlaceholderData ? variacaoPercentual(kpisMes.bruto, kpisAnt.bruto) : null,
-    sparkline: financeiro.data && !financeiro.isPlaceholderData ? receitaAcumuladaPorDia(dados, limMes, nav.isMesAtual ? hoje : limMes.endDate) : [],
+    variacaoReceitaMes: financeiro.data ? variacaoPercentual(kpisMes.bruto, kpisAnt.bruto) : null,
+    sparkline: financeiro.data ? receitaAcumuladaPorDia(dados, limMesDados, navDados.isMesAtual ? hoje : limMesDados.endDate) : [],
     meta: progressoMetaEmpresa(kpisMes.bruto, meta.data ?? 0),
     metaValor: meta.data ?? 0,
-    metaPronta: meta.isSuccess && financeiro.isSuccess && !financeiro.isPlaceholderData,
+    metaPronta: meta.isSuccess && financeiro.isSuccess,
+    /** Mês dos números em tela (o hero usa este rótulo; difere de `nav.chave` durante a troca). */
+    mesDosNumeros: navDados.chave,
+    /** Troca de mês em curso: números esmaecidos + "Atualizando… · mostrando X". */
+    trocaMes,
     isOwner,
     retiradasMes: retiradasDoPeriodo(rowsRet, devsRet, limMes),
     emprestimosAbertos: saldoDevedorTotal(rowsRet, somaDevolucoesPorRetirada(devsRet)),
@@ -181,9 +197,10 @@ export function useDashboard(
     despesasVencendo: despesasVencendo.data ?? [],
     reconquista: reconquista.data ?? [],
     aniversariantes: aniversariantes.data ?? [],
-    // Só vale número com a consulta certa: carregando ou com erro a tela mostra '—'.
-    financeiroPronto: financeiro.isSuccess && !financeiro.isPlaceholderData,
-    hojePronto: nav.isMesAtual ? financeiro.isSuccess && !financeiro.isPlaceholderData : financeiroHoje.isSuccess,
+    // Sem dado nenhum (1ª carga) ou com erro a tela mostra '—'. Na troca de mês os números do
+    // mês anterior seguem visíveis, calculados com os limites dele e marcados por `trocaMes`.
+    financeiroPronto: financeiro.isSuccess,
+    hojePronto: navDados.isMesAtual ? financeiro.isSuccess : financeiroHoje.isSuccess,
     comissoesPendentesPronto: comissoesPendentes.isSuccess,
     isLoading: agendamentosHoje.isLoading || financeiro.isLoading,
     isError: ativas.some(q => q.isError),

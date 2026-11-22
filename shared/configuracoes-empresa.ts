@@ -109,3 +109,19 @@ export const MENSAGEM_ALTERACOES_NAO_SALVAS =
 export function temAlteracoes(inicial: unknown, atual: unknown): boolean {
   return JSON.stringify(inicial) !== JSON.stringify(atual);
 }
+
+/**
+ * Só as colunas que mudaram em relação ao que o formulário carregou (`carregado`; `null` = tudo).
+ * O Salvar de Configurações gravava o formulário INTEIRO: um formulário aberto antes de outra
+ * gravação (PWA retomado, outra aba/aparelho, app com a empresa lida no início da sessão) devolvia
+ * ao banco o endereço antigo — e o CEP digitado em outro lugar sumia. Com isto, campo que a pessoa
+ * não mexeu nunca é regravado.
+ */
+export function colunasAlteradas<T extends Record<string, unknown>>(carregado: T | null, atual: T): Partial<T> {
+  if (!carregado) return { ...atual };
+  const out: Partial<T> = {};
+  for (const k of Object.keys(atual) as (keyof T)[]) {
+    if (JSON.stringify(atual[k]) !== JSON.stringify(carregado[k])) out[k] = atual[k];
+  }
+  return out;
+}

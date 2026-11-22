@@ -6,6 +6,8 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { podeFiltrarPorProfissional, filtrarCartoesPorProfissional, filtrarBacklogPorProfissional, carregarProfissionaisDoBacklog } from '@shared/comanda-filtro-profissional';
 import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -214,7 +216,18 @@ function NovaComandaScreen() {
   const [semana, setSemana] = useState<Date[]>(() =>
     Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(dataDoDia(hojeBRT()), { weekStartsOn: 0 }), i)));
   const [agsMes, setAgsMes] = useState<Map<string, number>>(new Map());
-  const [backlog, setBacklog] = useState<{ id: string; data: Date }[]>([]);
+  const [backlog, setBacklog] = useState<{ id: string; data: Date; profissional_id?: string | null }[]>([]);
+  // Filtro "Profissional" (só para quem vê todas): só filtra o que aparece, nada de cálculo/gravação
+  const verTodas = podeFiltrarPorProfissional(pode('agenda.ver_equipe'), podeOutras);
+  const [profFiltro, setProfFiltro] = useState('');
+  useEffect(() => {
+    AsyncStorage.getItem('comanda.filtroProfissional').then(v => { if (v) setProfFiltro(v); }).catch(() => {});
+  }, []);
+  function escolherProfFiltro(v: string) {
+    setProfFiltro(v);
+    AsyncStorage.setItem('comanda.filtroProfissional', v).catch(() => {});
+  }
+  const filtroAtivo = verTodas ? profFiltro : '';
   const reqDiaRef = useRef(0);
   const [erroDia, setErroDia] = useState<string | null>(null);
   const [agDia, setAgDia] = useState<AgDia[]>([]);
@@ -438,8 +451,11 @@ function NovaComandaScreen() {
   const carregarBacklog = useCallback(async () => {
     if (!empresaId) return;
     try {
-      const rows = await carregarBacklogComandas(supabase, empresaId, new Date().toISOString());
-      setBacklog(rows.map(r => ({ id: r.id, data: parseISO(r.data_hora_inicio) })));
+      const agora = new Date().toISOString();
+      const rows = await carregarBacklogComandas(supabase, empresaId, agora);
+      // Profissional de cada atendimento do backlog (só para o filtro; falha não derruba o aviso)
+      const profs = await carregarProfissionaisDoBacklog(supabase, empresaId, agora).catch(() => new Map<string, string | null>());
+      setBacklog(rows.map(r => ({ id: r.id, data: parseISO(r.data_hora_inicio), profissional_id: profs.get(r.id) ?? null })));
     } catch {
       setBacklog([]);
     }
@@ -493,6 +509,8 @@ function NovaComandaScreen() {
       id: c.clienteId, chave: c.chave, nome: c.nome, telefone: c.telefone,
       agendamentos: c.agendamentos, comandaId: c.comandaId,
     })), [agDia, soExtrasDia]);
+  const clientesVisiveis = useMemo(() => filtrarCartoesPorProfissional(clientesDia, filtroAtivo), [clientesDia, filtroAtivo]);
+  const backlogVisivel = useMemo(() => filtrarBacklogPorProfissional(backlog, filtroAtivo), [backlog, filtroAtivo]);
 
   // Dia da comanda (Brasília): a validade do pacote vale no dia do atendimento, não "hoje".
   const diaComanda = chaveDiaExibido(dataComanda);
@@ -1671,13 +1689,30 @@ function NovaComandaScreen() {
             </View>
           )}
 
-          {backlog.length > 0 && (
-            <TouchableOpacity onPress={() => selecionarDia(backlog[0].data)} activeOpacity={0.7}
+          {verTodas && membros.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+              {[{ id: '', nome: 'Todas' }, ...membros].map(m => {
+                const ativo = profFiltro === m.id;
+                return (
+                  <TouchableOpacity key={m.id || 'todas'} onPress={() => escolherProfFiltro(m.id)}
+                    accessibilityState={{ selected: ativo }}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: ativo ? C.primary : C.border, backgroundColor: ativo ? C.primarySoft : C.surface }}>
+                    <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: ativo ? C.primaryTexto : C.text3 }}>
+                      {m.id ? m.nome : 'Profissional: Todas'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {backlogVisivel.length > 0 && (
+            <TouchableOpacity onPress={() => selecionarDia(backlogVisivel[0].data)} activeOpacity={0.7}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.roseSoft, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(212,96,138,0.25)', paddingHorizontal: 12, paddingVertical: 8 }}>
               <AlertCircle size={14} color={C.rose} strokeWidth={2.5} />
               <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_700Bold', fontSize: 11.5, color: C.rose }}>
-                {backlog.length === 1 ? '1 comanda não fechada' : `${backlog.length} comandas não fechadas`}
-                {' · mais antiga '}{format(backlog[0].data, 'dd/MM')}
+                {backlogVisivel.length === 1 ? '1 comanda não fechada' : `${backlogVisivel.length} comandas não fechadas`}
+                {' · mais antiga '}{format(backlogVisivel[0].data, 'dd/MM')}
               </Text>
             </TouchableOpacity>
           )}
@@ -1732,7 +1767,7 @@ function NovaComandaScreen() {
               <Text style={{ fontFamily: 'PlusJakartaSans_700Bold', fontSize: 12, color: C.primaryTexto }}>Tentar de novo</Text>
             </TouchableOpacity>
           </View>
-        ) : clientesDia.length === 0 ? (
+        ) : clientesVisiveis.length === 0 ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
             <Receipt size={28} color={C.text4} />
             <Text style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 14, color: C.text3, marginTop: 8 }}>
@@ -1747,7 +1782,7 @@ function NovaComandaScreen() {
                 <Text style={{ flex: 1, fontFamily: 'PlusJakartaSans_500Medium', fontSize: 12, color: C.redTexto }}>{erroSoExtras}</Text>
               </View>
             )}
-            {clientesDia.map((cliente, idx) => {
+            {clientesVisiveis.map((cliente, idx) => {
               // Um cartão por comanda fechada (cartoesComandaDoDia). Concluído sem
               // comanda_id (status mudado direto, sem nunca fechar) continua no
               // cartão aberto — senão não existiria outro jeito de cobrá-lo.

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput, Image,
   Alert, ActivityIndicator, StatusBar, Switch,
@@ -38,7 +38,7 @@ import { maskCNPJ, validaCNPJ, maskCEP, maskPhone, maskMoeda, formatMoeda, parse
 import { lerEnderecoEmpresa, serializarEnderecoEmpresa, type EnderecoEmpresa } from '@shared/endereco';
 import {
   SEGMENTOS_EMPRESA, enderecoDoViaCep, dadosDoCnpj, caminhoLogoEmpresa, validarArquivoLogo, montarPayloadEmpresa,
-  MENSAGEM_ALTERACOES_NAO_SALVAS, temAlteracoes,
+  MENSAGEM_ALTERACOES_NAO_SALVAS, temAlteracoes, colunasAlteradas,
 } from '@shared/configuracoes-empresa';
 import { salvarPreferenciaAgenda, type PreferenciaAgenda } from '@shared/agenda-consultas';
 import { chavePreferenciaAgenda, usePreferenciaAgenda } from '@/hooks/usePreferenciaAgenda';
@@ -185,6 +185,45 @@ function Configuracoes() {
     setNomeUser(s.nomeUser); setTelefoneUser(s.telefoneUser); setNovaSenha(s.novaSenha); setConfirmaSenha(s.confirmaSenha);
   }
 
+  /** Formulário da empresa a partir da linha do banco (mesmas regras dos `useState` acima). */
+  function formDaEmpresa(e: NonNullable<typeof empresaAtiva>): typeof formEmpresa {
+    return {
+      nomeEmpresa: e.nome ?? '', segmento: e.segmento ?? 'Estúdio', telefoneEmp: maskPhone(e.telefone ?? ''),
+      cnpj: maskCNPJ(e.cnpj ?? ''), metaMensal: e.meta_mensal ? formatMoeda(Number(e.meta_mensal)) : '',
+      endereco: lerEnderecoEmpresa(e.endereco),
+      horarios: { ...HORARIO_DEFAULT, ...((e.horario_funcionamento ?? {}) as Partial<Horarios>) },
+      taxaAtiva: e.taxa_cancelamento_ativa ?? false,
+      taxaModo: (e.taxa_cancelamento_modo as 'percentual' | 'fixo') ?? 'percentual',
+      taxaValor: formatValorMonetarioInput(Number(e.taxa_cancelamento_valor ?? 0)),
+      taxaAplicaCancelado: e.taxa_cancelamento_aplica_cancelado ?? true,
+      taxaAplicaFaltou: e.taxa_cancelamento_aplica_faltou ?? true,
+      reservaAtiva: e.taxa_reserva_ativa ?? false,
+      reservaModo: (e.taxa_reserva_modo as 'percentual' | 'fixo') ?? 'percentual',
+      reservaValor: formatValorMonetarioInput(Number(e.taxa_reserva_valor ?? 0)),
+    };
+  }
+
+  // A tela começa com a empresa do store (lida no início da sessão): se o CEP foi salvo depois
+  // (no web, em outro aparelho), ela abria sem ele. Relê do banco ao abrir, se nada foi editado.
+  const formEmpresaRef = useRef(formEmpresa);
+  const salvoEmpresaRef = useRef(salvoEmpresa);
+  formEmpresaRef.current = formEmpresa;
+  salvoEmpresaRef.current = salvoEmpresa;
+  useEffect(() => {
+    if (!empresaAtiva?.id) return;
+    let vivo = true;
+    void (async () => {
+      const { data } = await supabase.from('empresas').select('*').eq('id', empresaAtiva.id).single();
+      if (!vivo || !data || temAlteracoes(salvoEmpresaRef.current, formEmpresaRef.current)) return;
+      const novo = formDaEmpresa(data as NonNullable<typeof empresaAtiva>);
+      restaurarEmpresa(novo);
+      setSalvoEmpresa(novo);
+      setLogoUrl((data as { logo_url?: string | null }).logo_url ?? '');
+    })();
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresaAtiva?.id]);
+
   function trocarAba(nova: string) {
     if (nova === aba) return;
     const pendente = aba === 'empresa' ? temAlteracoes(salvoEmpresa, formEmpresa)
@@ -328,29 +367,38 @@ function Configuracoes() {
     setSalvando(true);
 
     // Empresa: dados só a dona; taxas só com config.taxas (o trigger da 083 recusa outras colunas).
+    // E só as colunas que mudaram desde a carga: campo intocado (ex.: o endereço com o CEP salvo
+    // em outro lugar) nunca é regravado com o valor antigo.
+    const dadosDe = (f: typeof formEmpresa) => ({
+      nome:                  f.nomeEmpresa.trim(),
+      segmento:              f.segmento || 'Estúdio',
+      telefone:              f.telefoneEmp.trim() || null,
+      endereco:              serializarEnderecoEmpresa(f.endereco),
+      cnpj:                  f.cnpj.trim() || null,
+      meta_mensal:           parseMoeda(f.metaMensal),
+      horario_funcionamento: f.horarios,
+    });
+    const taxasDe = (f: typeof formEmpresa) => ({
+      taxa_cancelamento_ativa:            f.taxaAtiva,
+      taxa_cancelamento_modo:             f.taxaModo,
+      taxa_cancelamento_valor:            parseValorMonetario(f.taxaValor) ?? 0,
+      taxa_cancelamento_aplica_cancelado: f.taxaAplicaCancelado,
+      taxa_cancelamento_aplica_faltou:    f.taxaAplicaFaltou,
+      taxa_reserva_ativa:   f.reservaAtiva,
+      taxa_reserva_modo:    f.reservaModo,
+      taxa_reserva_valor:   parseValorMonetario(f.reservaValor) ?? 0,
+    });
     const payloadEmpresa = naAbaEmpresa ? montarPayloadEmpresa({
       ehDona,
       podeTaxas: podeEditarTaxa,
-      dados: {
-        nome:                  nomeEmpresa.trim(),
-        segmento:              segmento || 'Estúdio',
-        telefone:              telefoneEmp.trim() || null,
-        endereco:              serializarEnderecoEmpresa(endereco),
-        cnpj:                  cnpj.trim() || null,
-        meta_mensal:           parseMoeda(metaMensal),
-        horario_funcionamento: horarios,
-      },
-      taxas: {
-        taxa_cancelamento_ativa:            taxaAtiva,
-        taxa_cancelamento_modo:             taxaModo,
-        taxa_cancelamento_valor:            parseValorMonetario(taxaValor) ?? 0,
-        taxa_cancelamento_aplica_cancelado: taxaAplicaCancelado,
-        taxa_cancelamento_aplica_faltou:    taxaAplicaFaltou,
-        taxa_reserva_ativa:   reservaAtiva,
-        taxa_reserva_modo:    reservaModo,
-        taxa_reserva_valor:   parseValorMonetario(reservaValor) ?? 0,
-      },
+      dados: colunasAlteradas(dadosDe(salvoEmpresa), dadosDe(formEmpresa)),
+      taxas: colunasAlteradas(taxasDe(salvoEmpresa), taxasDe(formEmpresa)),
     }) : {};
+    if (naAbaEmpresa && Object.keys(payloadEmpresa).length === 0) {
+      setSalvando(false);
+      Alert.alert('Configurações', 'Nenhuma alteração para salvar.');
+      return;
+    }
 
     try {
       if (Object.keys(payloadEmpresa).length > 0) {

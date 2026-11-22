@@ -2715,6 +2715,7 @@ export default function AgendaPage() {
                 value={filtro}
                 onChange={v => setFiltroProfissional(v as FiltroProfissional)}
                 placeholder="Ver agenda de..."
+                variante="filtro"
               />
             </div>
           )}

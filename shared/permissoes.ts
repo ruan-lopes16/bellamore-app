@@ -244,8 +244,26 @@ export function estadoDoMembro(cfg: ConfigPermissoes, userId: string, chave: Cha
   return v === undefined ? 'padrao' : v ? 'permitir' : 'bloquear';
 }
 
-export function contarExcecoes(cfg: ConfigPermissoes, userId: string): number {
-  return Object.keys(cfg.membros[userId] ?? {}).length;
+/**
+ * Chaves em que a pessoa tem exceção EFETIVA: a linha individual existe e o valor é diferente do
+ * que o papel dela já daria. Linha igual ao papel não muda nada e não conta. Dona não tem exceção.
+ */
+export function chavesExcecao(cfg: ConfigPermissoes, userId: string, papel: string): ChavePermissao[] {
+  if (papel !== 'gestor' && papel !== 'profissional') return [];
+  const linhas = cfg.membros[userId] ?? {};
+  return (Object.keys(linhas) as ChavePermissao[]).filter(
+    chave => POR_CHAVE.has(chave) && linhas[chave] !== valorDoPapel(cfg, papel, chave),
+  );
+}
+
+/** Quantidade de exceções efetivas da pessoa (ver `chavesExcecao`). */
+export function contarExcecoes(cfg: ConfigPermissoes, userId: string, papel: string): number {
+  return chavesExcecao(cfg, userId, papel).length;
+}
+
+/** Rótulos do catálogo das exceções efetivas, para tooltip ("Excluir agendamento, ..."). */
+export function rotulosExcecoes(cfg: ConfigPermissoes, userId: string, papel: string): string[] {
+  return chavesExcecao(cfg, userId, papel).map(c => POR_CHAVE.get(c)!.rotulo);
 }
 
 /** Uma alteração pendente. Para membro, `permitido: null` = voltar ao padrão do papel. */

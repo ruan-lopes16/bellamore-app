@@ -9,6 +9,7 @@ import { hojeBRT, limitesDias, limitesMes } from '@shared/periodos';
 import { resumoComissoesProfissional, faturamentoPrevistoDia } from '@shared/kpis-financeiros';
 import { classificarClientesReconquista, type VisitaClienteProfissional } from '@shared/dashboard-profissional';
 import { formatarMoeda as fmt } from '@shared/moeda';
+import { saudacao, primeiroNome } from '@shared/saudacao';
 
 const STATUS_LABEL: Record<string, string> = {
   agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', faltou: 'Faltou',
@@ -32,6 +33,8 @@ export default async function DashboardProfissionalView({
   const hojeStr  = hojeBRT();
   const diaLabel = format(new Date(`${hojeStr}T12:00:00`), "EEEE, d 'de' MMMM", { locale: ptBR });
   const limHoje  = limitesDias(hojeStr, hojeStr);
+  const { data: euUsuario } = await supabase.from('users').select('nome').eq('id', userId).maybeSingle();
+  const textoSaudacao = saudacao(primeiroNome(euUsuario?.nome), new Date());
   const limMes   = limitesMes(hojeStr.slice(0, 7));
 
   const [{ data: agendaHoje, error: erroAgenda }, { data: comissoesMes, error: erroComissoes }, { data: membro, error: erroMembro }, { data: historico, error: erroHistorico }] = await Promise.all([
@@ -96,11 +99,16 @@ export default async function DashboardProfissionalView({
           <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 2 }}>
             {diaLabel}
           </p>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 600, color: 'var(--color-ink2)', marginBottom: 6 }}>
+            {textoSaudacao}
+          </p>
+          <div className="flex items-center gap-3">
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
             Minha agenda
           </h1>
+          <PrivacyToggle />
+          </div>
         </div>
-        <PrivacyToggle />
       </div>
 
       {/* KPIs do dia/mês */}

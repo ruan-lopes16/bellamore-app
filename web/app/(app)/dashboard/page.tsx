@@ -1,6 +1,7 @@
 import { getAppContext } from '@/lib/auth/server-context';
 import { pode } from '@/lib/permissions';
 import DashboardProfissionalView from './DashboardProfissionalView';
+import { TrocaMesProvider, NavegacaoMes, ConteudoMes } from './TrocaMes';
 import Link from 'next/link';
 import { CountUp } from '@/components/CountUp';
 import { SparkBars } from '@/components/SparkBars';
@@ -8,14 +9,14 @@ import Tilt from '@/components/Tilt';
 import {
   CalendarDays, Users, Wallet,
   AlertTriangle, ShoppingBag, Clock, ArrowUp, ArrowDown,
-  CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, ChevronLeft, Target,
+  CalendarPlus, Receipt, UserPlus, BadgeDollarSign, ChevronRight, Target,
   UserMinus, Cake, XCircle,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { somaDevolucoesPorRetirada, saldoDevedorTotal } from '@shared/retiradas-socia';
 import type { RetiradaSociaRow, RetiradaSociaDevolucaoRow } from '@shared/retiradas-socia';
-import { hojeBRT, limitesMes, limitesDias, uniaoLimites, rotuloMesAno, horaBRT, rotuloDataHoraBRT } from '@shared/periodos';
+import { hojeBRT, limitesMes, limitesDias, uniaoLimites, horaBRT, rotuloDataHoraBRT } from '@shared/periodos';
 import {
   navegacaoMesDashboard, clientesParaReconquistar, aniversariantesProximos, resumoComandasNaoFechadas,
   progressoMetaEmpresa, rotuloProgressoMeta, cartoesKpiDashboard,
@@ -32,6 +33,7 @@ import {
 } from '@shared/kpis-financeiros-consultas';
 import { Secret, PrivacyToggle } from '@/components/privacy';
 import { formatarMoeda as fmt } from '@shared/moeda';
+import { saudacao, primeiroNome } from '@shared/saudacao';
 
 const STATUS_MAP: Record<string, { label: string; tone: string }> = {
   agendado:   { label: 'Agendado',   tone: 'accent'   },
@@ -71,6 +73,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     return <DashboardProfissionalView supabase={supabase} empresaId={empresaId} userId={user.id} />;
   }
 
+  // Saudação do cabeçalho (hora de Brasília); sem nome, só "Bom dia". A consulta do nome corre em
+  // paralelo com o resto (não atrasa a troca de mês); se falhar, a saudação sai sem o nome.
+  const nomeP = Promise.resolve(supabase.from('users').select('nome').eq('id', user.id).maybeSingle())
+    .then(r => (r.data?.nome as string | null | undefined) ?? null, () => null);
+
   // Datas sempre em Brasília — o servidor roda em UTC (ver @shared/periodos).
   const hojeStr  = hojeBRT();
   const hoje     = new Date(`${hojeStr}T12:00:00`);   // só para rótulos e aniversários
@@ -82,9 +89,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const mesRefKey     = nav.chave;
   const mesRef        = new Date(`${mesRefKey}-01T12:00:00`);
   const isMesAtual    = nav.isMesAtual;
-  const mesRefLabel   = rotuloMesAno(mesRefKey);
   const paramAnterior = nav.anterior;
-  const paramSeguinte = nav.seguinte;
 
   const limMes  = limitesMes(mesRefKey);
   const limAnt  = limitesMes(paramAnterior);
@@ -94,9 +99,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   let carga;
   try {
     // Retiradas/empréstimos da dona só aparecem para a própria dona (owner).
-    const empOwner = await supabase.from('empresas').select('owner_id').eq('id', empresaId).single();
-    if (empOwner.error) throw empOwner.error;
-    const isOwnerCarga = empOwner.data.owner_id === user.id;
+    // Em paralelo com o resto (antes era uma ida ao banco em série antes de tudo).
+    const isOwnerP = Promise.resolve(supabase.from('empresas').select('owner_id').eq('id', empresaId).single())
+      .then(r => { if (r.error) throw r.error; return r.data.owner_id === user.id; });
 
     const resultado = await Promise.all([
       supabase.from('agendamentos')
@@ -116,17 +121,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       isMesAtual ? Promise.resolve(null) : carregarDadosFinanceiros(supabase, empresaId, limHoje),
       // Alerta: TODAS as comissões pendentes, de qualquer mês (regra única web + mobile).
       carregarComissoesPendentes(supabase, empresaId),
-      isOwnerCarga
+      isOwnerP.then(dona => dona
         ? carregarRetiradas(supabase, empresaId)
-        : Promise.resolve({ rows: [] as RetiradaSociaRow[], devs: [] as RetiradaSociaDevolucaoRow[] }),
+        : { rows: [] as RetiradaSociaRow[], devs: [] as RetiradaSociaDevolucaoRow[] }),
       carregarComandasNaoFechadas(supabase, empresaId, new Date().toISOString()),
+      isOwnerP,
     ] as const);
+    const isOwnerCarga = resultado[10];
 
     // Erro em qualquer consulta direta aborta a carga (sem isso viraria "sem dados").
     for (const r of [resultado[0], resultado[1]]) {
       if (r.error) throw r.error;
     }
-    carga = { resultado, isOwnerCarga };
+    carga = { resultado, isOwnerCarga, nome: await nomeP };
   } catch (e) {
     return (
       <div className="bm-page max-w-5xl mx-auto w-full">
@@ -147,6 +154,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
 
   const isOwner = carga.isOwnerCarga;
+  const textoSaudacao = saudacao(primeiroNome(carga.nome), new Date());
   const [
     agendamentosHoje, estoqueBaixo, despVencendo,
     ultimasVisitas, clientesComAniversario,
@@ -192,35 +200,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="bm-page max-w-5xl mx-auto w-full">
+      <TrocaMesProvider mes={mesRefKey} hoje={hojeStr}>
 
       {/* ── Header ── */}
       <div className="mb-6">
-        <div className="flex items-center gap-1 mb-1">
-          <Link href={`/dashboard?mes=${paramAnterior}`} aria-label="Mês anterior"
-            className="flex items-center justify-center rounded-md transition-colors hover:bg-[var(--color-bg2)]"
-            style={{ width: 22, height: 22, color: 'var(--color-ink4)' }}>
-            <ChevronLeft size={12} strokeWidth={2.4} />
-          </Link>
-          <p style={{ fontFamily: 'var(--font-sans)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-ink3)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
-            {mesRefLabel}
-          </p>
-          {!isMesAtual && paramSeguinte ? (
-            <Link href={`/dashboard?mes=${paramSeguinte}`} aria-label="Próximo mês"
-              className="flex items-center justify-center rounded-md transition-colors hover:bg-[var(--color-bg2)]"
-              style={{ width: 22, height: 22, color: 'var(--color-ink4)' }}>
-              <ChevronRight size={12} strokeWidth={2.4} />
-            </Link>
-          ) : (
-            <span style={{ width: 22, height: 22 }} />
-          )}
-          {!isMesAtual && (
-            <Link href="/dashboard"
-              style={{ fontFamily: 'var(--font-sans)', fontSize: 9.5, fontWeight: 700, color: 'var(--color-accent)', background: 'var(--color-accent-soft)', borderRadius: 999, padding: '2px 8px', marginLeft: 2 }}>
-              Hoje
-            </Link>
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-3">
+        {/* Navegação de mês no cliente: rótulo troca no clique e mostra "Atualizando…". */}
+        <NavegacaoMes />
+        <p style={{ fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 600, color: 'var(--color-ink2)', marginBottom: 6 }}>
+          {textoSaudacao}
+        </p>
+        {/* Olho ao lado do título, no mesmo lugar das outras telas (padrão do dono, 2026-11-21). */}
+        <div className="flex items-center gap-2">
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(22px, 5.5vw, 30px)', fontWeight: 600, color: 'var(--color-ink)', letterSpacing: '-0.01em', lineHeight: 1.05 }}>
             Dashboard
           </h1>
@@ -228,6 +218,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       </div>
 
+      <ConteudoMes>
       {/* ── Hero receita ── */}
       <Tilt className="mb-4">
       <div className="relative overflow-hidden"
@@ -595,6 +586,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
 
       </div>
+      </ConteudoMes>
+      </TrocaMesProvider>
     </div>
   );
 }

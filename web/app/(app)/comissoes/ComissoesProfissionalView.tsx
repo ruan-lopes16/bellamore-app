@@ -107,14 +107,14 @@ export default function ComissoesProfissionalView() {
       </div>
 
       {/* Tabs de período */}
-      <div className="flex gap-1 mb-4 p-1 rounded-2xl w-fit max-w-full overflow-x-auto" style={{ background: 'var(--color-bg2)' }}>
+      <div className="flex gap-1 mb-4 p-1 rounded-2xl w-fit max-w-full overflow-x-auto no-scrollbar border border-border" style={{ background: 'var(--color-surface)' }}>
         {PERIODOS_COMISSAO.map(p => (
           <button key={p.key}
             onClick={() => { setPeriodo(p.key); setDeslocamento(0); }}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
               periodo === p.key
                 ? 'bg-surface text-primary border border-border shadow-sm'
-                : 'text-text-3 hover:text-text-2'
+                : 'text-text-2 hover:text-text'
             }`}>
             {p.label}
           </button>

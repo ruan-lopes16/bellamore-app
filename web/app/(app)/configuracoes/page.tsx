@@ -20,10 +20,17 @@ import { lerEnderecoEmpresa, serializarEnderecoEmpresa } from '@shared/endereco'
 import {
   MENSAGEM_EMAIL_CONFIRMACAO, validarTrocaEmail, salvarPreferenciaNotificacao,
   SEGMENTOS_EMPRESA, enderecoDoViaCep, dadosDoCnpj, caminhoLogoEmpresa, validarArquivoLogo, montarPayloadEmpresa,
+  colunasAlteradas, temAlteracoes,
 } from '@shared/configuracoes-empresa';
 import { validarNovaSenha, SENHA_MINIMA } from '@/lib/senha';
 
 const supabase = createClient();
+
+/** Linha da empresa ativa (carga inicial e releitura ao voltar à tela). */
+function buscarEmpresa(empresaId: string) {
+  return supabase.from('empresas').select('*').eq('id', empresaId).single();
+}
+type EmpresaRow = NonNullable<Awaited<ReturnType<typeof buscarEmpresa>>['data']>;
 
 type DiaSemana = 'seg' | 'ter' | 'qua' | 'qui' | 'sex' | 'sab' | 'dom';
 type HorarioDia = { aberto: boolean; inicio: string; fim: string };
@@ -86,7 +93,7 @@ type PermissaoPush = 'default' | 'granted' | 'denied' | 'sem-suporte';
  * fora de um gesto direto do usuário é negado silenciosamente, sem popup
  * nenhum (é por isso que não roda automático em lugar nenhum do app).
  */
-function CardPushDispositivo() {
+function StatusPushDispositivo() {
   const [permissao, setPermissao] = useState<PermissaoPush>('sem-suporte');
   const [ativando,  setAtivando]  = useState(false);
 
@@ -110,8 +117,9 @@ function CardPushDispositivo() {
 
   if (permissao === 'sem-suporte') return null;
 
+  // Linha de status deste aparelho, dentro do card único de Notificações (igual ao app).
   return (
-    <SectionCard title="Notificações" icon={Bell} color="accent">
+    <div className="pb-4 mb-1" style={{ borderBottom: '1px solid var(--color-border-soft)' }}>
       <div className="flex items-center gap-4">
         <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: permissao === 'granted' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)' }}>
           <Bell size={18} style={{ color: permissao === 'granted' ? 'var(--color-green)' : 'var(--color-primary)' }}/>
@@ -136,7 +144,7 @@ function CardPushDispositivo() {
           </button>
         )}
       </div>
-    </SectionCard>
+    </div>
   );
 }
 
@@ -218,13 +226,17 @@ function CardAgendaAbreEm({ empresaId, userId }: { empresaId: string; userId: st
   );
 }
 
-/** Preferência por tipo de notificação — independente de dono/gestora/profissional. */
+/**
+ * Card único de Notificações: status/ativação neste aparelho + preferência por tipo (independente de
+ * dono/gestora/profissional). Antes eram 2 cards com o mesmo assunto; o app já usava um só.
+ */
 function CardPreferenciasNotificacao({ notifResumo, notifLembrete, onChange }: {
   notifResumo: boolean; notifLembrete: boolean;
   onChange: (campo: 'notif_resumo_diario' | 'notif_lembrete_atendimento', valor: boolean) => void;
 }) {
   return (
-    <SectionCard title="Preferências de notificação" icon={Bell} color="accent">
+    <SectionCard title="Notificações" icon={Bell} color="accent">
+      <StatusPushDispositivo />
       <div className="flex flex-col gap-4">
         <ToggleLinha label="Resumo do dia" desc="1x por dia, às 07:00"
           checked={notifResumo} onToggle={v => onChange('notif_resumo_diario', v)}/>
@@ -366,12 +378,25 @@ function ConfiguracoesConteudo() {
       setEmpresaId(membro.empresa_id);
 
       const [{ data: empresa }, { data: perfil }] = await Promise.all([
-        supabase.from('empresas').select('*')
-          .eq('id', membro.empresa_id).single(),
+        buscarEmpresa(membro.empresa_id),
         supabase.from('users').select('nome, telefone, notif_resumo_diario, notif_lembrete_atendimento').eq('id', user.id).single(),
       ]);
 
-      if (empresa) {
+      if (empresa) aplicarEmpresa(empresa);
+
+      if (perfil) {
+        setPerfilNome(perfil.nome ?? '');
+        setPerfilTelefone(maskPhone(perfil.telefone ?? ''));
+        setNotifResumo(perfil.notif_resumo_diario ?? true);
+        setNotifLembrete(perfil.notif_lembrete_atendimento ?? true);
+      }
+
+      setLoading(false);
+    })();
+  }, []);
+
+  /** Preenche o formulário da empresa com a linha do banco (carga inicial e ao voltar à tela). */
+  function aplicarEmpresa(empresa: EmpresaRow) {
         setNome(empresa.nome ?? '');
         setSegmento(empresa.segmento ?? 'Estúdio');
         setCnpj(maskCNPJ(empresa.cnpj ?? ''));
@@ -399,18 +424,60 @@ function ConfiguracoesConteudo() {
         const end = lerEnderecoEmpresa(empresa.endereco);
         setCep(end.cep); setRua(end.rua); setNumero(end.numero); setComplemento(end.complemento);
         setBairro(end.bairro); setCidade(end.cidade); setUf(end.uf);
-      }
+  }
 
-      if (perfil) {
-        setPerfilNome(perfil.nome ?? '');
-        setPerfilTelefone(maskPhone(perfil.telefone ?? ''));
-        setNotifResumo(perfil.notif_resumo_diario ?? true);
-        setNotifLembrete(perfil.notif_lembrete_atendimento ?? true);
-      }
+  // Colunas da empresa como o formulário está agora (as mesmas que o Salvar grava).
+  function dadosDoFormulario() {
+    return {
+      nome:                  nome.trim(),
+      segmento:              segmento        || SEGMENTOS_EMPRESA[0],
+      cnpj:                  cnpj.trim()     || null,
+      telefone:              telefone.trim() || null,
+      endereco:              serializarEnderecoEmpresa({ cep, rua, numero, complemento, bairro, cidade, uf }),
+      logo_url:              logoUrl         || null,
+      horario_funcionamento: horarios,
+      meta_mensal:           parseMoeda(metaMensal),
+    };
+  }
+  function taxasDoFormulario() {
+    return {
+      taxa_cancelamento_ativa:             taxaAtiva,
+      taxa_cancelamento_modo:              taxaModo,
+      taxa_cancelamento_valor:             parseValorBR(taxaValor),
+      taxa_cancelamento_aplica_cancelado:  taxaAplicaCancelado,
+      taxa_cancelamento_aplica_faltou:     taxaAplicaFaltou,
+      taxa_reserva_ativa: reservaAtiva,
+      taxa_reserva_modo:  reservaModo,
+      taxa_reserva_valor: parseValorBR(reservaValor),
+    };
+  }
+  type FormEmpresa = { dados: ReturnType<typeof dadosDoFormulario>; taxas: ReturnType<typeof taxasDoFormulario> };
 
-      setLoading(false);
-    })();
-  }, []);
+  // O que o formulário carregou do banco: o Salvar grava só o que mudou em relação a isto
+  // (formulário antigo nunca devolve ao banco um endereço sem o CEP gravado em outro lugar).
+  const carregadoRef = useRef<FormEmpresa | null>(null);
+  const formAtualRef = useRef<() => FormEmpresa>(() => ({ dados: dadosDoFormulario(), taxas: taxasDoFormulario() }));
+  const [versaoCarga, setVersaoCarga] = useState(0);
+  useEffect(() => { formAtualRef.current = () => ({ dados: dadosDoFormulario(), taxas: taxasDoFormulario() }); });
+  useEffect(() => {
+    if (!loading) carregadoRef.current = formAtualRef.current();
+  }, [loading, versaoCarga]);
+
+  // Ao voltar para a tela (PWA retomado, outra aba), relê a empresa se nada foi editado aqui:
+  // senão a tela seguia mostrando o endereço de quando foi aberta, sem o CEP salvo depois.
+  useEffect(() => {
+    if (!empresaId) return;
+    async function aoVoltar() {
+      if (document.visibilityState !== 'visible' || !carregadoRef.current) return;
+      if (temAlteracoes(carregadoRef.current, formAtualRef.current())) return;
+      const { data } = await buscarEmpresa(empresaId);
+      if (!data || !carregadoRef.current || temAlteracoes(carregadoRef.current, formAtualRef.current())) return;
+      aplicarEmpresa(data);
+      setVersaoCarga(v => v + 1);
+    }
+    document.addEventListener('visibilitychange', aoVoltar);
+    return () => document.removeEventListener('visibilitychange', aoVoltar);
+  }, [empresaId]);
 
   async function buscarCEP(valor: string) {
     const d = valor.replace(/\D/g, '');
@@ -504,34 +571,19 @@ function ConfiguracoesConteudo() {
     if (!isOwner && !podeEditarTaxa) { setErro('Você não tem permissão para editar as configurações.'); return; }
     // O CNPJ só é enviado pela dona; a gestora nem vê o campo, então não pode travar nele.
     if (isOwner && cnpj.trim() && !validaCNPJ(cnpj)) { setErro('CNPJ inválido. Verifique os dígitos.'); return; }
-    setSalvando(true); setErro('');
-
     // Dados da empresa só a dona. Quem salva só com config.taxas manda SÓ as colunas taxa_*
     // (o trigger da 083 recusa qualquer outra coluna vinda de quem não é a dona) — regra de shared.
+    // E só as colunas que mudaram desde a carga (colunasAlteradas): campo intocado não é regravado.
+    const atual = formAtualRef.current();
+    const base = carregadoRef.current;
     const payload = montarPayloadEmpresa({
       ehDona: isOwner,
       podeTaxas: podeEditarTaxa,
-      dados: {
-        nome:                  nome.trim(),
-        segmento:              segmento        || SEGMENTOS_EMPRESA[0],
-        cnpj:                  cnpj.trim()     || null,
-        telefone:              telefone.trim() || null,
-        endereco:              serializarEnderecoEmpresa({ cep, rua, numero, complemento, bairro, cidade, uf }),
-        logo_url:              logoUrl         || null,
-        horario_funcionamento: horarios,
-        meta_mensal:           parseMoeda(metaMensal),
-      },
-      taxas: {
-        taxa_cancelamento_ativa:             taxaAtiva,
-        taxa_cancelamento_modo:              taxaModo,
-        taxa_cancelamento_valor:             parseValorBR(taxaValor),
-        taxa_cancelamento_aplica_cancelado:  taxaAplicaCancelado,
-        taxa_cancelamento_aplica_faltou:     taxaAplicaFaltou,
-        taxa_reserva_ativa: reservaAtiva,
-        taxa_reserva_modo:  reservaModo,
-        taxa_reserva_valor: parseValorBR(reservaValor),
-      },
+      dados: colunasAlteradas(base?.dados ?? null, atual.dados),
+      taxas: colunasAlteradas(base?.taxas ?? null, atual.taxas),
     });
+    if (Object.keys(payload).length === 0) { showToast('Nenhuma alteração para salvar.'); return; }
+    setSalvando(true); setErro('');
     const { data: atualizadas, error } = await supabase.from('empresas').update(payload).eq('id', empresaId).select('id');
 
     setSalvando(false);
@@ -540,6 +592,7 @@ function ConfiguracoesConteudo() {
       setErro(mensagemErroBanco(error ?? { code: '42501' }, 'salvar as configurações da empresa'));
       return;
     }
+    carregadoRef.current = atual;
     showToast('Configurações salvas!');
     setTimeout(() => window.location.reload(), 1000);
   }
@@ -1132,8 +1185,6 @@ function ConfiguracoesConteudo() {
               </button>
             </div>
           </SectionCard>
-
-          <CardPushDispositivo />
 
           <CardPreferenciasNotificacao notifResumo={notifResumo} notifLembrete={notifLembrete} onChange={alterarPrefNotif}/>
 

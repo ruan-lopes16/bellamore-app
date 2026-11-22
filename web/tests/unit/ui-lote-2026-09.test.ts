@@ -211,8 +211,12 @@ describe('E5 — alertas de agendamento colapsados', () => {
 });
 
 describe('E-push — ativação do push vive em Configurações, não flutuante nem em Notificações', () => {
-  it('configuracoes/page.tsx tem o card de ativação', () => {
-    expect(read('app/(app)/configuracoes/page.tsx')).toContain('function CardPushDispositivo');
+  it('configuracoes/page.tsx tem a ativação dentro do card único de Notificações', () => {
+    const c = read('app/(app)/configuracoes/page.tsx');
+    expect(c).toContain('function StatusPushDispositivo');
+    // Um card só com status + preferências (antes eram 2 cards com o mesmo assunto).
+    expect(c).toMatch(/<SectionCard title="Notificações" icon=\{Bell\} color="accent">\s*<StatusPushDispositivo \/>/);
+    expect(c).not.toContain('Preferências de notificação"');
   });
   it('notificacoes/page.tsx não tem mais o card (mudou para Configurações)', () => {
     expect(read('app/(app)/notificacoes/page.tsx')).not.toContain('CardPushDispositivo');
