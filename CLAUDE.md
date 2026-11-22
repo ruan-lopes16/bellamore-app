@@ -1630,6 +1630,26 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-21 — Verificação visual do web/PWA (primeira)
+
+*Escopo: primeira verificação visual real. O app rodou local apontando para produção, com o dono logado na conta dele.*
+*Foi só leitura: nenhuma gravação, troca de tela pelo endereço e nenhum botão de salvar, fechar ou pagar.*
+*14 telas conferidas no desktop e no celular (375 px).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| Visual (UI)     | 9.0  | 14 telas sem rolagem lateral no celular; Dashboard, Financeiro e Relatórios com os mesmos números (bruto R$ 9.166,00, comissões R$ 4.385,95, cartão R$ 74,21, lucro R$ 4.472,34) |
+| **Proatividade**| 9.0  | Achou e corrigiu botão dentro de botão na Equipe (erro de hidratação) |
+
+**Corrigido:** o cabeçalho do cartão da profissional na Equipe era um `<button>` com o lápis (`<button>`), o telefone e o link de exceções dentro. Isso é HTML inválido e causa erro de hidratação. O cabeçalho virou `div role="button"` acessível pelo teclado. Uma varredura confirmou 0 casos nas outras 13 telas.
+
+**Registrados, não corrigidos:**
+- Aviso de desenvolvimento "script tag inside React component" vindo do script de privacidade do `AppLayout`. É benigno: o script roda na primeira carga.
+- Rótulos dos cartões pequenos do Dashboard aparecem cortados no celular ("AGENDA HO…").
+- O app nativo continua sem verificação visual.
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |
