@@ -2,15 +2,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { PRIVACY_KEY, SMEAR_STYLE, readPrivacyPref, writePrivacyPref } from '@/lib/privacy';
+import { SMEAR_STYLE, readPrivacyPref, writePrivacyPref } from '@/lib/privacy';
 
 type PrivacyCtx = { hidden: boolean; toggle: () => void };
 const Ctx = createContext<PrivacyCtx>({ hidden: false, toggle: () => {} });
 
-/** Script inline: roda ANTES da hidratação, marca <html data-privacy> a partir
- *  do localStorage. Evita o flash de valores reais ao abrir com o modo ligado. */
-export const PRIVACY_NOFLASH_SCRIPT =
-  `try{if(localStorage.getItem('${PRIVACY_KEY}')==='1')document.documentElement.dataset.privacy='on'}catch(e){}`;
 
 export function PrivacyProvider({ children }: { children: React.ReactNode }) {
   // Começa a partir do que o script inline já marcou no <html> (sem flash);

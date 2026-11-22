@@ -35,3 +35,10 @@ export const SMEAR_STYLE: React.CSSProperties = {
   userSelect: 'none',
   cursor: 'default',
 };
+
+/** Script inline: roda ANTES da hidratação, marca <html data-privacy> a partir
+ *  do localStorage. Evita o flash de valores reais ao abrir com o modo ligado.
+ *  Fica no <head> do layout raiz: dentro de um componente, o React não executa
+ *  <script> em navegação pelo cliente (e avisa no console). */
+export const PRIVACY_NOFLASH_SCRIPT =
+  `try{if(localStorage.getItem('${PRIVACY_KEY}')==='1')document.documentElement.dataset.privacy='on'}catch(e){}`;

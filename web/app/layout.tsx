@@ -5,6 +5,7 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 import { Providers } from './providers';
 import { ClickSpark } from '@/components/ClickSpark';
+import { PRIVACY_NOFLASH_SCRIPT } from '@/lib/privacy';
 
 const fraunces = Fraunces({
   variable: '--font-fraunces',
@@ -49,6 +50,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" className={`${fraunces.variable} ${jakarta.variable} h-full`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: PRIVACY_NOFLASH_SCRIPT }} />
+      </head>
       <body className="min-h-full">
         <Providers>{children}</Providers>
         <ClickSpark />
