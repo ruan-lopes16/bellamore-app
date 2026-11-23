@@ -35,7 +35,7 @@ import { SecretText, PrivacyToggle } from '@/components/Secret';
 import { BotaoExportar } from '@/components/BotaoExportar';
 import { definicaoEquipe } from '@shared/exportacao/equipe';
 import { supabase } from '@/lib/supabase';
-import { configVazia, contarExcecoes, podeGerenciarMembro } from '@shared/permissoes';
+import { configVazia, contarExcecoes, rotulosExcecoes, podeGerenciarMembro } from '@shared/permissoes';
 import { carregarConfigPermissoes } from '@shared/permissoes-consultas';
 import { formatarMoeda } from '@shared/moeda';
 import { toWhatsApp } from '@shared/mascaras';
@@ -90,12 +90,14 @@ function useEquipe(habilitado: boolean) {
 
 // ── Card de profissional ──────────────────────────────────────
 
-function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar, pagando, excecoes, onVerExcecoes, onEditar, onToggle, onPagar, onAlterarRole }: {
+function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar, pagando, excecoes, rotulosExcecoes, onVerExcecoes, onEditar, onToggle, onPagar, onAlterarRole }: {
   membro: MembroEquipe;
   /** Números que a pessoa logada pode ver (`numerosVisiveis`): sem a chave, "—" em vez de zeros falsos. */
   visiveis: { producao: boolean; comissao: boolean };
   /** Quantidade de exceções individuais de permissão (0 = sem selo). */
   excecoes: number;
+  /** Nomes das permissões que diferem do papel (no web é o tooltip do selo; aqui aparece sob o selo). */
+  rotulosExcecoes: string[];
   onVerExcecoes: () => void;
   /** Editar, ativar/desativar — mesma regra do web (`podeGerenciarMembro`). */
   podeGerenciar: boolean;
@@ -172,6 +174,11 @@ function ProfCard({ membro, visiveis, podeAlterarRole, podeGerenciar, podePagar,
               </TouchableOpacity>
             )}
           </View>
+          {membro.role !== 'owner' && excecoes > 0 && rotulosExcecoes.length > 0 && (
+            <Text numberOfLines={2} style={{ fontFamily: 'PlusJakartaSans_400Regular', fontSize: 11, color: C.text3, marginTop: 4 }}>
+              {rotulosExcecoes.join(', ')}
+            </Text>
+          )}
         </View>
 
         {podeGerenciar && (
@@ -624,6 +631,7 @@ function Equipe() {
                   podePagar={podePagar}
                   pagando={pagandoId === m.id}
                   excecoes={veSeloExcecoes && cfgPermissoes ? contarExcecoes(cfgPermissoes, m.user_id, m.role) : 0}
+                  rotulosExcecoes={veSeloExcecoes && cfgPermissoes ? rotulosExcecoes(cfgPermissoes, m.user_id, m.role) : []}
                   onVerExcecoes={() => router.push(`/(empresa)/configuracoes?aba=permissoes&membro=${m.user_id}` as any)}
                   onEditar={() => router.push(`/(empresa)/editar-profissional/${m.id}` as any)}
                   onToggle={() => toggleAtivo(m)}

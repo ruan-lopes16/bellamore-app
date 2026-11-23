@@ -1676,6 +1676,24 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-21 — Residuais visuais
+
+*Escopo: os 5 itens registrados nas duas sessões anteriores.*
+- *Cartões do Dashboard no celular: os rótulos quebram em 2 linhas em vez de cortar (`sm:truncate`). Nos 3 cartões do dia, o ícone some abaixo de `sm` para dar espaço.*
+- *Equipe do app: os nomes das exceções aparecem sob o selo (`rotulosExcecoes`), fazendo o papel do tooltip do web.*
+- *Timeline do web: a continuação da véspera entra no cálculo de faixas (`computeLanes`). Um atendimento logo depois da meia-noite divide a coluna com ela em vez de ficar por cima.*
+- *Script do modo privado: saiu do `AppLayout` e foi para o `<head>` do layout raiz (constante em `lib/privacy.ts`). O aviso "script tag inside React component" sumiu, e o `data-privacy` continua marcado antes da hidratação.*
+- *Troca de mês do Dashboard web: medida no servidor local contra produção, só leitura. A consulta mais lenta é a financeira do próprio mês (130–1400 ms). As consultas que não dependem do mês já correm em paralelo e terminam antes, então tirá-las da troca não reduziria o tempo. Ficou como está.*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 3314/3314 com `--maxWorkers=3` (sem a flag, a máquina derrubava os processos por falta de memória); mobile só com o erro pré-existente |
+| Visual (UI)     | 9.0  | Dashboard em 375 px com os 7 rótulos inteiros e sem rolagem lateral; modo privado sem flash |
+| **Completude**  | 9.0  | 5 residuais: 4 corrigidos e 1 medido e descartado com base nos números |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

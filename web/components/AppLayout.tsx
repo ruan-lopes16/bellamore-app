@@ -2,7 +2,7 @@ import { getAppContext, ErroVinculosError, type AppContext } from '@/lib/auth/se
 import Sidebar from '@/components/Sidebar';
 import { PermissoesProvider } from '@/components/PermissoesProvider';
 import ConvitesRecebidosBanner from '@/components/ConvitesRecebidosBanner';
-import { PrivacyProvider, PRIVACY_NOFLASH_SCRIPT } from '@/components/privacy';
+import { PrivacyProvider } from '@/components/privacy';
 import ErroPermissoes from '@/components/ErroPermissoes';
 import ErroVinculos from '@/components/ErroVinculos';
 import { EmpresaAtivaProvider } from '@/components/EmpresaAtivaProvider';
@@ -30,7 +30,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--color-bg)' }}>
-      <script dangerouslySetInnerHTML={{ __html: PRIVACY_NOFLASH_SCRIPT }} />
       <Sidebar
         empresaId={empresaId}
         empresaNome={empresa.nome}

@@ -1886,7 +1886,10 @@ function TimelineView({
 
             {/* Colunas por profissional */}
             {colunas.map(({ profissional: prof, itens: colAgs }) => {
-              const laneMap = computeLanes(colAgs);
+              // Continuações da véspera entram nas faixas: um atendimento que começa logo depois da
+              // meia-noite divide a coluna com elas em vez de ficar por cima.
+              const vesperaCol = vespera.filter(v => v.status !== 'faltou' && v.status !== 'cancelado' && (v.profissional?.id ?? v.profissional_id) === prof.id);
+              const laneMap = computeLanes([...vesperaCol, ...colAgs]);
 
               return (
                 <div key={prof.id}
@@ -1988,9 +1991,10 @@ function TimelineView({
                     })}
 
                   {/* Continuação da véspera (começou ontem e passa da meia-noite): recortada a partir de 00:00 */}
-                  {vespera
-                    .filter(v => v.status !== 'faltou' && v.status !== 'cancelado' && (v.profissional?.id ?? v.profissional_id) === prof.id)
+                  {vesperaCol
                     .map(v => {
+                      const { lane: laneV, totalLanes: totalV } = laneMap.get(v.id) ?? { lane: 0, totalLanes: 1 };
+                      const pctV = 100 / totalV;
                       const { top: topV, height: hV } = posicaoNaTimeline(v.data_hora_inicio, v.data_hora_fim, chaveDia, janela, 26);
                       const infoV = infoCategoria(categoriasDoAg(v, categoriasCustom)[0] ?? 'outros', categoriasCustom);
                       const selV = agSel?.id === v.id;
@@ -1999,7 +2003,7 @@ function TimelineView({
                           key={`vespera-${v.id}`}
                           onClick={e => { e.stopPropagation(); setAgSel(selV ? null : v); }}
                           style={{
-                            top: topV + 2, height: hV - 4, left: 3, width: 'calc(100% - 6px)',
+                            top: topV + 2, height: hV - 4, left: `calc(${laneV * pctV}% + 3px)`, width: `calc(${pctV}% - 6px)`,
                             borderRadius: 5, borderLeft: `3px solid ${infoV.cor}`,
                             borderTop: '1px solid rgba(0,0,0,0.06)', borderRight: '1px solid rgba(0,0,0,0.06)', borderBottom: '1px solid rgba(0,0,0,0.06)',
                             background: infoV.bg,
