@@ -5,6 +5,7 @@ import { quemChama, traduzirErroEmailAuth } from '@/lib/auth/quem-chama';
 import { carregarPermissoesDoMembro } from '@shared/permissoes-consultas';
 import { podeGerenciarMembro } from '@shared/permissoes';
 import { validarSenhaMinima } from '@shared/senha';
+import { avisoLoginTrocado } from '@shared/notificacoes';
 import { emailValido, montarPatchVinculo, vinculoParaGravar, type TipoContrato } from '@shared/equipe';
 import { gravarConvitePendente, faltaMigration092 } from '@/lib/equipe/convite-pendente';
 
@@ -354,6 +355,18 @@ export async function PATCH(req: NextRequest) {
       });
       if (errHist && !faltaMigration092(errHist)) {
         console.error('Não foi possível registrar a troca de login no histórico da Equipe:', errHist.code, errHist.message);
+      }
+
+      // Aviso para a própria pessoa (B12): sino + push pelo cron nos aparelhos dela, que seguem com a
+      // sessão aberta. Substitui o e-mail ao endereço antigo enquanto não há domínio próprio. Como o
+      // histórico, uma falha aqui só vai para o log: a troca já valeu.
+      if (userId !== requesterId) {
+        const { data: quem } = await adminClient.from('users').select('nome').eq('id', requesterId).maybeSingle();
+        const aviso = avisoLoginTrocado(emailAntigoAuth, emailNovo!, (quem?.nome as string | null | undefined) ?? null);
+        const { error: errAviso } = await adminClient.from('notificacoes').insert({
+          user_id: userId, empresa_id: empresaId, tipo: 'login_trocado', titulo: aviso.titulo, mensagem: aviso.mensagem,
+        });
+        if (errAviso) console.error('Não foi possível avisar a pessoa da troca de login:', errAviso.code, errAviso.message);
       }
     }
 

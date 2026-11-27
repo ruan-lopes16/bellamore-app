@@ -21,7 +21,8 @@ import { pode, type Acesso, type PermissoesUsuario } from './permissoes';
 /** Tipos gravados hoje pelos crons e triggers. `comissao`, `pagamento` e `cliente_sumido` nunca são gravados. */
 export type TipoNotificacao =
   | 'agendamento' | 'resumo' | 'estoque_baixo'
-  | 'bloqueio_pendente' | 'bloqueio_aprovado' | 'bloqueio_recusado';
+  | 'bloqueio_pendente' | 'bloqueio_aprovado' | 'bloqueio_recusado'
+  | 'login_trocado';
 
 /** Cor do ícone, pelo nome do token de cor das duas plataformas (`--color-*` no web, paleta `C` no app). */
 export type CorAviso = 'primary' | 'amber' | 'green' | 'red' | 'rose';
@@ -36,6 +37,7 @@ export const TIPOS_NOTIFICACAO: Readonly<Record<TipoNotificacao, VisualAviso>> =
   bloqueio_pendente: { rotulo: 'Bloqueio pendente',  icone: 'Ban',           cor: 'amber' },
   bloqueio_aprovado: { rotulo: 'Bloqueio aprovado',  icone: 'Check',         cor: 'green' },
   bloqueio_recusado: { rotulo: 'Bloqueio recusado',  icone: 'X',             cor: 'red' },
+  login_trocado:     { rotulo: 'Login alterado',     icone: 'KeyRound',      cor: 'red' },
 };
 
 /** O tipo conhecido, ou `null` (tipos antigos/desconhecidos caem no visual genérico). */
@@ -81,12 +83,28 @@ const DESTINO_DO_TIPO: Record<TipoNotificacao, DestinoAlerta> = {
   bloqueio_pendente: { tela: 'agenda' },
   bloqueio_aprovado: { tela: 'agenda' },
   bloqueio_recusado: { tela: 'agenda' },
+  login_trocado: { tela: 'notificacoes' },
 };
 
 /** Rota que abre ao tocar num aviso (ou na notificação push). Tipo desconhecido → tela de Notificações. */
 export function rotaDoAviso(tipo: string | null | undefined, plataforma: Plataforma, area: AreaApp = 'empresa'): string {
   const t = tipoNotificacao(tipo);
   return rotaDoDestino(t ? DESTINO_DO_TIPO[t] : { tela: 'notificacoes' }, plataforma, area);
+}
+
+/**
+ * Aviso gravado para a própria pessoa quando a dona troca o e-mail de login dela (B12). Sem domínio
+ * próprio o app não manda e-mail, então o aviso vai para o sino e, pelo cron, como push para os
+ * aparelhos da pessoa — que continuam com a sessão aberta e, por isso, chegam a quem é dono da conta.
+ */
+export function avisoLoginTrocado(emailAntigo: string | null, emailNovo: string, feitoPor: string | null): { titulo: string; mensagem: string } {
+  const quem = feitoPor?.trim() ? feitoPor.trim() : 'a administração do estúdio';
+  const de = emailAntigo?.trim() ? ` de ${emailAntigo.trim()}` : '';
+  return {
+    titulo: 'Seu e-mail de login foi alterado',
+    mensagem: `O e-mail de entrada da sua conta foi trocado${de} para ${emailNovo} por ${quem}. `
+      + 'A partir de agora, entre com o e-mail novo. Se você não combinou essa troca, fale com a dona do estúdio.',
+  };
 }
 
 // ── Alertas calculados ────────────────────────────────────────────

@@ -27,12 +27,12 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 | B4 | Sessão expirada no app continua recebendo push até alguém entrar |
 | B5 | Erro ao ler os vínculos leva a `/login`; convite troca a empresa ativa ao carregar |
 | B6 | Exportar com erro de carga (Clientes) gera arquivo vazio |
-| B7 | `novo-agendamento` do app carrega a base inteira de clientes e falha sem aviso |
+| ~~B7~~ | ~~`novo-agendamento` do app carrega a base inteira de clientes e falha sem aviso~~ — resolvido em 03/11 (100) |
 | ~~B8~~ | ~~Badge com erro mostra 0 no app (web mantém o número); badge de comandas não respeita `comanda.fechar`~~ — já resolvido pela 097 |
 | ~~B9~~ | ~~Gestora sem `agenda.ver_equipe` recebe a contagem da empresa inteira no resumo diário~~ — resolvido em 10/11 |
-| B10 | Profissional com Financeiro/Relatórios vê só os extras das próprias comandas, sem aviso; segmentos de clientes idem |
+| ~~B10~~ | ~~Profissional com Financeiro/Relatórios vê só os extras das próprias comandas, sem aviso; segmentos de clientes idem~~ — já estava resolvido (conferido em 03/11) |
 | ~~B11~~ | ~~Gestora sem `pacotes.vender` não vê "Excluir" pacote~~ — resolvido em 10/11 |
-| B12 | Troca de login sem aviso ao e-mail antigo |
+| ~~B12~~ | ~~Troca de login sem aviso ao e-mail antigo~~ — resolvido em 27/11: aviso no sino e push nos aparelhos da pessoa (e-mail só com domínio próprio) |
 | ~~B13~~ | ~~Conferências incompletas no banco: `pacote_uso` UPDATE; `pagamentos` com `comanda_id` + `venda_id`; FKs entre empresas nas tabelas de cartão~~ — resolvido em 10/11 (101) |
 | ~~B14~~ | ~~Push: token compartilhado por 2 contas recebe só o 1º resumo; recibos assíncronos da Expo não são lidos~~ — resolvido em 20/11 (recibos na 102; aparelho compartilhado já resolvido pela 097) |
 
@@ -46,7 +46,7 @@ Cada item ainda precisa ser confirmado no código antes de virar task.
 | ~~C5~~ | ~~Seletor de dia do web usa o calendário local (não Brasília)~~ — resolvido em 04/11 |
 | ~~C6~~ | ~~Contagem do mês da agenda do app não atualiza depois de mexer no detalhe/comanda~~ — resolvido em 04/11 |
 | ~~C7~~ | ~~Filtro "Retornos" aceita data futura~~ — resolvido em 10/11 |
-| C8 | Vincular pacote ao editar uma comanda já fechada |
+| ~~C8~~ | ~~Vincular pacote ao editar uma comanda já fechada~~ — resolvido em 27/11 (105: vincular e desvincular, web e app) |
 | ~~C9~~ | ~~Pacote misto exibido como ilimitado~~ — resolvido em 10/11 |
 | ~~C10~~ | ~~Exceção de bandeira copiada da padrão não acompanha mudanças; seletor de maquininha oculto com 1 ativa / pagamento reaberto em maquininha inativa~~ — resolvido em 10/11 |
 | ~~C11~~ | ~~Painel de permissões: rascunho perdido ao trocar de aba sem aviso; dica "Escolha uma pessoa" no app~~ — resolvido em 10/11 |

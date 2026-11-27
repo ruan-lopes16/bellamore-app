@@ -73,6 +73,7 @@ import { gerarTextoRecibo, linkWhatsAppRecibo } from '@shared/comanda-recibo';
 import { novoUuid } from '@shared/uuid';
 import {
   montarPayloadFechamento, montarPayloadEdicao, fecharComandaNoBanco, editarComandaNoBanco,
+  vinculosAlterados, restaurarValoresPeloCatalogo, ROTULO_SESSAO_PACOTE,
   ErroGravacaoComanda, mensagemFalhaGravacao, ehComandaJaFechada, AVISO_COMANDA_JA_FECHADA,
   assinaturaGravacao, chaveDaTentativa, tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_COMANDA_JA_GRAVADA,
   type TentativaSemResposta,
@@ -261,6 +262,8 @@ function NovaComandaScreen() {
   // fechamento, pra sobrescrever um vínculo que já existia no banco vindo da
   // Agenda); ausente da chave = nunca mexido, fechamento não toca na coluna.
   const [pacoteLinks, setPacoteLinks] = useState<Record<string, string | null>>({});
+  // Edição de comanda fechada (105): vínculos como estavam gravados, para mandar só o que mudou.
+  const [pacoteLinksOriginais, setPacoteLinksOriginais] = useState<Record<string, string | null>>({});
 
   const [etapa, setEtapa] = useState<Etapa>('lista');
   const [clienteSel, setClienteSel] = useState<ClienteComanda | null>(null);
@@ -671,12 +674,14 @@ function NovaComandaScreen() {
     // comanda no dia, e misturá-las regravaria valores/pagamentos da outra.
     // Comanda só com extras não tem atendimento nenhum (lista vazia).
     const agsDaComanda = cliente.agendamentos.filter(ag => ag.comanda_id === comandaId);
-    // Vínculo de pacote semeado do banco só para exibição (vincular/desvincular fica fora da edição).
+    // Vínculo de pacote semeado do banco. 105: a edição pode vincular/desvincular; os originais
+    // guardam o gravado para mandar só a diferença (igual ao web).
     const linksExistentes: Record<string, string> = {};
     for (const ag of agsDaComanda) {
       if (ag.pacote_cliente_id) linksExistentes[ag.id] = ag.pacote_cliente_id;
     }
     setPacoteLinks(linksExistentes);
+    setPacoteLinksOriginais(linksExistentes);
 
     const agItems: ComandaItem[] = agsDaComanda.flatMap<ComandaItem>(ag => {
       const linhas = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
@@ -854,7 +859,10 @@ function NovaComandaScreen() {
     // pacote de qualquer forma via trigger. `null` força o update individual
     // que sobrescreve a coluna.
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
-    setItens(prev => restaurarValoresAtendimentos(prev, [agendamentoId]));
+    // Na edição o valor gravado do atendimento coberto é R$ 0,00: volta ao preço de tabela do serviço.
+    setItens(prev => comandaExistenteId
+      ? restaurarValoresPeloCatalogo(prev, [agendamentoId], id => servicos.find(s => s.id === id)?.preco)
+      : restaurarValoresAtendimentos(prev, [agendamentoId]));
   }
 
   /** Restaura o valor de tabela dos atendimentos `ids`: por linha no multi-serviço, total no legado. */
@@ -1016,6 +1024,7 @@ function NovaComandaScreen() {
         comandaId, empresaId, desconto: descontoN,
         itens: itens.map(i => ({ ...i, item_id: i.item_id ?? i.novo_item_id })),
         splits: splitsNumericos, config,
+        pacoteLinks: vinculosAlterados(pacoteLinksOriginais, pacoteLinks),
       }));
     } catch (e) {
       avisarErroFuncao(e, 'salvar a comanda');
@@ -2014,25 +2023,23 @@ function NovaComandaScreen() {
                 {item.tipo === 'agendamento' && item.agendamento_id
                   && itens.findIndex(x => x.agendamento_id === item.agendamento_id) === idxItem && (() => {
                   const agendamentoId = item.agendamento_id!;
-                  const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === pacoteLinks[agendamentoId]);
+                  const idVinculado = pacoteLinks[agendamentoId];
+                  // Na edição o pacote vinculado pode ter saído dos ativos (esgotou com esta sessão):
+                  // o selo continua, com nome genérico, para dar para desvincular (105, igual ao web).
+                  const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === idVinculado)
+                    ?? (emEdicao && idVinculado ? { id: idVinculado, nome: '' } : undefined);
                   if (pacoteVinculado) {
-                    // Em edição o badge é só informativo: editarComanda nunca grava
-                    // pacote_cliente_id (desvincular restauraria o valor e a receita
-                    // sumiria de Dashboard/Financeiro/Relatórios) — igual ao web.
                     // Pacote que não cobre o atendimento inteiro (A7): selo em âmbar com o aviso,
                     // valor normal e fechamento bloqueado até "Desvincular" — igual ao web.
                     const parcial = atendimentosPacoteParcial.includes(agendamentoId);
                     return (
-                      <TouchableOpacity onPress={() => { if (!emEdicao) desvincularPacote(agendamentoId); }}
-                        disabled={emEdicao}
+                      <TouchableOpacity onPress={() => desvincularPacote(agendamentoId)}
                         style={{ marginTop: 8, backgroundColor: parcial ? C.amberSoft : C.greenSoft, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                           <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 12, color: parcial ? C.amberTexto : C.greenTexto, flex: 1 }} numberOfLines={1}>
-                            Sessão de pacote — {pacoteVinculado.nome}
+                            {pacoteVinculado.nome ? `${ROTULO_SESSAO_PACOTE} — ${pacoteVinculado.nome}` : ROTULO_SESSAO_PACOTE}
                           </Text>
-                          {!emEdicao && (
-                            <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text4 }}>Desvincular</Text>
-                          )}
+                          <Text style={{ fontFamily: 'PlusJakartaSans_600SemiBold', fontSize: 11, color: C.text4 }}>Desvincular</Text>
                         </View>
                         {parcial && (
                           <Text style={{ fontFamily: 'PlusJakartaSans_500Medium', fontSize: 11, color: C.amberTexto, marginTop: 4 }}>
@@ -2042,9 +2049,8 @@ function NovaComandaScreen() {
                       </TouchableOpacity>
                     );
                   }
-                  // Vincular pacote fica fora da edição de comanda fechada (zeraria o item sem
-                  // nunca gravar o vínculo — receita perdida), igual ao web.
-                  if (emEdicao) return null;
+                  // Na edição (105) vincular também vale: editar_comanda_v2 grava o vínculo junto com o
+                  // R$ 0,00 (sem a 105 a gravação recusa, nunca zera sem vínculo), igual ao web.
                   // Pacote só vale se cobrir TODOS os serviços do atendimento (A7). Linha do atendimento
                   // sem servico_id = não dá para saber se cobre: não oferece pacote.
                   const servicoIds = servicoIdsDoAtendimento(itens.filter(i => i.agendamento_id === agendamentoId));

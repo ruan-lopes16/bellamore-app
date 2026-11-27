@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ratearDescontoCentavos } from '@shared/comanda-fechamento';
 import {
   montarPayloadFechamento, montarPayloadEdicao, fecharComandaNoBanco, editarComandaNoBanco,
+  vinculosAlterados, MSG_VINCULO_EDICAO_SEM_105,
   ErroGravacaoComanda, type EstadoFechamentoComanda, type EstadoEdicaoComanda, type ItemComandaTela,
   assinaturaGravacao, chaveDaTentativa, tentativaFoiGravada, mensagemFalhaGravacao, ehComandaJaFechada,
   AVISO_COMANDA_JA_FECHADA, AVISO_REPETIR_ALTERADO, type TentativaSemResposta,
@@ -201,10 +202,21 @@ describe('montarPayloadEdicao', () => {
     });
   });
 
-  it('vínculo de pacote e cliente não vão (ignorados na edição)', () => {
+  it('cliente não vai; vínculo de pacote só quando mudou (105)', () => {
     const p = montarPayloadEdicao(ed({ itens: [at('AG1', 0)] }));
     expect(p.atendimentos[0]).not.toHaveProperty('pacote_cliente_id');
     expect(p).not.toHaveProperty('cliente_id');
+    const v = montarPayloadEdicao(ed({ itens: [at('AG1', 0), at('AG2', 80)], pacoteLinks: { AG1: 'PC1', AG2: null } }));
+    expect(v.atendimentos).toEqual([
+      { agendamento_id: 'AG1', valor: 0, pacote_cliente_id: 'PC1' },
+      { agendamento_id: 'AG2', valor: 80, pacote_cliente_id: null },
+    ]);
+  });
+
+  it('vinculosAlterados: só o que mudou (ausente = sem vínculo)', () => {
+    expect(vinculosAlterados({ A: 'P1', B: 'P2' }, { A: 'P1', B: null, C: 'P3' })).toEqual({ B: null, C: 'P3' });
+    expect(vinculosAlterados({ A: 'P1' }, {})).toEqual({});
+    expect(vinculosAlterados({}, { A: null })).toEqual({});
   });
 
   it('item extra sem item_id é recusado (a tela gera o id uma vez e reaproveita na nova tentativa)', () => {
@@ -225,10 +237,23 @@ describe('fecharComandaNoBanco / editarComandaNoBanco', () => {
     expect(chamadas).toHaveLength(0);
   });
 
-  it('chama editar_comanda com { p } (devolve void)', async () => {
+  it('chama editar_comanda_v2 com { p } (105); sem ela, cai na editar_comanda', async () => {
     const { db, rpcs } = fakeDb({ rpc: () => ({ data: null, error: null }) });
     await expect(editarComandaNoBanco(db, payloadEd)).resolves.toEqual({ via: 'funcao' });
-    expect(rpcs).toEqual([{ fn: 'editar_comanda', args: { p: payloadEd } }]);
+    expect(rpcs).toEqual([{ fn: 'editar_comanda_v2', args: { p: payloadEd } }]);
+
+    const sem105 = fakeDb({ rpc: (fn: string) => (fn === 'editar_comanda_v2'
+      ? { data: null, error: { code: 'PGRST202', message: 'not found' } } : { data: null, error: null }) });
+    await expect(editarComandaNoBanco(sem105.db, payloadEd)).resolves.toEqual({ via: 'funcao' });
+    expect(sem105.rpcs.map(r => r.fn)).toEqual(['editar_comanda_v2', 'editar_comanda']);
+  });
+
+  it('mudança de vínculo sem a 105 é recusada (a 093 zeraria o atendimento sem o vínculo)', async () => {
+    const comVinculo = montarPayloadEdicao({ comandaId: 'C', empresaId: 'E', desconto: 0, itens: [at('AG1', 0)], splits: [], config, pacoteLinks: { AG1: 'PC1' } });
+    const { db, rpcs } = fakeDb({ rpc: (fn: string) => (fn === 'editar_comanda_v2'
+      ? { data: null, error: { code: 'PGRST202', message: 'not found' } } : { data: null, error: null }) });
+    await expect(editarComandaNoBanco(db, comVinculo)).rejects.toThrow(MSG_VINCULO_EDICAO_SEM_105);
+    expect(rpcs.map(r => r.fn)).toEqual(['editar_comanda_v2']);
   });
 
   it('sem a 090 (PGRST202) → via antigo, sem tocar tabela nenhuma', async () => {
