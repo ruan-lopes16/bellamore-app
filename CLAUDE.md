@@ -1694,6 +1694,34 @@ Esperado sem fechamento: bruto = serviços + vendas + taxas_canc + taxas_reserva
 
 ---
 
+### Sessão 2026-11-27 — Últimas pendências: aviso de troca de login (B12) e pacote na edição de comanda fechada (C8, 105)
+
+*Escopo, a pedido do dono ("ataque os dois"):*
+- *B12: quando a dona troca o e-mail de login de alguém, a própria pessoa recebe o aviso "Seu e-mail de login foi alterado" no sino (`notificacoes`, tipo `login_trocado`) e por push nos aparelhos dela, pelo cron de 5 min. Esses aparelhos continuam com a sessão aberta, então o aviso chega a quem é dono da conta. Sem domínio próprio não há e-mail. O link do push passa a seguir o tipo do aviso (`rotaDoAviso`), e os avisos de bloqueio também abrem a Agenda pelo app.*
+- *C8, migration 105: `editar_comanda_v2` (corpo da 093 + vínculo de pacote) aceita vincular, desvincular e trocar o pacote de cada atendimento:*
+  - *vincular deixa o atendimento em R$ 0,00, consome a sessão e apaga a comissão pendente;*
+  - *desvincular devolve a sessão e cria a comissão sobre o valor cobrado, datada no fechamento;*
+  - *recusa pacote de outra cliente, pacote ainda a cobrar e atendimento com comissão já paga.*
+- *Por que função nova: a `editar_comanda` antiga ignora o vínculo. Se a tela nova mandasse o vínculo a um banco sem a 105, gravaria o atendimento zerado sem ele. Agora, sem a 105, a tela recusa e explica.*
+- *Web e app: o seletor e o "Desvincular" valem na edição. Ao desvincular, o valor volta ao preço de tabela do serviço (`restaurarValoresPeloCatalogo`). Só os vínculos que mudaram são enviados (`vinculosAlterados`).*
+
+| Critério        | Nota | Observação |
+|-----------------|------|------------|
+| TypeScript      | 10.0 | `tsc` web zerado; vitest 3334/3334 + testes novos; mobile só com o erro pré-existente |
+| UX / Padrões    | 9.0  | Mesmos selos, textos e regras nas duas plataformas (`ROTULO_SESSAO_PACOTE`, mensagens do banco em português) |
+| Segurança       | 9.5  | Funções auxiliares `security definer` conferem `comanda.editar_fechada` e comanda fechada e são seguras chamadas direto pela API; v1 intocada para PWAs antigos |
+| Documentação    | 9.0  | Cabeçalho da 105 com o porquê, as conferências e o rollback; backlog atualizado |
+| Arquitetura     | 9.5  | Sessão e comissão acertadas no banco, na mesma transação da edição; 12 cenários em PGlite sobre a cadeia 090→101 |
+| Visual (UI)     | —    | Não executado: a sessão do navegador expirou e o login é do dono |
+| **Completude**  | 9.0  | Os dois itens restantes do backlog, web e app |
+| **Nota Humana** | —    | *Aguardando avaliação do usuário* |
+
+**Pendências para produção:** rodar `105_vincular_pacote_comanda_fechada.sql` **antes** do merge. Sem a 105, só vincular/desvincular na edição fica recusado, e o resto funciona.
+
+**Registrados, não corrigidos:** na edição, a lista de pacotes também oferece os "a cobrar" (o banco recusa com mensagem clara); depois de vincular, o pagamento antigo fica maior que o total e a devolução é manual (a tela mostra o troco).
+
+---
+
 ## ✅ ESCOPO COMPLETO — Todos os módulos entregues
 
 | Módulo | Status |

@@ -87,6 +87,7 @@ import { formatarMoeda as fmtBRL } from '@shared/moeda';
 import { valorCobradoAtendimento } from '@shared/kpis-financeiros';
 import {
   montarPayloadFechamento, montarPayloadEdicao, fecharComandaNoBanco, editarComandaNoBanco, ErroGravacaoComanda,
+  vinculosAlterados, restaurarValoresPeloCatalogo, ROTULO_SESSAO_PACOTE,
   mensagemFalhaGravacao, ehComandaJaFechada, AVISO_COMANDA_JA_FECHADA, assinaturaGravacao, chaveDaTentativa,
   tentativaFoiGravada, AVISO_REPETIR_ALTERADO, AVISO_COMANDA_JA_GRAVADA, type TentativaSemResposta,
   itensTelaACobrar, mesclarItensACobrar, exigeVenderPacote,
@@ -257,6 +258,8 @@ export default function ComandaPage() {
   // persistidos. `null` = desvinculado explicitamente (precisa limpar a coluna no banco ao
   // fechar), distinto de "chave ausente" (agendamento nunca teve vínculo tocado nesta sessão).
   const [pacoteLinks, setPacoteLinks] = useState<Record<string, string | null>>({});
+  // Edição de comanda fechada (105): vínculos como estavam gravados, para mandar só o que mudou.
+  const [pacoteLinksOriginais, setPacoteLinksOriginais] = useState<Record<string, string | null>>({});
   // Backlog de atendimentos já ocorridos (qualquer dia) sem comanda_id — não
   // depende do dia selecionado, para avisar mesmo de dias que o usuário não
   // está vendo agora.
@@ -721,15 +724,14 @@ export default function ComandaPage() {
     // Só os atendimentos DESTA comanda: a mesma cliente pode ter mais de uma
     // comanda no dia, e misturá-las regravaria valores/pagamentos da outra.
     const agsDaComanda = cliente.agendamentos.filter(ag => ag.comanda_id === comandaId);
-    // Semeia (só pra exibição — vincular pacote fica fora de escopo em
-    // edição de comanda já fechada, ver bloco abaixo) a partir do vínculo
-    // que já está gravado no banco, senão o badge "Sessão de pacote" some
-    // ao reabrir um atendimento que já estava corretamente vinculado.
+    // Semeia a partir do vínculo gravado no banco (senão o selo "Sessão de pacote" some ao reabrir).
+    // 105: a edição pode vincular/desvincular; os originais guardam o gravado para mandar só a diferença.
     const linksExistentes: Record<string, string> = {};
     for (const ag of agsDaComanda) {
       if (ag.pacote_cliente_id) linksExistentes[ag.id] = ag.pacote_cliente_id;
     }
     setPacoteLinks(linksExistentes);
+    setPacoteLinksOriginais(linksExistentes);
 
     const agItems: ComandaItem[] = agsDaComanda.flatMap(ag => {
       const servicos = [...(ag.agendamento_servicos ?? [])].sort((a, b) => a.ordem - b.ordem);
@@ -949,6 +951,7 @@ export default function ComandaPage() {
         comandaId, empresaId, desconto: descontoN,
         itens: itens.map(i => (i.tipo === 'agendamento' ? i : { ...i, item_id: i.item_id ?? i.uid })),
         splits: splitsNumericos, config,
+        pacoteLinks: vinculosAlterados(pacoteLinksOriginais, pacoteLinks),
       }));
       if (r.via === 'funcao') { concluirEdicao(); recarregarDia(); return; }
     } catch (e) {
@@ -1132,7 +1135,10 @@ export default function ComandaPage() {
    */
   function desvincularPacote(agendamentoId: string) {
     setPacoteLinks(prev => ({ ...prev, [agendamentoId]: null }));
-    setItens(prev => restaurarValoresAtendimentos(prev, [agendamentoId]));
+    // Na edição o valor gravado do atendimento coberto é R$ 0,00: volta ao preço de tabela do serviço.
+    setItens(prev => comandaExistenteId
+      ? restaurarValoresPeloCatalogo(prev, [agendamentoId], id => servicos.find(s => s.id === id)?.preco)
+      : restaurarValoresAtendimentos(prev, [agendamentoId]));
   }
 
   /** Volta as linhas dos atendimentos `ids` ao valor de tabela (por linha no multi-serviço, total no legado). */
@@ -2032,28 +2038,25 @@ export default function ComandaPage() {
                         {item.tipo === 'agendamento' && item.agendamento_id &&
                          item === itens.find(i => i.agendamento_id === item.agendamento_id) && (() => {
                           const agendamentoId = item.agendamento_id!;
-                          const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === pacoteLinks[agendamentoId]);
+                          const idVinculado = pacoteLinks[agendamentoId];
+                          // Na edição o pacote vinculado pode ter saído dos ativos (esgotou com esta sessão):
+                          // o selo continua, com nome genérico, para dar para desvincular.
+                          const pacoteVinculado = pacotesClienteAtivos.find(p => p.id === idVinculado)
+                            ?? (comandaExistenteId && idVinculado ? { id: idVinculado, nome: '' } : undefined);
                           if (pacoteVinculado) {
                             const parcial = atendimentosPacoteParcial.includes(agendamentoId);
                             return (
                               <div className={`mt-2 rounded-lg border px-3 py-2 ${parcial ? 'bg-amber-soft border-amber/20' : 'bg-green-soft border-green/20'}`}>
                               <div className="flex items-center justify-between gap-2">
                                 <span className={`text-xs font-semibold truncate ${parcial ? 'text-amber' : 'text-green'}`}>
-                                  Sessão de pacote — {pacoteVinculado.nome}
+                                  {pacoteVinculado.nome ? `${ROTULO_SESSAO_PACOTE} — ${pacoteVinculado.nome}` : ROTULO_SESSAO_PACOTE}
                                 </span>
-                                {/* Desvincular também fica fora de escopo em edição: restaura o
-                                    valor localmente, mas editarComanda() nunca grava
-                                    pacote_cliente_id=null — a coluna fica travada no vínculo
-                                    antigo e some da receita/comissão de Dashboard, Financeiro e
-                                    Relatórios (que excluem tudo com pacote_cliente_id preenchido
-                                    pra não contar a venda do pacote duas vezes). Em edição, o
-                                    badge é só informativo. */}
-                                {!comandaExistenteId && (
-                                  <button onClick={() => desvincularPacote(agendamentoId)}
-                                    className="text-xs font-semibold text-text-4 hover:text-red flex-shrink-0">
-                                    Desvincular
-                                  </button>
-                                )}
+                                {/* Na edição (105) o desvincular vai para editar_comanda_v2: devolve a sessão e
+                                    cria a comissão sobre o valor cobrado. */}
+                                <button onClick={() => desvincularPacote(agendamentoId)}
+                                  className="text-xs font-semibold text-text-4 hover:text-red flex-shrink-0">
+                                  Desvincular
+                                </button>
                               </div>
                               {parcial && (
                                 <p className="text-[11px] text-amber mt-1">{AVISO_PACOTE_PARCIAL}</p>
@@ -2061,13 +2064,8 @@ export default function ComandaPage() {
                               </div>
                             );
                           }
-                          // Vincular pacote existente fica fora de escopo ao editar uma
-                          // comanda já fechada: persistirValoresAgendamento() é chamado sem
-                          // vínculo nenhum nesse fluxo (editarComanda), então zerar o item
-                          // aqui gravaria R$0 sem nunca registrar o vínculo — perda de receita
-                          // silenciosa. O badge acima continua mostrando o vínculo já
-                          // existente; só o seletor de criar um vínculo novo some.
-                          if (comandaExistenteId) return null;
+                          // Na edição (105) vincular também vale: editar_comanda_v2 grava o vínculo junto com
+                          // o R$ 0,00 (sem a 105 a gravação recusa, nunca zera sem vínculo).
                           // Pacote só vale se cobrir TODOS os serviços do atendimento (A7). Linha do
                           // atendimento sem servico_id = não dá para saber se cobre: não oferece pacote.
                           const servicoIds = servicoIdsDoAtendimento(itens.filter(i => i.agendamento_id === agendamentoId));

@@ -85,6 +85,11 @@ export type EstadoEdicaoComanda = {
   /** Splits; o reaberto traz `pagamentoId` e os campos `...Gravado/Gravada`. */
   splits: SplitPagamento[];
   config: ConfigCartoes;
+  /**
+   * 105: só os vínculos de pacote que MUDARAM nesta edição (`vinculosAlterados`): string vincula,
+   * null desvincula. Atendimento fora do mapa mantém o vínculo gravado.
+   */
+  pacoteLinks?: Record<string, string | null>;
 };
 
 export type PayloadLinha = { ag_servico_id: string; valor: number };
@@ -228,9 +233,10 @@ export function montarPayloadFechamento(e: EstadoFechamentoComanda): PayloadFech
 }
 
 /**
- * Payload de `editar_comanda(p)`: o estado COMPLETO depois da edição (o banco compara com o gravado).
- * Vínculo de pacote e cliente não vão (a função ignora). Todo extra precisa de `item_id`: o já
- * gravado, ou um gerado na tela para o novo (reaproveitado na nova tentativa) — sem ele, lança.
+ * Payload de `editar_comanda_v2(p)`: o estado COMPLETO depois da edição (o banco compara com o gravado).
+ * O cliente não vai. O vínculo de pacote vai só nos atendimentos em `pacoteLinks` (105). Todo extra
+ * precisa de `item_id`: o já gravado, ou um gerado na tela para o novo (reaproveitado na nova
+ * tentativa) — sem ele, lança.
  */
 export function montarPayloadEdicao(e: EstadoEdicaoComanda): PayloadEdicao {
   const itens = e.itens.filter(i => i.tipo !== 'agendamento').map(i => {
@@ -241,7 +247,7 @@ export function montarPayloadEdicao(e: EstadoEdicaoComanda): PayloadEdicao {
     comanda_id: e.comandaId,
     empresa_id: e.empresaId,
     desconto: centavos(e.desconto),
-    atendimentos: montarAtendimentos(e.itens, null),
+    atendimentos: montarAtendimentos(e.itens, e.pacoteLinks && Object.keys(e.pacoteLinks).length > 0 ? e.pacoteLinks : null),
     itens,
     pagamentos: montarPagamentosPayload(e.splits, e.config, true),
   };
@@ -365,8 +371,61 @@ export async function fecharComandaNoBanco(db: ClienteDbRpc, payload: PayloadFec
   return { via: 'funcao' };
 }
 
-/** Salva a edição de comanda fechada numa transação (`editar_comanda`, 090). Mesmo tratamento. */
+/**
+ * Vínculos de pacote que mudaram na edição (105): compara o mapa reaberto do banco com o atual.
+ * Ausente no original = sem vínculo. Devolve só os atendimentos com vínculo diferente.
+ */
+export function vinculosAlterados(
+  originais: Record<string, string | null | undefined>,
+  atuais: Record<string, string | null | undefined>,
+): Record<string, string | null> {
+  const r: Record<string, string | null> = {};
+  for (const id of new Set([...Object.keys(originais), ...Object.keys(atuais)])) {
+    const antes = originais[id] ?? null;
+    const depois = id in atuais ? atuais[id] ?? null : antes;
+    if (antes !== depois) r[id] = depois;
+  }
+  return r;
+}
+
+/**
+ * Desvincular na edição (105): o valor gravado do atendimento coberto é R$ 0,00, então o valor volta
+ * ao preço de tabela do serviço de cada linha (`precoDoServico`). Linha sem serviço no catálogo fica
+ * como está (a pessoa digita o valor). Devolve a própria lista quando nada muda.
+ */
+export function restaurarValoresPeloCatalogo<T extends { tipo: string; agendamento_id?: string; servico_id?: string; valor: number }>(
+  itens: T[], ids: string[], precoDoServico: (servicoId: string) => number | undefined,
+): T[] {
+  let mudou = false;
+  const novos = itens.map(i => {
+    if (i.tipo !== 'agendamento' || !i.agendamento_id || !ids.includes(i.agendamento_id) || !i.servico_id) return i;
+    const preco = precoDoServico(i.servico_id);
+    if (preco === undefined || preco === i.valor) return i;
+    mudou = true;
+    return { ...i, valor: preco };
+  });
+  return mudou ? novos : itens;
+}
+
+/** Selo do vínculo reaberto cujo pacote não está mais entre os ativos (ex.: esgotou com esta sessão). */
+export const ROTULO_SESSAO_PACOTE = 'Sessão de pacote';
+
+/** Vincular/desvincular pacote na edição sem a 105 no banco: nada é gravado. */
+export const MSG_VINCULO_EDICAO_SEM_105 =
+  'Para mudar o pacote de uma comanda já fechada, o banco precisa da atualização 105. Desfaça a mudança do pacote para salvar o resto.';
+
+/**
+ * Salva a edição de comanda fechada numa transação: `editar_comanda_v2` (105, com vínculo de pacote),
+ * senão `editar_comanda` (090/093). Mudança de vínculo sem a 105 é recusada (a 093 ignora o vínculo e
+ * gravaria o atendimento zerado sem ele). Sem nenhuma das duas: `{ via: 'antigo' }`.
+ */
 export async function editarComandaNoBanco(db: ClienteDbRpc, payload: PayloadEdicao): Promise<ResultadoGravacaoComanda> {
+  const v2 = await db.rpc('editar_comanda_v2', { p: payload });
+  if (!v2.error) return { via: 'funcao' };
+  if (v2.error.code !== 'PGRST202') throw erroDaFuncao(v2.error, 'editar a comanda', SEM_RESPOSTA_EDITAR);
+  if (payload.atendimentos.some(a => 'pacote_cliente_id' in a)) {
+    throw new ErroGravacaoComanda(MSG_VINCULO_EDICAO_SEM_105, 'PGRST202', false);
+  }
   const { error } = await db.rpc('editar_comanda', { p: payload });
   if (error?.code === 'PGRST202') return { via: 'antigo' };
   if (error) throw erroDaFuncao(error, 'editar a comanda', SEM_RESPOSTA_EDITAR);
