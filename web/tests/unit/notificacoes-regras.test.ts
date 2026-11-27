@@ -184,7 +184,7 @@ describe('contagemSino', () => {
 describe('tipos e rotas dos avisos', () => {
   it('só os tipos vivos', () => {
     expect(Object.keys(TIPOS_NOTIFICACAO).sort()).toEqual(
-      ['agendamento', 'bloqueio_aprovado', 'bloqueio_pendente', 'bloqueio_recusado', 'estoque_baixo', 'resumo'],
+      ['agendamento', 'bloqueio_aprovado', 'bloqueio_pendente', 'bloqueio_recusado', 'estoque_baixo', 'login_trocado', 'resumo'],
     );
     for (const t of Object.values(TIPOS_NOTIFICACAO)) {
       expect(t.rotulo).toBeTruthy();

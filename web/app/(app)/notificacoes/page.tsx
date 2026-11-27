@@ -20,7 +20,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Bell, CalendarDays, DollarSign, Gift, Wallet, Check, CheckCheck, ChevronRight,
-  Package, Ban, X, Receipt, ClipboardList, AlertCircle, RefreshCw,
+  Package, Ban, X, Receipt, ClipboardList, KeyRound, AlertCircle, RefreshCw,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Sk } from '@/components/Skeleton';
@@ -41,7 +41,7 @@ const supabase = createClient();
 
 /** Nome do ícone lucide (shared) → componente. */
 const ICONES: Record<string, React.ElementType> = {
-  CalendarDays, Package, DollarSign, Wallet, Receipt, Gift, ClipboardList, Ban, Check, X,
+  CalendarDays, Package, DollarSign, Wallet, Receipt, Gift, ClipboardList, Ban, Check, X, KeyRound,
 };
 const icone = (nome: string) => ICONES[nome] ?? Bell;
 const cor = (c: CorAviso) => ({ fg: `var(--color-${c})`, bg: `var(--color-${c}-soft)` });

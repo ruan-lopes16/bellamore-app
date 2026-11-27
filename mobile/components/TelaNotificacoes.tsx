@@ -5,7 +5,7 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  ChevronLeft, ChevronRight, Bell, CalendarDays, ClipboardList, Package, Ban, Check, X, DollarSign, Wallet, Receipt, Gift,
+  ChevronLeft, ChevronRight, Bell, CalendarDays, ClipboardList, Package, Ban, Check, X, DollarSign, Wallet, Receipt, Gift, KeyRound,
 } from 'lucide-react-native';
 import {
   useFonts, Fraunces_600SemiBold,
@@ -34,7 +34,7 @@ const corAviso = (C: Paleta): Record<CorAviso, { fg: string; bg: string }> => ({
 
 /** Ícones pelo nome lucide de shared (iguais em lucide-react e lucide-react-native). */
 const ICONES: Record<string, typeof Bell> = {
-  CalendarDays, ClipboardList, Package, Ban, Check, X, DollarSign, Wallet, Receipt, Gift,
+  CalendarDays, ClipboardList, Package, Ban, Check, X, DollarSign, Wallet, Receipt, Gift, KeyRound,
 };
 
 function Icone({ nome, cor }: { nome: string; cor: CorAviso }) {

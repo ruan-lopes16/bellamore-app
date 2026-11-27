@@ -41,7 +41,7 @@ const ehLeitura = (q: Consulta) => !ehDelete(q) && !ehUpdate(q) && !ehUpsert(q);
 
 const AGORA = new Date('2026-11-20T15:00:00.000Z');
 const tok = (n: number | string) => `ExponentPushToken[${n}]`;
-const AVISO = { id: 'n-1', user_id: 'gest', empresa_id: 'emp-1', titulo: 'Bloqueio pendente', mensagem: 'Ana pediu bloqueio' };
+const AVISO = { id: 'n-1', user_id: 'gest', empresa_id: 'emp-1', tipo: 'bloqueio_pendente', titulo: 'Bloqueio pendente', mensagem: 'Ana pediu bloqueio' };
 
 function fetchExpo(ticketDe: (to: string, i: number) => unknown = (_t, i) => ({ status: 'ok', id: `tk-${i}` })) {
   const chamadas: { url: string; corpo: { to: string }[] }[] = [];
@@ -66,11 +66,11 @@ function cenario(o: { avisos?: unknown[]; claim?: Resp; falha?: (q: Consulta) =>
 }
 
 describe('executarCronNotificacoes — push de bloqueio (C14)', () => {
-  it('consulta só os 3 tipos, sem push enviado e das últimas 24 h', async () => {
+  it('consulta os 3 tipos de bloqueio e a troca de login, sem push enviado e das últimas 24 h', async () => {
     const { db, consultas } = cenario();
     await executarCronNotificacoes({ db, agora: AGORA, enviarWeb: vi.fn(async () => ({})), fetchFn: fetchExpo().fn });
     const q = consultas.find(c => c.tabela === 'notificacoes' && ehLeitura(c))!;
-    expect(tem(q, 'in', 'tipo', ['bloqueio_pendente', 'bloqueio_aprovado', 'bloqueio_recusado'])).toBe(true);
+    expect(tem(q, 'in', 'tipo', ['bloqueio_pendente', 'bloqueio_aprovado', 'bloqueio_recusado', 'login_trocado'])).toBe(true);
     expect(tem(q, 'is', 'push_enviado_em', null)).toBe(true);
     expect(tem(q, 'gte', 'created_at', '2026-11-19T15:00:00.000Z')).toBe(true);
   });
@@ -93,6 +93,16 @@ describe('executarCronNotificacoes — push de bloqueio (C14)', () => {
     expect(r.enviados).toBe(2);
     // a marcação aconteceu antes do envio ao app e à web
     expect(consultas.indexOf(up)).toBeLessThan(consultas.findIndex(c => c.tabela === 'push_recibos'));
+  });
+
+  it('troca de login (B12): push abre Notificações, não a Agenda', async () => {
+    const aviso = { ...AVISO, tipo: 'login_trocado', titulo: 'Seu e-mail de login foi alterado', mensagem: 'trocado' };
+    const { db } = cenario({ avisos: [aviso] });
+    const ordem: string[] = [];
+    const { fn, chamadas } = fetchExpo();
+    await executarCronNotificacoes({ db, agora: AGORA, enviarWeb: vi.fn(async (_s: unknown, p: string) => { ordem.push(p); return {}; }), fetchFn: fn });
+    expect(JSON.parse(ordem[0]).url).toBe('/notificacoes');
+    expect((chamadas[0].corpo[0] as unknown as { data: { tipo: string } }).data.tipo).toBe('login_trocado');
   });
 
   it('aparelhos e inscrições só da empresa do aviso', async () => {

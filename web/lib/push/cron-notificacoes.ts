@@ -15,8 +15,11 @@
  */
 import { enviarPushExpo, enviarWebPush, carregarDispositivosExpo, inscricoesPorUsuario, lerRecibosExpo, semMigration102,
   type ClienteDbCron, type EnviarWeb, type InscricaoWeb } from './expo';
+import { rotaDoAviso } from '@shared/notificacoes';
 
 export const TIPOS_PUSH_BLOQUEIO = ['bloqueio_pendente', 'bloqueio_aprovado', 'bloqueio_recusado'] as const;
+/** Avisos que viram push pelo cron: os de bloqueio e a troca de login (B12, sem e-mail sem domínio próprio). */
+export const TIPOS_PUSH_AVISO = [...TIPOS_PUSH_BLOQUEIO, 'login_trocado'] as const;
 /** Avisos mais velhos que isto nunca recebem push (já perderam o sentido). */
 export const HORAS_PUSH_BLOQUEIO = 24;
 const LIMITE_POR_PASSADA = 200;
@@ -29,7 +32,7 @@ export type DepsCronNotificacoes = {
   expoAccessToken?: string;
 };
 
-type Aviso = { id: string; user_id: string; empresa_id: string | null; titulo: string; mensagem: string | null };
+type Aviso = { id: string; user_id: string; empresa_id: string | null; tipo?: string | null; titulo: string; mensagem: string | null };
 
 /**
  * Envia o push dos avisos de bloqueio pendentes e lê os recibos da Expo. Nunca lança.
@@ -43,8 +46,8 @@ export async function executarCronNotificacoes(deps: DepsCronNotificacoes): Prom
   try {
     const desde = new Date(agora.getTime() - HORAS_PUSH_BLOQUEIO * 3_600_000).toISOString();
     const { data, error } = await db.from('notificacoes')
-      .select('id, user_id, empresa_id, titulo, mensagem')
-      .in('tipo', [...TIPOS_PUSH_BLOQUEIO])
+      .select('id, user_id, empresa_id, tipo, titulo, mensagem')
+      .in('tipo', [...TIPOS_PUSH_AVISO])
       .is('push_enviado_em', null)
       .gte('created_at', desde)
       .order('created_at', { ascending: true })
@@ -95,10 +98,10 @@ async function enviarAviso(
 
     const corpo = aviso.mensagem ?? '';
     const inscricoes = inscricoesPorUsuario(subs as InscricaoWeb[] | null).get(aviso.user_id) ?? [];
-    let n = await enviarWebPush(db, inscricoes, JSON.stringify({ title: aviso.titulo, body: corpo, url: '/agenda' }), deps.enviarWeb);
+    let n = await enviarWebPush(db, inscricoes, JSON.stringify({ title: aviso.titulo, body: corpo, url: rotaDoAviso(aviso.tipo, 'web') }), deps.enviarWeb);
     n += await enviarPushExpo(
       db, disp,
-      [{ userId: aviso.user_id, titulo: aviso.titulo, corpo, dados: { tipo: 'bloqueio', url: '/agenda' } }],
+      [{ userId: aviso.user_id, titulo: aviso.titulo, corpo, dados: { tipo: aviso.tipo ?? 'bloqueio', url: rotaDoAviso(aviso.tipo, 'web') } }],
       opcoesExpo,
     );
     return n;
