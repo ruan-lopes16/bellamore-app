@@ -234,41 +234,6 @@ export interface Cliente {
   created_at: string;
 }
 
-// ── Pacotes e controle de sessões ─────────────────────────────
-
-export interface PacoteServico {
-  pacote_id: string;
-  servico_id: string;
-  /** null = sessões ilimitadas para este serviço */
-  quantidade: number | null;
-  servico?: Pick<Servico, 'nome'>;
-}
-
-export interface PacoteCliente {
-  id: string;
-  empresa_id: string;
-  pacote_id: string;
-  cliente_id: string;
-  data_inicio: string;
-  data_validade: string | null;
-  valor_pago?: number;
-  status: 'ativo' | 'concluido' | 'expirado' | 'cancelado';
-  observacao?: string;
-  created_at: string;
-  pacote?: Pacote;
-  cliente?: Cliente;
-}
-
-export interface PacoteUso {
-  id: string;
-  empresa_id: string;
-  pacote_cliente_id: string;
-  servico_id?: string;
-  agendamento_id?: string;
-  observacao?: string;
-  created_at: string;
-}
-
 // ── Vendas avulsas ────────────────────────────────────────────
 
 export interface Venda {
@@ -308,16 +273,6 @@ export interface EstoqueMovimento {
   produto?: Pick<Produto, 'nome' | 'unidade'>;
 }
 
-// ── Receitas de insumos por serviço ───────────────────────────
-
-export interface ServicoProduto {
-  servico_id: string;
-  produto_id: string;
-  quantidade: number;
-  servico?: Pick<Servico, 'nome'>;
-  produto?: Pick<Produto, 'nome' | 'unidade'>;
-}
-
 // ── Retiradas e empréstimos da dona ──────────────────────────
 
 export type {
@@ -327,11 +282,3 @@ export type {
   MetodoPagamentoRetirada,
 } from '@shared/retiradas-socia';
 
-// ── Helpers de form ───────────────────────────────────────────
-
-/** Opção para SearchSelect */
-export interface SelectOption {
-  value: string;
-  label: string;
-  sub?: string;
-}

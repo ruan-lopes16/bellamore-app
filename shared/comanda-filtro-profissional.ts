@@ -5,9 +5,6 @@
  */
 import type { ClienteDb } from './kpis-financeiros-consultas';
 
-/** Valor do filtro que mostra todas as profissionais. */
-export const FILTRO_PROFISSIONAL_TODAS = '';
-
 type ComProfissional = { profissional?: { id: string; nome: string } | null };
 
 /**

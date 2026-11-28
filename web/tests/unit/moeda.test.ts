@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { formatarMoeda } from '@shared/moeda';
-import { formatBRL } from '@shared/dominio';
 
 describe('formatarMoeda', () => {
   it.each([
@@ -22,9 +21,5 @@ describe('formatarMoeda', () => {
   it('não finito vira R$ 0,00', () => {
     expect(formatarMoeda(NaN)).toBe('R$ 0,00');
     expect(formatarMoeda(Infinity)).toBe('R$ 0,00');
-  });
-
-  it('formatBRL de shared/dominio delega', () => {
-    expect(formatBRL(9503.77)).toBe('R$ 9.503,77');
   });
 });
